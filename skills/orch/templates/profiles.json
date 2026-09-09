@@ -1,0 +1,47 @@
+{
+  "settings": {
+    "default_profile": "claude-sub",
+    "retention_days": 7,
+    "budget_threshold": 85
+  },
+  "profiles": {
+    "claude-sub": {
+      "harness": "claude",
+      "model": "opus",
+      "flags": ["--permission-mode", "acceptEdits"],
+      "env": {},
+      "auth": []
+    },
+    "claude-hub": {
+      "harness": "claude",
+      "model": "sonnet",
+      "flags": ["--dangerously-skip-permissions"],
+      "env": {
+        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
+        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "cursor-default": {
+      "harness": "cursor-agent",
+      "model": "",
+      "flags": [],
+      "env": {},
+      "auth": ["CURSOR_API_KEY"]
+    },
+    "opencode-default": {
+      "harness": "opencode",
+      "model": "",
+      "flags": [],
+      "env": {},
+      "auth": []
+    },
+    "local-qwen": {
+      "harness": "local-llm",
+      "model": "qwen",
+      "flags": [],
+      "env": { "LLM_HUB_URL": "${LLM_HUB_URL}" },
+      "auth": ["LLM_HUB_URL"]
+    }
+  }
+}

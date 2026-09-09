@@ -1,0 +1,87 @@
+# orch-skill — Repo Notes
+
+A single-skill Claude Code plugin. The skill itself lives at `skills/orch/`; everything at the
+repo root is packaging (install + optional service + docs).
+
+## Layout
+
+```
+.claude-plugin/marketplace.json   plugin manifest — marketplace `orch-skill`, plugin `orch`
+install.sh / uninstall.sh         register/unregister this folder with Claude Code
+scripts/service.sh                optional always-on dashboard service (launchd / systemd --user)
+skills/orch/
+  SKILL.md                        the agent-facing instructions — the actual product
+  scripts/dispatch.sh             the CLI; every state mutation goes through it
+  scripts/lib/{config,adapters,runs,serve}.sh   sourced by dispatch.sh, never executed
+  scripts/dispatch.test.sh        the test suite
+  scripts/typecheck.sh            bun bundle + tsc, dependency-free
+  server/                         Bun HTTP server for the dashboard
+  dashboard/                      the browser client (no framework, no build step)
+  shared/types/                   types shared by server and dashboard — must stay Bun-free
+  references/                     adapter contract + state/config schemas
+  templates/profiles.json         seed for ~/.harness-orch/profiles.json
+```
+
+Adding a skill would mean appending it to `plugins[0].skills` in
+`.claude-plugin/marketplace.json` — a skill on disk that is missing from the manifest is not
+loaded.
+
+## Invariants
+
+**`dispatch.sh` owns every mutation.** The dashboard reads `~/.harness-orch` live and assumes the
+files are only ever written through a subcommand. Never hand-edit `runs/<id>/state.json`,
+`jobs/<id>/*`, `profiles.json` or `memory.json` from a script or a test, and never add a code
+path that writes them directly — add or extend a subcommand instead. Callers (including SKILL.md)
+must not re-implement what the script already does.
+
+**Sourcing is side-effect free.** `dispatch.sh` defines functions when sourced and only runs
+`main` when executed directly (`BASH_SOURCE[0] == $0`). Backgrounded `start` jobs depend on this:
+they re-source the same file by its resolved real path in a fresh `bash -c`. Anything added at
+file scope that *does* something breaks them.
+
+**Nothing is deleted with `rm`.** `prune`, `service.sh uninstall` and `uninstall.sh` all go
+through `trash` when available and otherwise move the target under `<state-dir>/.trash/<stamp>/`.
+The `serve/pid` marker is *truncated*, never removed.
+
+**No dependencies.** No `package.json`, no `node_modules`. The server and dashboard run from
+source under Bun; `typecheck.sh` borrows `bun-types` and `@types/node` out of Bun's global
+install cache into a gitignored `.types/` symlink farm. Do not introduce a package manager.
+
+**Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
+interpolation happens at spawn time. `profile show` prints `env` as written. Keep it that way.
+
+**Two backgrounding modes, on purpose.** `run` executes an adapter synchronously (for callers
+that are already backgrounded, e.g. a harness's own background-Bash + Monitor); `start`
+self-backgrounds via `nohup` and prints a job id (for callers that are not). Don't collapse them.
+
+## Tests
+
+```bash
+bash skills/orch/scripts/dispatch.test.sh
+bash skills/orch/scripts/typecheck.sh
+```
+
+The suite runs against a temporary `HARNESS_ORCH_HOME`, so it never touches your real state.
+`typecheck.sh` exits 0 with a `SKIP:` line when `bun` or `tsc` is absent — a skip is not a pass,
+so read the output rather than only the exit code.
+
+## The optional service
+
+`scripts/service.sh` generates a supervisor unit that runs `dispatch.sh serve` — the same
+foreground server `dispatch.sh ui` starts on demand. Points worth remembering when changing it:
+
+- It resolves `bun` to an **absolute path** at install time; launchd and systemd start with a
+  minimal `PATH`, so a bare `bun` would fail with a confusing log.
+- Host/port/state-dir are baked into the generated unit, and `adopt_installed_settings` reads
+  them back so `status`/`logs`/`restart`/`uninstall` describe the installed service.
+- It binds `127.0.0.1` by default, unlike `ui` (which binds `0.0.0.0` for LAN access).
+- `dispatch.sh ui` will stop and restart a running server when it detects newer sources — with
+  the service installed, use `service.sh restart` instead so the supervisor stays in charge.
+
+## Cross-harness note
+
+The skill is written to be readable by agents other than Claude Code (opencode, pi, and similar
+load `SKILL.md` directly). It therefore probes for *capabilities* — "does this session have a
+background-capable Bash and a Monitor tool?" — rather than branching on a harness name, and it
+never depends on Claude-Code-only machinery such as `${CLAUDE_PLUGIN_ROOT}` or frontmatter hooks.
+Keep new instructions harness-neutral and state the fallback explicitly.

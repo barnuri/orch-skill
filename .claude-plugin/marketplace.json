@@ -1,0 +1,21 @@
+{
+  "name": "orch-skill",
+  "owner": {
+    "name": "barnuri"
+  },
+  "metadata": {
+    "description": "orch — route agent work across Claude Code, cursor-agent, opencode and local OpenAI-compatible models, run multi-node DAGs in the background, and watch them on a live dashboard",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "orch",
+      "description": "Orchestrate work across agent harnesses: pick a profile per task by complexity, budget and remembered outcomes; run DAGs of tasks in the background; watch them on a live Bun-served dashboard",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/orch"
+      ]
+    }
+  ]
+}

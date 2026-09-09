@@ -1,0 +1,211 @@
+:root {
+  --bg: #0e1116; --surface: #151a22; --surface-2: #1b212b; --border: #262d38; --border-strong: #354055;
+  --text: #e6e8ec; --text-muted: #8b94a3; --text-faint: #5d6675;
+  --accent: #7aa2f7; --accent-soft: rgba(122,162,247,.16);
+  --done: #3fb950; --error: #f0563f; --waiting: #6b7280; --skipped: #4b5563; --warn: #d9a441;
+  --focus: #b3c7ff;
+  --radius: 6px; --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+[data-theme="light"] {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #d9dee7; --border-strong: #b9c2d0;
+  --text: #1b2230; --text-muted: #5b657a; --text-faint: #8a93a3;
+  --accent: #3b5bdb; --accent-soft: rgba(59,91,219,.12);
+  --done: #1f8a3b; --error: #c63f2c; --waiting: #9aa3b2; --skipped: #b6bdc9; --warn: #b47d13;
+  --focus: #1f3fb0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text); font: 13px/1.5 var(--font);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--text-muted); }
+
+header {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px; background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+.brand a:hover { color: var(--accent); }
+.crumb { color: var(--text-muted); }
+.spacer { flex: 1; }
+.fresh { display: inline-flex; align-items: center; gap: 7px; color: var(--text-muted); }
+.fresh .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); }
+.fresh.stale .dot { background: var(--warn); }
+.fresh.dead .dot { background: var(--error); }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border-radius: var(--radius); border: 1px solid var(--border); color: var(--text-muted);
+  transition: border-color .15s, color .15s;
+}
+.icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.icon-btn svg { width: 16px; height: 16px; }
+[data-theme="dark"] .only-light, [data-theme="light"] .only-dark { display: none; }
+
+/* Section nav: the current section carries an accent underline, everything else stays muted. */
+.nav { display: flex; gap: 14px; }
+.nav a { color: var(--text-muted); padding: 6px 2px; transition: color .15s; }
+.nav a:hover { color: var(--text); }
+.nav a[aria-current] { color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+
+main { padding: 20px; max-width: 1400px; }
+h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px; }
+.sub { color: var(--text-muted); margin-bottom: 18px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap;
+}
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); }
+.chip.running { color: var(--accent); border-color: var(--accent); }
+.chip.running::before { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.chip.done::before { background: var(--done); }
+.chip.error { color: var(--error); border-color: var(--error); }
+.chip.error::before { background: var(--error); }
+.chip.skipped::before { background: var(--skipped); }
+/* Memory outcomes + the default-profile marker reuse the chip shape with the semantic colours. */
+.chip.success::before { background: var(--done); }
+.chip.failure { color: var(--error); border-color: var(--error); }
+.chip.failure::before { background: var(--error); }
+.chip.partial::before { background: var(--warn); }
+.chip.default { color: var(--accent); border-color: var(--accent); }
+.chip.default::before { background: var(--accent); }
+
+/* Run list: rows, not cards. The stacked bar is each run's one glance-able summary. */
+.runs { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.run-row {
+  display: grid; grid-template-columns: minmax(200px, 1.6fr) 110px minmax(160px, 1fr) 150px 170px;
+  gap: 16px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border);
+  background: var(--surface); transition: background .15s;
+}
+.run-row:first-child { border-top: 0; }
+.run-row:hover { background: var(--surface-2); }
+.run-row .title { font-weight: 550; }
+.run-row .id { color: var(--text-faint); }
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.bar span { display: block; height: 100%; }
+.bar .done { background: var(--done); } .bar .running { background: var(--accent); }
+.bar .error { background: var(--error); } .bar .waiting { background: var(--waiting); opacity: .55; }
+.bar .skipped { background: var(--skipped); }
+.counts { color: var(--text-muted); font-size: 12px; }
+.counts b { color: var(--text); font-weight: 550; }
+.empty { padding: 40px 20px; text-align: left; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius); }
+.empty code { font-family: var(--mono); color: var(--text); }
+
+/* Document rows (profiles, memory entries): same surface/border/hover as run rows, own columns.
+   Rendered as <button> so a click opens the editor; the selected row picks up the accent wash. */
+.doc-row {
+  display: grid; grid-template-columns: minmax(160px, 1.4fr) 120px minmax(120px, 1fr) 80px 80px 80px;
+  gap: 16px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border);
+  background: var(--surface); transition: background .15s; width: 100%; text-align: left;
+}
+.doc-row:first-child { border-top: 0; }
+.doc-row:hover { background: var(--surface-2); }
+.doc-row.selected { background: var(--accent-soft); }
+.doc-row .title { font-weight: 550; display: flex; align-items: center; gap: 8px; }
+
+/* Run view */
+.run-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.run-head h1 { margin: 0; }
+.meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted); margin-bottom: 16px; }
+.meta b { color: var(--text); font-weight: 500; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.graph {
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: auto;
+  min-height: 240px;
+}
+.graph svg { display: block; }
+.node { cursor: pointer; }
+.node rect { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1; rx: 6; transition: stroke .15s; }
+.node:hover rect, .node:focus-visible rect { stroke: var(--text-muted); }
+.node.selected rect { stroke: var(--accent); stroke-width: 1.5; }
+.node text { fill: var(--text); font: 500 12.5px var(--font); }
+.node .st { fill: var(--text-muted); font: 11px var(--mono); }
+.node .mark { rx: 2; }
+.node.waiting .mark { fill: var(--waiting); }
+.node.running .mark { fill: var(--accent); animation: pulse 1.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+.node.done .mark { fill: var(--done); }
+.node.error .mark { fill: var(--error); }
+.node.error rect { stroke: var(--error); }
+.node.skipped .mark { fill: var(--skipped); }
+.node.skipped text { fill: var(--text-faint); text-decoration: line-through; }
+.edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.edge.done { stroke: var(--done); opacity: .7; }
+.cycle { fill: var(--warn); font: 11px var(--font); }
+
+.panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; position: sticky; top: 64px; }
+.panel h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.panel dl { display: grid; grid-template-columns: 84px 1fr; gap: 6px 12px; margin: 0; }
+.panel dt { color: var(--text-muted); }
+.panel dd { margin: 0; overflow-wrap: anywhere; }
+.panel .err { color: var(--error); }
+.panel pre {
+  margin: 12px 0 0; padding: 10px; border-radius: var(--radius); background: var(--bg); border: 1px solid var(--border);
+  font: 11.5px/1.45 var(--mono); max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.panel .hint { color: var(--text-muted); }
+.notice { padding: 10px 14px; border: 1px solid var(--error); color: var(--error); border-radius: var(--radius); margin-bottom: 14px; }
+.notice.info { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.notice.warn { border-color: var(--warn); color: var(--warn); }
+.notice .btn { margin-left: 10px; }
+
+/* Editor forms (profiles, settings, memory). Controls inherit the body font and sit on --bg so
+   they read as wells inside the --surface panel. */
+.form { display: grid; gap: 10px; }
+.field label { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 4px; }
+input, select, textarea {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 8px; width: 100%;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); }
+textarea { min-height: 64px; font-family: var(--mono); resize: vertical; }
+.field-error { color: var(--error); font-size: 12px; margin-top: 4px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius);
+  border: 1px solid var(--border-strong); color: var(--text); background: var(--surface-2);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.btn:hover { border-color: var(--text-muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn.primary:hover { border-color: var(--focus); }
+.btn.danger { background: transparent; border-color: var(--error); color: var(--error); }
+.btn.danger:hover { background: var(--error); color: var(--bg); }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn[disabled]:hover { border-color: var(--border-strong); background: var(--surface-2); color: var(--text); }
+.btn.danger[disabled]:hover { background: transparent; border-color: var(--error); color: var(--error); }
+
+.token-gate { max-width: 420px; }
+
+/* Transient feedback: bottom-right toast, removed by the caller after TOAST_MS. */
+.toast {
+  position: fixed; right: 20px; bottom: 20px; z-index: 3; padding: 8px 12px;
+  border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius);
+}
+.toast.error { border-color: var(--error); color: var(--error); }
+
+/* Destructive-action confirm: replaces window.confirm, which the frontend guidelines forbid. */
+dialog.confirm {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: 16px; max-width: 420px;
+}
+dialog.confirm::backdrop { background: rgba(0,0,0,.5); }
+dialog.confirm h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+dialog.confirm p { margin: 0 0 14px; color: var(--text-muted); }
+dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .chip.running::before, .node.running .mark { animation: none; } }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .panel { position: static; }
+  .run-row { grid-template-columns: 1fr 100px; }
+  .run-row .bar, .run-row .counts, .run-row .when { display: none; }
+  .doc-row { grid-template-columns: 1fr 120px; }
+  .doc-row > :nth-child(n+3) { display: none; }
+}

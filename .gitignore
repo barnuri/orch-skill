@@ -1,0 +1,16 @@
+# Typecheck symlink farm — populated from bun's global install cache, never committed.
+.types/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+
+# Dependencies and build output
+node_modules/
+dist/
+
+# Browser-automation artifacts
+.playwright-mcp/
+
+# Agent session scratch
+**/agent-spec
