@@ -32,6 +32,11 @@ describe("parseServeArgs", () => {
     expect(parseServeArgs([...requiredArgs(), "--require-token"]).requireToken).toBe(true);
   });
 
+  test("requireRemoteToken defaults to true and --allow-remote clears it", () => {
+    expect(parseServeArgs(requiredArgs()).requireRemoteToken).toBe(true);
+    expect(parseServeArgs([...requiredArgs(), "--allow-remote"]).requireRemoteToken).toBe(false);
+  });
+
   // The flag takes no value, so it must not swallow the argument that follows it.
   test("--require-token does not consume the next argument", () => {
     const args = parseServeArgs([...requiredArgs(), "--require-token", "--port", "7000"]);
@@ -120,6 +125,21 @@ describe("urlsFor with the loopback bypass (the default)", () => {
   test("a non-loopback bind host keeps the token", () => {
     expect(urlsFor("192.168.1.20", 8080, TOKEN, false)).toEqual([
       `http://192.168.1.20:8080/?token=${TOKEN}`,
+    ]);
+  });
+});
+
+describe("urlsFor with --allow-remote", () => {
+  test("0.0.0.0 yields tokenless loopback and hostname URLs", () => {
+    const urls = urlsFor("0.0.0.0", 6724, TOKEN, false, false);
+    expect(urls[0]).toBe("http://127.0.0.1:6724/");
+    expect(urls).toContain(`http://${hostname()}:6724/`);
+    expect(urls.length).toBe(2);
+  });
+
+  test("a non-loopback bind host omits the token", () => {
+    expect(urlsFor("192.168.1.20", 8080, TOKEN, false, false)).toEqual([
+      "http://192.168.1.20:8080/",
     ]);
   });
 });

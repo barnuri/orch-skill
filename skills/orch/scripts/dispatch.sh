@@ -77,9 +77,12 @@ $UI_USAGE
        in the background on 0.0.0.0:6724, restarts it if the skill changed, then opens
        http://127.0.0.1:<port>/?token=… (ORCH_NO_OPEN=1 prints only; --stop stops it).
 $SERVE_USAGE
-    -> runs the dashboard server in the foreground over plain HTTP (Bun): GET / is public, everything
-       under /api/* needs the bearer token from <home>/serve.token (0600; trash it to rotate).
-       Use --host 127.0.0.1 on shared networks.
+    -> runs the dashboard server in the foreground over plain HTTP (Bun). Bind address, port and
+       auth policy are read from <home>/serve.json (see serve config). CLI --host/--port override
+       for one shot. /api/* needs the bearer token from <home>/serve.token unless serve.json
+       opts out (0600; trash it to rotate).
+$SERVE_CONFIG_USAGE
+    -> show, get or persist the dashboard bind/auth settings in <home>/serve.json.
 $PRUNE_USAGE
     -> recoverably removes finished runs (+ their jobs, data js) and orphan finished jobs older than
        the cutoff (default settings.retention_days). Uses trash, else moves under .trash/<stamp>/.
@@ -418,7 +421,13 @@ main() {
     list) cmd_list ;;
     init) cmd_init ;;
     prune) shift; cmd_prune "$@" ;;
-    serve) shift; cmd_serve "$@" ;;
+    serve)
+      shift
+      case "${1:-}" in
+        config) shift; cmd_serve_config "$@" ;;
+        *) cmd_serve "$@" ;;
+      esac
+      ;;
     ui) shift; cmd_ui "$@" ;;
     profile) shift; cmd_profile "$@" ;;
     memory) shift; cmd_memory "$@" ;;

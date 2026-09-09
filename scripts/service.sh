@@ -3,19 +3,16 @@
 # whenever you want it without starting anything by hand. Entirely opt-in — `orch ui` works fine
 # without it, starting the same server on demand.
 #
-#   service.sh install [--host H] [--port P] [--home DIR] [--require-token]
+#   service.sh install [--host H] [--port P] [--home DIR] [--require-token] [--allow-remote]
 #                                                           register + start (macOS launchd / Linux systemd --user)
 #   service.sh uninstall                                    stop + deregister
 #   service.sh restart                                      stop + start (run this after changing the skill)
 #   service.sh status                                       supervisor state, listener probe, dashboard URL
 #   service.sh logs [-n N]                                  tail the service log
 #
-# The service runs `dispatch.sh serve`, which is the same foreground server `orch ui` starts.
-# It binds 127.0.0.1 by default — a permanently-listening service is a bigger exposure than an
-# on-demand one, so LAN access (`--host 0.0.0.0`) is opt-in.
-#
-# Requests from this machine need no token. `--require-token` demands the bearer token from
-# loopback too, which is what a shared multi-user host wants.
+# The service runs `dispatch.sh serve`, which reads bind address, port and auth policy from
+# <home>/serve.json — the same file `orch serve`, `orch ui` and `orch serve config` use.
+# Install flags update that file; edit it directly and `service.sh restart` to apply.
 
 set -u
 
@@ -25,7 +22,7 @@ DISPATCH="$SKILL_DIR/scripts/dispatch.sh"
 
 SERVICE_LABEL=io.github.barnuri.orch
 SYSTEMD_UNIT_NAME=orch-dashboard.service
-DEFAULT_HOST=127.0.0.1
+DEFAULT_HOST=0.0.0.0
 DEFAULT_PORT=6724
 THROTTLE_SECS=10
 
@@ -33,6 +30,8 @@ ORCH_HOME="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
 SERVICE_HOST="$DEFAULT_HOST"
 SERVICE_PORT="$DEFAULT_PORT"
 REQUIRE_TOKEN=0
+ALLOW_REMOTE=0
+CONFIG_SET_ARGS=()
 
 usage() {
   sed -n '2,15p' "$0" | sed 's|^# \{0,1\}||'
@@ -42,7 +41,6 @@ usage() {
 # shared helpers
 # ---------------------------------------------------------------------------
 
-# platform: prints `launchd` or `systemd`, or explains why neither applies.
 platform() {
   case "$(uname -s)" in
     Darwin) printf 'launchd\n' ;;
@@ -69,12 +67,14 @@ is_uint() {
 }
 
 parse_install_opts() {
+  CONFIG_SET_ARGS=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --host)
         shift
         SERVICE_HOST="${1:-}"
         [ -n "$SERVICE_HOST" ] || { printf 'service: --host expects a host\n' >&2; return 2; }
+        CONFIG_SET_ARGS+=(--host "$SERVICE_HOST")
         ;;
       --port)
         shift
@@ -83,21 +83,27 @@ parse_install_opts() {
           printf 'service: --port expects 0-65535\n' >&2
           return 2
         fi
+        CONFIG_SET_ARGS+=(--port "$SERVICE_PORT")
         ;;
       --home)
         shift
         ORCH_HOME="${1:-}"
         [ -n "$ORCH_HOME" ] || { printf 'service: --home expects a directory\n' >&2; return 2; }
         ;;
-      --require-token) REQUIRE_TOKEN=1 ;;
+      --require-token)
+        REQUIRE_TOKEN=1
+        CONFIG_SET_ARGS+=(--require-token)
+        ;;
+      --allow-remote)
+        ALLOW_REMOTE=1
+        CONFIG_SET_ARGS+=(--allow-remote)
+        ;;
       *) printf 'service: unknown argument %s\n\n' "$1" >&2; usage >&2; return 2 ;;
     esac
     shift
   done
 }
 
-# bun_path: absolute path to the bun binary. A supervisor starts with a minimal PATH, so the
-# generated unit must name the interpreter outright rather than hope `bun` resolves.
 bun_path() {
   local resolved
   if [ -n "${ORCH_BUN:-}" ]; then
@@ -120,14 +126,34 @@ preflight() {
 
 log_file() { printf '%s/serve/service.log\n' "$ORCH_HOME"; }
 
-# Baked into the unit's environment. Empty means "loopback needs no token", which is what
-# serve.sh tests for; `1` makes the server demand the bearer token from every peer.
-require_token_value() {
-  [ "$REQUIRE_TOKEN" -eq 1 ] && printf '1\n' || printf '\n'
+dispatch_config_get() {
+  env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" serve config get "$1" 2>/dev/null
 }
 
-# The server exempts loopback from auth, so the local URL needs no token unless the service was
-# installed with --require-token.
+persist_serve_config() {
+  if [ "${#CONFIG_SET_ARGS[@]}" -eq 0 ]; then
+    env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null || return 1
+    return 0
+  fi
+  env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" serve config set "${CONFIG_SET_ARGS[@]}" >/dev/null \
+    || return 1
+}
+
+load_serve_config() {
+  local host port rt ar
+  env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null 2>&1 || true
+  host=$(dispatch_config_get host)
+  port=$(dispatch_config_get port)
+  rt=$(dispatch_config_get require_token)
+  ar=$(dispatch_config_get allow_remote)
+  [ -n "$host" ] || host="$DEFAULT_HOST"
+  [ -n "$port" ] || port="$DEFAULT_PORT"
+  SERVICE_HOST="$host"
+  SERVICE_PORT="$port"
+  case "$rt" in true|1) REQUIRE_TOKEN=1 ;; *) REQUIRE_TOKEN=0 ;; esac
+  case "$ar" in true|1) ALLOW_REMOTE=1 ;; *) ALLOW_REMOTE=0 ;; esac
+}
+
 dashboard_url() {
   local token
   if [ "$REQUIRE_TOKEN" -eq 0 ]; then
@@ -142,7 +168,6 @@ dashboard_url() {
   printf 'http://127.0.0.1:%s/?token=%s\n' "$SERVICE_PORT" "$token"
 }
 
-# listening: 0 when something answers the health endpoint. Absent curl is "unknown", not "down".
 listening() {
   local code
   command -v curl >/dev/null 2>&1 || return 2
@@ -153,7 +178,6 @@ listening() {
   return 1
 }
 
-# remove_file <path>: recoverable delete via `trash`, else a timestamped move. Never `rm`.
 remove_file() {
   local target="$1" graveyard
   [ -e "$target" ] || return 0
@@ -164,23 +188,6 @@ remove_file() {
   graveyard="$ORCH_HOME/.trash/$(date '+%Y%m%d-%H%M%S')"
   mkdir -p "$graveyard" || return 1
   mv "$target" "$graveyard/"
-}
-
-# Reads back the host/port a previous install baked into the unit, so `status`, `logs` and
-# `uninstall` describe the running service instead of the defaults.
-adopt_installed_settings() {
-  local unit host port
-  unit=$(unit_path)
-  [ -f "$unit" ] || return 0
-  host=$(grep -o -- '--host[^a-zA-Z0-9]*[0-9A-Za-z.:]*' "$unit" 2>/dev/null | tail -n 1 | grep -oE '[0-9A-Za-z.:]+$')
-  port=$(grep -o -- '--port[^0-9]*[0-9]*' "$unit" 2>/dev/null | tail -n 1 | grep -oE '[0-9]+$')
-  [ -z "$host" ] || SERVICE_HOST="$host"
-  [ -z "$port" ] || SERVICE_PORT="$port"
-  # `Environment=ORCH_REQUIRE_TOKEN=1` (systemd) or the key's following <string>1</string> (plist).
-  if grep -A1 'ORCH_REQUIRE_TOKEN' "$unit" 2>/dev/null | grep -qE '=1$|<string>1</string>'; then
-    REQUIRE_TOKEN=1
-  fi
-  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -207,10 +214,6 @@ launchd_write_plist() {
         <string>/bin/bash</string>
         <string>$DISPATCH</string>
         <string>serve</string>
-        <string>--host</string>
-        <string>$SERVICE_HOST</string>
-        <string>--port</string>
-        <string>$SERVICE_PORT</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -220,8 +223,6 @@ launchd_write_plist() {
         <string>$ORCH_HOME</string>
         <key>ORCH_BUN</key>
         <string>$bun</string>
-        <key>ORCH_REQUIRE_TOKEN</key>
-        <string>$(require_token_value)</string>
     </dict>
     <key>WorkingDirectory</key>
     <string>$SKILL_DIR</string>
@@ -241,7 +242,6 @@ PLIST
   printf '%s\n' "$plist"
 }
 
-# bootstrap/bootout are the modern verbs; load/unload is the fallback for older macOS.
 launchd_load() {
   local plist="$1"
   launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null && return 0
@@ -275,7 +275,6 @@ launchd_uninstall() {
   fi
 }
 
-# `launchctl print` repeats `state =` inside nested sections, so keep only the first hit per key.
 launchd_supervisor_state() {
   local dump
   dump=$(launchctl print "gui/$(id -u)/$SERVICE_LABEL" 2>/dev/null) || {
@@ -308,10 +307,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash $DISPATCH serve --host $SERVICE_HOST --port $SERVICE_PORT
+ExecStart=/bin/bash $DISPATCH serve
 Environment=HARNESS_ORCH_HOME=$ORCH_HOME
 Environment=ORCH_BUN=$bun
-Environment=ORCH_REQUIRE_TOKEN=$(require_token_value)
 Environment=PATH=$(dirname "$bun"):/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$SKILL_DIR
 Restart=always
@@ -366,25 +364,40 @@ unit_path() {
   esac
 }
 
+auth_summary() {
+  if [ "$REQUIRE_TOKEN" -eq 1 ] && [ "$ALLOW_REMOTE" -eq 0 ]; then
+    printf '  auth:    bearer token required from every peer, loopback included\n'
+  elif [ "$REQUIRE_TOKEN" -eq 1 ]; then
+    printf '  auth:    bearer token required from this machine; none from other peers\n'
+  elif [ "$ALLOW_REMOTE" -eq 1 ]; then
+    printf '  auth:    none from any peer\n'
+  else
+    printf '  auth:    none from this machine; the bearer token from any other peer\n'
+  fi
+}
+
 cmd_install() {
   local backend
   parse_install_opts "$@" || return $?
   backend=$(platform) || return 1
   preflight || return $?
+  persist_serve_config || return 1
+  load_serve_config
 
   case "$backend" in
     launchd) launchd_install || return 1 ;;
     systemd) systemd_install || return 1 ;;
   esac
 
+  printf '  config:  %s/serve.json\n' "$ORCH_HOME"
   printf '  serving: %s:%s\n  state:   %s\n  log:     %s\n' \
     "$SERVICE_HOST" "$SERVICE_PORT" "$ORCH_HOME" "$(log_file)"
-  if [ "$REQUIRE_TOKEN" -eq 1 ]; then
-    printf '  auth:    bearer token required from every peer, loopback included\n'
-  else
-    printf '  auth:    none from this machine; the bearer token from any other peer\n'
+  auth_summary
+  if [ "$SERVICE_HOST" = 0.0.0.0 ] && [ "$ALLOW_REMOTE" -eq 0 ]; then
+    printf '  note: bound to 0.0.0.0 — reachable from your LAN with the token\n'
+  elif [ "$SERVICE_HOST" = 0.0.0.0 ]; then
+    printf '  note: bound to 0.0.0.0 — reachable from your LAN without a token\n'
   fi
-  [ "$SERVICE_HOST" != 0.0.0.0 ] || printf '  note: bound to 0.0.0.0 — reachable from your LAN with the token\n'
   printf '\nDashboard: %s\n' "$(dashboard_url)"
   printf 'Check it with: bash %s status\n' "$0"
 }
@@ -392,7 +405,6 @@ cmd_install() {
 cmd_uninstall() {
   local backend
   backend=$(platform) || return 1
-  adopt_installed_settings
   case "$backend" in
     launchd) launchd_uninstall ;;
     systemd) systemd_uninstall ;;
@@ -402,7 +414,7 @@ cmd_uninstall() {
 cmd_restart() {
   local backend
   backend=$(platform) || return 1
-  adopt_installed_settings
+  load_serve_config
   [ -f "$(unit_path)" ] || { printf 'service: nothing installed — run `%s install` first\n' "$0" >&2; return 1; }
   case "$backend" in
     launchd)
@@ -411,14 +423,15 @@ cmd_restart() {
       ;;
     systemd) systemctl --user restart "$SYSTEMD_UNIT_NAME" || return 1 ;;
   esac
-  printf 'service: restarted\n'
+  printf 'service: restarted (config: %s/serve.json)\n' "$ORCH_HOME"
 }
 
 cmd_status() {
   local backend
   backend=$(platform) || return 1
-  adopt_installed_settings
+  load_serve_config
 
+  printf 'config: %s/serve.json\n' "$ORCH_HOME"
   printf 'unit: %s\n' "$(unit_path)"
   if [ ! -f "$(unit_path)" ]; then
     printf 'service: not installed — run `bash %s install`\n' "$0"
@@ -438,6 +451,7 @@ cmd_status() {
     2) printf 'unknown (curl not installed)\n' ;;
     *) printf 'no answer — see %s\n' "$(log_file)" ;;
   esac
+  auth_summary
   printf 'dashboard: %s\n' "$(dashboard_url)"
 }
 

@@ -56,6 +56,7 @@ ensure_home() {
     || { printf 'orch: cannot create %s\n' "$ORCH_HOME" >&2; return 1; }
   [ -f "$PROFILES_FILE" ] || cp "$TEMPLATES_DIR/profiles.json" "$PROFILES_FILE" || return 1
   [ -f "$MEMORY_FILE" ] || printf '[]\n' > "$MEMORY_FILE"
+  [ -f "$ORCH_HOME/serve.json" ] || cp "$TEMPLATES_DIR/serve.json" "$ORCH_HOME/serve.json" 2>/dev/null || true
 }
 
 cmd_init() {

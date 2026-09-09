@@ -4,6 +4,7 @@ Everything lives under `${HARNESS_ORCH_HOME:-~/.harness-orch}`:
 
 ```
 profiles.json          settings + named profiles (from templates/profiles.json on first use)
+serve.json             dashboard bind address, port and auth policy (from templates/serve.json on first use)
 memory.json            learnings log — [] on first use
 runs/<run-id>/state.json
 jobs/<job-id>/{adapter,profile,pid,log,exit_code}
@@ -79,9 +80,26 @@ Flat array, appended by `memory add`, listed newest-first by `memory list`:
   and every incoming edge's source is `done`.
 - Run ids: `YYYYMMDD-HHMMSS-<4 hex>` or `--id` matching `^[A-Za-z0-9._-]+$`.
 
+## serve.json
+
+```json
+{ "host": "0.0.0.0", "port": 6724, "require_token": false, "allow_remote": false }
+```
+
+| Field | Meaning |
+|---|---|
+| `host` | bind address for `orch serve`, `orch ui` and the optional background service |
+| `port` | TCP port (default 6724) |
+| `require_token` | when `true`, loopback peers must present the bearer token too |
+| `allow_remote` | when `true`, non-loopback peers need no bearer token |
+
+`orch serve config show|get|set` reads and writes this file. `service.sh install` updates it;
+`service.sh restart` (or `orch serve --stop` then `orch serve`) picks up edits. CLI
+`--host`/`--port` on `orch serve` override for one shot only.
+
 ## Serve API
 
-The dashboard is a Bun server (`orch serve` / `orch ui`, default `0.0.0.0:6724`) reading the
+The dashboard is a Bun server (`orch serve` / `orch ui`, configured via `serve.json`) reading the
 files above directly — there is no generated data to keep in sync. Everything under `/api/`
 requires `Authorization: Bearer <serve.token>`; the `?token=` in the URL only unlocks the page,
 which then sends the header. A `Host` header naming neither the bind address, the machine's
@@ -125,6 +143,7 @@ dispatch.sh run finish <run-id> [--status done|error]
 dispatch.sh run list
 
 dispatch.sh serve [--host H] [--port P] | serve --stop
+dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
 dispatch.sh ui [--stop]
 dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 ```

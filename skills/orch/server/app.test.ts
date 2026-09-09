@@ -123,6 +123,23 @@ describe("loopback bypass", () => {
   });
 });
 
+describe("--allow-remote", () => {
+  let open: TestServerHandle;
+
+  beforeAll(() => {
+    open = startTestServer({ requireToken: false, requireRemoteToken: false });
+  });
+
+  afterAll(() => {
+    open.stop();
+  });
+
+  test("/api/health needs no token when remote auth is disabled", async () => {
+    const res = await open.api("/api/health", {}, false);
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("auth", () => {
   for (const path of API_PATHS) {
     test(`${path} without a token is 401`, async () => {

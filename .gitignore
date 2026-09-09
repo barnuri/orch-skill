@@ -15,6 +15,7 @@ dist/
 # Agent session scratch
 **/agent-spec
 
-# Convenience symlink to the live state directory (~/.harness-orch): profiles.json, memory.json,
-# runs/, jobs/. Per-machine and absolute, so it is created by hand and never committed.
+# Convenience symlink to the live state directory (~/.harness-orch): profiles.json, serve.json,
+# memory.json, runs/, jobs/. Per-machine and absolute — created by install.sh, never committed.
+# .vscode/settings.json sets explorer.excludeGitIgnore so ./config still shows in the editor.
 /config

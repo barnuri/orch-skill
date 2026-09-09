@@ -84,7 +84,9 @@ link_config() {
     printf 'install: could not link %s/config -> %s\n' "$REPO_DIR" "$state_dir" >&2
     return 1
   }
-  printf 'linked ./config -> %s\n' "$state_dir"
+  env HARNESS_ORCH_HOME="$state_dir" bash "$REPO_DIR/skills/orch/scripts/dispatch.sh" init >/dev/null \
+    || { printf 'install: could not bootstrap %s\n' "$state_dir" >&2; return 1; }
+  printf 'linked ./config -> %s (profiles.json, serve.json, …)\n' "$state_dir"
 }
 
 install_service() {

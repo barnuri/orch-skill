@@ -321,6 +321,7 @@ out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" init 2>&1); rc=$?
 expect_exit "init exits 0" 0 "$rc"
 expect_match "init prints the config home" "$home" "$out"
 expect_file "init copies profiles.json" "$home/profiles.json"
+expect_file "init copies serve.json" "$home/serve.json"
 expect_file "init creates memory.json" "$home/memory.json"
 # The file:// dashboard is gone: the server renders from state.json directly.
 expect_missing "init installs no index.html" "$home/index.html"
@@ -608,7 +609,6 @@ fake_orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims
 # Same shims, but with the opt-back-in to token auth on loopback.
 fake_orch_token() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims/bun" \
   ORCH_NO_OPEN=1 ORCH_REQUIRE_TOKEN=1 bash "$SCRIPT" "$@"; }
-
 orch init >/dev/null 2>&1
 printf 'testtoken' > "$home/serve.token"
 chmod 600 "$home/serve.token"
@@ -671,6 +671,26 @@ expect_match "ui with ORCH_REQUIRE_TOKEN prints the tokenized URL" \
   '^http://127\.0\.0\.1:12345/\?token=testtoken$' "$out"
 expect_match "argv carries --require-token" '^--require-token$' "$(cat "$home/serve/argv")"
 fake_orch ui --stop >/dev/null 2>&1
+
+# serve.json allow_remote drops the remote token requirement; the flag reaches the server.
+orch serve config set --allow-remote >/dev/null
+fake_orch ui >/dev/null 2>&1
+expect_match "argv carries --allow-remote from serve.json" '^--allow-remote$' "$(cat "$home/serve/argv")"
+fake_orch ui --stop >/dev/null 2>&1
+orch serve config set --no-allow-remote >/dev/null
+
+out=$(orch serve config show 2>&1); rc=$?
+expect_exit "serve config show exits 0" 0 "$rc"
+expect_match "serve config show includes host" '"host"' "$out"
+out=$(orch serve config get port 2>&1); rc=$?
+expect_exit "serve config get port exits 0" 0 "$rc"
+expect_match "serve config get port is 6724" '^6724$' "$out"
+out=$(orch serve config set --host 127.0.0.1 --port 8080 2>&1); rc=$?
+expect_exit "serve config set exits 0" 0 "$rc"
+expect_match "serve config set writes host" '"host": "127.0.0.1"' "$out"
+out=$(orch serve config get host 2>&1)
+expect_match "serve config get host reflects set" '^127\.0\.0\.1$' "$out"
+orch serve config set --host 0.0.0.0 --port 6724 >/dev/null
 fake_orch ui >/dev/null 2>&1
 first_pid=$(cat "$home/serve/pid")
 

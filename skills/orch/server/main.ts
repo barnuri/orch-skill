@@ -29,18 +29,40 @@ function bindCodeOf(err: unknown): string | null {
 
 // Plain HTTP is a deliberate trade-off, so the risk is restated on every boot rather than
 // buried in a doc. stderr, not stdout: bash `ui` tails the log but only echoes its own URL.
-function banner(home: string, host: string, port: number, requireToken: boolean): string {
-  const reach = requireToken
-    ? "every request needs the bearer token"
-    : "requests from this machine need no token; anyone else on the network needs it";
+function banner(
+  home: string,
+  host: string,
+  port: number,
+  requireToken: boolean,
+  requireRemoteToken: boolean,
+): string {
+  const reach = reachSummary(requireToken, requireRemoteToken);
+  const hints: string[] = [];
+  if (!requireToken) {
+    hints.push("Pass --require-token to demand it locally too.");
+  }
+  if (requireRemoteToken) {
+    hints.push("Pass --allow-remote to drop the token requirement for other peers.");
+  }
   return [
     `serve: plain HTTP on ${host}:${port} — ${reach}.`,
     `Token: ${home}/serve.token (0600); trash it and restart to rotate.`,
-    requireToken ? "" : "Pass --require-token to demand it locally too.",
+    ...hints,
     "Ctrl-C to stop.",
-  ]
-    .filter((part) => part !== "")
-    .join(" ");
+  ].join(" ");
+}
+
+function reachSummary(requireToken: boolean, requireRemoteToken: boolean): string {
+  if (!requireToken && !requireRemoteToken) {
+    return "every request is unauthenticated";
+  }
+  if (!requireToken && requireRemoteToken) {
+    return "requests from this machine need no token; anyone else on the network needs it";
+  }
+  if (requireToken && !requireRemoteToken) {
+    return "requests from this machine need the bearer token; anyone else on the network needs none";
+  }
+  return "every request needs the bearer token";
 }
 
 function onShutdown(server: Server<undefined>, home: string): void {
@@ -87,6 +109,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       port: args.port,
       tokenDigest: digestToken(token),
       requireToken: args.requireToken,
+      requireRemoteToken: args.requireRemoteToken,
       harnesses: args.harnesses,
       outcomes: args.outcomes,
     });
@@ -105,10 +128,12 @@ export async function main(argv: readonly string[]): Promise<number> {
   writeServeMarkers(args.home, { host: args.host, port, pid: process.pid });
 
   // The only place the token is printed.
-  for (const url of urlsFor(args.host, port, token, args.requireToken)) {
+  for (const url of urlsFor(args.host, port, token, args.requireToken, args.requireRemoteToken)) {
     process.stdout.write(`${url}\n`);
   }
-  process.stderr.write(`${banner(args.home, args.host, port, args.requireToken)}\n`);
+  process.stderr.write(
+    `${banner(args.home, args.host, port, args.requireToken, args.requireRemoteToken)}\n`,
+  );
 
   onShutdown(server, args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.

@@ -4,6 +4,9 @@
 # starts one with nohup when nothing answers, and restarts it when the skill sources are newer
 # than the running server (Bun bundles the dashboard once at startup and caches it in-process).
 #
+# Bind address, port and auth policy live in <ORCH_HOME>/serve.json — service and ad-hoc `serve`/`ui`
+# both read the same file. CLI --host/--port override for one shot; `serve config set` persists.
+#
 # The server owns the markers under <ORCH_HOME>/serve/ (host, port, then pid) — this file only
 # reads them, and truncates `pid` instead of deleting it (never `rm`).
 
@@ -13,6 +16,8 @@ SERVE_PORT_FILE="$SERVE_HOME/port"
 SERVE_HOST_FILE="$SERVE_HOME/host"
 SERVE_LOG_FILE="$SERVE_HOME/log"
 SERVE_TOKEN_FILE="$ORCH_HOME/serve.token"
+SERVE_CONFIG_FILE="$ORCH_HOME/serve.json"
+SERVE_CONFIG_TEMPLATE="$TEMPLATES_DIR/serve.json"
 SERVE_ENTRY="$SCRIPT_DIR/../server/main.ts"
 SERVE_SOURCE_DIRS="$SCRIPT_DIR/../server $SCRIPT_DIR/../dashboard $SCRIPT_DIR/../shared"
 SERVE_DEFAULT_HOST=0.0.0.0
@@ -22,7 +27,70 @@ SERVE_START_WAIT_TICKS=50
 SERVE_STOP_WAIT_TICKS=50
 
 SERVE_USAGE='dispatch.sh serve [--host H] [--port P] | serve --stop'
+SERVE_CONFIG_USAGE='dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]'
 UI_USAGE='dispatch.sh ui [--stop]'
+
+# Copies templates/serve.json on first use; never overwrites an existing file.
+ensure_serve_config() {
+  ensure_home || return 1
+  [ -f "$SERVE_CONFIG_FILE" ] && return 0
+  [ -f "$SERVE_CONFIG_TEMPLATE" ] || {
+    printf 'serve: template %s missing\n' "$SERVE_CONFIG_TEMPLATE" >&2
+    return 1
+  }
+  cp "$SERVE_CONFIG_TEMPLATE" "$SERVE_CONFIG_FILE" || return 1
+}
+
+# serve_config_get <key> <default> — scalar value as text; booleans print true/false.
+serve_config_get() {
+  local key="$1" default="$2"
+  if [ ! -f "$SERVE_CONFIG_FILE" ]; then
+    printf '%s\n' "$default"
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$default"
+    return 0
+  fi
+  jq -r --arg k "$key" --arg d "$default" '.[$k] // $d' "$SERVE_CONFIG_FILE" 2>/dev/null \
+    || printf '%s\n' "$default"
+}
+
+serve_config_bool() {
+  case "$(serve_config_get "$1" false)" in
+    true|1) return 0 ;;
+  esac
+  return 1
+}
+
+serve_config_load_bind() {
+  ensure_serve_config || return $?
+  SERVE_HOST=$(serve_config_get host "$SERVE_DEFAULT_HOST")
+  SERVE_PORT=$(serve_config_get port "$SERVE_DEFAULT_PORT")
+}
+
+# ORCH_REQUIRE_TOKEN / ORCH_ALLOW_REMOTE override serve.json (used by tests).
+serve_config_require_token() {
+  [ -n "${ORCH_REQUIRE_TOKEN:-}" ] && return 0
+  serve_config_bool require_token
+}
+
+serve_config_allow_remote() {
+  [ -n "${ORCH_ALLOW_REMOTE:-}" ] && return 0
+  serve_config_bool allow_remote
+}
+
+# Prints zero or more auth flags for the bun argv line (must not use `set` — callers own $@).
+serve_auth_argv() {
+  local out=""
+  if serve_config_require_token; then
+    out="--require-token"
+  fi
+  if serve_config_allow_remote; then
+    out="${out:+$out }--allow-remote"
+  fi
+  printf '%s' "$out"
+}
 
 # Prints the bun binary to use, or explains its absence and returns 127.
 serve_bun() {
@@ -40,8 +108,7 @@ parse_serve_opts() {
   local caller="$1" usage="$SERVE_USAGE" flag
   shift
   [ "$caller" != ui ] || usage="$UI_USAGE"
-  SERVE_HOST="$SERVE_DEFAULT_HOST"
-  SERVE_PORT="$SERVE_DEFAULT_PORT"
+  serve_config_load_bind || return $?
   SERVE_STOP=0
 
   while [ $# -gt 0 ]; do
@@ -71,10 +138,101 @@ parse_serve_opts() {
   done
 }
 
+parse_serve_config_set_opts() {
+  CONFIG_SET_HOST=""
+  CONFIG_SET_PORT=""
+  CONFIG_SET_REQUIRE_TOKEN=""
+  CONFIG_SET_ALLOW_REMOTE=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --host)
+        shift
+        CONFIG_SET_HOST="${1:-}"
+        [ -n "$CONFIG_SET_HOST" ] || { printf 'serve config set: --host expects a host\n' >&2; return 2; }
+        ;;
+      --port)
+        shift
+        CONFIG_SET_PORT="${1:-}"
+        if ! is_uint "$CONFIG_SET_PORT" || [ "$CONFIG_SET_PORT" -gt "$SERVE_MAX_PORT" ]; then
+          printf 'serve config set: --port expects 0-%s\n' "$SERVE_MAX_PORT" >&2
+          return 2
+        fi
+        ;;
+      --require-token) CONFIG_SET_REQUIRE_TOKEN=1 ;;
+      --no-require-token) CONFIG_SET_REQUIRE_TOKEN=0 ;;
+      --allow-remote) CONFIG_SET_ALLOW_REMOTE=1 ;;
+      --no-allow-remote) CONFIG_SET_ALLOW_REMOTE=0 ;;
+      *) printf 'serve config set: unknown argument %s\n  usage: %s\n' "$1" "$SERVE_CONFIG_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  return 0
+}
+
+serve_config_write() {
+  local host="$1" port="$2" require_token="$3" allow_remote="$4" tmp
+  require_jq "serve config set" || return 127
+  tmp="${SERVE_CONFIG_FILE}.tmp.$$"
+  jq -n \
+    --arg host "$host" \
+    --argjson port "$port" \
+    --argjson require_token "$require_token" \
+    --argjson allow_remote "$allow_remote" \
+    '{host: $host, port: $port, require_token: $require_token, allow_remote: $allow_remote}' \
+    >"$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$SERVE_CONFIG_FILE"
+}
+
+serve_config_merge() {
+  local host port rt ar rt_json ar_json
+  ensure_serve_config || return $?
+  host=$(serve_config_get host "$SERVE_DEFAULT_HOST")
+  port=$(serve_config_get port "$SERVE_DEFAULT_PORT")
+  rt=$(serve_config_get require_token false)
+  ar=$(serve_config_get allow_remote false)
+  [ -n "${CONFIG_SET_HOST:-}" ] && host="$CONFIG_SET_HOST"
+  [ -n "${CONFIG_SET_PORT:-}" ] && port="$CONFIG_SET_PORT"
+  [ -n "${CONFIG_SET_REQUIRE_TOKEN:-}" ] && {
+    [ "$CONFIG_SET_REQUIRE_TOKEN" -eq 1 ] && rt=true || rt=false
+  }
+  [ -n "${CONFIG_SET_ALLOW_REMOTE:-}" ] && {
+    [ "$CONFIG_SET_ALLOW_REMOTE" -eq 1 ] && ar=true || ar=false
+  }
+  case "$rt" in true|1) rt_json=true ;; *) rt_json=false ;; esac
+  case "$ar" in true|1) ar_json=true ;; *) ar_json=false ;; esac
+  serve_config_write "$host" "$port" "$rt_json" "$ar_json"
+}
+
+cmd_serve_config() {
+  local verb="${1:-}"
+  shift || true
+  case "$verb" in
+    show)
+      ensure_serve_config || return $?
+      cat "$SERVE_CONFIG_FILE"
+      ;;
+    get)
+      local key="${1:-}"
+      [ -n "$key" ] || { printf 'usage: %s\n' "$SERVE_CONFIG_USAGE" >&2; return 2; }
+      ensure_serve_config || return $?
+      serve_config_get "$key" ""
+      ;;
+    set)
+      parse_serve_config_set_opts "$@" || return $?
+      serve_config_merge || return $?
+      cat "$SERVE_CONFIG_FILE"
+      ;;
+    *)
+      printf 'usage: %s\n' "$SERVE_CONFIG_USAGE" >&2
+      return 2
+      ;;
+  esac
+}
+
 # serve/ is 0700 and its log 0600 because the log holds the tokenized URL bun prints at startup.
 serve_prepare_home() {
-  ensure_home || return 1
-  (umask 077 && mkdir -p "$SERVE_HOME" && : >> "$SERVE_LOG_FILE") && return 0
+  ensure_serve_config || return $?
+  (umask 077 && mkdir -p "$SERVE_HOME" && : >>"$SERVE_LOG_FILE") && return 0
   printf 'serve: cannot prepare %s\n' "$SERVE_HOME" >&2
   return 1
 }
@@ -109,7 +267,7 @@ serve_running() {
   pid=$(serve_pid)
   port=$(serve_port)
   if ! serve_pid_alive "$pid"; then
-    [ -z "$pid" ] || : > "$SERVE_PID_FILE"
+    [ -z "$pid" ] || : >"$SERVE_PID_FILE"
     return 1
   fi
   [ -n "$port" ] || return 1
@@ -128,16 +286,15 @@ serve_sources_changed() {
   [ -n "$(find $SERVE_SOURCE_DIRS -type f -newer "$SERVE_PID_FILE" 2>/dev/null | head -n 1)" ]
 }
 
-# Starts the server detached on the default address and waits for it to publish its markers and
-# answer a probe. The `set --` is inline (bash scopes positional parameters per function) and
-# keeps the argv array-free, so a home path with spaces still reaches bun as one argument.
+# Starts the server detached using serve.json and waits for it to publish its markers.
 serve_start_background() {
   local bun_bin bg tick=0
   bun_bin=$(serve_bun) || return $?
-  serve_prepare_home || return 1
-  set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_DEFAULT_HOST" --port "$SERVE_DEFAULT_PORT" \
-    --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES"
-  [ -z "${ORCH_REQUIRE_TOKEN:-}" ] || set -- "$@" --require-token
+  serve_prepare_home || return $?
+  serve_config_load_bind || return $?
+  # shellcheck disable=SC2046
+  set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_HOST" --port "$SERVE_PORT" \
+    --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES" $(serve_auth_argv)
 
   nohup "$bun_bin" "$@" >>"$SERVE_LOG_FILE" 2>&1 </dev/null &
   bg=$!
@@ -157,14 +314,14 @@ serve_start_background() {
   return 1
 }
 
-# The URL `ui` opens and prints. It always targets 127.0.0.1, which the server exempts from auth,
-# so the token is appended only when ORCH_REQUIRE_TOKEN made the server demand it locally too.
+# The URL `ui` opens and prints. It always targets 127.0.0.1, which the server exempts from auth
+# unless serve.json sets require_token (or ORCH_REQUIRE_TOKEN overrides in tests).
 serve_url() {
-  if [ -z "${ORCH_REQUIRE_TOKEN:-}" ]; then
-    printf 'http://127.0.0.1:%s/\n' "$(serve_port)"
+  if serve_config_require_token; then
+    printf 'http://127.0.0.1:%s/?token=%s\n' "$(serve_port)" "$(cat "$SERVE_TOKEN_FILE" 2>/dev/null)"
     return 0
   fi
-  printf 'http://127.0.0.1:%s/?token=%s\n' "$(serve_port)" "$(cat "$SERVE_TOKEN_FILE" 2>/dev/null)"
+  printf 'http://127.0.0.1:%s/\n' "$(serve_port)"
 }
 
 # SIGTERM, then SIGKILL after SERVE_STOP_WAIT_TICKS×0.1s. The pid marker is truncated the same way
@@ -192,7 +349,7 @@ serve_stop() {
 }
 
 serve_clear_pid() {
-  [ ! -f "$SERVE_PID_FILE" ] || : > "$SERVE_PID_FILE"
+  [ ! -f "$SERVE_PID_FILE" ] || : >"$SERVE_PID_FILE"
 }
 
 # serve [--host H] [--port P] | serve --stop — runs bun in the foreground (Ctrl-C hits bun, which
@@ -214,18 +371,21 @@ cmd_serve() {
   [ "$rc" -ne 3 ] || return 1
 
   serve_prepare_home || return 1
+  # shellcheck disable=SC2046
   set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_HOST" --port "$SERVE_PORT" \
-    --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES"
-  [ -z "${ORCH_REQUIRE_TOKEN:-}" ] || set -- "$@" --require-token
+    --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES" $(serve_auth_argv)
   exec "$bun_bin" "$@"
 }
 
 # ui [--stop] — reuse, restart or start the shared server, then open the tokenized URL.
 # ORCH_NO_OPEN=1 prints the URL only (tests, CI, remote shells).
 cmd_ui() {
-  local rc url
+  local rc url expected_host expected_port
   parse_serve_opts ui "$@" || return $?
   [ "$SERVE_STOP" -eq 0 ] || { serve_stop; return $?; }
+
+  expected_host="$SERVE_HOST"
+  expected_port="$SERVE_PORT"
 
   serve_running
   rc=$?
@@ -237,9 +397,7 @@ cmd_ui() {
   fi
 
   if [ "$rc" -eq 0 ]; then
-    # Only worth a line when someone started the server by hand elsewhere — the URL below always
-    # points at 127.0.0.1, whatever the server is bound to.
-    if [ "$(serve_host)" != "$SERVE_DEFAULT_HOST" ] || [ "$(serve_port)" != "$SERVE_DEFAULT_PORT" ]; then
+    if [ "$(serve_host)" != "$expected_host" ] || [ "$(serve_port)" != "$expected_port" ]; then
       printf 'ui: reusing the server running on %s:%s\n' "$(serve_host)" "$(serve_port)" >&2
     fi
   else

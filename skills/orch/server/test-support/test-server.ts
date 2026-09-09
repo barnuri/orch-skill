@@ -32,6 +32,7 @@ export function startTestServer(overrides: Partial<ServerOptions> = {}): TestSer
     port: 0,
     tokenDigest: digestToken(TEST_TOKEN),
     requireToken: true,
+    requireRemoteToken: true,
     harnesses: TEST_HARNESSES,
     outcomes: TEST_OUTCOMES,
     ...overrides,

@@ -7,7 +7,7 @@ export const DEFAULT_HOST: string = "0.0.0.0";
 export const DEFAULT_PORT: number = 6724;
 export const MAX_PORT: number = 65535;
 export const SERVE_USAGE: string =
-  'bun server/main.ts --home DIR [--host H] [--port P] [--require-token] --harnesses "a b" --outcomes "x y"';
+  'bun server/main.ts --home DIR [--host H] [--port P] [--require-token] [--allow-remote] --harnesses "a b" --outcomes "x y"';
 
 const LOOPBACK_HOST: string = "127.0.0.1";
 const LOCALHOST: string = "localhost";
@@ -23,6 +23,7 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
   let host: string = DEFAULT_HOST;
   let port: number = DEFAULT_PORT;
   let requireToken: boolean = false;
+  let requireRemoteToken: boolean = true;
   let harnesses: readonly string[] | null = null;
   let outcomes: readonly string[] | null = null;
 
@@ -30,6 +31,10 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
     const flag = argv[index] ?? "";
     if (flag === "--require-token") {
       requireToken = true;
+      continue;
+    }
+    if (flag === "--allow-remote") {
+      requireRemoteToken = false;
       continue;
     }
     const value = valueFor(flag, argv[index + 1]);
@@ -67,7 +72,7 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
   if (outcomes === null) {
     throw usageError("serve: --outcomes is required");
   }
-  return { home, host, port, requireToken, harnesses, outcomes };
+  return { home, host, port, requireToken, requireRemoteToken, harnesses, outcomes };
 }
 
 /**
@@ -84,14 +89,17 @@ export function urlsFor(
   port: number,
   token: string,
   requireToken: boolean,
+  requireRemoteToken: boolean = true,
 ): string[] {
   if (host !== DEFAULT_HOST) {
-    return [urlOf(host, port, token, requireToken || !isLoopbackHost(host))];
+    const withToken =
+      requireToken || (!isLoopbackHost(host) && requireRemoteToken);
+    return [urlOf(host, port, token, withToken)];
   }
   const urls: string[] = [urlOf(LOOPBACK_HOST, port, token, requireToken)];
   const machine = hostname();
   if (machine !== "" && machine !== LOOPBACK_HOST) {
-    urls.push(urlOf(machine, port, token, true));
+    urls.push(urlOf(machine, port, token, requireRemoteToken));
   }
   return urls;
 }

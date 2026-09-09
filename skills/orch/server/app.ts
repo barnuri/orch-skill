@@ -32,6 +32,7 @@ function contextOf(options: ServerOptions): ServerContext {
     hostname: hostname(),
     tokenDigest: options.tokenDigest,
     requireToken: options.requireToken,
+    requireRemoteToken: options.requireRemoteToken,
     harnesses: options.harnesses,
     outcomes: options.outcomes,
   };

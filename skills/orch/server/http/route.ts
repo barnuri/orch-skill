@@ -37,13 +37,17 @@ export function apiRoute(
 }
 
 /**
- * A request from this machine needs no token: whoever made it could already read the token file,
- * so asking for it back adds friction without adding a barrier. Every other peer — the LAN case
- * binding `0.0.0.0` exists for — still presents the bearer token. `--require-token` demands it
- * from loopback too, which is what a shared multi-user host wants.
+ * A request from this machine needs no token unless `--require-token` is set: whoever made it
+ * could already read the token file, so asking for it back adds friction without adding a barrier.
+ * Every other peer still presents the bearer token unless `--allow-remote` is set. That opt-in
+ * is what a LAN-bound dashboard uses when the token is more hassle than protection.
  */
 function authorized(ctx: ServerContext, req: Request, server: Server<undefined>): boolean {
-  if (!ctx.requireToken && isLoopbackPeer(server, req)) {
+  const loopback = isLoopbackPeer(server, req);
+  if (loopback && !ctx.requireToken) {
+    return true;
+  }
+  if (!loopback && !ctx.requireRemoteToken) {
     return true;
   }
   return isAuthorized(req, ctx.tokenDigest);
