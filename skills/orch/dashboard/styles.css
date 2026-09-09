@@ -1,17 +1,17 @@
 :root {
   --bg: #0e1116; --surface: #151a22; --surface-2: #1b212b; --border: #262d38; --border-strong: #354055;
-  --text: #e6e8ec; --text-muted: #8b94a3; --text-faint: #5d6675;
+  --text: #e6e8ec; --text-muted: #8b94a3; --text-faint: #7a8494;
   --accent: #7aa2f7; --accent-soft: rgba(122,162,247,.16);
-  --done: #3fb950; --error: #f0563f; --waiting: #6b7280; --skipped: #4b5563; --warn: #d9a441;
+  --done: #3fb950; --error: #f0563f; --waiting: #79818f; --skipped: #6b7280; --warn: #d9a441;
   --focus: #b3c7ff;
   --radius: 6px; --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 [data-theme="light"] {
   --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #d9dee7; --border-strong: #b9c2d0;
-  --text: #1b2230; --text-muted: #5b657a; --text-faint: #8a93a3;
+  --text: #1b2230; --text-muted: #5b657a; --text-faint: #69727f;
   --accent: #3b5bdb; --accent-soft: rgba(59,91,219,.12);
-  --done: #1f8a3b; --error: #c63f2c; --waiting: #9aa3b2; --skipped: #b6bdc9; --warn: #b47d13;
+  --done: #1f8a3b; --error: #c63f2c; --waiting: #7c8492; --skipped: #8d95a3; --warn: #b47d13;
   --focus: #1f3fb0;
 }
 * { box-sizing: border-box; }
@@ -92,7 +92,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .suggestion-toolbar { align-items: center; }
 .suggestion-toolbar input[type="checkbox"] { margin: 0; }
 .suggestion-chips input[type="checkbox"] { margin-right: 2px; }
-.suggestion-filters {
+.suggestion-filters, .run-filters {
   display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
   margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--surface);
@@ -144,6 +144,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .counts b { color: var(--text); font-weight: 550; }
 .empty { padding: 40px 20px; text-align: left; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius); }
 .empty code { font-family: var(--mono); color: var(--text); }
+.empty-action { margin-top: 14px; }
 
 /* Document rows (profiles, memory entries): same surface/border/hover as run rows, own columns.
    Rendered as <button> so a click opens the editor; the selected row picks up the accent wash. */
@@ -156,6 +157,17 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .doc-row:hover { background: var(--surface-2); }
 .doc-row.selected { background: var(--accent-soft); }
 .doc-row .title { font-weight: 550; display: flex; align-items: center; gap: 8px; }
+/* Profiles carry one extra column (the sanity probe) over the shared document-row grid. */
+.profile-row {
+  /* The harness and cost columns are sized to their widest chip ("cursor-agent",
+     "subscription"); a chip cannot wrap, so a narrower track spills into the next column. The
+     harness track also carries its glyph, so it is the widest of the two. */
+  grid-template-columns:
+    minmax(90px, 1fr) 98px 120px 94px minmax(78px, auto) minmax(64px, .7fr) minmax(64px, 1fr) 56px;
+  gap: 8px; padding: 10px 12px;
+}
+.sanity-cell { display: flex; align-items: center; gap: 5px; min-width: 0; flex-wrap: nowrap; }
+.sanity-cell-ms { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Run view */
 .run-page { display: flex; flex-direction: column; gap: 12px; }
@@ -179,7 +191,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .run-stat-waiting b { color: var(--text-muted); }
 .run-stat-skipped b { color: var(--text-faint); }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-.layout.profile-layout { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
+.layout.profile-layout { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
 .run-layout { width: 100%; grid-template-columns: 1fr; gap: 12px; }
 .run-layout .node-panel {
   position: static; max-width: 1400px; margin: 0 auto; width: 100%;
@@ -201,6 +213,20 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 }
 .run-layout .node-panel pre { margin: 0; max-height: 200px; min-height: 4.5rem; }
 .run-layout .panel-empty { margin: 0; padding: 8px 0 2px; }
+.node-session { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+.node-session-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+.transcript {
+  margin: 0; max-height: 320px; overflow: auto; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+.copy-cmd { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.copy-cmd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22rem; }
+.run-layout .node-panel.just-selected { animation: panel-reveal .8s ease-out; }
+@keyframes panel-reveal {
+  from { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  to { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); box-shadow: none; }
+}
 .graph-shell { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .graph-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
@@ -217,7 +243,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .graph-hint { font-size: 12px; margin-left: auto; }
 .graph {
   width: 100%; height: calc(100vh - 220px); height: calc(100dvh - 220px);
-  min-height: 320px; max-height: 78dvh;
+  min-height: 320px; max-height: 62dvh;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
   overflow: auto; cursor: grab; scroll-behavior: auto;
   display: flex; align-items: flex-start; justify-content: flex-start;
@@ -276,12 +302,29 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .orch-root.running .orch-icon .hub { fill: var(--accent); }
 .orch-root.done .orch-icon .hub { fill: var(--done); }
 .orch-root.done .orch-icon .sat { stroke: var(--done); }
+/* Harness glyphs. Authored geometry, not vendor logos — see harness-mark.ts. Stroked with
+   currentColor so one definition works on a graph node, a harness card and a profile row. */
+.harness-mark { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.harness-mark .filled { fill: currentColor; stroke: none; }
+.harness-mark-icon { display: block; flex: none; }
+.node .harness-mark { color: var(--text-faint); }
+.node.has-profile .harness-mark { color: var(--profile-accent); }
+.node.skipped .harness-mark { opacity: .5; }
+.harness-cell { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-muted); }
+
 .edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
 .edge.done { stroke: var(--done); opacity: .7; }
 .cycle { fill: var(--warn); font: 11px var(--font); }
 
 .panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; position: sticky; top: 64px; }
 .panel h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.panel-close {
+  min-width: 28px; min-height: 28px; border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-muted); background: var(--surface-2); line-height: 1;
+  transition: color .18s, border-color .18s;
+}
+.panel-close:hover { color: var(--text); border-color: var(--text-muted); }
+.panel-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .panel dl { display: grid; grid-template-columns: 84px 1fr; gap: 6px 12px; margin: 0; }
 .panel dt { color: var(--text-muted); }
 .panel dd { margin: 0; overflow-wrap: anywhere; }
@@ -323,6 +366,8 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 }
 .harness-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .harness-title { margin: 0; font-size: 13px; font-weight: 600; }
+.harness-logo { display: inline-flex; align-items: center; color: var(--text-muted); }
+.harness-card.is-ready .harness-logo { color: var(--accent); }
 .harness-desc { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-muted); }
 .harness-reason { margin: 0; font-size: 12px; color: var(--warn); line-height: 1.4; }
 .harness-actions { margin-top: 4px; }
@@ -389,13 +434,24 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; }
 @media (prefers-reduced-motion: reduce) {
   .chip.running::before, .node.running .mark, .node.has-profile.running .mark,
   .orch-root.running .orch-frame { animation: none; }
+  .run-layout .node-panel.just-selected { animation: none; }
 }
+/* The profiles row needs ~748px of track. Beside a 380px settings panel that only holds above
+   ~1180px of viewport, so below that the table takes the full width and the panel drops under
+   it — otherwise the right-hand columns overflow their track. */
+@media (max-width: 1180px) {
+  .layout.profile-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 900px) {
   header { flex-wrap: wrap; gap: 12px; }
   .nav-tabs { order: 3; width: 100%; justify-content: stretch; }
   .nav-tabs a { flex: 1; text-align: center; }
   main:has(.run-page) { padding: 12px 12px 20px; }
-  .layout { grid-template-columns: 1fr; }
+  /* `.layout.profile-layout` is two classes, so a single-class `.layout` override never wins
+     on specificity — without naming it here the profiles table collapsed to 0px and only the
+     settings panel showed below ~700px. */
+  .layout, .layout.profile-layout { grid-template-columns: 1fr; }
   .graph { height: min(58dvh, 520px); max-height: none; }
   .graph-hint { margin-left: 0; width: 100%; }
   .run-layout .panel-grid { grid-template-columns: 1fr; }
@@ -405,6 +461,7 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .run-row .bar, .run-row .counts, .run-row .when { display: none; }
   .doc-row { grid-template-columns: 1fr 100px; }
   .doc-row > :nth-child(n+3) { display: none; }
+  .profile-row { grid-template-columns: minmax(0, 1fr) 84px; }
   .sanity-row { grid-template-columns: 1fr 80px 72px; }
   .sanity-row > :nth-child(n+4) { display: none; }
 }

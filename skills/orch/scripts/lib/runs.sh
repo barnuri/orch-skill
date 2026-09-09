@@ -169,7 +169,8 @@ cmd_node_add() {
   state_write "$run_id" \
     '($deps | split(",") | map(select(length > 0))) as $d
      | .nodes += [{id: $id, label: $label, status: "waiting", profile: (if $profile == "" then null else $profile end),
-                   adapter: null, job_id: null, started: null, finished: null, error: null, log_tail: [], usage: {}}]
+                   adapter: null, job_id: null, session: null, started: null, finished: null,
+                   error: null, log_tail: [], usage: {}}]
      | .edges += ($d | map([., $id]))' \
     --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile"
 }
@@ -257,20 +258,23 @@ node_patch() {
   state_write_raw "$run_id" ".nodes |= map(if .id != \$n then . else ($patch) end)" --arg n "$node_id" "$@"
 }
 
-# node_set_status <run-id> <node-id> <status> [job] [error] [adapter] [profile] — the one mutation
-# every status change goes through: stamps started on first `running`, finished on terminal states.
+# node_set_status <run-id> <node-id> <status> [job] [error] [adapter] [profile] [session] — the one
+# mutation every status change goes through: stamps started on first `running`, finished on
+# terminal states.
 node_set_status() {
   local run_id="$1" node_id="$2" status="$3" job="${4:-}" err="${5:-}" adapter="${6:-}" profile="${7:-}"
+  local session="${8:-}"
   node_patch "$run_id" "$node_id" \
     '.status = $s
      | (if $job != "" then .job_id = $job else . end)
      | (if $err != "" then .error = $err else . end)
      | (if $adapter != "" then .adapter = $adapter else . end)
      | (if $profile != "" then .profile = $profile else . end)
+     | (if $session != "" then .session = $session else . end)
      | (if $s == "running" and .started == null then .started = $ts else . end)
      | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $ts else . end)' \
     --arg s "$status" --arg job "$job" --arg err "$err" \
-    --arg adapter "$adapter" --arg profile "$profile" --arg ts "$(now_iso)"
+    --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" --arg ts "$(now_iso)"
 }
 
 cmd_node_update() {
@@ -318,7 +322,8 @@ cmd_node_dispatch() {
 
   job_id=$(cmd_start "$@") || return $?
   node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
-    "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" || return 1
+    "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
+    "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" || return 1
   printf '%s\n' "$job_id"
 }
 

@@ -192,11 +192,11 @@ expect_match "missing @file reports itself" 'prompt file not found' "$out"
 expect_exit "missing @file exits 1" 1 "$rc"
 
 # --- adapter "not found" degradation ----------------------------------------
-out=$(env PATH="$(path_without cursor-agent)" bash "$SCRIPT" run cursor-agent "hi" 2>&1); rc=$?
+out=$(env ORCH_BIN_DIRS= PATH="$(path_without cursor-agent)" bash "$SCRIPT" run cursor-agent "hi" 2>&1); rc=$?
 expect_match "cursor-agent missing is reported" 'cursor-agent not found on PATH' "$out"
 expect_exit "cursor-agent missing exits 127" 127 "$rc"
 
-out=$(env PATH="$(path_without opencode)" bash "$SCRIPT" run opencode "hi" 2>&1); rc=$?
+out=$(env ORCH_BIN_DIRS= PATH="$(path_without opencode)" bash "$SCRIPT" run opencode "hi" 2>&1); rc=$?
 expect_match "opencode missing is reported" 'opencode not found on PATH' "$out"
 expect_exit "opencode missing exits 127" 127 "$rc"
 
@@ -332,6 +332,88 @@ expect_missing "init creates no data dir" "$home/data"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile list 2>&1)
 expect_match "profile list marks the default" '^\*claude-sub' "$out"
 expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-lfm-8b' "$out"
+
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show cursor-default 2>&1)
+expect_match "cursor-default is pinned to the Auto model" '"model": "cursor-auto"' "$out"
+expect_match "cursor-default allows only Auto" '"cursor-auto"' "$out"
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" model list --profile cursor-default 2>&1)
+expect_match "cursor Auto resolves to the auto slug" 'cursor-auto\tauto' "$out"
+expect_no_match "cursor-default whitelist excludes composer" 'composer-1' "$out"
+
+# A profiles.json still on the old composer default is retargeted; a deliberate choice is not.
+mig=$(new_tmp)
+jq -n '{settings:{default_profile:"cursor-default",retention_days:7,budget_threshold:85},
+        models:{"cursor-composer":{slug:"composer-1",harnesses:["cursor-agent"],description:""}},
+        profiles:{"cursor-default":{harness:"cursor-agent",model:"cursor-composer",flags:[],env:{},auth:[]},
+                  "cursor-pinned":{harness:"cursor-agent",model:"cursor-composer",flags:[],env:{},auth:[]}}}' \
+  > "$mig/profiles.json"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+migrated=$(jq -r '.profiles["cursor-default"].model' "$mig/profiles.json")
+expect_match "migration retargets cursor-default to Auto" '^cursor-auto$' "$migrated"
+migrated=$(jq -r '.profiles["cursor-default"].allowed_models | join(",")' "$mig/profiles.json")
+expect_match "migration pins the Auto whitelist" '^cursor-auto$' "$migrated"
+migrated=$(jq -r '.models["cursor-auto"].slug' "$mig/profiles.json")
+expect_match "migration seeds the Auto catalog entry" '^auto$' "$migrated"
+migrated=$(jq -r '.profiles["cursor-pinned"].model' "$mig/profiles.json")
+expect_match "migration leaves other cursor profiles alone" '^cursor-composer$' "$migrated"
+cleanup_dir "$mig"
+
+# --- demo seeding -----------------------------------------------------------------------------
+# The demo exists so a reader can see the dashboard populated without spending a token, so the
+# thing worth guarding is that it never reaches a harness and that reset removes exactly what
+# seed created.
+demo=$(new_tmp)
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" demo 2>&1); rc=$?
+expect_exit "demo with no verb exits 2" 2 "$rc"
+expect_match "demo with no verb prints its grammar" 'demo seed' "$out"
+
+# The default state dir is the user's real one; seeding fake runs into it takes --force.
+out=$(env -u HARNESS_ORCH_HOME bash "$SCRIPT" demo seed 2>&1); rc=$?
+expect_exit "demo seed refuses the default home" 2 "$rc"
+expect_match "demo seed names the scratch-dir escape" 'HARNESS_ORCH_HOME' "$out"
+
+env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" init >/dev/null 2>&1
+# No harness CLI on PATH at all: if seeding tried to dispatch, it would fail loudly here.
+out=$(env HARNESS_ORCH_HOME="$demo" PATH="$(path_without claude cursor-agent opencode)" \
+  bash "$SCRIPT" demo seed 2>&1); rc=$?
+expect_exit "demo seed exits 0 with no harness CLI present" 0 "$rc"
+expect_match "demo seed reports what it seeded" 'seeded 4 runs' "$out"
+
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" run list 2>&1)
+expect_match "demo seeds a run in flight" 'running.*Ship the payments service' "$out"
+expect_match "demo seeds a failed run" 'error.*Migrate the llm-hub profiles' "$out"
+expect_match "demo seeds a finished run" 'done.*Nightly benchmark sweep' "$out"
+
+state=$(cat "$demo"/runs/*/state.json | jq -s '.')
+statuses=$(printf '%s' "$state" | jq -r '[.[].nodes[].status] | unique | join(",")')
+expect_match "demo covers every node status" '^done,error,running,skipped,waiting$' "$statuses"
+adapters=$(printf '%s' "$state" | jq -r '[.[].nodes[] | select(.adapter != null) | .adapter] | unique | join(",")')
+expect_match "demo covers more than one harness" 'claude,cursor-agent' "$adapters"
+tails=$(printf '%s' "$state" | jq -r '[.[].nodes[] | select((.log_tail | length) > 0)] | length')
+expect_match "demo nodes carry a log tail" '^[1-9]' "$tails"
+
+# Every job dir a real dispatch would write, so the transcript view and `tail` work on demo data.
+job_dir=$(ls -d "$demo"/jobs/demo-*/ 2>/dev/null | head -1)
+expect_file "demo job has a full log" "$job_dir/log"
+expect_file "demo job records its adapter" "$job_dir/adapter"
+expect_file "demo job records a session id" "$job_dir/session"
+session=$(cat "$job_dir/session" 2>/dev/null)
+expect_match "demo session id is a uuid" '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' "$session"
+
+# A run the demo did not create must survive reset.
+env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" run start "a real run" --id 20260101-000000-keep >/dev/null 2>&1
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" demo advance 2>&1); rc=$?
+expect_exit "demo advance exits 0" 0 "$rc"
+expect_match "demo advance reports the node it moved" '	(done|running)$' "$out"
+
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" demo reset 2>&1)
+expect_match "demo reset removes the seeded runs" 'removed 4 seeded run' "$out"
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" demo reset 2>&1)
+expect_match "demo reset is idempotent" 'removed 0 seeded run' "$out"
+out=$(env HARNESS_ORCH_HOME="$demo" bash "$SCRIPT" run list 2>&1)
+expect_match "demo reset leaves a non-demo run alone" '20260101-000000-keep' "$out"
+expect_missing "demo reset clears the demo job dirs" "$job_dir"
+cleanup_dir "$demo"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" harness list --json 2>&1)
 expect_match "harness list json includes claude" '"id": "claude"' "$out"
@@ -508,9 +590,33 @@ expect_match "opencode profile with empty model: no model flag" '^run x --auto$'
 out=$(with_shims bash "$SCRIPT" run claude "plain" 2>&1)
 expect_match "plain claude adapter: no model flag" '^-p plain --output-format text$' "$(joined "$out")"
 
-out=$(env PATH="$(path_without claude)" bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
+# A dispatched job is only resumable if orch chose the session id and wrote it down, so both
+# halves are asserted: the flag the harness saw, and the id left behind in the job dir.
+session_home=$(new_tmp)
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$session_home" bash "$SCRIPT" init >/dev/null 2>&1
+session_job=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$session_home" \
+  bash "$SCRIPT" start claude "session probe" 2>/dev/null)
+expect_match "start prints a job id" '^[0-9]{14}-' "$session_job"
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$session_home" \
+  bash "$SCRIPT" wait "$session_job" --timeout 5 --interval 1 >/dev/null 2>&1
+expect_file "start records the job's session id" "$session_home/jobs/$session_job/session"
+session=$(cat "$session_home/jobs/$session_job/session" 2>/dev/null)
+expect_match "the recorded session id is a uuid" \
+  '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' "$session"
+expect_match "the claude adapter is told which session to use" \
+  "--session-id $session" "$(joined "$(cat "$session_home/jobs/$session_job/log" 2>/dev/null)")"
+cleanup_dir "$session_home"
+
+out=$(env ORCH_BIN_DIRS= PATH="$(path_without claude)" bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
 expect_match "claude missing is reported" 'claude not found on PATH' "$out"
 expect_exit "claude missing exits 127" 127 "$rc"
+
+# A supervisor (launchd/systemd) starts with a minimal PATH. The adapter has to find the CLI in
+# the same places `harness list` does, or the dashboard reports "ready" and every dispatch 127s.
+out=$(env ORCH_BIN_DIRS="$shims" PATH="$(path_without claude)" HARNESS_ORCH_HOME="$home" \
+  bash "$SCRIPT" run claude "off-path" 2>&1); rc=$?
+expect_exit "claude off PATH but in ORCH_BIN_DIRS exits 0" 0 "$rc"
+expect_match "claude off PATH is resolved from ORCH_BIN_DIRS" '^-p off-path --output-format text$' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run --profile claude-sub 2>&1); rc=$?
 expect_match "run --profile without prompt shows grammar" 'usage: dispatch.sh run \(--profile <name> \| <adapter>\)' "$out"

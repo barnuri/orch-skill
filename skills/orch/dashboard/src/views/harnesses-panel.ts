@@ -1,7 +1,8 @@
 import type { HarnessStatus } from "../../../shared/types/harness-status";
 import type { ProfilesDocument } from "../../../shared/types/profiles-document";
 import { ApiClient } from "../api/api-client";
-import { chip, el } from "../dom/el";
+import { el } from "../dom/el";
+import { harnessMarkIcon } from "../graph/harness-mark";
 import { saveDoc } from "../forms/document-editor";
 import { deepCopy } from "../forms/field-issues";
 import { render } from "../render";
@@ -23,7 +24,8 @@ function statusChip(harness: HarnessStatus): HTMLElement {
     return el("span", { class: "chip default", text: "disabled" });
   }
   if (harness.available) {
-    return chip("done");
+    // The `done` class carries the green dot; a harness is "ready", not "done".
+    return el("span", { class: "chip done", text: "ready" });
   }
   return el("span", { class: "chip waiting", text: "missing" });
 }
@@ -33,8 +35,11 @@ export function harnessCard(
   loaded: ProfilesDocument | null,
   etag: string,
 ): HTMLElement {
-  const card = el("article", { class: "harness-card" });
+  // A dispatchable harness gets its glyph in the accent colour; everything else stays muted.
+  const ready = harness.wired && harness.enabled && harness.available;
+  const card = el("article", { class: ready ? "harness-card is-ready" : "harness-card" });
   const head = el("div", { class: "harness-head" }, [
+    el("span", { class: "harness-logo" }, [harnessMarkIcon(harness.id, 18)]),
     el("h3", { class: "harness-title mono", text: harness.id }),
     statusChip(harness),
     el("span", { class: "muted", text: harness.kind }),

@@ -5,6 +5,7 @@ import { state } from "./state/state";
 import { renderDocNotices as docNoticesView } from "./views/doc-notices";
 import { renderFresh as renderFreshness } from "./views/freshness";
 import { renderMemory } from "./views/memory-view";
+import { revealNodePanel } from "./views/node-panel";
 import { renderNav } from "./views/nav";
 import { renderHarnesses } from "./views/harnesses-view";
 import { renderProfiles } from "./views/profiles-view";
@@ -43,6 +44,7 @@ function renderChrome(route: Route): void {
 function selectNode(nodeId: string): void {
   state.selectedNode = nodeId;
   render();
+  revealNodePanel();
 }
 
 function submitToken(token: string): void {

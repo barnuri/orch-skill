@@ -1,5 +1,6 @@
 import type { DocumentKind } from "../../shared/types/document-kind";
 import type { MemoryEnvelope } from "../../shared/types/memory-envelope";
+import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import type { ProfilesEnvelope } from "../../shared/types/profiles-envelope";
 import type { SuggestionsEnvelope } from "../../shared/types/suggestions-envelope";
 import { ApiClient } from "./api/api-client";
@@ -85,6 +86,32 @@ async function pollRuns(seq: number): Promise<void> {
   render();
 }
 
+function harnessByProfile(profiles: ProfilesDocument["profiles"]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const [name, spec] of Object.entries(profiles)) {
+    if (typeof spec.harness === "string" && spec.harness !== "") {
+      map[name] = spec.harness;
+    }
+  }
+  return map;
+}
+
+/**
+ * A run page never polls profiles.json, but it needs profile -> harness to pick each node's
+ * glyph. Fetched once on entering the route; a node dispatched for real carries its own
+ * `adapter`, so this only fills in nodes that are still waiting on their profile.
+ */
+async function loadProfileHarnesses(): Promise<void> {
+  if (Object.keys(state.profileHarness).length > 0) {
+    return;
+  }
+  const result = await api.getDocument<ProfilesEnvelope>("profiles", null);
+  if (result.kind !== "ok" || result.body.document === null) {
+    return;
+  }
+  state.profileHarness = harnessByProfile(result.body.document.profiles);
+}
+
 async function pollRun(runId: string, seq: number): Promise<void> {
   const result = await api.getRun(runId, state.runEtag);
   if (!isCurrent(seq)) {
@@ -144,6 +171,7 @@ async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
   }
   if (result.body.document !== null && "harnesses" in result.body && "profiles" in result.body.document) {
     state.profileNames = Object.keys(result.body.document.profiles);
+    state.profileHarness = harnessByProfile(result.body.document.profiles);
     state.defaultProfile = result.body.document.settings.default_profile ?? "";
   }
   const outcome = applyDocLoad({ doc: state.doc, dirty: state.dirty }, toLoadedDocument(kind, result.body, result.etag));
@@ -180,6 +208,7 @@ function pollRoute(route: Route, seq: number): Promise<void> {
     case "list":
       return pollRuns(seq);
     case "run":
+      void loadProfileHarnesses();
       return pollRun(route.runId, seq);
     case "harnesses":
       return pollHarnesses(seq);

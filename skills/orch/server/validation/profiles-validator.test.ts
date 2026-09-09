@@ -21,6 +21,7 @@ function documentWithProfile(spec: Mutable): Mutable {
   document["settings"] = { default_profile: "x", retention_days: 7, budget_threshold: 85 };
   document["models"] = {
     "claude-sonnet": { slug: "sonnet", harnesses: ["claude"], description: "workhorse" },
+    "local-lfm-8b": { slug: "llama_swap/lfm2.5-8b-a1b", harnesses: ["claude"], description: "hub" },
   };
   document["profiles"] = { x: { harness: "claude", model: "claude-sonnet", ...spec } };
   return document;
@@ -40,9 +41,10 @@ describe("profilesIssues", () => {
     expect(issuesFor(null)).toEqual([{ path: "$", reason: "must be an object" }]);
   });
 
-  test("missing settings and profiles are both required", () => {
+  test("missing settings, models and profiles are all required", () => {
     expect(issuesFor({})).toEqual([
       { path: "settings", reason: "required" },
+      { path: "models", reason: "required" },
       { path: "profiles", reason: "required" },
     ]);
   });

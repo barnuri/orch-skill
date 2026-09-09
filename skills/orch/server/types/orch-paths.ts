@@ -4,6 +4,7 @@ export interface OrchPaths {
   memory: string;
   suggestions: string;
   runs: string;
+  jobs: string;
   serveDir: string;
   pidFile: string;
   portFile: string;

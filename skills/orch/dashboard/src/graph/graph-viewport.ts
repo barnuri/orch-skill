@@ -88,6 +88,7 @@ export function mountGraph(
   run: RunState,
   selectedId: string | null,
   onSelect: (nodeId: string) => void,
+  harnessByProfile: Record<string, string> = {},
 ): HTMLElement {
   const shell = el("div", { class: "graph-shell" });
   if (run.nodes.length === 0) {
@@ -99,7 +100,7 @@ export function mountGraph(
     return shell;
   }
 
-  const svg = renderGraph(run, selectedId, onSelect);
+  const svg = renderGraph(run, selectedId, onSelect, harnessByProfile);
   const { w, h } = svgSize(svg);
 
   const toolbar = el("div", { class: "graph-toolbar", role: "toolbar", "aria-label": "Graph zoom" });

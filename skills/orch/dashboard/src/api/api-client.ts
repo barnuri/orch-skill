@@ -2,6 +2,7 @@ import type { ApiError } from "../../../shared/types/api-error";
 import type { DocumentKind } from "../../../shared/types/document-kind";
 import type { HarnessesEnvelope } from "../../../shared/types/harness-status";
 import type { HealthResponse } from "../../../shared/types/health-response";
+import type { JobLogEnvelope } from "../../../shared/types/job-log-envelope";
 import type { ProfileSanityEnvelope } from "../../../shared/types/profile-sanity";
 import type { SuggestionApplyEnvelope } from "../../../shared/types/suggestion-apply-envelope";
 import type { PutOk } from "../../../shared/types/put-ok";
@@ -41,6 +42,10 @@ export class ApiClient {
 
   getRun(id: string, etag: string | null): Promise<ApiResult<RunEnvelope>> {
     return this.request<RunEnvelope>("GET", `${API_BASE}/runs/${encodeURIComponent(id)}`, { etag });
+  }
+
+  getJobLog(jobId: string, etag: string | null): Promise<ApiResult<JobLogEnvelope>> {
+    return this.request<JobLogEnvelope>("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/log`, { etag });
   }
 
   getDocument<T>(kind: DocumentKind, etag: string | null): Promise<ApiResult<T>> {

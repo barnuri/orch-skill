@@ -2,6 +2,10 @@ import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { chip, el } from "../dom/el";
 import { fmtDur, fmtTime } from "../dom/format";
+import { renderNodeTranscript } from "./node-transcript";
+
+const NODE_PANEL_ID: string = "node-panel";
+const SELECTED_CLASS: string = "just-selected";
 
 function detailRow(list: HTMLElement, key: string, value: string, cls: string = ""): void {
   list.appendChild(el("dt", { text: key }));
@@ -14,6 +18,7 @@ function detailList(node: RunNode): HTMLElement {
   detailRow(list, "profile", node.profile ?? "—");
   detailRow(list, "adapter", node.adapter ?? "—");
   detailRow(list, "job", node.job_id ?? "—", "mono");
+  detailRow(list, "session", node.session ?? "—", "mono");
   detailRow(list, "started", fmtTime(node.started));
   detailRow(list, "finished", fmtTime(node.finished));
   detailRow(list, "duration", fmtDur(node.started, node.finished));
@@ -23,22 +28,14 @@ function detailList(node: RunNode): HTMLElement {
   return list;
 }
 
-function logSection(node: RunNode): HTMLElement {
-  const section = el("section", { class: "panel-log", "aria-label": "Log tail" });
-  section.appendChild(el("h3", { class: "panel-log-title", text: "Log tail" }));
-  if (node.log_tail.length > 0) {
-    section.appendChild(el("pre", { text: node.log_tail.join("\n") }));
-    return section;
-  }
-  const hint = node.job_id === null ? "Not dispatched yet." : "Log tail appears after the next run sync.";
-  section.appendChild(el("p", { class: "hint", text: hint }));
-  return section;
-}
-
 /** Node details panel below the graph: selected node's details + log tail, or a hint when none is. */
 export function renderNodePanel(run: RunState, selectedId: string | null): HTMLElement {
   const node = run.nodes.find((candidate) => candidate.id === selectedId);
-  const panel = el("aside", { class: "panel node-panel", "aria-live": "polite" });
+  const panel = el("aside", {
+    class: "panel node-panel",
+    id: NODE_PANEL_ID,
+    "aria-live": "polite",
+  });
   if (node === undefined) {
     const hint =
       run.nodes.length > 0
@@ -53,7 +50,25 @@ export function renderNodePanel(run: RunState, selectedId: string | null): HTMLE
   const grid = el("div", { class: "panel-grid" });
   const details = el("div", { class: "panel-details" });
   details.appendChild(detailList(node));
-  grid.append(details, logSection(node));
+  grid.append(details, renderNodeTranscript(node));
   panel.appendChild(grid);
   return panel;
+}
+
+/**
+ * The graph fills the viewport, so a freshly rendered panel sits below the fold and a click
+ * looks like it did nothing. Scroll it just into view and replay a one-shot border flash.
+ */
+export function revealNodePanel(): void {
+  const panel = document.getElementById(NODE_PANEL_ID);
+  if (panel === null) {
+    return;
+  }
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  panel.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "nearest" });
+  // The panel is rebuilt on every render, so the class is always fresh — but re-adding it
+  // after a reflow keeps the flash replaying when the same panel is reused.
+  panel.classList.remove(SELECTED_CLASS);
+  void panel.offsetWidth;
+  panel.classList.add(SELECTED_CLASS);
 }

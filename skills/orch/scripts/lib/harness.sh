@@ -11,22 +11,34 @@ harness_ids() {
 }
 
 # Resolves a binary: PATH first, then common install dirs (service PATH is often minimal).
-harness_find_binary() {
-  local name="$1" dir
-  if command -v "$name" >/dev/null 2>&1; then
-    command -v "$name"
+# Directories searched when a CLI is not on PATH — a supervisor (launchd/systemd) starts with a
+# minimal PATH that omits every one of them. Set ORCH_BIN_DIRS to "" to search PATH only.
+harness_bin_dirs() {
+  if [ -n "${ORCH_BIN_DIRS+x}" ]; then
+    printf '%s\n' "$ORCH_BIN_DIRS" | tr ':' '\n'
     return 0
   fi
-  for dir in \
+  printf '%s\n' \
     "${HOME:-}/.local/bin" \
     "${HOME:-}/bin" \
     "${HOME:-}/.cargo/bin" \
     "${HOME:-}/.bun/bin" \
     "${HOME:-}/.opencode/bin" \
     /opt/homebrew/bin \
-    /usr/local/bin; do
+    /usr/local/bin
+}
+
+harness_find_binary() {
+  local name="$1" dir
+  if command -v "$name" >/dev/null 2>&1; then
+    command -v "$name"
+    return 0
+  fi
+  while IFS= read -r dir; do
     [ -n "$dir" ] && [ -x "$dir/$name" ] && printf '%s/%s\n' "$dir" "$name" && return 0
-  done
+  done <<EOF
+$(harness_bin_dirs)
+EOF
   return 1
 }
 

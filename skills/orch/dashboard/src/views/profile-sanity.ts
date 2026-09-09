@@ -27,6 +27,22 @@ function fmtBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+/**
+ * A single-profile probe returns only that profile, so replacing the envelope would blank the
+ * table column for every other row. Fresh results win; older ones are kept.
+ */
+function mergeResults(
+  previous: ProfileSanityEnvelope | null,
+  incoming: ProfileSanityEnvelope,
+): ProfileSanityEnvelope {
+  if (previous === null) {
+    return incoming;
+  }
+  const fresh = new Set(incoming.results.map((result) => result.profile));
+  const kept = previous.results.filter((result) => !fresh.has(result.profile));
+  return { generated_at: incoming.generated_at, results: [...incoming.results, ...kept] };
+}
+
 function summaryText(data: ProfileSanityEnvelope): string {
   const ok = data.results.filter((r) => r.ok).length;
   const total = data.results.length;
@@ -88,6 +104,11 @@ export function sanityRunning(): boolean {
   return state.running;
 }
 
+/** The last probe result for one profile, or null when it has not been tested this session. */
+export function sanityFor(profile: string): ProfileSanityResult | null {
+  return state.data?.results.find((result) => result.profile === profile) ?? null;
+}
+
 export function runProfileSanity(profiles: string[] | undefined, onDone: () => void): void {
   if (state.running) {
     return;
@@ -100,7 +121,7 @@ export function runProfileSanity(profiles: string[] | undefined, onDone: () => v
     .then((result) => {
       state.running = false;
       if (result.kind === "ok") {
-        state.data = result.body;
+        state.data = mergeResults(state.data, result.body);
         state.error = null;
         const failed = result.body.results.filter((r) => !r.ok).length;
         toast(failed === 0 ? "ok" : "error", failed === 0 ? "All profiles passed" : `${failed} profile(s) failed`);

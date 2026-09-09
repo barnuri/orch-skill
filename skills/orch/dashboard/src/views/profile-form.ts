@@ -140,14 +140,29 @@ function writeTags(spec: ProfileSpec, key: "tags" | "strengths" | "avoid_for" | 
   spec[key] = items;
 }
 
+/**
+ * Offers only what the profile's own `allowed_models` permits — the validator rejects a model
+ * outside that list, so listing the rest just invites a save that 400s. The current value is
+ * always kept as an option, or an already-invalid profile could not be corrected here.
+ */
+function selectableModelIds(draft: ProfilesDocument, spec: ProfileSpec): string[] {
+  const ids = modelIdsForHarness(draft, spec.harness);
+  const entries = spec.allowed_models;
+  if (entries === undefined || entries.length === 0) {
+    return ids;
+  }
+  return ids.filter((id) => modelAllowedByEntries(draft, entries, id));
+}
+
 function modelSelect(draft: ProfilesDocument, spec: ProfileSpec, base: string, state: AppState): HTMLElement {
   const select = el("select");
+  const ids = selectableModelIds(draft, spec);
   select.appendChild(el("option", { value: "", text: "CLI default" }));
-  for (const id of modelIdsForHarness(draft, spec.harness)) {
+  for (const id of ids) {
     select.appendChild(el("option", { value: id, text: id }));
   }
-  if (spec.model !== undefined && spec.model !== "" && !modelIdsForHarness(draft, spec.harness).includes(spec.model)) {
-    select.appendChild(el("option", { value: spec.model, text: spec.model }));
+  if (spec.model !== undefined && spec.model !== "" && !ids.includes(spec.model)) {
+    select.appendChild(el("option", { value: spec.model, text: `${spec.model} (not allowed)` }));
   }
   select.value = spec.model ?? "";
   select.addEventListener("change", () => {

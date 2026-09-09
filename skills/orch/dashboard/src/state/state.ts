@@ -11,7 +11,8 @@ export function resetRunState(): void {
   state.selectedNode = null;
 }
 
-// `profileNames` survives: the memory form's datalist reuses the last profiles load.
+// `profileNames` and `profileHarness` survive: the memory form's datalist and the run graph's
+// harness glyphs both reuse the last profiles load.
 export function resetDocState(): void {
   state.doc = null;
   state.draft = null;

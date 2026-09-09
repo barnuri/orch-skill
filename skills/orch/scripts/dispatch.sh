@@ -62,6 +62,11 @@ dispatch.sh harness list [--json]
     -> probes each adapter (CLI on PATH or env for local-llm); JSON includes enabled flag
        from settings.disabled_harnesses.
     -> model-id, slug, description, cost, quality (whitelist when --profile is set)
+dispatch.sh demo seed | reset | advance [--run <id>]
+    -> seeds (or clears) mock runs, DAGs and job transcripts for the dashboard. Never spawns a
+       harness. Refuses the default state dir without --force: point HARNESS_ORCH_HOME at a
+       scratch dir instead. `advance` steps one seeded run forward, for recordings.
+
 dispatch.sh suggest scan | list [--pending] | apply <id> | dismiss <id>
     -> learning loop: scan runs/memory, surface pending suggestions, apply/dismiss
 EOF
@@ -335,6 +340,14 @@ cmd_start() {
     printf '%s\n' "$TARGET_NAME" > "$job_dir/profile"
   fi
 
+  # The harness is told which session id to use, rather than being asked afterwards what it
+  # chose — that is the only way the id is knowable to us, and it makes the run resumable
+  # (`claude --resume <id>`). Exported, so the backgrounded child and its adapter both see it.
+  # `run` has no job dir to record it in, so this is deliberately start-only.
+  ORCH_SESSION_ID="$(new_uuid)"
+  export ORCH_SESSION_ID
+  printf '%s\n' "$ORCH_SESSION_ID" > "$job_dir/session"
+
   # Single quotes are deliberate: these lines must reach the child bash unexpanded. The child
   # re-resolves the profile itself — that is how it gets the profile's exported env.
   # shellcheck disable=SC2016
@@ -455,6 +468,7 @@ main() {
     harness) shift; cmd_harness "$@" ;;
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;
+    demo) shift; cmd_demo "$@" ;;
     ""|-h|--help) usage ;;
     *) printf 'unknown subcommand: %s\n' "$sub" >&2; usage >&2; exit 2 ;;
   esac

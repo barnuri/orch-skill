@@ -3,13 +3,14 @@ import type { MemoryDocument } from "../../../shared/types/memory-document";
 import type { ProfileSpec } from "../../../shared/types/profile-spec";
 import type { ProfilesDocument } from "../../../shared/types/profiles-document";
 import { chip, el } from "../dom/el";
-import { beginEdit } from "../forms/document-editor";
+import { harnessMarkIcon } from "../graph/harness-mark";
+import { beginEdit, cancelEdit } from "../forms/document-editor";
 import { deepCopy } from "../forms/field-issues";
 import type { AppState } from "../state/app-state";
 import { renderDocNotices } from "./doc-notices";
 import { renderProfileForm } from "./profile-form";
 import { pageHead } from "./page-head";
-import { renderSanityPanel, sanityTestButton } from "./profile-sanity";
+import { renderSanityPanel, sanityFor, sanityRunning, sanityTestButton } from "./profile-sanity";
 import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 
@@ -58,8 +59,20 @@ function settingsDraft(state: AppState, loaded: ProfilesDocument): ProfilesDocum
   return fresh;
 }
 
-function countCell(count: number, noun: string): HTMLElement {
-  return el("div", { class: "counts", text: `${count} ${noun}` });
+/** flags / env / auth as one cell — three columns of single digits did not earn their width. */
+function countsCell(spec: ProfileSpec): HTMLElement {
+  const flags = spec.flags?.length ?? 0;
+  const env = Object.keys(spec.env ?? {}).length;
+  const auth = spec.auth?.length ?? 0;
+  const cell = el("div", {
+    class: "counts mono",
+    title: `${flags} flags · ${env} env · ${auth} auth`,
+    text: `${flags}f ${env}e ${auth}a`,
+  });
+  if (flags + env + auth === 0) {
+    cell.classList.add("muted");
+  }
+  return cell;
 }
 
 function modelCell(spec: ProfileSpec): HTMLElement {
@@ -96,21 +109,52 @@ function routingCell(spec: ProfileSpec): HTMLElement {
   return el("div", { class: "mono muted", text: parts.join(" · ") });
 }
 
+function fmtSanityMs(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** At-a-glance probe outcome. The full error text stays in the panel below the table. */
+function sanityCell(name: string): HTMLElement {
+  if (sanityRunning()) {
+    return el("div", { class: "muted sanity-cell", text: "testing…" });
+  }
+  const result = sanityFor(name);
+  if (result === null) {
+    return el("div", { class: "muted sanity-cell", text: "—", title: "Not tested yet" });
+  }
+  const cell = el("div", {
+    class: "sanity-cell",
+    title: result.error !== "" ? result.error : `exit ${result.exit_code} · ${result.bytes} B`,
+  }, [chip(result.ok ? "success" : "failure")]);
+  if (result.ok) {
+    cell.appendChild(el("span", { class: "muted sanity-cell-ms", text: fmtSanityMs(result.ms) }));
+  }
+  return cell;
+}
+
 function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spec: ProfileSpec): HTMLButtonElement {
   const isDefault = loaded.settings.default_profile === name;
   const selected = state.editing === name;
-  const row = el("button", { class: selected ? "doc-row selected" : "doc-row", type: "button" }, [
+  const klass = selected ? "doc-row profile-row selected" : "doc-row profile-row";
+  const row = el("button", { class: klass, type: "button" }, [
     el("div", { class: "title" }, [name, isDefault ? chip("default") : null]),
-    chip(spec.harness),
+    sanityCell(name),
+    el("div", { class: "harness-cell" }, [harnessMarkIcon(spec.harness, 14), chip(spec.harness)]),
     spec.cost !== undefined ? chip(spec.cost) : el("span"),
     modelCell(spec),
     routingCell(spec),
     descCell(spec),
-    countCell(spec.flags?.length ?? 0, "flags"),
-    countCell(Object.keys(spec.env ?? {}).length, "env"),
-    countCell(spec.auth?.length ?? 0, "auth"),
+    countsCell(spec),
   ]);
   row.addEventListener("click", () => {
+    // Clicking the open row is how you close the editor. A dirty draft is never dropped on a
+    // stray click — the form's own Cancel is the explicit discard.
+    if (selected) {
+      if (!state.dirty) {
+        cancelEdit();
+      }
+      return;
+    }
     beginEdit(name);
   });
   return row;
@@ -138,7 +182,22 @@ function renderPanel(state: AppState, loaded: ProfilesDocument): HTMLElement {
   const target = state.editing;
   // A number target belongs to memory.json; without a draft there is nothing to edit either way.
   if (draft !== null && typeof target === "string") {
-    panel.appendChild(el("h2", { text: target === NEW_TARGET ? "New profile" : target }));
+    const close = el("button", {
+      class: "panel-close",
+      type: "button",
+      text: "✕",
+      title: "Close editor (Esc)",
+      "aria-label": "Close editor",
+    });
+    close.addEventListener("click", () => {
+      cancelEdit();
+    });
+    panel.appendChild(
+      el("h2", {}, [
+        el("span", { text: target === NEW_TARGET ? "New profile" : target }),
+        close,
+      ]),
+    );
     panel.appendChild(holder);
     panel.appendChild(renderProfileForm(state, draft, target, onIssues));
     return panel;

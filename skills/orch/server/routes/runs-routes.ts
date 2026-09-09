@@ -1,9 +1,11 @@
 import type { ApiError } from "../../shared/types/api-error";
+import type { JobLogEnvelope } from "../../shared/types/job-log-envelope";
 import type { RunEnvelope } from "../../shared/types/run-envelope";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
 import { etagOf } from "../documents/document-store";
 import type { RouteHandler } from "../http/route";
 import { jsonResponse, notFound, notModified } from "../http/responses";
+import { readJobLog, readJobSession } from "../runs/job-log-reader";
 import { readRun, listRuns } from "../runs/runs-reader";
 import type { ServerContext } from "../types/server-context";
 
@@ -44,6 +46,32 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
       return notModified(etag);
     }
     const body: RunEnvelope = { generated_at: new Date().toISOString(), run: result.run };
+    return jsonResponse(200, body, { [ETAG_HEADER]: etag });
+  };
+}
+
+/**
+ * A node's whole transcript, so the dashboard can show the session rather than the tail.
+ * Served per job id — the dashboard reads that off the node it is displaying.
+ */
+export function readJobLogHandler(ctx: ServerContext): RouteHandler {
+  return (req: Request, params: Readonly<Record<string, string>>): Response => {
+    const jobId = params.id ?? "";
+    const result = readJobLog(ctx.paths, jobId);
+    if (result.kind === "invalid" || result.kind === "missing") {
+      return notFound();
+    }
+    const body: JobLogEnvelope = {
+      job_id: jobId,
+      session: readJobSession(ctx.paths, jobId),
+      text: result.text,
+      truncated: result.truncated,
+      bytes: result.bytes,
+    };
+    const etag = payloadEtag(body);
+    if (req.headers.get(IF_NONE_MATCH) === etag) {
+      return notModified(etag);
+    }
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
   };
 }

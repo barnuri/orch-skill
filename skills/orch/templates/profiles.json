@@ -74,6 +74,15 @@
       "max_complexity": "small",
       "tags": ["local", "llama_swap", "qwen"]
     },
+    "cursor-auto": {
+      "slug": "auto",
+      "harnesses": ["cursor-agent"],
+      "description": "Cursor picks the model per request (Auto).",
+      "cost": "metered",
+      "quality": "standard",
+      "speed": "fast",
+      "tags": ["cursor", "auto"]
+    },
     "cursor-composer": {
       "slug": "composer-1",
       "harnesses": ["cursor-agent"],
@@ -166,7 +175,8 @@
     },
     "cursor-default": {
       "harness": "cursor-agent",
-      "model": "cursor-composer",
+      "model": "cursor-auto",
+      "allowed_models": ["cursor-auto"],
       "description": "Cursor agent on Cursor subscription (api2.cursor.sh).",
       "cost": "metered",
       "quality": "standard",

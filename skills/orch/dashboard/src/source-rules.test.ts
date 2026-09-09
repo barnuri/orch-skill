@@ -17,6 +17,9 @@ const BANNED = [
   "prompt(",
   "eval(",
   "new Function",
+  // The shell's CSP has no 'unsafe-inline', so an inline style string is refused and whatever
+  // it was carrying silently does nothing. Custom properties go through the CSSOM instead.
+  'setAttribute("style"',
 ] as const;
 
 const glob = new Bun.Glob("**/*.ts");

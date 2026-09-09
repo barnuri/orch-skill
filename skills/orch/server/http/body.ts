@@ -4,12 +4,32 @@ export type BodyResult = { ok: true; text: string } | { ok: false; response: Res
 
 const JSON_MEDIA_TYPE: string = "application/json";
 
+/** True when the request carries no body at all — no media type and nothing declared. */
+function hasNoBody(req: Request): boolean {
+  if (req.headers.get("content-type") !== null) {
+    return false;
+  }
+  const declared = parseContentLength(req.headers.get("content-length"));
+  return declared === null || declared === 0;
+}
+
 /**
  * Reads a JSON request body, refusing wrong media types (415) and oversized
  * bodies (413) — by declared Content-Length before reading, then by real byte
  * length after. Bun's `maxRequestBodySize` stays the backstop for chunked liars.
+ *
+ * `allowEmpty` is for endpoints whose body is genuinely optional (a sanity sweep over every
+ * profile, "apply all"): a request with no body has no media type to declare, so demanding
+ * one would 415 the no-argument call. A request that does carry a body is still checked.
  */
-export async function readJsonBody(req: Request, maxBytes: number): Promise<BodyResult> {
+export async function readJsonBody(
+  req: Request,
+  maxBytes: number,
+  allowEmpty: boolean = false,
+): Promise<BodyResult> {
+  if (allowEmpty && hasNoBody(req)) {
+    return { ok: true, text: "" };
+  }
   if (mediaTypeOf(req.headers.get("content-type")) !== JSON_MEDIA_TYPE) {
     return {
       ok: false,

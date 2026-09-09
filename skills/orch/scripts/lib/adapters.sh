@@ -19,9 +19,24 @@ resolve_prompt() {
   esac
 }
 
-# require_bin <caller> <binary>: 127 + a uniform message when a harness CLI is missing.
+# require_bin <caller> <binary>: 127 + a uniform message when a required tool is missing.
+# For plain PATH tools (curl, jq) — harness CLIs go through resolve_bin instead.
 require_bin() {
   command -v "$2" >/dev/null 2>&1 && return 0
+  printf '%s: %s not found on PATH\n' "$1" "$2" >&2
+  return 127
+}
+
+# resolve_bin <caller> <binary>: prints the absolute path to a harness CLI, or 127 + the same
+# message require_bin would print. Goes through harness_find_binary so a CLI installed in
+# ~/.local/bin runs under a supervisor's minimal PATH (launchd/systemd) — otherwise `harness
+# list` reports "ready" from the wider search while every dispatch fails "not found on PATH".
+resolve_bin() {
+  local path
+  if path=$(harness_find_binary "$2" 2>/dev/null) && [ -n "$path" ]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
   printf '%s: %s not found on PATH\n' "$1" "$2" >&2
   return 127
 }
@@ -31,22 +46,30 @@ adapter_claude_native() {
   return 0
 }
 
+# ORCH_SESSION_ID is set by `start`, so the job's session is addressable afterwards. Only this
+# adapter takes it: cursor-agent resumes by a chatId minted by its own `create-chat`, not by an
+# id we can choose, so orch does not pretend to control it.
 adapter_claude() {
   local prompt="$1"; shift || true
-  require_bin adapter_claude claude || return $?
-  claude -p "$prompt" --output-format text "$@"
+  local bin
+  bin=$(resolve_bin adapter_claude claude) || return $?
+  local -a session_args=()
+  [ -n "${ORCH_SESSION_ID:-}" ] && session_args=(--session-id "$ORCH_SESSION_ID")
+  "$bin" -p "$prompt" --output-format text ${session_args[@]+"${session_args[@]}"} "$@"
 }
 
 adapter_cursor_agent() {
   local prompt="$1"; shift || true
-  require_bin adapter_cursor_agent cursor-agent || return $?
-  cursor-agent -p "$prompt" --output-format text --force "$@"
+  local bin
+  bin=$(resolve_bin adapter_cursor_agent cursor-agent) || return $?
+  "$bin" -p "$prompt" --output-format text --force "$@"
 }
 
 adapter_opencode() {
   local prompt="$1"; shift || true
-  require_bin adapter_opencode opencode || return $?
-  opencode run "$prompt" --auto "$@"
+  local bin
+  bin=$(resolve_bin adapter_opencode opencode) || return $?
+  "$bin" run "$prompt" --auto "$@"
 }
 
 adapter_local_llm() {

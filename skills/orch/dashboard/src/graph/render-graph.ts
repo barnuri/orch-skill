@@ -3,7 +3,6 @@ import type { RunState } from "../../../shared/types/run-state";
 import { svgEl } from "../dom/el";
 import { truncate } from "../dom/format";
 import {
-  LABEL_MAX,
   NODE_H,
   NODE_W,
   ORCH_NODE_H,
@@ -11,12 +10,32 @@ import {
   layoutDag,
 } from "./dag-layout";
 import type { DagLayout } from "./dag-layout";
-import { profileAccent, profileAccentSoft } from "./profile-color";
+import { harnessMarkGroup } from "./harness-mark";
+import { profilePalette } from "./profile-color";
+import type { ProfilePalette } from "./profile-color";
 
 type Point = { x: number; y: number };
 
+const HARNESS_MARK_SIZE: number = 15;
+// Shorter than the bare node width allows: the harness glyph now sits in the top-right corner.
+const LABEL_MAX: number = 19;
+
 function nodeLabel(node: RunNode): string {
   return node.label || node.id;
+}
+
+/**
+ * The node's harness. `adapter` is recorded at dispatch and so is authoritative; a node still
+ * waiting on its profile has none yet, and falls back to the profile's configured harness.
+ */
+function harnessOf(node: RunNode, byProfile: Record<string, string>): string | null {
+  if (node.adapter !== null && node.adapter !== "") {
+    return node.adapter;
+  }
+  if (node.profile !== null && node.profile !== "") {
+    return byProfile[node.profile] ?? null;
+  }
+  return null;
 }
 
 function profileKey(node: RunNode): string | null {
@@ -94,21 +113,29 @@ function nodeGroup(
   selected: boolean,
   isCyclic: boolean,
   onSelect: (nodeId: string) => void,
+  palette: ProfilePalette,
+  harnessByProfile: Record<string, string>,
 ): SVGElement {
   const label = nodeLabel(node);
   const profile = profileKey(node);
-  const accent = profile !== null ? profileAccent(profile) : "";
-  const accentSoft = profile !== null ? profileAccentSoft(profile) : "";
+  const harness = harnessOf(node, harnessByProfile);
+  const accent = profile !== null ? palette.accent(profile) : "";
+  const accentSoft = profile !== null ? palette.soft(profile) : "";
   const classes = `node task-node ${node.status}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}`;
   const group = svgEl("g", {
     class: classes,
     transform: `translate(${nodePos.x} ${nodePos.y})`,
     tabindex: "0",
     role: "button",
-    "aria-label": `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}`,
+    "aria-label": `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${
+      harness !== null ? `, ${harness}` : ""
+    }`,
   });
   if (profile !== null) {
-    group.setAttribute("style", `--profile-accent: ${accent}; --profile-soft: ${accentSoft}`);
+    // Through the CSSOM, not a `style` attribute: the shell's CSP has no 'unsafe-inline', so an
+    // inline style string is refused outright and every node loses its profile colour.
+    group.style.setProperty("--profile-accent", accent);
+    group.style.setProperty("--profile-soft", accentSoft);
     group.setAttribute("data-profile", profile);
   }
   group.appendChild(svgEl("rect", { class: "frame", width: String(NODE_W), height: String(NODE_H), rx: "6" }));
@@ -116,6 +143,10 @@ function nodeGroup(
     svgEl("rect", { class: "mark", x: "0", y: "0", width: "5", height: String(NODE_H), rx: "6" }),
   );
   group.appendChild(svgText({ class: "label", x: "14", y: "24" }, truncate(label, LABEL_MAX)));
+  // Top-right, clear of both text rows. Same glyph for every node on the same harness.
+  if (harness !== null) {
+    group.appendChild(harnessMarkGroup(harness, NODE_W - HARNESS_MARK_SIZE - 9, 8, HARNESS_MARK_SIZE));
+  }
   const target = node.profile ?? node.adapter;
   const statusLine = target === null ? node.status : `${node.status} · ${target}`;
   group.appendChild(svgText({ class: "st", x: "14", y: "43" }, statusLine));
@@ -172,8 +203,12 @@ export function renderGraph(
   run: RunState,
   selectedId: string | null,
   onSelect: (nodeId: string) => void,
+  harnessByProfile: Record<string, string> = {},
 ): SVGSVGElement {
   const layout = layoutDag(run.nodes, run.edges);
+  const palette = profilePalette(
+    run.nodes.map(profileKey).filter((name): name is string => name !== null),
+  );
   const svg = svgEl("svg", {
     width: String(layout.width),
     height: String(layout.height),
@@ -191,7 +226,9 @@ export function renderGraph(
       continue;
     }
     const isCyclic = layout.cyclic.includes(node.id);
-    svg.appendChild(nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect));
+    svg.appendChild(
+      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile),
+    );
   }
   return svg;
 }

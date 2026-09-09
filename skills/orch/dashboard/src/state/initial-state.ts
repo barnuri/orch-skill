@@ -1,10 +1,12 @@
 import type { AppState } from "./app-state";
+import { loadRunFilters } from "./run-filters";
 
 export function createInitialState(): AppState {
   return {
     route: { kind: "list" },
     runs: null,
     runsEtag: null,
+    runFilters: loadRunFilters(),
     run: null,
     runEtag: null,
     runMissing: false,
@@ -20,6 +22,7 @@ export function createInitialState(): AppState {
     fieldIssues: [],
     docError: null,
     profileNames: [],
+    profileHarness: {},
     defaultProfile: "",
     pendingProfileEdit: null,
     harnesses: null,

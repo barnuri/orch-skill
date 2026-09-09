@@ -80,7 +80,7 @@ export function renderRun(state: AppState, onSelect: (nodeId: string) => void): 
   );
   page.appendChild(
     el("div", { class: "layout run-layout" }, [
-      mountGraph(run, state.selectedNode, onSelect),
+      mountGraph(run, state.selectedNode, onSelect, state.profileHarness),
       renderNodePanel(run, state.selectedNode),
     ]),
   );

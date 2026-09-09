@@ -10,6 +10,7 @@ export function orchPaths(home: string): OrchPaths {
     memory: join(home, "memory.json"),
     suggestions: join(home, "suggestions.json"),
     runs: join(home, "runs"),
+    jobs: join(home, "jobs"),
     serveDir,
     pidFile: join(serveDir, "pid"),
     portFile: join(serveDir, "port"),

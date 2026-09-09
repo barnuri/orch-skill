@@ -1,8 +1,13 @@
 # orch
 
+![The orch dashboard: a task graph mid-run, per-profile node colours and harness glyphs, then one node's whole session with the command to resume it](docs/demo.gif)
+
 An agent skill that routes work across the coding agents you already have installed — Claude
 Code, Cursor's `cursor-agent`, opencode, or any OpenAI-compatible endpoint — runs multi-step
 task graphs in the background, and shows them on a live dashboard.
+
+> That recording is mock data — `orch demo seed` builds it and no harness is called, so nothing
+> in it cost a token. See [Try it with mock data](#try-it-with-mock-data).
 
 You keep talking to one agent. It decides which harness should do each piece of work, dispatches
 it, tracks it, and remembers which profile handled that kind of task well last time.
@@ -52,6 +57,33 @@ bash skills/orch/scripts/dispatch.sh init
 ```
 
 Removing it: `./uninstall.sh` (add `--with-service` and/or `--purge-state`).
+
+## Try it with mock data
+
+Before pointing orch at real work, seed a state dir with runs that look real and click around:
+
+```bash
+export HARNESS_ORCH_HOME=/tmp/orch-demo      # keeps your real ~/.harness-orch untouched
+bash skills/orch/scripts/dispatch.sh init
+bash skills/orch/scripts/dispatch.sh demo seed
+bash skills/orch/scripts/dispatch.sh ui      # dashboard on the seeded runs
+```
+
+That gives you four runs — one mid-flight, one clean, one failed, one with skipped work — across
+every node status, several profiles and two harnesses, each node carrying a full mock transcript.
+`demo advance` steps the live run forward one node; `demo reset` removes exactly what `seed`
+created and leaves anything else alone. Seeding refuses the default state dir without `--force`,
+so it cannot quietly add fake runs to the state you actually orchestrate from.
+
+To re-record the GIF at the top of this file:
+
+```bash
+scripts/demo-gif.sh            # seeds, serves, drives a visible Chrome, writes docs/demo.gif
+```
+
+It needs `ffmpeg` and Chrome (or Chromium) and skips cleanly without them. The browser window is
+deliberately visible — you can watch the recording happen — and the whole thing runs against a
+scratch state dir that is trashed on exit.
 
 ## Using it
 

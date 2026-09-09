@@ -93,7 +93,9 @@ describe("PUT happy path", () => {
     const get = await srv.api("/api/profiles");
     const etag = get.headers.get("etag") ?? "";
     const doc = (await get.json()).document;
-    doc.profiles["claude-sub"].model = "haiku";
+    // `model` must name a catalog id and sit inside the profile's own allowlist.
+    doc.profiles["claude-sub"].model = "claude-haiku";
+    doc.profiles["claude-sub"].allowed_models = ["claude-haiku"];
 
     const res = await put(srv, "/api/profiles", JSON.stringify(doc), { "If-Match": etag });
     expect(res.status).toBe(200);
@@ -101,7 +103,8 @@ describe("PUT happy path", () => {
     expect(body.ok).toBe(true);
     expect(res.headers.get("etag")).toBe(body.etag);
 
-    expect(JSON.parse(srv.home.read("profiles.json")).profiles["claude-sub"].model).toBe("haiku");
+    expect(JSON.parse(srv.home.read("profiles.json")).profiles["claude-sub"].model)
+      .toBe("claude-haiku");
     expect(srv.home.mode("profiles.json")).toBe(0o644);
     expect(tmpLeftovers(srv)).toEqual([]);
   });

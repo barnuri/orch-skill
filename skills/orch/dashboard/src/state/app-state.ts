@@ -8,12 +8,15 @@ import type { RunSummary } from "../../../shared/types/run-summary";
 import type { Route } from "../router";
 import type { EditingTarget } from "./editing-target";
 import type { LoadedDocument } from "./loaded-document";
+import type { RunFilters } from "./run-filters";
 
 export interface AppState {
   route: Route;
   // Runs list slice (kept across navigations so the list paints instantly and the first poll 304s).
   runs: RunSummary[] | null;
   runsEtag: string | null;
+  /** Runs-list view filters. Persisted to localStorage, so they outlive a reload. */
+  runFilters: RunFilters;
   // Single-run slice (reset on every route change).
   run: RunState | null;
   runEtag: string | null;
@@ -32,6 +35,8 @@ export interface AppState {
   fieldIssues: Issue[];
   docError: string | null;
   profileNames: string[];
+  /** profile name -> harness id, so a run page can pick each node's harness glyph. */
+  profileHarness: Record<string, string>;
   defaultProfile: string;
   /** Set before navigating to #/profiles; consumed on the next profiles poll. */
   pendingProfileEdit: string | null;

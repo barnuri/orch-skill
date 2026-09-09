@@ -64,7 +64,7 @@ export function bulkApplySuggestionsHandler(_ctx: ServerContext): RouteHandler {
     if (req.method !== "POST") {
       return jsonResponse(405, { error: "method not allowed" });
     }
-    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    const body = await readJsonBody(req, MAX_BODY_BYTES, true);
     if (!body.ok) {
       return body.response;
     }

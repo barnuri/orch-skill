@@ -22,7 +22,7 @@ import {
   scanSuggestionsHandler,
 } from "./routes/suggestions-routes";
 import { healthHandler } from "./routes/health-route";
-import { listRunsHandler, readRunHandler } from "./routes/runs-routes";
+import { listRunsHandler, readJobLogHandler, readRunHandler } from "./routes/runs-routes";
 import type { ServerContext } from "./types/server-context";
 import type { ServerOptions } from "./types/server-options";
 
@@ -33,7 +33,11 @@ export const DASHBOARD_DIR: string = resolve(import.meta.dir, "../dashboard");
 // Headroom over the JSON limit so `readJsonBody` gets to answer a descriptive 413 before Bun's empty one.
 export const BODY_SLACK_BYTES: number = 64 * 1024;
 
-const IDLE_TIMEOUT_SECONDS: number = 15;
+// Every dashboard request is fast except one: POST /api/profiles/sanity runs a real harness
+// call per profile and takes tens of seconds. At the old 15 s this request was cut off
+// mid-sweep, so "Sanity test all" could never return. SANITY_TIMEOUT_MS bounds the child, and
+// this bounds the socket — it has to be the larger of the two.
+const IDLE_TIMEOUT_SECONDS: number = 240;
 
 function contextOf(options: ServerOptions): ServerContext {
   return {
@@ -71,6 +75,7 @@ export function startServer(options: ServerOptions): Server<undefined> {
       "/api/health": apiRoute(ctx, { GET: healthHandler(ctx) }),
       "/api/runs": apiRoute(ctx, { GET: listRunsHandler(ctx) }),
       "/api/runs/:id": apiRoute(ctx, { GET: readRunHandler(ctx) }),
+      "/api/jobs/:id/log": apiRoute(ctx, { GET: readJobLogHandler(ctx) }),
       "/api/profiles": apiRoute(ctx, {
         GET: getDocumentHandler(ctx, "profiles"),
         PUT: putDocumentHandler(ctx, "profiles"),

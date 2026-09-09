@@ -361,11 +361,16 @@ function profileCrossIssues(
   spec: Record<string, unknown>,
   models: Record<string, unknown>,
   profileNames: string[],
+  harnesses: readonly string[],
+  modelWellFormed: boolean,
 ): Issue[] {
   const path = `profiles.${name}`;
   const issues: Issue[] = [];
-  const harness = typeof spec["harness"] === "string" ? spec["harness"] : "";
-  if ("model" in spec && typeof spec["model"] === "string" && spec["model"] !== "") {
+  // An unknown harness is already reported at `.harness`; deriving a second
+  // "model does not support this harness" from it would only be noise.
+  const declared = spec["harness"];
+  const harness = typeof declared === "string" && harnesses.includes(declared) ? declared : "";
+  if (modelWellFormed && typeof spec["model"] === "string" && spec["model"] !== "") {
     const modelId = spec["model"];
     const modelSpec = models[modelId];
     if (!isPlainObject(modelSpec)) {
@@ -414,8 +419,12 @@ function profileCrossIssues(
       }
     });
   }
+  // A malformed allowlist makes membership undefined — the entry issues above say enough.
+  const allowlistWellFormed = !issues.some((issue) =>
+    issue.path.startsWith(`${path}.allowed_models`));
   if (
-    "model" in spec
+    modelWellFormed
+    && allowlistWellFormed
     && typeof spec["model"] === "string"
     && spec["model"] !== ""
     && Array.isArray(spec["allowed_models"])
@@ -459,8 +468,13 @@ function profileIssues(
   }
   issues.push(...unknownKeyIssues(spec, PROFILE_KEYS, path));
   issues.push(...harnessIssues(`${path}.harness`, spec, harnesses));
+  let modelWellFormed = true;
   if ("model" in spec) {
-    issues.push(...textIssues(`${path}.model`, spec["model"], MAX_MODEL_LEN));
+    const modelIssues = textIssues(`${path}.model`, spec["model"], MAX_MODEL_LEN);
+    issues.push(...modelIssues);
+    modelWellFormed = modelIssues.length === 0;
+  } else {
+    modelWellFormed = false;
   }
   if ("allowed_models" in spec) {
     issues.push(...stringArrayIssues(`${path}.allowed_models`, spec["allowed_models"], MAX_TAGS, MAX_MODEL_LEN));
@@ -522,7 +536,7 @@ function profileIssues(
   if ("auth" in spec) {
     issues.push(...authIssues(`${path}.auth`, spec["auth"]));
   }
-  issues.push(...profileCrossIssues(name, spec, models, profileNames));
+  issues.push(...profileCrossIssues(name, spec, models, profileNames, harnesses, modelWellFormed));
   return issues;
 }
 

@@ -49,6 +49,15 @@ in_list() {
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# A lowercase RFC-4122 v4 uuid. `claude --session-id` requires that exact shape.
+new_uuid() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr 'A-Z' 'a-z'
+    return 0
+  fi
+  python3 -c 'import uuid; print(uuid.uuid4())'
+}
+
 # Epoch mtime of a file — BSD stat (macOS) first, GNU stat second.
 file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 
@@ -67,7 +76,9 @@ suggestions_seed() {
     || printf '{"generated_at":"%s","suggestions":[]}\n' "$(now_iso)" > "$SUGGESTIONS_FILE"
 }
 
-# Adds models{}, learning defaults, and catalog ids for legacy model slugs — never overwrites user edits.
+# Adds models{}, learning defaults, the cursor Auto model, and catalog ids for legacy model
+# slugs — never overwrites user edits (cursor-default is retargeted only while still on
+# the old composer-1 default).
 profiles_migrate() {
   command -v jq >/dev/null 2>&1 || return 0
   [ -f "$PROFILES_FILE" ] || return 0
@@ -86,6 +97,19 @@ profiles_migrate() {
     .models //= {}
     | rename_profile("claude-hub"; "claude-llm-hub")
     | rename_profile("cursor-hub"; "cursor-llm-hub")
+    | .models["cursor-auto"] //= {
+        slug: "auto",
+        harnesses: ["cursor-agent"],
+        description: "Cursor picks the model per request (Auto).",
+        cost: "metered",
+        quality: "standard",
+        speed: "fast",
+        tags: ["cursor", "auto"]
+      }
+    | if (.profiles["cursor-default"].model? // "") == "cursor-composer" then
+        .profiles["cursor-default"].model = "cursor-auto"
+        | .profiles["cursor-default"].allowed_models = ["cursor-auto"]
+      else . end
     |     .settings.learning //= {
         auto_record_memory: true,
         auto_scan_on_finish: true,
