@@ -76,6 +76,17 @@ install_plugin() {
   claude plugin install "$PLUGIN_ID" --scope "$SCOPE" --yes
 }
 
+# A convenience symlink to the live state directory so profiles.json/memory.json are reachable
+# from the checkout. Absolute and per-machine, hence gitignored — see .gitignore.
+link_config() {
+  local state_dir="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
+  ln -sfn "$state_dir" "$REPO_DIR/config" || {
+    printf 'install: could not link %s/config -> %s\n' "$REPO_DIR" "$state_dir" >&2
+    return 1
+  }
+  printf 'linked ./config -> %s\n' "$state_dir"
+}
+
 install_service() {
   printf '\n--- optional dashboard service ---\n'
   bash "$REPO_DIR/scripts/service.sh" install
@@ -111,6 +122,7 @@ main() {
   require_claude || return $?
   add_marketplace || { printf 'install: marketplace registration failed\n' >&2; return 1; }
   install_plugin || { printf 'install: plugin install failed\n' >&2; return 1; }
+  link_config || return 1
   [ "$WITH_SERVICE" -eq 0 ] || install_service || return 1
   print_next_steps
 }

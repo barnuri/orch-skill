@@ -22,6 +22,12 @@ skills/orch/
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
 ```
 
+`config/` at the repo root is a **gitignored** symlink to the live state directory
+(`${HARNESS_ORCH_HOME:-~/.harness-orch}`) — a convenience for reading `profiles.json`,
+`memory.json`, `runs/` and `jobs/` while working in the checkout. It points at an absolute
+per-machine path, so it must never be committed; `install.sh` creates it and `.gitignore` blocks
+it. Reading through it is fine; writing to `runs/` or `jobs/` through it is not (see Invariants).
+
 Adding a skill would mean appending it to `plugins[0].skills` in
 `.claude-plugin/marketplace.json` — a skill on disk that is missing from the manifest is not
 loaded.

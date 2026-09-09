@@ -14,3 +14,7 @@ dist/
 
 # Agent session scratch
 **/agent-spec
+
+# Convenience symlink to the live state directory (~/.harness-orch): profiles.json, memory.json,
+# runs/, jobs/. Per-machine and absolute, so it is created by hand and never committed.
+/config

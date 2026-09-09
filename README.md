@@ -164,6 +164,26 @@ whose `auth` variables are missing refuses to run and says which one is unset.
 `outcome`, `note`). It is the second-highest input to routing, above the classifier: a profile
 that succeeded at this kind of task before gets picked again.
 
+### Editing the config from the checkout
+
+`install.sh` leaves a `config` symlink at the repo root pointing at the live state directory, so
+the files you actually edit are one hop away:
+
+```bash
+ls config/                 # profiles.json  memory.json  runs/  jobs/  serve.token
+$EDITOR config/profiles.json
+```
+
+It is per-machine and absolute, so it is **gitignored** — never committed. Create it by hand if
+you cloned without running `install.sh`:
+
+```bash
+ln -sfn "${HARNESS_ORCH_HOME:-$HOME/.harness-orch}" config
+```
+
+The dashboard's `#/profiles` and `#/memory` views edit the same two files with validation and an
+ETag check, which is the safer route while a run is in flight.
+
 Schemas, exit codes, and the full state layout:
 [`skills/orch/references/state-and-config.md`](skills/orch/references/state-and-config.md).
 
