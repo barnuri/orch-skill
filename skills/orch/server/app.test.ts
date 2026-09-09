@@ -87,6 +87,42 @@ describe("unlisted paths", () => {
   }
 });
 
+// The default test server sets requireToken, so the block above keeps exercising the bearer
+// path. This one is the shipped default: a request from this machine is authorized outright.
+describe("loopback bypass", () => {
+  let local: TestServerHandle;
+
+  beforeAll(() => {
+    local = startTestServer({ requireToken: false });
+  });
+
+  afterAll(() => {
+    local.stop();
+  });
+
+  for (const path of API_PATHS) {
+    test(`${path} needs no token over loopback`, async () => {
+      const res = await local.api(path, {}, false);
+      expect(res.status).toBe(200);
+    });
+  }
+
+  test("a wrong token over loopback is still accepted", async () => {
+    const res = await local.api("/api/health", { headers: { Authorization: "Bearer nope" } }, false);
+    expect(res.status).toBe(200);
+  });
+
+  test("the correct token still works", async () => {
+    const res = await local.api("/api/health");
+    expect(res.status).toBe(200);
+  });
+
+  test("the host policy still applies", async () => {
+    const res = await local.api("/api/health", { headers: { Host: "evil.test" } }, false);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("auth", () => {
   for (const path of API_PATHS) {
     test(`${path} without a token is 401`, async () => {

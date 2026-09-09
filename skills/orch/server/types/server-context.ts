@@ -5,6 +5,7 @@ export interface ServerContext {
   bindHost: string;
   hostname: string;
   tokenDigest: Uint8Array;
+  requireToken: boolean;
   harnesses: readonly string[];
   outcomes: readonly string[];
 }

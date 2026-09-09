@@ -3,15 +3,19 @@
 # whenever you want it without starting anything by hand. Entirely opt-in — `orch ui` works fine
 # without it, starting the same server on demand.
 #
-#   service.sh install [--host H] [--port P] [--home DIR]   register + start (macOS launchd / Linux systemd --user)
+#   service.sh install [--host H] [--port P] [--home DIR] [--require-token]
+#                                                           register + start (macOS launchd / Linux systemd --user)
 #   service.sh uninstall                                    stop + deregister
-#   service.sh restart                                      stop + start
+#   service.sh restart                                      stop + start (run this after changing the skill)
 #   service.sh status                                       supervisor state, listener probe, dashboard URL
 #   service.sh logs [-n N]                                  tail the service log
 #
 # The service runs `dispatch.sh serve`, which is the same foreground server `orch ui` starts.
 # It binds 127.0.0.1 by default — a permanently-listening service is a bigger exposure than an
 # on-demand one, so LAN access (`--host 0.0.0.0`) is opt-in.
+#
+# Requests from this machine need no token. `--require-token` demands the bearer token from
+# loopback too, which is what a shared multi-user host wants.
 
 set -u
 
@@ -28,6 +32,7 @@ THROTTLE_SECS=10
 ORCH_HOME="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
 SERVICE_HOST="$DEFAULT_HOST"
 SERVICE_PORT="$DEFAULT_PORT"
+REQUIRE_TOKEN=0
 
 usage() {
   sed -n '2,15p' "$0" | sed 's|^# \{0,1\}||'
@@ -84,6 +89,7 @@ parse_install_opts() {
         ORCH_HOME="${1:-}"
         [ -n "$ORCH_HOME" ] || { printf 'service: --home expects a directory\n' >&2; return 2; }
         ;;
+      --require-token) REQUIRE_TOKEN=1 ;;
       *) printf 'service: unknown argument %s\n\n' "$1" >&2; usage >&2; return 2 ;;
     esac
     shift
@@ -114,8 +120,20 @@ preflight() {
 
 log_file() { printf '%s/serve/service.log\n' "$ORCH_HOME"; }
 
+# Baked into the unit's environment. Empty means "loopback needs no token", which is what
+# serve.sh tests for; `1` makes the server demand the bearer token from every peer.
+require_token_value() {
+  [ "$REQUIRE_TOKEN" -eq 1 ] && printf '1\n' || printf '\n'
+}
+
+# The server exempts loopback from auth, so the local URL needs no token unless the service was
+# installed with --require-token.
 dashboard_url() {
   local token
+  if [ "$REQUIRE_TOKEN" -eq 0 ]; then
+    printf 'http://127.0.0.1:%s/\n' "$SERVICE_PORT"
+    return 0
+  fi
   token=$(cat "$ORCH_HOME/serve.token" 2>/dev/null) || token=""
   if [ -z "$token" ]; then
     printf 'http://127.0.0.1:%s/  (token not minted yet — it appears on first start)\n' "$SERVICE_PORT"
@@ -158,6 +176,11 @@ adopt_installed_settings() {
   port=$(grep -o -- '--port[^0-9]*[0-9]*' "$unit" 2>/dev/null | tail -n 1 | grep -oE '[0-9]+$')
   [ -z "$host" ] || SERVICE_HOST="$host"
   [ -z "$port" ] || SERVICE_PORT="$port"
+  # `Environment=ORCH_REQUIRE_TOKEN=1` (systemd) or the key's following <string>1</string> (plist).
+  if grep -A1 'ORCH_REQUIRE_TOKEN' "$unit" 2>/dev/null | grep -qE '=1$|<string>1</string>'; then
+    REQUIRE_TOKEN=1
+  fi
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -197,6 +220,8 @@ launchd_write_plist() {
         <string>$ORCH_HOME</string>
         <key>ORCH_BUN</key>
         <string>$bun</string>
+        <key>ORCH_REQUIRE_TOKEN</key>
+        <string>$(require_token_value)</string>
     </dict>
     <key>WorkingDirectory</key>
     <string>$SKILL_DIR</string>
@@ -286,6 +311,7 @@ Type=simple
 ExecStart=/bin/bash $DISPATCH serve --host $SERVICE_HOST --port $SERVICE_PORT
 Environment=HARNESS_ORCH_HOME=$ORCH_HOME
 Environment=ORCH_BUN=$bun
+Environment=ORCH_REQUIRE_TOKEN=$(require_token_value)
 Environment=PATH=$(dirname "$bun"):/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$SKILL_DIR
 Restart=always
@@ -353,6 +379,11 @@ cmd_install() {
 
   printf '  serving: %s:%s\n  state:   %s\n  log:     %s\n' \
     "$SERVICE_HOST" "$SERVICE_PORT" "$ORCH_HOME" "$(log_file)"
+  if [ "$REQUIRE_TOKEN" -eq 1 ]; then
+    printf '  auth:    bearer token required from every peer, loopback included\n'
+  else
+    printf '  auth:    none from this machine; the bearer token from any other peer\n'
+  fi
   [ "$SERVICE_HOST" != 0.0.0.0 ] || printf '  note: bound to 0.0.0.0 — reachable from your LAN with the token\n'
   printf '\nDashboard: %s\n' "$(dashboard_url)"
   printf 'Check it with: bash %s status\n' "$0"

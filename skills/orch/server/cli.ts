@@ -1,14 +1,16 @@
 import { hostname } from "node:os";
 
+import { isLoopbackAddress } from "./http/loopback";
 import type { ServeArgs } from "./types/serve-args";
 
 export const DEFAULT_HOST: string = "0.0.0.0";
 export const DEFAULT_PORT: number = 6724;
 export const MAX_PORT: number = 65535;
 export const SERVE_USAGE: string =
-  'bun server/main.ts --home DIR [--host H] [--port P] --harnesses "a b" --outcomes "x y"';
+  'bun server/main.ts --home DIR [--host H] [--port P] [--require-token] --harnesses "a b" --outcomes "x y"';
 
 const LOOPBACK_HOST: string = "127.0.0.1";
+const LOCALHOST: string = "localhost";
 const UINT_PATTERN: RegExp = /^\d+$/;
 
 /**
@@ -20,11 +22,16 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
   let home: string | null = null;
   let host: string = DEFAULT_HOST;
   let port: number = DEFAULT_PORT;
+  let requireToken: boolean = false;
   let harnesses: readonly string[] | null = null;
   let outcomes: readonly string[] | null = null;
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index] ?? "";
+    if (flag === "--require-token") {
+      requireToken = true;
+      continue;
+    }
     const value = valueFor(flag, argv[index + 1]);
     index += 1;
     switch (flag) {
@@ -60,29 +67,43 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
   if (outcomes === null) {
     throw usageError("serve: --outcomes is required");
   }
-  return { home, host, port, harnesses, outcomes };
+  return { home, host, port, requireToken, harnesses, outcomes };
 }
 
 /**
  * URLs to print once the server is listening — the only place the token
  * travels in clear text. `0.0.0.0` yields the loopback URL plus one built from
  * the OS hostname (no DNS lookups); any other bind host yields itself only.
+ *
+ * A URL only carries `?token=` when the peer reaching the server through it will actually be
+ * asked for one: loopback is exempt unless `requireToken` is set, while the hostname URL always
+ * carries it because whoever uses it is coming in over the network.
  */
-export function urlsFor(host: string, port: number, token: string): string[] {
+export function urlsFor(
+  host: string,
+  port: number,
+  token: string,
+  requireToken: boolean,
+): string[] {
   if (host !== DEFAULT_HOST) {
-    return [urlOf(host, port, token)];
+    return [urlOf(host, port, token, requireToken || !isLoopbackHost(host))];
   }
-  const urls: string[] = [urlOf(LOOPBACK_HOST, port, token)];
+  const urls: string[] = [urlOf(LOOPBACK_HOST, port, token, requireToken)];
   const machine = hostname();
   if (machine !== "" && machine !== LOOPBACK_HOST) {
-    urls.push(urlOf(machine, port, token));
+    urls.push(urlOf(machine, port, token, true));
   }
   return urls;
 }
 
-function urlOf(host: string, port: number, token: string): string {
+function isLoopbackHost(host: string): boolean {
+  return isLoopbackAddress(host) || host.toLowerCase() === LOCALHOST;
+}
+
+function urlOf(host: string, port: number, token: string, withToken: boolean): string {
   const authority = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
-  return `http://${authority}:${port}/?token=${token}`;
+  const query = withToken ? `?token=${token}` : "";
+  return `http://${authority}:${port}/${query}`;
 }
 
 function valueFor(flag: string, next: string | undefined): string {

@@ -31,6 +31,7 @@ function contextOf(options: ServerOptions): ServerContext {
     bindHost: options.host,
     hostname: hostname(),
     tokenDigest: options.tokenDigest,
+    requireToken: options.requireToken,
     harnesses: options.harnesses,
     outcomes: options.outcomes,
   };

@@ -147,9 +147,11 @@ nodes pulse, click a node for profile, job, timings, error and log tail. `#/prof
 ETag check that refuses to overwrite a change made behind your back. The page polls every 2 s and
 shows "updated Ns ago". Give the user the `#/run/<run-id>` link when a run starts.
 
-The URL carries `?token=<t>`, read from `~/.harness-orch/serve.token` (minted 0600 on first
-start). The token unlocks the page; every `/api/*` call then sends it as a bearer header. Trash
-the file and restart to rotate it.
+**Requests from this machine need no token** — the server authorizes any loopback peer, so `ui`
+prints a plain `http://127.0.0.1:<port>/` and the page never asks for anything. A request from
+any other address still needs the bearer token, which is what the hostname URL carries and what
+`~/.harness-orch/serve.token` holds (minted 0600 on first start). Trash that file and restart to
+rotate it. `ORCH_REQUIRE_TOKEN=1` demands the token from loopback too.
 
 ## Retention
 
@@ -176,12 +178,17 @@ clear message (exit 127 / 1) — report it, do not retry. Contract and how to ad
 ## Security
 
 The dashboard speaks **plain HTTP** and binds `0.0.0.0` by default — a deliberate trade for a
-personal LAN tool, and the one thing to understand before running it anywhere else: the bearer
-token travels in clear on the local network. Anyone who can reach port 6724 *and* holds the token
-can read job logs and rewrite `profiles.json`. On a shared or untrusted network run `orch serve
+personal LAN tool, and the thing to understand before running it anywhere else: the bearer token
+travels in clear on the local network. Anyone who can reach port 6724 *and* holds the token can
+read job logs and rewrite `profiles.json`. On a shared or untrusted network run `orch serve
 --host 127.0.0.1`, which the optional background service uses by default. Never expose the port
 beyond the LAN, and never put a secret **value** in `profiles.json` — only env-var names and
 `${VAR}` references.
+
+Loopback requests skip auth entirely, on the reasoning that anyone who can open a socket from
+this machine could already read the token file. The exception is a **shared multi-user host**,
+where another local account can reach 127.0.0.1: set `ORCH_REQUIRE_TOKEN=1` there so the token
+is demanded from every peer.
 
 If a `~/.harness-orch/index.html` or `data/` directory is still around, it is a leftover from the
 retired `file://` dashboard; `orch init` points it out and you can trash it.

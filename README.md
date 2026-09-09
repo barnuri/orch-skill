@@ -102,8 +102,11 @@ Starts (or reuses) the Bun server and opens the tokenized URL. Runs are listed n
 edit the two JSON files in place with the same validation the CLI applies. The page polls every
 2 s. `ORCH_NO_OPEN=1` prints the URL instead of opening a browser; `ui --stop` shuts it down.
 
-The URL carries a bearer token read from `~/.harness-orch/serve.token` (minted `0600` on first
-start). Trash that file and restart to rotate it.
+**No token prompt for local use.** The server authorizes any request coming from this machine, so
+the local URL is a plain `http://127.0.0.1:6724/` and the page opens straight into the runs list.
+A request from any other address still needs the bearer token, read from
+`~/.harness-orch/serve.token` (minted `0600` on first start) — that is what the hostname URL
+carries when the server is bound to `0.0.0.0`. Trash that file and restart to rotate it.
 
 ## Optional: run the dashboard as a background service
 
@@ -123,6 +126,7 @@ bash scripts/service.sh uninstall
 | macOS | launchd agent `io.github.barnuri.orch` at `~/Library/LaunchAgents/io.github.barnuri.orch.plist`, `RunAtLoad` + `KeepAlive` |
 | Linux | systemd `--user` unit `orch-dashboard.service` under `~/.config/systemd/user/`, `Restart=always` |
 | Bind address | **`127.0.0.1` by default.** An always-listening service is a bigger exposure than an on-demand one, so LAN access is opt-in: `install --host 0.0.0.0` |
+| Auth | none from this machine; the bearer token from every other peer. `install --require-token` demands it locally too |
 | Port | `6724` — change with `install --port N` |
 | State dir | `~/.harness-orch`, or `install --home DIR` |
 | Log | `<state-dir>/serve/service.log` |
@@ -204,6 +208,12 @@ The dashboard speaks **plain HTTP**. On the machine's own loopback that is unrem
 LAN it means the bearer token travels in clear, and anyone who can reach the port *and* holds
 the token can read job logs and rewrite `profiles.json`.
 
+- **Loopback requests need no token.** Anyone who can open a socket from this machine could
+  already read `serve.token`, so requiring it back would add friction without adding a barrier.
+- **On a shared multi-user host, set `ORCH_REQUIRE_TOKEN=1`** (or install the service with
+  `--require-token`). That is the one case where the bypass matters: another local account can
+  reach `127.0.0.1` and would otherwise get in.
+- Every non-loopback peer presents the bearer token, always.
 - The background service binds `127.0.0.1` by default. Keep it that way unless you want LAN access.
 - `dispatch.sh ui` binds `0.0.0.0` (it was built to be opened from a phone on the same LAN). Use
   `dispatch.sh serve --host 127.0.0.1` when that is not what you want.

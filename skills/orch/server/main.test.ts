@@ -7,7 +7,8 @@ import { TempHome } from "./test-support/temp-home";
 const ENTRY: string = resolve(import.meta.dir, "main.ts");
 const HARNESSES: string = "claude cursor-agent opencode";
 const OUTCOMES: string = "good bad";
-const URL_PATTERN = /^http:\/\/127\.0\.0\.1:(\d+)\/\?token=(\S+)$/m;
+// `?token=` is optional: the loopback URL omits it unless the server was given --require-token.
+const URL_PATTERN = /^http:\/\/127\.0\.0\.1:(\d+)\/(?:\?token=(\S+))?$/m;
 const READY_TIMEOUT_MS: number = 10_000;
 const POLL_MS: number = 25;
 const SIGTERM_GRACE_MS: number = 2000;
@@ -69,12 +70,14 @@ async function startServe(home: TempHome, extra: readonly string[] = []): Promis
   ]);
   const stdout = await readUntil(proc.stdout, URL_PATTERN);
   const match = URL_PATTERN.exec(stdout);
-  if (match?.[1] === undefined || match[2] === undefined) {
+  if (match?.[1] === undefined) {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`serve did not print a URL.\nstdout: ${stdout}\nstderr: ${stderr}`);
   }
   const stderr = await readUntil(proc.stderr, /Ctrl-C to stop\./);
-  return { proc, port: Number(match[1]), token: match[2], stderr };
+  // The file is authoritative; the URL only carries the token under --require-token.
+  const token = match[2] ?? home.read("serve.token").trim();
+  return { proc, port: Number(match[1]), token, stderr };
 }
 
 async function waitForPidCleared(home: TempHome): Promise<string> {

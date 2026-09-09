@@ -137,6 +137,7 @@ serve_start_background() {
   serve_prepare_home || return 1
   set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_DEFAULT_HOST" --port "$SERVE_DEFAULT_PORT" \
     --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES"
+  [ -z "${ORCH_REQUIRE_TOKEN:-}" ] || set -- "$@" --require-token
 
   nohup "$bun_bin" "$@" >>"$SERVE_LOG_FILE" 2>&1 </dev/null &
   bg=$!
@@ -156,7 +157,13 @@ serve_start_background() {
   return 1
 }
 
+# The URL `ui` opens and prints. It always targets 127.0.0.1, which the server exempts from auth,
+# so the token is appended only when ORCH_REQUIRE_TOKEN made the server demand it locally too.
 serve_url() {
+  if [ -z "${ORCH_REQUIRE_TOKEN:-}" ]; then
+    printf 'http://127.0.0.1:%s/\n' "$(serve_port)"
+    return 0
+  fi
   printf 'http://127.0.0.1:%s/?token=%s\n' "$(serve_port)" "$(cat "$SERVE_TOKEN_FILE" 2>/dev/null)"
 }
 
@@ -209,6 +216,7 @@ cmd_serve() {
   serve_prepare_home || return 1
   set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_HOST" --port "$SERVE_PORT" \
     --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES"
+  [ -z "${ORCH_REQUIRE_TOKEN:-}" ] || set -- "$@" --require-token
   exec "$bun_bin" "$@"
 }
 

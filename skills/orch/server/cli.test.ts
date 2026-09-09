@@ -27,6 +27,18 @@ describe("parseServeArgs", () => {
     expect(args.host).toBe("127.0.0.1");
   });
 
+  test("requireToken defaults to false and --require-token sets it", () => {
+    expect(parseServeArgs(requiredArgs()).requireToken).toBe(false);
+    expect(parseServeArgs([...requiredArgs(), "--require-token"]).requireToken).toBe(true);
+  });
+
+  // The flag takes no value, so it must not swallow the argument that follows it.
+  test("--require-token does not consume the next argument", () => {
+    const args = parseServeArgs([...requiredArgs(), "--require-token", "--port", "7000"]);
+    expect(args.requireToken).toBe(true);
+    expect(args.port).toBe(7000);
+  });
+
   test("accepts --port 0 as the ephemeral port", () => {
     expect(parseServeArgs([...requiredArgs(), "--port", "0"]).port).toBe(0);
     expect(parseServeArgs([...requiredArgs(), "--port", "65535"]).port).toBe(65535);
@@ -91,24 +103,41 @@ describe("parseServeArgs", () => {
   });
 });
 
-describe("urlsFor", () => {
-  test("0.0.0.0 yields the loopback URL followed by the hostname URL", () => {
-    const urls = urlsFor("0.0.0.0", 6724, TOKEN);
-    expect(urls[0]).toBe(`http://127.0.0.1:6724/?token=${TOKEN}`);
+describe("urlsFor with the loopback bypass (the default)", () => {
+  test("0.0.0.0 yields a tokenless loopback URL and a tokenized hostname URL", () => {
+    const urls = urlsFor("0.0.0.0", 6724, TOKEN, false);
+    expect(urls[0]).toBe("http://127.0.0.1:6724/");
     expect(urls).toContain(`http://${hostname()}:6724/?token=${TOKEN}`);
     expect(urls.length).toBe(2);
   });
 
-  test("127.0.0.1 yields the loopback URL only", () => {
-    expect(urlsFor("127.0.0.1", 6724, TOKEN)).toEqual([
+  test("a loopback bind host yields a tokenless URL", () => {
+    expect(urlsFor("127.0.0.1", 6724, TOKEN, false)).toEqual(["http://127.0.0.1:6724/"]);
+    expect(urlsFor("localhost", 6724, TOKEN, false)).toEqual(["http://localhost:6724/"]);
+    expect(urlsFor("::1", 8080, TOKEN, false)).toEqual(["http://[::1]:8080/"]);
+  });
+
+  test("a non-loopback bind host keeps the token", () => {
+    expect(urlsFor("192.168.1.20", 8080, TOKEN, false)).toEqual([
+      `http://192.168.1.20:8080/?token=${TOKEN}`,
+    ]);
+  });
+});
+
+describe("urlsFor with --require-token", () => {
+  test("every URL carries the token", () => {
+    const urls = urlsFor("0.0.0.0", 6724, TOKEN, true);
+    expect(urls[0]).toBe(`http://127.0.0.1:6724/?token=${TOKEN}`);
+    expect(urls).toContain(`http://${hostname()}:6724/?token=${TOKEN}`);
+  });
+
+  test("127.0.0.1 yields the tokenized loopback URL only", () => {
+    expect(urlsFor("127.0.0.1", 6724, TOKEN, true)).toEqual([
       `http://127.0.0.1:6724/?token=${TOKEN}`,
     ]);
   });
 
-  test("any other bind host yields itself only, bracketing IPv6 literals", () => {
-    expect(urlsFor("192.168.1.20", 8080, TOKEN)).toEqual([
-      `http://192.168.1.20:8080/?token=${TOKEN}`,
-    ]);
-    expect(urlsFor("::1", 8080, TOKEN)).toEqual([`http://[::1]:8080/?token=${TOKEN}`]);
+  test("IPv6 literals stay bracketed", () => {
+    expect(urlsFor("::1", 8080, TOKEN, true)).toEqual([`http://[::1]:8080/?token=${TOKEN}`]);
   });
 });

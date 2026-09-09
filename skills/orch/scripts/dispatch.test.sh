@@ -605,6 +605,9 @@ chmod +x "$shims/curl"
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 fake_orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims/bun" ORCH_NO_OPEN=1 \
   bash "$SCRIPT" "$@"; }
+# Same shims, but with the opt-back-in to token auth on loopback.
+fake_orch_token() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims/bun" \
+  ORCH_NO_OPEN=1 ORCH_REQUIRE_TOKEN=1 bash "$SCRIPT" "$@"; }
 
 orch init >/dev/null 2>&1
 printf 'testtoken' > "$home/serve.token"
@@ -639,7 +642,7 @@ expect_exit "ui without bun exits 127" 127 "$rc"
 
 out=$(fake_orch ui 2>&1); rc=$?
 expect_exit "ui starts the server and exits 0" 0 "$rc"
-expect_match "ui prints the loopback URL with the token" '^http://127\.0\.0\.1:12345/\?token=testtoken$' "$out"
+expect_match "ui prints a tokenless loopback URL" '^http://127\.0\.0\.1:12345/$' "$out"
 expect_file "ui recorded the server argv" "$home/serve/argv"
 argv=$(cat "$home/serve/argv")
 expect_match "argv carries --home" "^--home$" "$argv"
@@ -655,8 +658,21 @@ expect_match "serve log is private" '^600$' "$(stat -f '%Lp' "$home/serve/log" 2
 first_pid=$(cat "$home/serve/pid")
 out=$(fake_orch ui 2>&1); rc=$?
 expect_exit "a second ui exits 0" 0 "$rc"
-expect_match "a second ui prints the same URL" '^http://127\.0\.0\.1:12345/\?token=testtoken$' "$out"
+expect_match "a second ui prints the same URL" '^http://127\.0\.0\.1:12345/$' "$out"
 expect_match "a second ui reuses the same process" "^$first_pid$" "$(cat "$home/serve/pid")"
+
+# ORCH_REQUIRE_TOKEN restores the pre-bypass behaviour: the flag reaches the server and the
+# printed URL carries the token again.
+expect_no_match "argv omits --require-token by default" '^--require-token$' "$(cat "$home/serve/argv")"
+fake_orch ui --stop >/dev/null 2>&1
+out=$(fake_orch_token ui 2>&1); rc=$?
+expect_exit "ui with ORCH_REQUIRE_TOKEN exits 0" 0 "$rc"
+expect_match "ui with ORCH_REQUIRE_TOKEN prints the tokenized URL" \
+  '^http://127\.0\.0\.1:12345/\?token=testtoken$' "$out"
+expect_match "argv carries --require-token" '^--require-token$' "$(cat "$home/serve/argv")"
+fake_orch ui --stop >/dev/null 2>&1
+fake_orch ui >/dev/null 2>&1
+first_pid=$(cat "$home/serve/pid")
 
 out=$(fake_orch serve 2>&1); rc=$?
 expect_exit "serve refuses while one is running" 1 "$rc"

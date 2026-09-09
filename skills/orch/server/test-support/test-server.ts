@@ -16,6 +16,10 @@ const WILDCARD_HOST: string = "0.0.0.0";
  * In-process server on 127.0.0.1:0 over a fresh TempHome, authenticated with a known
  * token. `overrides` replace individual `ServerOptions` (never the bind to all interfaces);
  * `stop()` closes the server and moves the TempHome to the Trash.
+ *
+ * `requireToken` defaults to true even though these tests connect over loopback: without it the
+ * loopback bypass would authorize every request and each auth assertion would pass vacuously.
+ * Tests for the bypass itself opt out with `{ requireToken: false }`.
  */
 export function startTestServer(overrides: Partial<ServerOptions> = {}): TestServerHandle {
   if (overrides.host === WILDCARD_HOST) {
@@ -27,6 +31,7 @@ export function startTestServer(overrides: Partial<ServerOptions> = {}): TestSer
     host: LOOPBACK_HOST,
     port: 0,
     tokenDigest: digestToken(TEST_TOKEN),
+    requireToken: true,
     harnesses: TEST_HARNESSES,
     outcomes: TEST_OUTCOMES,
     ...overrides,

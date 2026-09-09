@@ -56,9 +56,40 @@ install cache into a gitignored `.types/` symlink farm. Do not introduce a packa
 **Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
 interpolation happens at spawn time. `profile show` prints `env` as written. Keep it that way.
 
+**Auth is peer-based, not bind-based.** `route.ts:authorized` lets any loopback peer through
+without a token (`isLoopbackPeer` reads Bun's `server.requestIP`), and demands the bearer token
+from everyone else. `--require-token` / `ORCH_REQUIRE_TOKEN=1` turns the bypass off. Two things
+follow: the test server sets `requireToken: true` by default, or every auth assertion would pass
+vacuously over loopback; and `urlsFor` only appends `?token=` to a URL whose user will actually
+be challenged. Do not replace this with a check on the *bind* host — that would either keep
+prompting locally or drop auth for the whole LAN.
+
 **Two backgrounding modes, on purpose.** `run` executes an adapter synchronously (for callers
 that are already backgrounded, e.g. a harness's own background-Bash + Monitor); `start`
 self-backgrounds via `nohup` and prints a job id (for callers that are not). Don't collapse them.
+
+## After every change: restart the service
+
+The dashboard server bundles `dashboard/` once at startup and keeps it in memory — a running
+server never re-reads `server/`, `dashboard/` or `shared/`. So **any** change under `skills/orch/`
+is invisible until the process restarts.
+
+**Once the tests and typecheck pass, restart the service. Treat it as the last step of the task,
+not an optional follow-up:**
+
+```bash
+bash skills/orch/scripts/dispatch.test.sh   # must be 0 failed
+bash skills/orch/scripts/typecheck.sh       # must print `typecheck: ok`
+bash scripts/service.sh restart             # pick up the change
+bash scripts/service.sh status              # confirm: state = running, listener answering
+```
+
+Do not use `dispatch.sh ui` to do this when the service is installed. `ui` notices the newer
+sources, stops the server and starts its own copy with `nohup` — which the supervisor then races
+by restarting its own. `service.sh restart` keeps one owner of the port.
+
+If `service.sh status` reports the unit is not installed, there is nothing to restart and the
+next `ui` picks the change up on its own.
 
 ## Tests
 
