@@ -1,6 +1,9 @@
 import type { ApiError } from "../../../shared/types/api-error";
 import type { DocumentKind } from "../../../shared/types/document-kind";
+import type { HarnessesEnvelope } from "../../../shared/types/harness-status";
 import type { HealthResponse } from "../../../shared/types/health-response";
+import type { ProfileSanityEnvelope } from "../../../shared/types/profile-sanity";
+import type { SuggestionApplyEnvelope } from "../../../shared/types/suggestion-apply-envelope";
 import type { PutOk } from "../../../shared/types/put-ok";
 import type { RunEnvelope } from "../../../shared/types/run-envelope";
 import type { RunsEnvelope } from "../../../shared/types/runs-envelope";
@@ -8,7 +11,7 @@ import { API_BASE } from "../constants";
 import type { ApiResult } from "./api-result";
 import { getToken } from "./token-store";
 
-type Method = "GET" | "PUT";
+type Method = "GET" | "PUT" | "POST";
 type RequestOptions = { etag?: string | null; ifMatch?: string; body?: unknown };
 
 // Thin, stateless wrapper over fetch: the token comes from token-store on every call, so a
@@ -52,6 +55,43 @@ export class ApiClient {
     return this.request<HealthResponse>("GET", `${API_BASE}/health`);
   }
 
+  getHarnesses(): Promise<ApiResult<HarnessesEnvelope>> {
+    return this.request<HarnessesEnvelope>("GET", `${API_BASE}/harnesses`);
+  }
+
+  profileSanity(profiles?: string[]): Promise<ApiResult<ProfileSanityEnvelope>> {
+    const body =
+      profiles === undefined || profiles.length === 0
+        ? undefined
+        : profiles.length === 1
+          ? { profile: profiles[0] }
+          : { profiles };
+    return this.request<ProfileSanityEnvelope>("POST", `${API_BASE}/profiles/sanity`, { body });
+  }
+
+  scanSuggestions(): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>("POST", `${API_BASE}/suggestions/scan`);
+  }
+
+  applySuggestions(ids?: string[], all?: boolean): Promise<ApiResult<SuggestionApplyEnvelope>> {
+    const body = all === true ? { all: true } : ids !== undefined && ids.length > 0 ? { ids } : undefined;
+    return this.request<SuggestionApplyEnvelope>("POST", `${API_BASE}/suggestions/apply`, { body });
+  }
+
+  applySuggestion(id: string): Promise<ApiResult<SuggestionApplyEnvelope>> {
+    return this.request<SuggestionApplyEnvelope>(
+      "POST",
+      `${API_BASE}/suggestions/${encodeURIComponent(id)}/apply`,
+    );
+  }
+
+  dismissSuggestion(id: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>(
+      "POST",
+      `${API_BASE}/suggestions/${encodeURIComponent(id)}/dismiss`,
+    );
+  }
+
   private headersFor(method: Method, options: RequestOptions): Headers {
     const headers = new Headers();
     const token = getToken();
@@ -71,8 +111,10 @@ export class ApiClient {
   }
 
   private async request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
-    const init: RequestInit = { method, headers: this.headersFor(method, options), cache: "no-store" };
-    if (method === "PUT") {
+    const headers = this.headersFor(method, options);
+    const init: RequestInit = { method, headers, cache: "no-store" };
+    if (method === "PUT" || (method === "POST" && options.body !== undefined)) {
+      headers.set("Content-Type", ApiClient.JSON_MEDIA_TYPE);
       init.body = JSON.stringify(options.body);
     }
     let res: Response;

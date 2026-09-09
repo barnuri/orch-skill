@@ -132,16 +132,24 @@ dispatch_config_get() {
 
 persist_serve_config() {
   if [ "${#CONFIG_SET_ARGS[@]}" -eq 0 ]; then
-    env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null || return 1
+    # Bootstrap missing files only — never overwrites profiles.json, serve.json, runs/ or jobs/.
+    env ORCH_INSTALL_QUIET=1 HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null || return 1
     return 0
   fi
   env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" serve config set "${CONFIG_SET_ARGS[@]}" >/dev/null \
     || return 1
 }
 
+unit_installed_for_checkout() {
+  local unit
+  unit=$(unit_path)
+  [ -f "$unit" ] || return 1
+  grep -Fq "$DISPATCH" "$unit" && grep -Fq "$ORCH_HOME" "$unit"
+}
+
 load_serve_config() {
   local host port rt ar
-  env HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null 2>&1 || true
+  [ -f "$ORCH_HOME/serve.json" ] || env ORCH_INSTALL_QUIET=1 HARNESS_ORCH_HOME="$ORCH_HOME" bash "$DISPATCH" init >/dev/null 2>&1 || true
   host=$(dispatch_config_get host)
   port=$(dispatch_config_get port)
   rt=$(dispatch_config_get require_token)
@@ -218,7 +226,7 @@ launchd_write_plist() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$(dirname "$bun"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HARNESS_ORCH_HOME</key>
         <string>$ORCH_HOME</string>
         <key>ORCH_BUN</key>
@@ -310,7 +318,7 @@ Type=simple
 ExecStart=/bin/bash $DISPATCH serve
 Environment=HARNESS_ORCH_HOME=$ORCH_HOME
 Environment=ORCH_BUN=$bun
-Environment=PATH=$(dirname "$bun"):/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$SKILL_DIR
 Restart=always
 RestartSec=$THROTTLE_SECS
@@ -383,6 +391,16 @@ cmd_install() {
   preflight || return $?
   persist_serve_config || return 1
   load_serve_config
+
+  if unit_installed_for_checkout && [ "${#CONFIG_SET_ARGS[@]}" -eq 0 ]; then
+    printf 'service: already installed for this checkout (state and serve.json unchanged)\n'
+    printf '  config:  %s/serve.json\n' "$ORCH_HOME"
+    printf '  serving: %s:%s\n  state:   %s\n  log:     %s\n' \
+      "$SERVICE_HOST" "$SERVICE_PORT" "$ORCH_HOME" "$(log_file)"
+    auth_summary
+    printf '\nDashboard: %s\n' "$(dashboard_url)"
+    return 0
+  fi
 
   case "$backend" in
     launchd) launchd_install || return 1 ;;

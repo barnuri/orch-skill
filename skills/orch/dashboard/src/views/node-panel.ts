@@ -23,29 +23,37 @@ function detailList(node: RunNode): HTMLElement {
   return list;
 }
 
-function logTail(node: RunNode): HTMLElement {
+function logSection(node: RunNode): HTMLElement {
+  const section = el("section", { class: "panel-log", "aria-label": "Log tail" });
+  section.appendChild(el("h3", { class: "panel-log-title", text: "Log tail" }));
   if (node.log_tail.length > 0) {
-    return el("pre", { text: node.log_tail.join("\n") });
+    section.appendChild(el("pre", { text: node.log_tail.join("\n") }));
+    return section;
   }
   const hint = node.job_id === null ? "Not dispatched yet." : "Log tail appears after the next run sync.";
-  return el("p", { class: "hint", text: hint });
+  section.appendChild(el("p", { class: "hint", text: hint }));
+  return section;
 }
 
-/** The right-hand `aside.panel`: the selected node's details + log tail, or a hint when none is. */
+/** Node details panel below the graph: selected node's details + log tail, or a hint when none is. */
 export function renderNodePanel(run: RunState, selectedId: string | null): HTMLElement {
   const node = run.nodes.find((candidate) => candidate.id === selectedId);
-  const panel = el("aside", { class: "panel", "aria-live": "polite" });
+  const panel = el("aside", { class: "panel node-panel", "aria-live": "polite" });
   if (node === undefined) {
     const hint =
       run.nodes.length > 0
         ? "Select a node in the graph to see its profile, job and log."
         : "This run has no nodes yet.";
     panel.appendChild(el("h2", { text: "Node details" }));
-    panel.appendChild(el("p", { class: "hint", text: hint }));
+    panel.appendChild(el("p", { class: "hint panel-empty", text: hint }));
     return panel;
   }
+  panel.classList.add("has-node");
   panel.appendChild(el("h2", {}, [node.label || node.id, chip(node.status)]));
-  panel.appendChild(detailList(node));
-  panel.appendChild(logTail(node));
+  const grid = el("div", { class: "panel-grid" });
+  const details = el("div", { class: "panel-details" });
+  details.appendChild(detailList(node));
+  grid.append(details, logSection(node));
+  panel.appendChild(grid);
   return panel;
 }

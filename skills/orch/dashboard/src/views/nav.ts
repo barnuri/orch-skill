@@ -8,7 +8,9 @@ const SECTION_HREF: Record<Route["kind"], string> = {
   list: "#/",
   run: "#/",
   profiles: "#/profiles",
+  harnesses: "#/harnesses",
   memory: "#/memory",
+  suggestions: "#/suggestions",
 };
 
 export function renderNav(route: Route): void {

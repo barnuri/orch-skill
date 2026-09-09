@@ -11,6 +11,16 @@ import {
   getDocumentHandler,
   putDocumentHandler,
 } from "./routes/document-routes";
+import { listHarnessesHandler } from "./routes/harnesses-routes";
+import { profileSanityHandler } from "./routes/profiles-routes";
+import {
+  applySuggestionHandler,
+  bulkApplySuggestionsHandler,
+  dismissSuggestionHandler,
+  getSuggestionsHandler,
+  putSuggestionsHandler,
+  scanSuggestionsHandler,
+} from "./routes/suggestions-routes";
 import { healthHandler } from "./routes/health-route";
 import { listRunsHandler, readRunHandler } from "./routes/runs-routes";
 import type { ServerContext } from "./types/server-context";
@@ -65,10 +75,20 @@ export function startServer(options: ServerOptions): Server<undefined> {
         GET: getDocumentHandler(ctx, "profiles"),
         PUT: putDocumentHandler(ctx, "profiles"),
       }),
+      "/api/profiles/sanity": apiRoute(ctx, { POST: profileSanityHandler(ctx) }),
+      "/api/harnesses": apiRoute(ctx, { GET: listHarnessesHandler(ctx) }),
       "/api/memory": apiRoute(ctx, {
         GET: getDocumentHandler(ctx, "memory"),
         PUT: putDocumentHandler(ctx, "memory"),
       }),
+      "/api/suggestions": apiRoute(ctx, {
+        GET: getSuggestionsHandler(ctx),
+        PUT: putSuggestionsHandler(ctx),
+      }),
+      "/api/suggestions/scan": apiRoute(ctx, { POST: scanSuggestionsHandler(ctx) }),
+      "/api/suggestions/apply": apiRoute(ctx, { POST: bulkApplySuggestionsHandler(ctx) }),
+      "/api/suggestions/:id/apply": apiRoute(ctx, { POST: applySuggestionHandler(ctx) }),
+      "/api/suggestions/:id/dismiss": apiRoute(ctx, { POST: dismissSuggestionHandler(ctx) }),
     },
     // Nothing else is served, so the fallback needs no auth: 404 for every unlisted path.
     fetch: (): Response => notFound(),

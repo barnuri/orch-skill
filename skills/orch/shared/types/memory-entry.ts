@@ -4,6 +4,7 @@ export interface MemoryEntry {
   profile: string;
   harness?: string;
   model?: string;
+  model_id?: string;
   outcome: string;
   note?: string;
 }

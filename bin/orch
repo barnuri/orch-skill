@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Global entrypoint for the orch CLI — installed to ~/.local/bin/orch by install.sh.
+set -u
+
+orch_realpath() {
+  local path="$1" hops=0 target dir
+  while [ -L "$path" ] && [ "$hops" -lt 8 ]; do
+    hops=$((hops + 1))
+    target=$(readlink "$path" 2>/dev/null) || break
+    case "$target" in
+      /*) path="$target" ;;
+      *) path="$(dirname "$path")/$target" ;;
+    esac
+  done
+  dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "$dir" "${path##*/}"
+}
+
+SELF=$(orch_realpath "${BASH_SOURCE[0]:-$0}") || SELF="${BASH_SOURCE[0]:-$0}"
+REPO_ROOT=$(cd "$(dirname "$SELF")/.." && pwd -P)
+DISPATCH="$REPO_ROOT/skills/orch/scripts/dispatch.sh"
+
+if [ ! -f "$DISPATCH" ]; then
+  printf 'orch: %s missing — re-run install.sh from the orch-skill checkout\n' "$DISPATCH" >&2
+  exit 1
+fi
+
+exec bash "$DISPATCH" "$@"

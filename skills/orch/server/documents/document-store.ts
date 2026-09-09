@@ -10,9 +10,10 @@ const ETAG_ALGORITHM: string = "sha256";
 const JSON_INDENT: number = 2;
 const TRAILING_NEWLINE: string = "\n";
 
-const ENUM_KEY_BY_KIND: Record<DocumentKind, "harnesses" | "outcomes"> = {
+const ENUM_KEY_BY_KIND: Record<DocumentKind, "harnesses" | "outcomes" | "kinds"> = {
   profiles: "harnesses",
   memory: "outcomes",
+  suggestions: "kinds",
 };
 
 export function documentPath(paths: OrchPaths, kind: DocumentKind): string {
@@ -28,7 +29,7 @@ export function etagOf(bytes: Uint8Array): string {
   return `"${createHash(ETAG_ALGORITHM).update(bytes).digest("hex")}"`;
 }
 
-export function enumKeyOf(kind: DocumentKind): "harnesses" | "outcomes" {
+export function enumKeyOf(kind: DocumentKind): "harnesses" | "outcomes" | "kinds" {
   return ENUM_KEY_BY_KIND[kind];
 }
 

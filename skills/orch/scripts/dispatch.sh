@@ -53,6 +53,17 @@ dispatch.sh init                  -> creates the config home (default ~/.harness
                                      profiles.json + empty memory.json; prints the path.
 dispatch.sh profile list          -> name, harness, model per profile (* = default)
 dispatch.sh profile show <name>   -> the profile JSON as written (env refs unresolved)
+dispatch.sh profile pick "<task>" [--complexity trivial|small|medium|large] [--kind K]
+    -> profile=…, model=…, reason=… (metadata + memory weighted pick)
+dispatch.sh profile sanity [--profile NAME]
+    -> JSON {generated_at, results:[{profile, ok, ms, harness, model_id, slug, exit_code, bytes, error}]}
+dispatch.sh model list [--profile P] [--harness H]
+dispatch.sh harness list [--json]
+    -> probes each adapter (CLI on PATH or env for local-llm); JSON includes enabled flag
+       from settings.disabled_harnesses.
+    -> model-id, slug, description, cost, quality (whitelist when --profile is set)
+dispatch.sh suggest scan | list [--pending] | apply <id> | dismiss <id>
+    -> learning loop: scan runs/memory, surface pending suggestions, apply/dismiss
 EOF
   # Unquoted heredoc: these lines expand the per-subcommand usage constants the libs define, so the
   # summary here and each command's own usage line can't drift apart.
@@ -83,6 +94,13 @@ $SERVE_USAGE
        opts out (0600; trash it to rotate).
 $SERVE_CONFIG_USAGE
     -> show, get or persist the dashboard bind/auth settings in <home>/serve.json.
+$SERVE_STATUS_USAGE
+    -> dashboard health: running / down / zombie / stale sources / bun missing.
+$SERVE_RECOVER_USAGE
+    -> fix a stale or zombie server and optionally start it (--start is the default).
+$SYNC_USAGE
+    -> offline catch-up: recover the dashboard when possible, run sync on active runs,
+       scan suggestions and auto-apply safe memory rows.
 $PRUNE_USAGE
     -> recoverably removes finished runs (+ their jobs, data js) and orphan finished jobs older than
        the cutoff (default settings.retention_days). Uses trash, else moves under .trash/<stamp>/.
@@ -425,12 +443,18 @@ main() {
       shift
       case "${1:-}" in
         config) shift; cmd_serve_config "$@" ;;
+        status) shift; cmd_serve_status "$@" ;;
+        recover) shift; cmd_serve_recover "$@" ;;
         *) cmd_serve "$@" ;;
       esac
       ;;
+    sync) shift; cmd_sync "$@" ;;
     ui) shift; cmd_ui "$@" ;;
     profile) shift; cmd_profile "$@" ;;
+    model) shift; cmd_model "$@" ;;
+    harness) shift; cmd_harness "$@" ;;
     memory) shift; cmd_memory "$@" ;;
+    suggest) shift; cmd_suggest "$@" ;;
     ""|-h|--help) usage ;;
     *) printf 'unknown subcommand: %s\n' "$sub" >&2; usage >&2; exit 2 ;;
   esac

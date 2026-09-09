@@ -1,18 +1,22 @@
 import type { DocumentKind } from "../../shared/types/document-kind";
 import type { MemoryEnvelope } from "../../shared/types/memory-envelope";
 import type { ProfilesEnvelope } from "../../shared/types/profiles-envelope";
+import type { SuggestionsEnvelope } from "../../shared/types/suggestions-envelope";
 import { ApiClient } from "./api/api-client";
 import type { ApiResult } from "./api/api-result";
+import { refreshHarnesses } from "./views/harnesses-panel";
 import { render, renderDocNotices } from "./render";
 import type { Route } from "./router";
+import { beginEdit } from "./forms/document-editor";
 import { applyDocLoad } from "./state/doc-reducer";
 import type { LoadedDocument } from "./state/loaded-document";
 import { state } from "./state/state";
 
 type NonOkResult = Exclude<ApiResult<unknown>, { kind: "ok" }>;
-type DocumentEnvelope = ProfilesEnvelope | MemoryEnvelope;
+type DocumentEnvelope = ProfilesEnvelope | MemoryEnvelope | SuggestionsEnvelope;
 
-const NETWORK_ERROR: string = "cannot reach the server";
+const NETWORK_ERROR: string =
+  "dashboard offline — orch CLI still works on disk; run orch sync when the server is back";
 const HTTP_STATUS_UNAUTHORIZED = 401;
 const HTTP_STATUS_NOT_FOUND = 404;
 
@@ -106,20 +110,26 @@ async function pollRun(runId: string, seq: number): Promise<void> {
 }
 
 function toLoadedDocument(kind: DocumentKind, body: DocumentEnvelope, etag: string | null): LoadedDocument {
+  const enums =
+    "harnesses" in body ? body.harnesses : "kinds" in body ? body.kinds : body.outcomes;
   return {
     kind,
     document: body.document,
     etag: etag ?? "",
-    enums: "harnesses" in body ? body.harnesses : body.outcomes,
+    enums,
     issues: body.issues,
     maxBodyBytes: body.limits.max_body_bytes,
   };
 }
 
 function fetchDocument(kind: DocumentKind, etag: string | null): Promise<ApiResult<DocumentEnvelope>> {
-  return kind === "profiles"
-    ? api.getDocument<ProfilesEnvelope>(kind, etag)
-    : api.getDocument<MemoryEnvelope>(kind, etag);
+  if (kind === "profiles") {
+    return api.getDocument<ProfilesEnvelope>(kind, etag);
+  }
+  if (kind === "suggestions") {
+    return api.getDocument<SuggestionsEnvelope>(kind, etag);
+  }
+  return api.getDocument<MemoryEnvelope>(kind, etag);
 }
 
 async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
@@ -132,7 +142,7 @@ async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
     applyNonOk(result);
     return;
   }
-  if (result.body.document !== null && "harnesses" in result.body) {
+  if (result.body.document !== null && "harnesses" in result.body && "profiles" in result.body.document) {
     state.profileNames = Object.keys(result.body.document.profiles);
     state.defaultProfile = result.body.document.settings.default_profile ?? "";
   }
@@ -141,7 +151,14 @@ async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
   state.doc = outcome.doc;
   state.drift = outcome.drift;
   const gateCleared = markOk();
-  if (outcome.rerender || gateCleared) {
+  let openedProfile = false;
+  if (kind === "profiles" && state.pendingProfileEdit !== null && outcome.doc !== null) {
+    const name = state.pendingProfileEdit;
+    state.pendingProfileEdit = null;
+    beginEdit(name);
+    openedProfile = true;
+  }
+  if (outcome.rerender || gateCleared || openedProfile) {
     render();
     return;
   }
@@ -150,15 +167,34 @@ async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
   }
 }
 
+async function pollHarnesses(seq: number): Promise<void> {
+  await pollDocument("profiles", seq);
+  if (!isCurrent(seq)) {
+    return;
+  }
+  await refreshHarnesses();
+}
+
 function pollRoute(route: Route, seq: number): Promise<void> {
   switch (route.kind) {
     case "list":
       return pollRuns(seq);
     case "run":
       return pollRun(route.runId, seq);
+    case "harnesses":
+      return pollHarnesses(seq);
     case "profiles":
     case "memory":
+    case "suggestions":
       return pollDocument(route.kind, seq);
+  }
+}
+
+// Clears the cached etag so the next poll refetches — needed after dispatch-side mutations
+// (suggest apply/dismiss/scan) that bypass the dashboard PUT path.
+export function invalidateDocument(kind: DocumentKind): void {
+  if (state.doc?.kind === kind) {
+    state.doc.etag = "";
   }
 }
 

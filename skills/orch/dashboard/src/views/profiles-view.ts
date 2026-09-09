@@ -8,6 +8,9 @@ import { deepCopy } from "../forms/field-issues";
 import type { AppState } from "../state/app-state";
 import { renderDocNotices } from "./doc-notices";
 import { renderProfileForm } from "./profile-form";
+import { pageHead } from "./page-head";
+import { renderSanityPanel, sanityTestButton } from "./profile-sanity";
+import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 
 const NEW_TARGET: string = "new";
@@ -16,11 +19,14 @@ const EMPTY_HINT: string = "No profiles yet. Add one from the panel.";
 
 // memory.json is an array, profiles.json an object — that is the whole difference between the two
 // documents the editor slice can be holding.
-function asProfilesDocument(value: ProfilesDocument | MemoryDocument | null): ProfilesDocument | null {
-  if (value === null || Array.isArray(value)) {
+function asProfilesDocument(value: unknown): ProfilesDocument | null {
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
     return null;
   }
-  return value;
+  if (!("profiles" in value) || !("settings" in value)) {
+    return null;
+  }
+  return value as ProfilesDocument;
 }
 
 // The issues no control claimed (a root-level `$`, or a path under a profile that is not open) are
@@ -43,7 +49,7 @@ function issueList(holder: HTMLElement): (issues: readonly Issue[]) => void {
 // re-seeded from the loaded document on every render, and the first keystroke sets `dirty` —
 // which is what stops the 2 s poll from rebuilding the form underneath the user.
 function settingsDraft(state: AppState, loaded: ProfilesDocument): ProfilesDocument {
-  const current = asProfilesDocument(state.draft);
+  const current = state.doc?.kind === "profiles" ? asProfilesDocument(state.draft) : null;
   if (state.dirty && current !== null) {
     return current;
   }
@@ -61,13 +67,45 @@ function modelCell(spec: ProfileSpec): HTMLElement {
   return model === "" ? el("div", { class: "muted", text: "CLI default" }) : el("div", { class: "mono", text: model });
 }
 
+function descCell(spec: ProfileSpec): HTMLElement {
+  const text = spec.description ?? "";
+  if (text === "") {
+    return el("div", { class: "muted", text: "⚠ no description" });
+  }
+  return el("div", { class: "muted", text: text.length > 48 ? `${text.slice(0, 48)}…` : text });
+}
+
+function routingCell(spec: ProfileSpec): HTMLElement {
+  const parts: string[] = [];
+  if (spec.min_complexity !== undefined || spec.max_complexity !== undefined) {
+    parts.push(`${spec.min_complexity ?? "·"}→${spec.max_complexity ?? "·"}`);
+  }
+  if (spec.allowed_models !== undefined && spec.allowed_models.length > 0) {
+    const [only] = spec.allowed_models;
+    parts.push(spec.allowed_models.length === 1 && only !== undefined ? only : `${spec.allowed_models.length} models`);
+  }
+  if (spec.priority !== undefined) {
+    parts.push(`p${spec.priority}`);
+  }
+  if (spec.enabled === false) {
+    parts.push("off");
+  }
+  if (parts.length === 0) {
+    return el("div", { class: "muted", text: "—" });
+  }
+  return el("div", { class: "mono muted", text: parts.join(" · ") });
+}
+
 function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spec: ProfileSpec): HTMLButtonElement {
   const isDefault = loaded.settings.default_profile === name;
   const selected = state.editing === name;
   const row = el("button", { class: selected ? "doc-row selected" : "doc-row", type: "button" }, [
     el("div", { class: "title" }, [name, isDefault ? chip("default") : null]),
     chip(spec.harness),
+    spec.cost !== undefined ? chip(spec.cost) : el("span"),
     modelCell(spec),
+    routingCell(spec),
+    descCell(spec),
     countCell(spec.flags?.length ?? 0, "flags"),
     countCell(Object.keys(spec.env ?? {}).length, "env"),
     countCell(spec.auth?.length ?? 0, "auth"),
@@ -92,10 +130,11 @@ function renderList(state: AppState, loaded: ProfilesDocument): HTMLElement {
 }
 
 function renderPanel(state: AppState, loaded: ProfilesDocument): HTMLElement {
-  const panel = el("aside", { class: "panel" });
+  const editingProfile = typeof state.editing === "string" && state.editing !== "";
+  const panel = el("aside", { class: editingProfile ? "panel profile-panel" : "panel" });
   const holder = el("div");
   const onIssues = issueList(holder);
-  const draft = asProfilesDocument(state.draft);
+  const draft = state.doc?.kind === "profiles" ? asProfilesDocument(state.draft) : null;
   const target = state.editing;
   // A number target belongs to memory.json; without a draft there is nothing to edit either way.
   if (draft !== null && typeof target === "string") {
@@ -133,8 +172,9 @@ export function renderProfiles(state: AppState): DocumentFragment {
   const doc = state.doc?.kind === "profiles" ? state.doc : null;
   const loaded = doc === null ? null : asProfilesDocument(doc.document);
   const frag = document.createDocumentFragment();
-  frag.appendChild(el("h1", { text: "Profiles" }));
-  frag.appendChild(el("div", { class: "sub", text: subText(loaded, doc === null) }));
+  const toolbar = el("div", { class: "toolbar" });
+  toolbar.appendChild(sanityTestButton("Sanity test all", undefined, () => render()));
+  frag.appendChild(pageHead("Profiles", subText(loaded, doc === null), toolbar));
   // Always in the tree: render.ts swaps this element by id when drift or a save error appears.
   frag.appendChild(renderDocNotices(state));
   if (doc === null) {
@@ -147,6 +187,10 @@ export function renderProfiles(state: AppState): DocumentFragment {
     frag.appendChild(el("div", { class: "empty", text: CORRUPT_HINT }));
     return frag;
   }
-  frag.appendChild(el("div", { class: "layout" }, [renderList(state, loaded), renderPanel(state, loaded)]));
+  frag.appendChild(el("div", { class: "layout profile-layout" }, [renderList(state, loaded), renderPanel(state, loaded)]));
+  const sanity = renderSanityPanel();
+  if (sanity !== null) {
+    frag.appendChild(sanity);
+  }
   return frag;
 }

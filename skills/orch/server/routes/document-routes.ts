@@ -5,6 +5,8 @@ import type { MemoryDocument } from "../../shared/types/memory-document";
 import type { MemoryEnvelope } from "../../shared/types/memory-envelope";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import type { ProfilesEnvelope } from "../../shared/types/profiles-envelope";
+import type { SuggestionsDocument } from "../../shared/types/suggestions-document";
+import type { SuggestionsEnvelope } from "../../shared/types/suggestions-envelope";
 import type { PutOk } from "../../shared/types/put-ok";
 import { etagOf, readDocumentBytes, writeDocument } from "../documents/document-store";
 import { readJsonBody } from "../http/body";
@@ -13,6 +15,7 @@ import type { RouteHandler } from "../http/route";
 import type { ServerContext } from "../types/server-context";
 import { memoryIssues } from "../validation/memory-validator";
 import { profilesIssues } from "../validation/profiles-validator";
+import { suggestionsIssues } from "../validation/suggestions-validator";
 import { parseJsonStrict } from "../validation/strict-json";
 
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -26,12 +29,24 @@ const INVALID_JSON_PREFIX: string = "invalid JSON: ";
 const STALE_DOCUMENT: string = "document changed on disk; reload and retry";
 const WRITE_FAILED_PREFIX: string = "write failed: ";
 
-type DocumentEnvelope = ProfilesEnvelope | MemoryEnvelope;
+type DocumentEnvelope = ProfilesEnvelope | MemoryEnvelope | SuggestionsEnvelope;
+
+const SUGGESTION_KINDS: readonly string[] = [
+  "memory_record",
+  "profile_description",
+  "model_description",
+  "profile_tags",
+  "routing_hint",
+];
 
 function issuesOf(ctx: ServerContext, kind: DocumentKind, document: unknown): Issue[] {
-  return kind === "profiles"
-    ? profilesIssues(document, ctx.harnesses)
-    : memoryIssues(document, ctx.outcomes);
+  if (kind === "profiles") {
+    return profilesIssues(document, ctx.harnesses);
+  }
+  if (kind === "suggestions") {
+    return suggestionsIssues(document);
+  }
+  return memoryIssues(document, ctx.outcomes);
 }
 
 // The validator has already shaped `document` (or reported why it could not); the envelope only
@@ -47,6 +62,14 @@ function envelopeOf(
     return {
       document: document as ProfilesDocument | null,
       harnesses: [...ctx.harnesses],
+      issues,
+      limits,
+    };
+  }
+  if (kind === "suggestions") {
+    return {
+      document: document as SuggestionsDocument | null,
+      kinds: [...SUGGESTION_KINDS],
       issues,
       limits,
     };

@@ -14,6 +14,7 @@ MARKETPLACE_NAME=orch-skill
 PLUGIN_NAME=orch
 PLUGIN_ID="$PLUGIN_NAME@$MARKETPLACE_NAME"
 ORCH_HOME="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
+ORCH_BIN_DIR="${ORCH_BIN_DIR:-$HOME/.local/bin}"
 
 WITH_SERVICE=0
 PURGE_STATE=0
@@ -73,9 +74,27 @@ remove_marketplace() {
   claude plugin marketplace remove "$MARKETPLACE_NAME"
 }
 
+installed_cli_bin() {
+  local name="$ORCH_BIN_NAME" dir="$ORCH_BIN_DIR" file="$ORCH_HOME/cli.json"
+  if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+    name=$(jq -r '.name // "orch"' "$file" 2>/dev/null)
+    dir=$(jq -r --arg d "$dir" '.bin_dir // $d' "$file" 2>/dev/null)
+  fi
+  printf '%s/%s\n' "$dir" "$name"
+}
+
+uninstall_cli() {
+  local orch_bin
+  orch_bin=$(installed_cli_bin)
+  [ -e "$orch_bin" ] || return 0
+  printf 'removing %s\n' "$orch_bin"
+  remove_path "$orch_bin"
+}
+
 main() {
   parse_args "$@" || return $?
   [ "$WITH_SERVICE" -eq 0 ] || bash "$REPO_DIR/scripts/service.sh" uninstall
+  uninstall_cli
   require_claude || return $?
   uninstall_plugin || return 1
   remove_marketplace || return 1

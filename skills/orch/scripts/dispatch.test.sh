@@ -86,9 +86,11 @@ edit_json() { jq "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
 path_without() {
   local result="$PATH" bin resolved dir
   for bin in "$@"; do
-    resolved=$(command -v "$bin") || continue
-    dir=$(dirname "$resolved")
-    result=$(printf '%s' "$result" | tr ':' '\n' | grep -vxF "$dir" | paste -sd: -)
+    while resolved=$(PATH="$result" command -v "$bin" 2>/dev/null); do
+      dir=$(dirname "$resolved")
+      result=$(printf '%s' "$result" | tr ':' '\n' | grep -vxF "$dir" | paste -sd: -)
+      [ -n "$result" ] || break
+    done
   done
   printf '%s' "$result"
 }
@@ -329,12 +331,23 @@ expect_missing "init creates no data dir" "$home/data"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile list 2>&1)
 expect_match "profile list marks the default" '^\*claude-sub' "$out"
-expect_match "profile list shows harness and model" 'claude-hub.claude.sonnet' "$out"
+expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-lfm-8b' "$out"
 
-out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show claude-hub 2>&1)
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" harness list --json 2>&1)
+expect_match "harness list json includes claude" '"id": "claude"' "$out"
+expect_match "harness list json includes local-llm" '"id": "local-llm"' "$out"
+wired=$(printf '%s' "$out" | jq -r '.harnesses[] | select(.id=="claude") | .wired')
+expect_match "harness list json marks adapters wired" '^true$' "$wired"
+expect_match "harness list json includes detected pi" '"id": "pi"' "$out"
+edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["opencode"]'
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" harness list --json 2>&1)
+enabled=$(printf '%s' "$out" | jq -r '.harnesses[] | select(.id=="opencode") | .enabled')
+expect_match "disabled harness shows enabled false" '^false$' "$enabled"
+
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show claude-llm-hub 2>&1)
 expect_match "profile show keeps env refs unresolved" '\$\{LLM_HUB_URL\}' "$out"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show nope 2>&1); rc=$?
-expect_match "unknown profile lists the available ones" 'unknown profile. Available: claude-hub' "$out"
+expect_match "unknown profile lists the available ones" 'claude-llm-hub' "$out"
 expect_exit "unknown profile exits 2" 2 "$rc"
 
 # init is idempotent: a user-edited profiles.json is never overwritten.
@@ -343,20 +356,21 @@ env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" init >/dev/null 2>&1
 out=$(jq -r '.settings.default_profile' "$home/profiles.json")
 expect_match "second init keeps user edits" '^custom$' "$out"
 
-# Leftovers from the retired file:// dashboard are pointed out, never deleted behind the user's back.
+# Leftovers from the retired file:// dashboard are recoverably removed on init.
 mkdir -p "$home/data"
 : > "$home/index.html"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" init 2>&1 >/dev/null)
-expect_match "init flags legacy dashboard leftovers" 'legacy file:// dashboard leftovers' "$out"
-cleanup_dir "$home/data"
-cleanup_dir "$home/index.html"
+expect_match "init reports legacy index.html cleanup" 'moved legacy dashboard leftover index.html' "$out"
+expect_match "init reports legacy data cleanup" 'moved legacy dashboard leftover data' "$out"
+expect_missing "init removes legacy index.html" "$home/index.html"
+expect_missing "init removes legacy data dir" "$home/data"
 
 # profile_load failure modes, driven by sourcing the script as a library.
 load_profile() {
   env -u LLM_HUB_URL -u LLM_HUB_KEY -u CURSOR_API_KEY HARNESS_ORCH_HOME="$home" \
     bash -c ". '$SCRIPT'; profile_load '$1'" 2>&1
 }
-out=$(load_profile claude-hub); rc=$?
+out=$(load_profile claude-llm-hub); rc=$?
 expect_match "unset env ref is named" 'env ANTHROPIC_BASE_URL references unset \$\{LLM_HUB_URL\}' "$out"
 expect_exit "unset env ref exits 1" 1 "$rc"
 out=$(load_profile cursor-default); rc=$?
@@ -389,6 +403,78 @@ expect_match "memory add rejects bad outcome" 'outcome must be one of' "$out"
 expect_exit "memory add bad outcome exits 2" 2 "$rc"
 cleanup_dir "$home"
 
+# --- routing + learning -------------------------------------------------------
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null
+out=$(orch profile pick "fix a typo" --complexity trivial 2>&1)
+expect_match "profile pick prints profile" '^profile=' "$out"
+expect_match "profile pick prints model id" '^model=' "$out"
+out=$(orch model list --profile claude-sub 2>&1)
+expect_match "model list includes catalog id" 'claude-sonnet' "$out"
+edit_json "$home/profiles.json" '
+  .models["local-lfm-8b"] = {
+    "slug": "llama_swap/lfm2.5-8b-a1b",
+    "harnesses": ["local-llm", "claude"],
+    "description": "bench winner"
+  }
+  | .models["local-qwen3-4b"] = {
+    "slug": "llama_swap/qwen3-4b-2507",
+    "harnesses": ["local-llm", "claude"],
+    "description": "backup"
+  }
+  | .profiles["claude-llm-hub"] = {
+    "harness": "claude",
+    "model": "local-lfm-8b",
+    "allowed_models": ["llama_swap*"],
+    "flags": [],
+    "env": {},
+    "auth": []
+  }'
+out=$(orch model list --profile claude-llm-hub 2>&1)
+expect_match "model list expands llama_swap pattern" 'local-lfm-8b' "$out"
+expect_match "model list includes second llama_swap model" 'local-qwen3-4b' "$out"
+expect_no_match "model list excludes non-llama_swap" 'claude-sonnet' "$out"
+edit_json "$home/profiles.json" '.profiles["opencode-default"].description = ""'
+out=$(orch suggest scan 2>&1); rc=$?
+expect_match "suggest scan completes" 'scanned' "$out"
+expect_exit "suggest scan exits 0" 0 "$rc"
+out=$(orch suggest list --pending 2>&1)
+expect_match "suggest list finds empty description" 'profile_description' "$out"
+desc_id=$(orch suggest list --pending 2>&1 | awk -F'\t' '$3 == "profile_description" && $4 ~ /opencode-default/ {print $1; exit}')
+out=$(orch suggest apply "$desc_id" 2>&1); rc=$?
+expect_exit "suggest apply profile_description exits 0" 0 "$rc"
+out=$(jq -r '.profiles["opencode-default"].description // ""' "$home/profiles.json")
+expect_match "suggest apply profile_description writes description" '.' "$out"
+edit_json "$home/suggestions.json" '.suggestions += [{
+  "id": "sug-test", "status": "pending", "created": "2026-01-01T00:00:00Z",
+  "confidence": "medium", "kind": "memory_record",
+  "title": "Record memory", "reason": "test",
+  "evidence": [], "fingerprint": "memory_record:claude-sub:test",
+  "action": {"type": "memory_record", "memory": {"profile": "claude-sub", "outcome": "success", "task_kind": "test", "note": "from test"}}
+}]'
+out=$(orch suggest apply sug-test 2>&1); rc=$?
+expect_exit "suggest apply memory_record exits 0" 0 "$rc"
+out=$(orch memory list --profile claude-sub 2>&1)
+expect_match "suggest apply memory_record writes memory" 'from test' "$out"
+out=$(orch suggest apply --json --id sug-test 2>&1); rc=$?
+expect_match "suggest apply batch json reports failure for applied id" '"ok":false' "$out"
+edit_json "$home/profiles.json" '.models["claude-haiku"].description = ""'
+orch suggest scan >/dev/null
+out=$(orch suggest apply --json --all 2>&1); rc=$?
+expect_exit "suggest apply all exits 0" 0 "$rc"
+expect_match "suggest apply all returns json" '"results":' "$out"
+out=$(orch profile sanity --profile nope 2>&1); rc=$?
+expect_exit "profile sanity unknown profile exits 0" 0 "$rc"
+expect_match "profile sanity unknown profile ok false" '"ok":false' "$out"
+expect_match "profile sanity unknown profile error" 'unknown profile' "$out"
+edit_json "$home/profiles.json" '.profiles["claude-sub"].enabled = false'
+out=$(orch profile sanity --profile claude-sub 2>&1); rc=$?
+expect_exit "profile sanity disabled exits 0" 0 "$rc"
+expect_match "profile sanity disabled ok false" '"ok":false' "$out"
+expect_match "profile sanity disabled error" 'profile disabled' "$out"
+cleanup_dir "$home"
+
 # --- claude adapter + --profile grammar --------------------------------------
 # Fake CLI shims print their argv one per line, so the exact argument shape can be asserted
 # without running a real harness.
@@ -403,7 +489,14 @@ joined() { printf '%s' "$1" | tr '\n' ' '; }
 
 out=$(with_shims bash "$SCRIPT" run --profile claude-sub "hi there" --extra 2>&1)
 expect_match "claude profile: argv order is model, profile flags, pass-through" \
-  '^-p hi there --output-format text --model opus --permission-mode acceptEdits --extra$' "$(joined "$out")"
+  '^-p hi there --output-format text --model sonnet --dangerously-skip-permissions --extra$' "$(joined "$out")"
+
+out=$(with_shims bash "$SCRIPT" profile sanity --profile claude-sub 2>&1); rc=$?
+expect_exit "profile sanity exits 0" 0 "$rc"
+expect_match "profile sanity ok with shims" '"ok":true' "$out"
+expect_match "profile sanity includes profile name" '"profile":"claude-sub"' "$out"
+expect_match "profile sanity includes ms" '"ms":' "$out"
+expect_match "profile sanity includes harness" '"harness":"claude"' "$out"
 
 edit_json "$home/profiles.json" '.profiles["cursor-default"].model = "gpt-5"'
 out=$(with_shims bash "$SCRIPT" run --profile cursor-default "x" 2>&1)
@@ -440,7 +533,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif start_fixture 0; then
   out=$(env HARNESS_ORCH_HOME="$home" LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" \
     bash "$SCRIPT" run --profile local-qwen "ping" 2>&1)
-  expect_match "profile env ref resolves and model reaches the endpoint" 'echo:ping.model=qwen' "$out"
+  expect_match "profile env ref resolves and model reaches the endpoint" 'echo:ping.model=llama_swap/lfm2.5-8b-a1b' "$out"
   stop_fixture
 fi
 cleanup_dir "$shims"
@@ -720,6 +813,28 @@ out=$(fake_orch ui 2>&1); rc=$?
 expect_exit "ui starts cleanly past a stale marker" 0 "$rc"
 expect_no_match "the stale pid was replaced" '^999999$' "$(cat "$home/serve/pid")"
 fake_orch ui --stop >/dev/null 2>&1
+
+out=$(fake_orch serve status 2>&1); rc=$?
+expect_exit "serve status when down exits 1" 1 "$rc"
+expect_match "serve status reports down" 'state=down' "$out"
+out=$(fake_orch serve recover 2>&1); rc=$?
+expect_exit "serve recover starts server" 0 "$rc"
+expect_match "serve recover prints url" '^http://127\.0\.0\.1:12345/' "$out"
+out=$(fake_orch serve status 2>&1); rc=$?
+expect_exit "serve status when running exits 0" 0 "$rc"
+expect_match "serve status reports running" 'state=running listener=answering' "$out"
+fake_orch ui --stop >/dev/null 2>&1
+printf '999999' > "$home/serve/pid"
+out=$(fake_orch serve status 2>&1); rc=$?
+expect_exit "serve status with stale pid exits 1" 1 "$rc"
+expect_match "serve status names stale pid" 'stale_pid=999999' "$out"
+out=$(fake_orch serve recover 2>&1); rc=$?
+expect_exit "serve recover clears stale pid" 0 "$rc"
+fake_orch ui --stop >/dev/null 2>&1
+
+out=$(orch sync --no-serve 2>&1); rc=$?
+expect_exit "sync --no-serve exits 0" 0 "$rc"
+expect_match "sync completes" '^synced$' "$out"
 
 # Foreground `serve` execs bun in place, so the shim's argv is recorded but the caller blocks.
 log_before=$(wc -c < "$home/serve/log" | tr -d ' ')

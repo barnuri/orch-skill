@@ -11,7 +11,7 @@ export type RouteHandler = (
   params: Readonly<Record<string, string>>,
 ) => Response | Promise<Response>;
 
-export type RouteHandlers = Partial<Record<"GET" | "PUT", RouteHandler>>;
+export type RouteHandlers = Partial<Record<"GET" | "PUT" | "POST", RouteHandler>>;
 
 type RouteMethod = keyof RouteHandlers;
 
@@ -88,7 +88,7 @@ function handlerFor(handlers: RouteHandlers, method: string): RouteHandler | und
 }
 
 function isRouteMethod(method: string): method is RouteMethod {
-  return method === "GET" || method === "PUT";
+  return method === "GET" || method === "PUT" || method === "POST";
 }
 
 // Bun hands route handlers a BunRequest whose `params` carry the matched `:id` segments.

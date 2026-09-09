@@ -21,5 +21,8 @@ export function createInitialState(): AppState {
     docError: null,
     profileNames: [],
     defaultProfile: "",
+    pendingProfileEdit: null,
+    harnesses: null,
+    harnessesError: null,
   };
 }

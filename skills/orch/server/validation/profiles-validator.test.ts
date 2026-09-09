@@ -19,7 +19,10 @@ function loadTemplate(): Mutable {
 function documentWithProfile(spec: Mutable): Mutable {
   const document = loadTemplate();
   document["settings"] = { default_profile: "x", retention_days: 7, budget_threshold: 85 };
-  document["profiles"] = { x: { harness: "claude", ...spec } };
+  document["models"] = {
+    "claude-sonnet": { slug: "sonnet", harnesses: ["claude"], description: "workhorse" },
+  };
+  document["profiles"] = { x: { harness: "claude", model: "claude-sonnet", ...spec } };
   return document;
 }
 
@@ -251,6 +254,37 @@ describe("profilesIssues", () => {
     const tooMany = Array.from({ length: 33 }, (_, index) => `K${index}`);
     expect(issuesFor(documentWithProfile({ auth: tooMany }))).toEqual([
       { path: "profiles.x.auth", reason: "at most 32 entries" },
+    ]);
+  });
+
+  test("allowed_models accepts slug prefix patterns that match the harness", () => {
+    const document = loadTemplate();
+    const profiles = document["profiles"] as Mutable;
+    profiles["hub"] = {
+      harness: "claude",
+      model: "local-lfm-8b",
+      allowed_models: ["llama_swap*"],
+      flags: [],
+      env: {},
+      auth: [],
+    };
+    expect(issuesFor(document)).toEqual([]);
+  });
+
+  test("allowed_models pattern with no matches is rejected", () => {
+    const document = documentWithProfile({ allowed_models: ["no-such-prefix*"] });
+    expect(issuesFor(document)).toEqual([
+      { path: "profiles.x.allowed_models[0]", reason: "no catalog model matches this pattern" },
+    ]);
+  });
+
+  test("profile model must fall inside allowed_models patterns", () => {
+    const document = documentWithProfile({
+      model: "claude-sonnet",
+      allowed_models: ["llama_swap*"],
+    });
+    expect(issuesFor(document)).toEqual([
+      { path: "profiles.x.model", reason: "not in allowed_models" },
     ]);
   });
 

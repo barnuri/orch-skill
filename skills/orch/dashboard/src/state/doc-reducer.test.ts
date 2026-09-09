@@ -6,7 +6,7 @@ import { applyDocLoad } from "./doc-reducer.ts";
 function doc(etag: string): LoadedDocument {
   return {
     kind: "profiles",
-    document: { settings: {}, profiles: {} },
+    document: { settings: {}, models: {}, profiles: {} },
     etag,
     enums: ["claude"],
     issues: [],

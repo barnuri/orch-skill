@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { orchPaths } from "./paths";
 
 const PROFILES_TEMPLATE: string = "profiles.json";
+const SUGGESTIONS_TEMPLATE: string = "suggestions.json";
 const EMPTY_MEMORY: string = "[]\n";
 const SERVE_DIR_MODE: number = 0o700;
 
@@ -18,5 +19,8 @@ export function ensureHome(home: string, templatesDir: string): void {
   }
   if (!existsSync(paths.memory)) {
     writeFileSync(paths.memory, EMPTY_MEMORY);
+  }
+  if (!existsSync(paths.suggestions)) {
+    copyFileSync(join(templatesDir, SUGGESTIONS_TEMPLATE), paths.suggestions);
   }
 }

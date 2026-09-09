@@ -8,9 +8,13 @@ import {
   MIN_SVG_W,
   NODE_H,
   NODE_W,
+  ORCH_NODE_H,
+  ORCH_NODE_W,
   PAD,
   layoutDag,
 } from "./dag-layout.ts";
+
+const ORCH_COL: number = ORCH_NODE_W + GAP_X;
 
 function node(id: string): RunNode {
   return {
@@ -31,6 +35,8 @@ describe("layoutDag", () => {
   test("an empty run still gets a minimum canvas", () => {
     const layout = layoutDag([], []);
     expect(layout.pos).toEqual({});
+    expect(layout.orch).toBeNull();
+    expect(layout.entryIds).toEqual([]);
     expect(layout.cyclic).toEqual([]);
     expect(layout.width).toBe(MIN_SVG_W);
     expect(layout.height).toBe(MIN_SVG_H);
@@ -45,11 +51,14 @@ describe("layoutDag", () => {
         ["a", "c"],
       ],
     );
-    expect(layout.pos.a).toEqual({ x: PAD, y: PAD });
-    expect(layout.pos.b).toEqual({ x: PAD + NODE_W + GAP_X, y: PAD });
-    expect(layout.pos.c).toEqual({ x: PAD + NODE_W + GAP_X, y: PAD + NODE_H + GAP_Y });
+    const canvasH = PAD * 2 + 2 * NODE_H + GAP_Y;
+    expect(layout.orch).toEqual({ x: PAD, y: Math.max(PAD, (canvasH - ORCH_NODE_H) / 2) });
+    expect(layout.entryIds).toEqual(["a"]);
+    expect(layout.pos.a).toEqual({ x: PAD + ORCH_COL, y: PAD });
+    expect(layout.pos.b).toEqual({ x: PAD + ORCH_COL + NODE_W + GAP_X, y: PAD });
+    expect(layout.pos.c).toEqual({ x: PAD + ORCH_COL + NODE_W + GAP_X, y: PAD + NODE_H + GAP_Y });
     expect(layout.cyclic).toEqual([]);
-    expect(layout.width).toBe(PAD * 2 + 2 * NODE_W + GAP_X);
+    expect(layout.width).toBe(PAD * 2 + 2 * NODE_W + GAP_X + ORCH_COL);
     expect(layout.height).toBe(PAD * 2 + 2 * NODE_H + GAP_Y);
   });
 
@@ -64,17 +73,18 @@ describe("layoutDag", () => {
         ["b", "c"],
       ],
     );
-    expect(layout.pos.a?.x).toBe(PAD);
-    expect(layout.pos.b?.x).toBe(PAD + NODE_W + GAP_X);
-    expect(layout.pos.c?.x).toBe(PAD + 2 * (NODE_W + GAP_X));
+    expect(layout.pos.a?.x).toBe(PAD + ORCH_COL);
+    expect(layout.pos.b?.x).toBe(PAD + ORCH_COL + NODE_W + GAP_X);
+    expect(layout.pos.c?.x).toBe(PAD + ORCH_COL + 2 * (NODE_W + GAP_X));
     // Each column holds one node, so nothing stacks.
     expect(layout.pos.c?.y).toBe(PAD);
   });
 
   test("independent nodes stack in input order in one column", () => {
     const layout = layoutDag([node("x"), node("y")], []);
-    expect(layout.pos.x).toEqual({ x: PAD, y: PAD });
-    expect(layout.pos.y).toEqual({ x: PAD, y: PAD + NODE_H + GAP_Y });
+    expect(layout.entryIds).toEqual(["x", "y"]);
+    expect(layout.pos.x).toEqual({ x: PAD + ORCH_COL, y: PAD });
+    expect(layout.pos.y).toEqual({ x: PAD + ORCH_COL, y: PAD + NODE_H + GAP_Y });
   });
 
   // A cycle cannot be layered; those nodes drop to column 0 and are reported for a badge
@@ -101,12 +111,13 @@ describe("layoutDag", () => {
       ],
     );
     expect(layout.cyclic.slice().sort()).toEqual(["a", "b"]);
-    expect(layout.pos.ok).toEqual({ x: PAD, y: PAD });
+    expect(layout.pos.ok).toEqual({ x: PAD + ORCH_COL, y: PAD });
   });
 
   test("edges pointing at unknown nodes are ignored", () => {
     const layout = layoutDag([node("a")], [["ghost", "a"]]);
-    expect(layout.pos.a).toEqual({ x: PAD, y: PAD });
+    expect(layout.entryIds).toEqual(["a"]);
+    expect(layout.pos.a).toEqual({ x: PAD + ORCH_COL, y: PAD });
     expect(layout.cyclic).toEqual([]);
   });
 

@@ -4,6 +4,7 @@ import { STATUS_ORDER } from "../constants";
 import { chip, el } from "../dom/el";
 import { fmtTime } from "../dom/format";
 import type { AppState } from "../state/app-state";
+import { pageHead } from "./page-head";
 
 type Counts = Record<NodeStatus, number>;
 
@@ -76,12 +77,11 @@ export function renderRunsList(state: AppState): DocumentFragment {
   const runs = sortedRuns(state.runs ?? []);
   const active = runs.filter((run) => run.status === "running").length;
   const frag = document.createDocumentFragment();
-  frag.appendChild(el("h1", { text: "Runs" }));
   const sub =
     runs.length > 0
       ? `${active} active, ${runs.length - active} finished`
       : "Nothing has been dispatched yet.";
-  frag.appendChild(el("div", { class: "sub", text: sub }));
+  frag.appendChild(pageHead("Runs", sub));
   if (state.lastError !== null && state.runs === null) {
     frag.appendChild(el("div", { class: "notice", text: `Could not load runs: ${state.lastError}` }));
   }

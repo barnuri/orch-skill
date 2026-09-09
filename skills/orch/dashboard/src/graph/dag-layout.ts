@@ -2,6 +2,9 @@ import type { RunNode } from "../../../shared/types/run-node";
 
 export const NODE_W: number = 180;
 export const NODE_H: number = 56;
+export const ORCH_NODE_W: number = 132;
+export const ORCH_NODE_H: number = 56;
+export const ORCH_NODE_ID: string = "__orch__";
 export const GAP_X: number = 80;
 export const GAP_Y: number = 24;
 export const PAD: number = 24;
@@ -9,8 +12,12 @@ export const MIN_SVG_W: number = 320;
 export const MIN_SVG_H: number = 120;
 export const LABEL_MAX: number = 22;
 
+const ORCH_COL_WIDTH: number = ORCH_NODE_W + GAP_X;
+
 export type DagLayout = {
   pos: Record<string, { x: number; y: number }>;
+  orch: { x: number; y: number } | null;
+  entryIds: string[];
   width: number;
   height: number;
   cyclic: string[];
@@ -91,6 +98,33 @@ function columnsOf(nodes: readonly RunNode[], layer: Map<string, number>): Map<n
  * Longest-path layering, one column per layer, nodes stacked in input order within a column.
  * Pure: the same nodes/edges always give the same geometry, so the graph is stable across polls.
  */
+function entryNodeIds(nodes: readonly RunNode[], edges: readonly [string, string][]): string[] {
+  const incoming = incomingOf(nodes, edges);
+  const ids: string[] = [];
+  for (const node of nodes) {
+    if ((incoming.get(node.id) ?? []).length === 0) {
+      ids.push(node.id);
+    }
+  }
+  return ids;
+}
+
+function withOrchColumn(
+  pos: Record<string, { x: number; y: number }>,
+  width: number,
+  height: number,
+  entryIds: string[],
+): Pick<DagLayout, "orch" | "width"> {
+  for (const point of Object.values(pos)) {
+    point.x += ORCH_COL_WIDTH;
+  }
+  const orchY = Math.max(PAD, (height - ORCH_NODE_H) / 2);
+  return {
+    orch: { x: PAD, y: orchY },
+    width: width + ORCH_COL_WIDTH,
+  };
+}
+
 export function layoutDag(nodes: readonly RunNode[], edges: readonly [string, string][]): DagLayout {
   const { layer, cyclic } = assignLayers(nodes, edges);
   const columns = columnsOf(nodes, layer);
@@ -103,7 +137,23 @@ export function layoutDag(nodes: readonly RunNode[], edges: readonly [string, st
     });
   }
   const colCount = columns.size;
-  const width = PAD * 2 + colCount * NODE_W + Math.max(0, colCount - 1) * GAP_X;
-  const height = PAD * 2 + maxRows * NODE_H + Math.max(0, maxRows - 1) * GAP_Y;
-  return { pos, width: Math.max(width, MIN_SVG_W), height: Math.max(height, MIN_SVG_H), cyclic };
+  let width = PAD * 2 + colCount * NODE_W + Math.max(0, colCount - 1) * GAP_X;
+  let height = PAD * 2 + maxRows * NODE_H + Math.max(0, maxRows - 1) * GAP_Y;
+  width = Math.max(width, MIN_SVG_W);
+  height = Math.max(height, MIN_SVG_H);
+
+  if (nodes.length === 0) {
+    return { pos, orch: null, entryIds: [], width, height, cyclic };
+  }
+
+  const entryIds = entryNodeIds(nodes, edges);
+  const orchLayout = withOrchColumn(pos, width, height, entryIds);
+  return {
+    pos,
+    orch: orchLayout.orch,
+    entryIds,
+    width: orchLayout.width,
+    height,
+    cyclic,
+  };
 }

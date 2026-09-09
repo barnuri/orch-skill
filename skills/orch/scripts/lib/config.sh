@@ -14,6 +14,7 @@
 RUNS_HOME="$ORCH_HOME/runs"
 PROFILES_FILE="$ORCH_HOME/profiles.json"
 MEMORY_FILE="$ORCH_HOME/memory.json"
+SUGGESTIONS_FILE="$ORCH_HOME/suggestions.json"
 TRASH_FALLBACK_DIR="$ORCH_HOME/.trash"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
 VALID_HARNESSES="claude cursor-agent opencode local-llm"
@@ -57,16 +58,91 @@ ensure_home() {
   [ -f "$PROFILES_FILE" ] || cp "$TEMPLATES_DIR/profiles.json" "$PROFILES_FILE" || return 1
   [ -f "$MEMORY_FILE" ] || printf '[]\n' > "$MEMORY_FILE"
   [ -f "$ORCH_HOME/serve.json" ] || cp "$TEMPLATES_DIR/serve.json" "$ORCH_HOME/serve.json" 2>/dev/null || true
+  profiles_migrate || return 1
+  suggestions_seed || return 1
+}
+
+suggestions_seed() {
+  [ -f "$SUGGESTIONS_FILE" ] || cp "$TEMPLATES_DIR/suggestions.json" "$SUGGESTIONS_FILE" \
+    || printf '{"generated_at":"%s","suggestions":[]}\n' "$(now_iso)" > "$SUGGESTIONS_FILE"
+}
+
+# Adds models{}, learning defaults, and catalog ids for legacy model slugs — never overwrites user edits.
+profiles_migrate() {
+  command -v jq >/dev/null 2>&1 || return 0
+  [ -f "$PROFILES_FILE" ] || return 0
+  local tmp="$PROFILES_FILE.tmp.$$"
+  if ! jq '
+    def rename_profile($old; $new):
+      if .profiles[$old]? then
+        .profiles[$new] = .profiles[$old]
+        | del(.profiles[$old])
+        | if (.settings.default_profile // "") == $old then .settings.default_profile = $new else . end
+        | .profiles |= with_entries(
+            .value |= if .fallback? == $old then . + {fallback: $new} else . end
+          )
+      else .
+      end;
+    .models //= {}
+    | rename_profile("claude-hub"; "claude-llm-hub")
+    | rename_profile("cursor-hub"; "cursor-llm-hub")
+    |     .settings.learning //= {
+        auto_record_memory: true,
+        auto_scan_on_finish: true,
+        auto_apply_safe: true,
+        min_samples: 3,
+        recency_days: 30,
+        dismiss_ttl_days: 30
+      }
+    | .settings.learning.auto_apply_safe //= true
+    | reduce (.profiles | keys[]) as $name (
+        .;
+        .profiles[$name] as $p
+        | if ($p.model // "") == "" or .models[$p.model]? then .
+          else
+            ( [ .models | to_entries[]
+                | select(.value.slug == $p.model and (.value.harnesses | index($p.harness)))
+                | .key ][0] ) as $found
+            | if $found then .profiles[$name].model = $found
+              else
+                ( ($p.harness | gsub("-"; "_")) + "-" + ($p.model | gsub("[^a-zA-Z0-9._-]"; "_")) ) as $nid
+                | .models[$nid] = {slug: $p.model, harnesses: [$p.harness], description: ""}
+                | .profiles[$name].model = $nid
+              end
+          end
+      )
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE"
+}
+
+# recoverable_remove <path> — `trash` when available, else a timestamped move under .trash/ (never `rm`).
+recoverable_remove() {
+  local path="${1%/}" dest stamp
+  [ -e "$path" ] || return 0
+  if command -v trash >/dev/null 2>&1 && trash "$path" 2>/dev/null; then
+    return 0
+  fi
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  dest="$TRASH_FALLBACK_DIR/$stamp"
+  mkdir -p "$dest" && mv "$path" "$dest/"
+}
+
+# Retired file:// dashboard artifacts — recoverably removed on init/install, never left behind.
+prune_legacy_dashboard() {
+  local path
+  for path in "$ORCH_HOME/index.html" "$ORCH_HOME/data"; do
+    [ -e "$path" ] || continue
+    recoverable_remove "$path" || return 1
+    [ -n "${ORCH_INSTALL_QUIET:-}" ] || printf 'orch: moved legacy dashboard leftover %s\n' "${path##*/}" >&2
+  done
 }
 
 cmd_init() {
   ensure_home || return 1
-  # Homes bootstrapped before the Bun server keep an inert index.html and data/ — say so once,
-  # but never trash a user's files behind their back.
-  if [ -e "$ORCH_HOME/index.html" ] || [ -d "$ORCH_HOME/data" ]; then
-    printf 'orch: legacy file:// dashboard leftovers (index.html, data/) under %s are no longer used — trash them when convenient\n' \
-      "$ORCH_HOME" >&2
-  fi
+  prune_legacy_dashboard || return 1
   printf '%s\n' "$ORCH_HOME"
 }
 
@@ -106,7 +182,18 @@ profile_load() {
 
   PROFILE_NAME="$name"
   PROFILE_HARNESS=$(printf '%s' "$json" | jq -r '.harness // empty')
-  PROFILE_MODEL=$(printf '%s' "$json" | jq -r '.model // empty')
+  PROFILE_MODEL_ID="${ORCH_MODEL_ID:-}"
+  if [ -z "$PROFILE_MODEL_ID" ]; then
+    PROFILE_MODEL_ID=$(model_id_resolve "$name")
+  elif ! model_id_allowed "$name" "$PROFILE_MODEL_ID"; then
+    printf 'profile %s: model %s is not in allowed_models\n' "$name" "$PROFILE_MODEL_ID" >&2
+    return 2
+  fi
+  if [ -n "$PROFILE_MODEL_ID" ]; then
+    PROFILE_MODEL=$(model_slug_resolve "$name" "$PROFILE_MODEL_ID")
+  else
+    PROFILE_MODEL=""
+  fi
   if ! in_list "$PROFILE_HARNESS" "$VALID_HARNESSES"; then
     printf 'profile %s: harness "%s" must be one of: %s\n' "$name" "$PROFILE_HARNESS" "$VALID_HARNESSES" >&2
     return 2
@@ -186,7 +273,9 @@ cmd_profile() {
       profile_require "$2" | jq .
       return "${PIPESTATUS[0]}"
       ;;
-    *) printf 'usage: dispatch.sh profile list | show <name>\n' >&2; return 2 ;;
+    pick) shift; cmd_profile_pick "$@" ;;
+    sanity) shift; cmd_profile_sanity "$@" ;;
+    *) printf 'usage: dispatch.sh profile list | show <name> | pick "<task>" [--complexity …] [--kind K] | sanity [--profile NAME]\n' >&2; return 2 ;;
   esac
 }
 
@@ -203,13 +292,14 @@ cmd_memory() {
 }
 
 memory_add() {
-  local profile="" outcome="" kind="" note=""
+  local profile="" outcome="" kind="" note="" model_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --profile) shift; profile="${1:-}" ;;
       --outcome) shift; outcome="${1:-}" ;;
       --kind) shift; kind="${1:-}" ;;
       --note) shift; note="${1:-}" ;;
+      --model-id) shift; model_id="${1:-}" ;;
       *) printf 'memory add: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
@@ -220,15 +310,26 @@ memory_add() {
   fi
   in_list "$outcome" "$VALID_OUTCOMES" || { printf 'memory add: outcome must be one of: %s\n' "$VALID_OUTCOMES" >&2; return 2; }
 
-  local json harness model tmp
+  local json harness model slug tmp
   json=$(profile_require "$profile") || return $?
   harness=$(printf '%s' "$json" | jq -r '.harness // ""')
-  model=$(printf '%s' "$json" | jq -r '.model // ""')
+  if [ -z "$model_id" ]; then
+    model_id=$(model_id_resolve "$profile")
+  fi
+  if [ -n "$model_id" ]; then
+    slug=$(model_slug_resolve "$profile" "$model_id")
+    model="$slug"
+  else
+    model=$(printf '%s' "$json" | jq -r '.model // ""')
+    model_id=""
+  fi
 
   tmp="$MEMORY_FILE.tmp.$$"
   if ! jq --arg ts "$(now_iso)" --arg kind "$kind" --arg profile "$profile" --arg harness "$harness" \
-      --arg model "$model" --arg outcome "$outcome" --arg note "$note" \
-      '. + [{ts: $ts, task_kind: $kind, profile: $profile, harness: $harness, model: $model, outcome: $outcome, note: $note}]' \
+      --arg model "$model" --arg model_id "$model_id" --arg outcome "$outcome" --arg note "$note" \
+      '. + [{ts: $ts, task_kind: $kind, profile: $profile, harness: $harness, model: $model,
+             model_id: (if $model_id == "" then null else $model_id end),
+             outcome: $outcome, note: $note}]' \
       "$MEMORY_FILE" > "$tmp"; then
     printf 'memory add: could not update %s\n' "$MEMORY_FILE" >&2
     return 1

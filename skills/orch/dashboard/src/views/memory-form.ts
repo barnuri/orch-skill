@@ -15,7 +15,10 @@ const NOTE_ROWS: string = "4";
 const NO_PROFILE: string = "(no profile)";
 
 function draftEntries(state: AppState): MemoryEntry[] {
-  return Array.isArray(state.draft) ? state.draft : [];
+  if (state.doc?.kind !== "memory" || !Array.isArray(state.draft)) {
+    return [];
+  }
+  return state.draft;
 }
 
 // Where the server will report issues about this entry: a new one lands at the end of the array,

@@ -27,6 +27,8 @@ SERVE_START_WAIT_TICKS=50
 SERVE_STOP_WAIT_TICKS=50
 
 SERVE_USAGE='dispatch.sh serve [--host H] [--port P] | serve --stop'
+SERVE_STATUS_USAGE='dispatch.sh serve status [--json]'
+SERVE_RECOVER_USAGE='dispatch.sh serve recover [--start|--no-start]'
 SERVE_CONFIG_USAGE='dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]'
 UI_USAGE='dispatch.sh ui [--stop]'
 
@@ -352,6 +354,138 @@ serve_clear_pid() {
   [ ! -f "$SERVE_PID_FILE" ] || : >"$SERVE_PID_FILE"
 }
 
+# Prints key=value lines to stdout and returns:
+#   0 running   1 down/stale_pid   2 bun_missing   3 zombie   4 sources_stale
+serve_diagnose() {
+  local pid port host reason
+  if ! serve_bun >/dev/null 2>&1; then
+    printf 'reason=bun_missing\n'
+    return 2
+  fi
+  pid=$(serve_pid)
+  port=$(serve_port)
+  host=$(serve_host)
+  if serve_pid_alive "$pid"; then
+    if [ -z "$port" ] || ! serve_probe "$port"; then
+      printf 'reason=zombie\npid=%s\nport=%s\n' "$pid" "$port"
+      return 3
+    fi
+    if serve_sources_changed; then
+      printf 'reason=sources_stale\npid=%s\nport=%s\nhost=%s\n' "$pid" "$port" "$host"
+      return 4
+    fi
+    printf 'reason=running\npid=%s\nport=%s\nhost=%s\nurl=%s\n' "$pid" "$port" "$host" "$(serve_url)"
+    return 0
+  fi
+  if [ -n "$pid" ]; then
+    printf 'reason=stale_pid\npid=%s\n' "$pid"
+    return 1
+  fi
+  printf 'reason=down\n'
+  return 1
+}
+
+serve_diag_field() {
+  printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1
+}
+
+# serve recover [--start|--no-start] — fix a stale/zombie/missing server when the cause is known.
+serve_recover() {
+  local do_start=1 rc diag reason
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --start) do_start=1 ;;
+      --no-start) do_start=0 ;;
+      *) printf 'serve recover: unknown argument %s\n  usage: %s\n' "$1" "$SERVE_RECOVER_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  diag=$(serve_diagnose)
+  rc=$?
+  reason=$(serve_diag_field "$diag" reason)
+  case "$rc" in
+    0)
+      printf 'serve: healthy (pid %s, port %s)\n' "$(serve_diag_field "$diag" pid)" "$(serve_diag_field "$diag" port)"
+      serve_diag_field "$diag" url
+      return 0
+      ;;
+    2)
+      serve_bun || return 2
+      return 2
+      ;;
+    3)
+      printf 'serve: pid %s is alive but not answering — stopping it\n' "$(serve_diag_field "$diag" pid)" >&2
+      serve_stop >/dev/null
+      ;;
+    4)
+      printf 'serve: skill sources changed — restarting the server\n' >&2
+      serve_stop >/dev/null
+      ;;
+    1)
+      case "$reason" in
+        stale_pid)
+          printf 'serve: clearing stale pid marker\n' >&2
+          serve_clear_pid
+          ;;
+      esac
+      ;;
+  esac
+  if [ "$do_start" -eq 0 ]; then
+    printf 'serve: not running; pass --start to bring the dashboard up\n' >&2
+    return 1
+  fi
+  serve_start_background || return 1
+  printf 'serve: started on %s:%s\n' "$(serve_host)" "$(serve_port)"
+  serve_url
+}
+
+cmd_serve_status() {
+  local as_json=0 diag rc reason pid port host url
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) as_json=1 ;;
+      *) printf 'serve status: unknown argument %s\n  usage: %s\n' "$1" "$SERVE_STATUS_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  ensure_home || return 1
+  diag=$(serve_diagnose)
+  rc=$?
+  reason=$(serve_diag_field "$diag" reason)
+  pid=$(serve_diag_field "$diag" pid)
+  port=$(serve_diag_field "$diag" port)
+  host=$(serve_diag_field "$diag" host)
+  url=$(serve_diag_field "$diag" url)
+  if [ "$as_json" -eq 1 ]; then
+    require_jq "serve status" || return 127
+    jq -nc \
+      --arg reason "$reason" --arg pid "$pid" --arg port "$port" --arg host "$host" --arg url "$url" \
+      --argjson healthy "$([ "$rc" -eq 0 ] && printf true || printf false)" \
+      '{healthy: $healthy, reason: $reason, pid: (if $pid == "" then null else $pid end),
+        port: (if $port == "" then null else ($port|tonumber) end),
+        host: (if $host == "" then null else $host end),
+        url: (if $url == "" then null else $url end)}'
+    return "$rc"
+  fi
+  case "$reason" in
+    running)
+      printf 'state=running listener=answering pid=%s port=%s url=%s\n' "$pid" "$port" "$url"
+      ;;
+    down) printf 'state=down listener=stopped\n' ;;
+    stale_pid) printf 'state=down listener=stopped stale_pid=%s\n' "$pid" ;;
+    zombie) printf 'state=zombie listener=stopped pid=%s port=%s\n' "$pid" "$port" ;;
+    bun_missing) printf 'state=unavailable reason=bun_missing\n' ;;
+    sources_stale) printf 'state=stale listener=answering pid=%s port=%s\n' "$pid" "$port" ;;
+    *) printf 'state=unknown reason=%s\n' "$reason" ;;
+  esac
+  return "$rc"
+}
+
+cmd_serve_recover() {
+  ensure_home || return 1
+  serve_recover "$@"
+}
+
 # serve [--host H] [--port P] | serve --stop — runs bun in the foreground (Ctrl-C hits bun, which
 # prints the URLs, writes the markers and empties the pid marker on its way out).
 cmd_serve() {
@@ -389,7 +523,11 @@ cmd_ui() {
 
   serve_running
   rc=$?
-  [ "$rc" -ne 3 ] || return 1
+  if [ "$rc" -eq 3 ]; then
+    printf 'ui: server not answering — recovering\n' >&2
+    serve_stop >/dev/null
+    rc=1
+  fi
   if [ "$rc" -eq 0 ] && serve_sources_changed; then
     printf 'ui: skill sources changed since the server started — restarting it\n' >&2
     serve_stop >/dev/null

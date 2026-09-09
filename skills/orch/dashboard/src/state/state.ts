@@ -20,4 +20,6 @@ export function resetDocState(): void {
   state.editing = null;
   state.fieldIssues = [];
   state.docError = null;
+  state.harnesses = null;
+  state.harnessesError = null;
 }

@@ -42,16 +42,19 @@ into it.
 
 Precedence, highest first:
 
-1. **The user named a target** ("send this to cursor", "use claude-hub") → that profile or adapter.
+1. **The user named a target** ("send this to cursor", "use claude-llm-hub") → that profile or adapter.
 2. **Memory hint** — a `memory list` row whose `task_kind`/note matches this kind of task and
    whose outcome was `success` → its profile. Failures count against a profile for that kind.
-3. **Classifier** — `orch classify "<task>" [--complexity trivial|small|medium|large] [--prefer-local]`
+3. **`profile pick`** — `orch profile pick "<task>" [--complexity …] [--kind K]` prints
+   `profile=`, `model=` (catalog id), and `reason=` using metadata, memory and `budget-check`.
+   Only use a `model` inside that profile's allowed catalog ids (`orch model list --profile P`).
+4. **Classifier** — `orch classify "<task>" [--complexity trivial|small|medium|large] [--prefer-local]`
    prints one adapter; map it to a profile:
 
 | classify prints | Use |
 |---|---|
 | `claude-native` | do the work in this session — Step 2 |
-| `claude` | `settings.default_profile` (template: `claude-sub`), or `claude-hub` when the user wants the cheaper route |
+| `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-sub` (small–medium, default), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
 | `cursor-agent` | `cursor-default` |
 | `opencode` | `opencode-default` |
 | `local-llm` | `local-qwen` |
@@ -107,7 +110,7 @@ into every following command (and hand the user its dashboard link, `#/run/<run-
 ```bash
 orch run start "<title>"                                   # prints <run-id>; auto-prunes old runs first
 orch node add <run-id> plan   "Plan the change"
-orch node add <run-id> impl   "Implement"    --after plan --profile claude-hub
+orch node add <run-id> impl   "Implement"    --after plan --profile claude-llm-hub
 orch node add <run-id> tests  "Write tests"  --after plan --profile local-qwen
 orch node add <run-id> review "Review + fix" --after impl,tests --profile cursor-default
 orch run sync <run-id>                     # prints id<TAB>status per node, then "ready: plan", "running: 0"
@@ -125,12 +128,48 @@ Loop until every node is terminal:
 Finish and learn:
 
 ```bash
-orch run finish <run-id>                    # error if any node errored, else done
-orch memory add --profile claude-hub --outcome success --kind "implement" --note "fast, clean diff"
+orch run finish <run-id>                    # auto-records memory + scans suggestions when learning is on
+orch memory add --profile claude-llm-hub --outcome success --kind "implement" --note "fast, clean diff"
+orch suggest list --pending                 # review before applying profile/metadata changes
 ```
 
+`run finish` with default `settings.learning` auto-appends memory rows and scans for gaps.
 Add one memory row per profile actually used, honest about the outcome — this is what Step 1
-reads next time.
+reads next time. Check `#/suggestions` for profile/model description and routing hints.
+
+## Offline mode (dashboard down)
+
+**The CLI is the source of truth.** Every mutation goes through `dispatch.sh` straight to
+`~/.harness-orch/` — runs, jobs, profiles, memory and suggestions. If the dashboard server is
+down, stopped, or unreachable, **keep orchestrating exactly as above** (`run start`, `node add`,
+`node dispatch`, `run sync`, `run finish`, `profile pick`, `memory add`, …). Nothing in Step 3–4
+requires the server; only the browser view does.
+
+When the dashboard is offline the user sees a stale page — that is cosmetic. Do not block work on
+it. Say once that the CLI path is live and offer `orch sync` when the server is back.
+
+**Check and recover the server** when you need the dashboard or suspect it is why the page is
+stale:
+
+```bash
+orch serve status              # state=running | down | zombie | stale | unavailable
+orch serve recover --start    # default: fix stale/zombie markers and start in background
+orch sync                     # recover server (best effort) + run sync on active runs + suggest scan
+```
+
+`serve recover` handles the cases it understands: stale pid marker, process alive but not
+answering (zombie), skill sources newer than the running server (restart). It cannot fix a
+missing `bun` binary (install Bun or set `ORCH_BUN`) or a port already taken by another program —
+`serve status` and the last lines of `~/.harness-orch/serve/log` name the cause.
+
+`orch sync` is the catch-up pass after offline CLI work: flips finished jobs on any `running` run,
+rescans suggestions, and auto-applies safe memory rows when learning is on. Pass `--no-serve` to
+skip dashboard recovery. Run it after `serve recover` succeeds, or periodically if the server was
+down for a while.
+
+If a background **service** is installed (`scripts/service.sh status`), a down listener may need
+`scripts/service.sh restart` instead of `orch ui` — `ui` and the service must not race for the
+port.
 
 ## Dashboard
 
@@ -170,7 +209,7 @@ disables). Running runs and jobs are never touched.
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
 | `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `/chat/completions` |
 
-A profile supplies the model, CLI flags and env for its harness (e.g. `claude-hub` points
+A profile supplies the model, CLI flags and env for its harness (e.g. `claude-llm-hub` points
 `ANTHROPIC_BASE_URL` at `${LLM_HUB_URL}`). A missing binary or unset variable fails fast with a
 clear message (exit 127 / 1) — report it, do not retry. Contract and how to add one:
 [adapter-contract.md](references/adapter-contract.md).

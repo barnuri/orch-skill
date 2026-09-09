@@ -7,6 +7,7 @@ import { beginEdit } from "../forms/document-editor";
 import type { AppState } from "../state/app-state";
 import { renderDocNotices } from "./doc-notices";
 import { renderMemoryForm } from "./memory-form";
+import { pageHead } from "./page-head";
 
 type IndexedEntry = { index: number; entry: MemoryEntry };
 
@@ -36,6 +37,13 @@ function newEntry(outcomes: readonly string[], defaultProfile: string): MemoryEn
 
 function memoryEntries(document: ProfilesDocument | MemoryDocument | null): MemoryEntry[] {
   return Array.isArray(document) ? document : [];
+}
+
+function draftEntries(state: AppState): MemoryEntry[] {
+  if (state.doc?.kind !== "memory" || !Array.isArray(state.draft)) {
+    return [];
+  }
+  return state.draft;
 }
 
 /** Newest first — the file grows at the end — while every row keeps its real array index. */
@@ -89,7 +97,7 @@ function renderAddPanel(state: AppState): HTMLElement {
 // Forms edit `state.draft` (the private copy beginEdit made), never the loaded document the rows
 // are drawn from; both share the same indexes, so a row index addresses the draft entry directly.
 function renderPanel(state: AppState): HTMLElement {
-  const draft = memoryEntries(state.draft);
+  const draft = draftEntries(state);
   if (state.editing === "new" && pending !== null) {
     return el("aside", { class: "panel" }, [renderMemoryForm("new", pending, state)]);
   }
@@ -113,10 +121,9 @@ export function renderMemory(state: AppState): DocumentFragment {
   const loaded = doc === null || !Array.isArray(doc.document) ? null : doc.document;
   const entries = loaded ?? [];
   const frag = document.createDocumentFragment();
-  frag.appendChild(el("h1", { text: "Memory" }));
   const noun = entries.length === 1 ? "entry" : "entries";
   const sub = doc === null ? "Loading…" : loaded === null ? "memory.json could not be read." : `${entries.length} ${noun} · newest first`;
-  frag.appendChild(el("div", { class: "sub", text: sub }));
+  frag.appendChild(pageHead("Memory", sub));
   frag.appendChild(renderDocNotices(state));
   if (doc === null) {
     if (state.lastError !== null) {

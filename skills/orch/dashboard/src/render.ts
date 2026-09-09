@@ -6,7 +6,9 @@ import { renderDocNotices as docNoticesView } from "./views/doc-notices";
 import { renderFresh as renderFreshness } from "./views/freshness";
 import { renderMemory } from "./views/memory-view";
 import { renderNav } from "./views/nav";
+import { renderHarnesses } from "./views/harnesses-view";
 import { renderProfiles } from "./views/profiles-view";
+import { renderSuggestions } from "./views/suggestions-view";
 import { renderRun } from "./views/run-view";
 import { renderRunsList } from "./views/runs-list-view";
 import { renderTokenGate } from "./views/token-gate-view";
@@ -22,20 +24,20 @@ function sectionTitle(route: Route): string {
       return state.run === null ? route.runId : state.run.title || state.run.run_id;
     case "profiles":
       return "profiles";
+    case "harnesses":
+      return "harnesses";
     case "memory":
       return "memory";
+    case "suggestions":
+      return "suggestions";
   }
 }
 
 function renderChrome(route: Route): void {
   renderNav(route);
   renderFreshness(state);
-  const title = sectionTitle(route);
-  document.title = `${TITLE_PREFIX}${title}`;
-  const crumb = document.getElementById("crumb");
-  if (crumb !== null) {
-    crumb.textContent = route.kind === "list" ? "" : `/ ${title}`;
-  }
+  // Browser tab only — the header brand stays "orch"; section context lives in <main>.
+  document.title = `${TITLE_PREFIX}${sectionTitle(route)}`;
 }
 
 function selectNode(nodeId: string): void {
@@ -58,8 +60,12 @@ function viewFor(route: Route): Node {
       return renderRun(state, selectNode);
     case "profiles":
       return renderProfiles(state);
+    case "harnesses":
+      return renderHarnesses(state);
     case "memory":
       return renderMemory(state);
+    case "suggestions":
+      return renderSuggestions(state);
   }
 }
 

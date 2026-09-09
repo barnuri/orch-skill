@@ -5,6 +5,7 @@ Everything lives under `${HARNESS_ORCH_HOME:-~/.harness-orch}`:
 ```
 profiles.json          settings + named profiles (from templates/profiles.json on first use)
 serve.json             dashboard bind address, port and auth policy (from templates/serve.json on first use)
+cli.json               global CLI command name and bin dir (written by install.sh; default name: orch)
 memory.json            learnings log — [] on first use
 runs/<run-id>/state.json
 jobs/<job-id>/{adapter,profile,pid,log,exit_code}
@@ -20,11 +21,33 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 
 ```json
 {
-  "settings": { "default_profile": "claude-sub", "retention_days": 7, "budget_threshold": 85 },
+  "settings": {
+    "default_profile": "claude-sub",
+    "retention_days": 7,
+    "budget_threshold": 85,
+    "learning": {
+      "auto_record_memory": true,
+      "auto_scan_on_finish": true,
+      "auto_apply_safe": false,
+      "min_samples": 3,
+      "recency_days": 30,
+      "dismiss_ttl_days": 30
+    }
+  },
+  "models": {
+    "claude-sonnet": {
+      "slug": "sonnet",
+      "harnesses": ["claude"],
+      "description": "Default workhorse",
+      "cost": "subscription",
+      "quality": "standard",
+      "speed": "balanced"
+    }
+  },
   "profiles": {
-    "claude-hub": {
+    "claude-llm-hub": {
       "harness": "claude",
-      "model": "sonnet",
+      "model": "claude-sonnet",
       "flags": ["--dangerously-skip-permissions"],
       "env": { "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}", "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}" },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
@@ -35,12 +58,17 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 
 | Field | Meaning |
 |---|---|
+| `models` | catalog of callable models (`slug` → CLI); referenced by id from profiles |
+| `models.<id>.slug` | value passed to the harness (`--model`, `-m`, or `LLM_HUB_MODEL`) |
 | `harness` | adapter name: `claude`, `cursor-agent`, `opencode`, `local-llm` |
-| `model` | passed as `--model` (claude, cursor-agent), `-m` (opencode) or `LLM_HUB_MODEL` (local-llm); empty = CLI default |
+| `model` | catalog **id** (not raw slug); resolved to `models[id].slug` at spawn |
+| `allowed_models` | whitelist of catalog ids and/or slug prefix patterns (`llama_swap*`); omitted = all models for this profile's harness |
+| `description`, `cost`, `quality`, `speed`, `risk`, `tags`, `strengths`, `avoid_for`, … | routing metadata for `profile pick` and the dashboard |
 | `flags` | appended verbatim after the model flag |
 | `env` | exported at spawn time. A value that is exactly `${NAME}` is replaced by the caller's environment variable; anything else is a literal. Partial interpolation is unsupported on purpose. |
 | `auth` | env-var **names** that must be non-empty before the profile may run. Values are never stored. |
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
+| `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker (adapters remain in code) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
 
@@ -54,18 +82,27 @@ written — resolved secrets are never printed.
 Flat array, appended by `memory add`, listed newest-first by `memory list`:
 
 ```json
-{ "ts": "2026-09-02T18:00:00Z", "task_kind": "implement", "profile": "claude-hub",
+{ "ts": "2026-09-02T18:00:00Z", "task_kind": "implement", "profile": "claude-llm-hub",
   "harness": "claude", "model": "sonnet", "outcome": "success", "note": "fast, clean diff" }
 ```
 
-`outcome` ∈ `success | failure | partial`. `harness`/`model` are copied from the profile at add time.
+`outcome` ∈ `success | failure | partial`. `harness`/`model`/`model_id` are copied from the profile at add time.
+
+## suggestions.json
+
+```json
+{ "generated_at": "2026-09-09T08:00:00Z", "suggestions": [ … ] }
+```
+
+Pending suggestions expire to `expired` after `settings.learning.dismiss_ttl_days` (default 30).
+Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dashboard.
 
 ## runs/<run-id>/state.json
 
 ```json
 { "run_id": "20260902-193000-a1b2", "title": "…", "harness_session": "<agent_session_id>",
   "started": "ISO", "finished": null, "status": "running",
-  "nodes": [ { "id": "n1", "label": "…", "status": "waiting", "profile": "claude-hub",
+  "nodes": [ { "id": "n1", "label": "…", "status": "waiting", "profile": "claude-llm-hub",
                "adapter": null, "job_id": null, "started": null, "finished": null,
                "error": null, "log_tail": [] } ],
   "edges": [ ["n1", "n2"] ] }
@@ -112,6 +149,7 @@ hostname nor `localhost` is refused with 400.
 | `/api/runs` | GET | `{generated_at, runs:[summary…]}` with `counts: {waiting, running, done, error, skipped}` |
 | `/api/runs/:id` | GET | `{generated_at, run:<state.json>}`; 404 for an id outside `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` |
 | `/api/profiles` | GET, PUT | envelope adds `harnesses`, `issues`, `limits`; PUT validates before writing |
+| `/api/harnesses` | GET | live probe per adapter (`dispatch.sh harness list --json`); `enabled` reflects `settings.disabled_harnesses` |
 | `/api/memory` | GET, PUT | same shape with `outcomes` |
 
 Every GET carries a strong `ETag` over the payload only (never `generated_at`), so the 2 s poll
@@ -143,8 +181,11 @@ dispatch.sh run finish <run-id> [--status done|error]
 dispatch.sh run list
 
 dispatch.sh serve [--host H] [--port P] | serve --stop
+dispatch.sh serve status [--json]
+dispatch.sh serve recover [--start|--no-start]
 dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
 dispatch.sh ui [--stop]
+dispatch.sh sync [--no-serve]
 dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 ```
 

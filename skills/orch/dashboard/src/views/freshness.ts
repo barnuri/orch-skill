@@ -2,7 +2,8 @@ import { DEAD_MS, STALE_MS } from "../constants";
 import { ago } from "../dom/format";
 import type { AppState } from "../state/app-state";
 
-const WAITING_TEXT: string = "waiting for data…";
+const WAITING_TEXT: string = "waiting for server…";
+const OFFLINE_TEXT: string = "dashboard offline — CLI still works";
 
 function levelClass(ageMs: number, lastError: string | null): string {
   if (lastError !== null || ageMs > DEAD_MS) {
@@ -20,9 +21,13 @@ export function renderFresh(state: AppState): void {
   }
   if (state.lastOkAt === null) {
     root.className = "fresh dead";
-    text.textContent = WAITING_TEXT;
+    text.textContent = state.lastError !== null ? OFFLINE_TEXT : WAITING_TEXT;
     return;
   }
   root.className = `fresh${levelClass(Date.now() - state.lastOkAt, state.lastError)}`;
+  if (state.lastError !== null) {
+    text.textContent = OFFLINE_TEXT;
+    return;
+  }
   text.textContent = `updated ${ago(state.lastOkAt)}`;
 }

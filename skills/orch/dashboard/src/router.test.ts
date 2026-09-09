@@ -11,9 +11,11 @@ describe("parseRoute", () => {
     expect(parseRoute("#/")).toEqual({ kind: "list" });
   });
 
-  test("#/profiles and #/memory are exact matches", () => {
+  test("#/profiles, #/harnesses, #/memory and #/suggestions are exact matches", () => {
     expect(parseRoute("#/profiles")).toEqual({ kind: "profiles" });
+    expect(parseRoute("#/harnesses")).toEqual({ kind: "harnesses" });
     expect(parseRoute("#/memory")).toEqual({ kind: "memory" });
+    expect(parseRoute("#/suggestions")).toEqual({ kind: "suggestions" });
   });
 
   test("a trailing segment does not make it the profiles route", () => {
@@ -54,7 +56,9 @@ describe("routeKey", () => {
   test("static routes key on their kind", () => {
     expect(routeKey({ kind: "list" })).toBe("list");
     expect(routeKey({ kind: "profiles" })).toBe("profiles");
+    expect(routeKey({ kind: "harnesses" })).toBe("harnesses");
     expect(routeKey({ kind: "memory" })).toBe("memory");
+    expect(routeKey({ kind: "suggestions" })).toBe("suggestions");
   });
 
   test("run routes include the id so a poll for another run reads as stale", () => {
