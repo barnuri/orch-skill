@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { HARNESS_MARK_IDS } from "./harness-mark";
+import { HARNESS_MARK_IDS, harnessMarkMeta } from "./harness-mark";
 
 const SKILL_ROOT: string = join(import.meta.dir, "..", "..", "..");
 
@@ -41,5 +41,43 @@ describe("harness glyph coverage", () => {
 
   test("ids are unique", () => {
     expect(new Set(HARNESS_MARK_IDS).size).toBe(HARNESS_MARK_IDS.length);
+  });
+});
+
+describe("glyph definitions", () => {
+  test("every advertised id resolves to a real mark, not the fallback ring", () => {
+    const unresolved = HARNESS_MARK_IDS.filter((id) => !harnessMarkMeta(id).known);
+    expect(unresolved).toEqual([]);
+  });
+
+  test("an unknown id does fall back", () => {
+    expect(harnessMarkMeta("not-a-harness").known).toBe(false);
+  });
+
+  // These four ship the vendor's own mark; the rest are authored geometry.
+  test("the official marks are the ones with a published logo", () => {
+    const official = HARNESS_MARK_IDS.filter((id) => harnessMarkMeta(id).official);
+    expect(official).toEqual(["claude", "cursor-agent", "codex", "gemini"]);
+  });
+});
+
+describe("brand colours", () => {
+  const css = readFileSync(join(SKILL_ROOT, "dashboard/styles.css"), "utf8");
+
+  // A mark shipped without its brand colour silently renders in the muted default, which is
+  // the whole point of using the vendor's logo lost.
+  test("every official mark has a colour rule", () => {
+    const missing = HARNESS_MARK_IDS.filter(
+      (id) => harnessMarkMeta(id).official && !css.includes(`.mark-${id} {`),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  // Cursor's mark is black and OpenAI's near-black: unreadable on the dark surface, so both
+  // must invert for the light theme instead of being left at the dark-theme value.
+  test("the marks that invert per theme have a light-theme override", () => {
+    for (const id of ["cursor-agent", "codex", "claude"]) {
+      expect(css).toContain(`[data-theme="light"] .mark-${id} {`);
+    }
   });
 });

@@ -302,13 +302,30 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .orch-root.running .orch-icon .hub { fill: var(--accent); }
 .orch-root.done .orch-icon .hub { fill: var(--done); }
 .orch-root.done .orch-icon .sat { stroke: var(--done); }
-/* Harness glyphs. Authored geometry, not vendor logos — see harness-mark.ts. Stroked with
-   currentColor so one definition works on a graph node, a harness card and a profile row. */
-.harness-mark { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.harness-mark .filled { fill: currentColor; stroke: none; }
+/* Harness glyphs — see harness-mark.ts. Official vendor marks are solid; authored glyphs for
+   harnesses without one are stroked. Both draw in currentColor, so a single definition works on
+   a graph node, a harness card and a profile row. */
+.harness-mark.is-filled { fill: currentColor; stroke: none; }
+.harness-mark.is-stroked {
+  fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
+}
 .harness-mark-icon { display: block; flex: none; }
-.node .harness-mark { color: var(--text-faint); }
-.node.has-profile .harness-mark { color: var(--profile-accent); }
+
+/* Each vendor's own colour, so a harness is recognisable before the label is read. Values are
+   the official brand hex, adapted per theme only where the original fails the 3:1 non-text
+   contrast floor: Cursor's mark is black and OpenAI's near-black, invisible on the dark
+   surface, so those invert the way the vendors' own marks do. Gemini's passes unchanged. */
+.harness-mark { color: var(--text-muted); }
+.mark-claude { color: #d97757; }
+.mark-cursor-agent { color: #e8eaf0; }
+.mark-codex { color: #9b8cd8; }
+.mark-gemini { color: #8e75b2; }
+[data-theme="light"] .mark-claude { color: #a85434; }
+[data-theme="light"] .mark-cursor-agent { color: #141414; }
+[data-theme="light"] .mark-codex { color: #412991; }
+
+/* On a node the glyph says which harness ran it; the left bar and frame already carry the
+   profile. Two different facts, two channels — so the profile accent must not tint the glyph. */
 .node.skipped .harness-mark { opacity: .5; }
 .harness-cell { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-muted); }
 
@@ -366,8 +383,10 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 }
 .harness-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .harness-title { margin: 0; font-size: 13px; font-weight: 600; }
-.harness-logo { display: inline-flex; align-items: center; color: var(--text-muted); }
-.harness-card.is-ready .harness-logo { color: var(--accent); }
+.harness-logo { display: inline-flex; align-items: center; }
+/* A harness orch cannot dispatch to reads as dimmed rather than recoloured, so the brand
+   colour still identifies it. */
+.harness-card:not(.is-ready) .harness-logo { opacity: .45; }
 .harness-desc { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-muted); }
 .harness-reason { margin: 0; font-size: 12px; color: var(--warn); line-height: 1.4; }
 .harness-actions { margin-top: 4px; }
