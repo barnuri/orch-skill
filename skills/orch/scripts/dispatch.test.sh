@@ -200,9 +200,19 @@ out=$(env ORCH_BIN_DIRS= PATH="$(path_without opencode)" bash "$SCRIPT" run open
 expect_match "opencode missing is reported" 'opencode not found on PATH' "$out"
 expect_exit "opencode missing exits 127" 127 "$rc"
 
-out=$(env LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+hub_home=$(new_tmp)
+out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
 expect_match "local-llm with no LLM_HUB_URL is reported" 'LLM_HUB_URL not set' "$out"
 expect_exit "local-llm with no LLM_HUB_URL exits 1" 1 "$rc"
+
+# The env file must not resurrect a value the caller explicitly cleared.
+printf 'LLM_HUB_URL=http://127.0.0.1:9\n' > "$hub_home/env"
+out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+expect_match "an explicitly cleared var is not refilled from the env file" 'LLM_HUB_URL not set' "$out"
+# Unset entirely, the file is what supplies it — that is the point of the file.
+out=$(env HARNESS_ORCH_HOME="$hub_home" -u LLM_HUB_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+expect_no_match "an unset var is supplied by the env file" 'LLM_HUB_URL not set' "$out"
+cleanup_dir "$hub_home"
 
 # --- claude-native: run + fast job bookkeeping ------------------------------
 home=$(new_tmp)

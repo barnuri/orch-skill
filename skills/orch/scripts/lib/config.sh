@@ -66,6 +66,36 @@ new_uuid() {
 # Epoch mtime of a file — BSD stat (macOS) first, GNU stat second.
 file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 
+# Optional <state-dir>/env: `NAME=value` lines exported before a profile's ${NAME} references
+# are resolved. It exists because a supervisor (launchd/systemd) does not inherit your shell, so
+# a profile pointing at a gateway had no way to learn the URL.
+#
+# Plain text, 0600, and deliberately NOT a secret store: keep endpoints and dummy tokens here,
+# and for a real credential export it from your shell (or a keychain helper) instead, so it is
+# never written to disk. Nothing here is echoed.
+ORCH_ENV_FILE_LOADED=""
+orch_load_env_file() {
+  local file="$ORCH_HOME/env" line name value
+  [ -z "$ORCH_ENV_FILE_LOADED" ] || return 0
+  ORCH_ENV_FILE_LOADED=1
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*) ;;
+      *) continue ;;
+    esac
+    name="${line%%=*}"
+    value="${line#*=}"
+    is_identifier "$name" || continue
+    # Anything the caller already set wins — the shell you launched from is more specific than
+    # a file. Tested for being *set*, not non-empty: `LLM_HUB_URL= orch run ...` is an explicit
+    # "no value", and a file must not quietly put one back.
+    [ -n "${!name+x}" ] && continue
+    export "$name=$value"
+  done < "$file"
+}
+
 ensure_home() {
   mkdir -p "$ORCH_HOME" "$JOBS_HOME" "$RUNS_HOME" \
     || { printf 'orch: cannot create %s\n' "$ORCH_HOME" >&2; return 1; }
@@ -216,6 +246,7 @@ profile_load() {
   local name="$1" json
   require_jq "profile $name"
   ensure_home || return 1
+  orch_load_env_file
   json=$(profile_require "$name") || return $?
 
   PROFILE_NAME="$name"
@@ -229,8 +260,10 @@ profile_load() {
   fi
   if [ -n "$PROFILE_MODEL_ID" ]; then
     PROFILE_MODEL=$(model_slug_resolve "$name" "$PROFILE_MODEL_ID")
+    PROFILE_MODEL_BEHAVES_AS=$(model_behaves_as_resolve "$name" "$PROFILE_MODEL_ID")
   else
     PROFILE_MODEL=""
+    PROFILE_MODEL_BEHAVES_AS=""
   fi
   if ! in_list "$PROFILE_HARNESS" "$VALID_HARNESSES"; then
     printf 'profile %s: harness "%s" must be one of: %s\n' "$name" "$PROFILE_HARNESS" "$VALID_HARNESSES" >&2

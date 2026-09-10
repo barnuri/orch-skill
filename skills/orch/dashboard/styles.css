@@ -169,6 +169,32 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .sanity-cell { display: flex; align-items: center; gap: 5px; min-width: 0; flex-wrap: nowrap; }
 .sanity-cell-ms { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* The row is a container now, so the name carries the accessible "open the editor" action. */
+.profile-open {
+  font: inherit; color: inherit; text-align: left; padding: 0;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.profile-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+
+/* Re-probe one profile without a whole sweep. Quiet until the row is hovered or it is focused,
+   so a table of six does not read as six buttons. */
+.sanity-run {
+  font: inherit; font-size: 11px; line-height: 1; padding: 3px 6px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-muted); background: var(--surface-2);
+  opacity: 0; transition: opacity .15s, color .15s, border-color .15s;
+}
+.profile-row:hover .sanity-run, .sanity-run:focus-visible, .sanity-run.is-shown { opacity: 1; }
+.sanity-run:hover { color: var(--text); border-color: var(--text-muted); }
+.sanity-run:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.sanity-run[disabled] { opacity: 0; cursor: not-allowed; }
+.sanity-run.is-shown[disabled] { opacity: .4; }
+/* Never hidden on a touch screen, where there is no hover to reveal it. */
+@media (hover: none) {
+  .sanity-run { opacity: 1; }
+}
+.desc-cell { overflow: hidden; text-overflow: ellipsis; }
+
 /* Run view */
 .run-page { display: flex; flex-direction: column; gap: 12px; }
 .run-page-header { max-width: 1400px; margin: 0 auto; width: 100%; }

@@ -13,9 +13,11 @@ type SanityState = {
   running: boolean;
   data: ProfileSanityEnvelope | null;
   error: string | null;
+  /** Which profiles the in-flight probe covers; null means all of them. */
+  pending: readonly string[] | null;
 };
 
-const state: SanityState = { running: false, data: null, error: null };
+const state: SanityState = { running: false, data: null, error: null, pending: null };
 
 function fmtMs(ms: number): string {
   if (ms < 1000) {
@@ -159,6 +161,14 @@ export function sanityRunning(): boolean {
   return state.running;
 }
 
+/** True only for a profile the current probe actually covers — one row, not the whole table. */
+export function sanityPendingFor(profile: string): boolean {
+  if (!state.running) {
+    return false;
+  }
+  return state.pending === null || state.pending.includes(profile);
+}
+
 /** The classified outcome of a result, used by the panel and the profiles table alike. */
 export function sanityStatusOf(result: ProfileSanityResult): SanityStatus {
   return statusOf(result);
@@ -180,11 +190,13 @@ export function runProfileSanity(profiles: string[] | undefined, onDone: () => v
   }
   state.running = true;
   state.error = null;
+  state.pending = profiles === undefined || profiles.length === 0 ? null : [...profiles];
   onDone();
   void api
     .profileSanity(profiles)
     .then((result) => {
       state.running = false;
+      state.pending = null;
       if (result.kind === "ok") {
         state.data = mergeResults(state.data, result.body);
         state.error = null;
@@ -206,6 +218,7 @@ export function runProfileSanity(profiles: string[] | undefined, onDone: () => v
     })
     .catch(() => {
       state.running = false;
+      state.pending = null;
       state.error = "Sanity test failed";
       onDone();
     });

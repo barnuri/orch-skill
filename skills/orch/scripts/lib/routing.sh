@@ -38,6 +38,22 @@ profile_allowed_model_ids() {
 }
 
 # Resolves a model id (or legacy slug) to slug for spawn; prints slug or empty.
+# The catalog's behaves_as for a profile's resolved model, or empty. Same lookup shape as
+# model_slug_resolve: by catalog id first, then by slug.
+model_behaves_as_resolve() {
+  local profile="$1" model_ref="$2"
+  jq -r --arg p "$profile" --arg m "$model_ref" '
+    .profiles[$p] as $prof
+    | if $prof == null then empty
+      elif .models[$m]? then (.models[$m].behaves_as // "")
+      else
+        ( [ .models | to_entries[]
+            | select(.value.slug == $m and (.value.harnesses | index($prof.harness)))
+            | .value.behaves_as // "" ][0] ) // ""
+      end
+  ' "$PROFILES_FILE"
+}
+
 model_slug_resolve() {
   local profile="$1" model_ref="$2"
   jq -r --arg p "$profile" --arg m "$model_ref" '

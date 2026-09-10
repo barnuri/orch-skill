@@ -46,16 +46,37 @@ adapter_claude_native() {
   return 0
 }
 
+# Claude Code refuses a --model it does not recognise, which is every gateway-namespaced id
+# ("llama_swap/lfm2.5-8b-a1b" and the like). Its own error names the way out: map the id onto a
+# known model with `behavesAs` on a modelPicker row. That row is written to a throwaway settings
+# file and passed with --settings, which the CLI honours for this invocation only — the user's
+# own settings.json is never touched, and defining modelPicker there would replace their whole
+# /model list.
+claude_model_settings_file() {
+  local model="$1" behaves_as="$2" file
+  # BSD mktemp requires the XXXXXX run at the very end of the template — a trailing suffix
+  # makes it fail outright, which silently dropped the mapping.
+  file=$(mktemp "${TMPDIR:-/tmp}/orch-model-picker-XXXXXX") || return 1
+  jq -nc --arg m "$model" --arg b "$behaves_as" \
+    '{modelPicker: {options: [{model: $m, label: $m, behavesAs: $b}]}}' > "$file" || return 1
+  printf '%s\n' "$file"
+}
+
 # ORCH_SESSION_ID is set by `start`, so the job's session is addressable afterwards. Only this
 # adapter takes it: cursor-agent resumes by a chatId minted by its own `create-chat`, not by an
 # id we can choose, so orch does not pretend to control it.
 adapter_claude() {
   local prompt="$1"; shift || true
-  local bin
+  local bin settings
   bin=$(resolve_bin adapter_claude claude) || return $?
-  local -a session_args=()
+  local -a session_args=() settings_args=()
   [ -n "${ORCH_SESSION_ID:-}" ] && session_args=(--session-id "$ORCH_SESSION_ID")
-  "$bin" -p "$prompt" --output-format text ${session_args[@]+"${session_args[@]}"} "$@"
+  if [ -n "${ORCH_MODEL_BEHAVES_AS:-}" ] && [ -n "${ORCH_MODEL_SLUG:-}" ]; then
+    settings=$(claude_model_settings_file "$ORCH_MODEL_SLUG" "$ORCH_MODEL_BEHAVES_AS") \
+      && settings_args=(--settings "$settings")
+  fi
+  "$bin" -p "$prompt" --output-format text \
+    ${session_args[@]+"${session_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} "$@" </dev/null
 }
 
 # `--force` ("Run Everything") is deliberately NOT passed here. It is a permission bypass, and
@@ -66,7 +87,7 @@ adapter_cursor_agent() {
   local prompt="$1"; shift || true
   local bin
   bin=$(resolve_bin adapter_cursor_agent cursor-agent) || return $?
-  "$bin" -p "$prompt" --output-format text "$@"
+  "$bin" -p "$prompt" --output-format text "$@" </dev/null
 }
 
 adapter_opencode() {
@@ -78,6 +99,7 @@ adapter_opencode() {
 
 adapter_local_llm() {
   local prompt="$1"; shift || true
+  orch_load_env_file
   if [ -z "${LLM_HUB_URL:-}" ]; then
     printf 'adapter_local_llm: LLM_HUB_URL not set\n' >&2
     return 1
@@ -120,6 +142,9 @@ dispatch_with_profile() {
   profile_load "$profile" || return $?
 
   local -a model_args=()
+  if [ -n "${PROFILE_MODEL_BEHAVES_AS:-}" ]; then
+    export ORCH_MODEL_BEHAVES_AS="$PROFILE_MODEL_BEHAVES_AS" ORCH_MODEL_SLUG="$PROFILE_MODEL"
+  fi
   if [ -n "$PROFILE_MODEL" ]; then
     case "$PROFILE_HARNESS" in
       claude|cursor-agent) model_args=(--model "$PROFILE_MODEL") ;;

@@ -14,6 +14,8 @@ import {
   renderSanityPanel,
   sanityFor,
   sanityRunning,
+  runProfileSanity,
+  sanityPendingFor,
   sanityStatusChip,
   sanityStatusOf,
   sanityTestButton,
@@ -22,6 +24,7 @@ import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 
 const NEW_TARGET: string = "new";
+const DESC_MAX: number = 48;
 const CORRUPT_HINT: string = "profiles.json could not be parsed — fix it in an editor and this page picks it up.";
 const EMPTY_HINT: string = "No profiles yet. Add one from the panel.";
 
@@ -90,9 +93,15 @@ function modelCell(spec: ProfileSpec): HTMLElement {
 function descCell(spec: ProfileSpec): HTMLElement {
   const text = spec.description ?? "";
   if (text === "") {
-    return el("div", { class: "muted", text: "⚠ no description" });
+    return el("div", { class: "muted", text: "no description" });
   }
-  return el("div", { class: "muted", text: text.length > 48 ? `${text.slice(0, 48)}…` : text });
+  const truncated = text.length > DESC_MAX;
+  return el("div", {
+    class: "desc-cell muted",
+    // Truncated text needs some way to reach the rest of it.
+    ...(truncated ? { title: text } : {}),
+    text: truncated ? `${text.slice(0, DESC_MAX)}…` : text,
+  });
 }
 
 function routingCell(spec: ProfileSpec): HTMLElement {
@@ -121,13 +130,14 @@ function fmtSanityMs(ms: number): string {
 }
 
 /** At-a-glance probe outcome. The full error text stays in the panel below the table. */
-function sanityCell(name: string): HTMLElement {
-  if (sanityRunning()) {
+function sanityCell(name: string, spec: ProfileSpec): HTMLElement {
+  if (sanityPendingFor(name)) {
     return el("div", { class: "muted sanity-cell", text: "testing…" });
   }
   const result = sanityFor(name);
+  // Never probed: the button is the only content this cell has, so it stays visible.
   if (result === null) {
-    return el("div", { class: "muted sanity-cell", text: "—", title: "Not tested yet" });
+    return el("div", { class: "sanity-cell" }, [sanityRunButton(name, spec, "test", true)]);
   }
   const status = sanityStatusOf(result);
   const cell = el("div", {
@@ -138,24 +148,49 @@ function sanityCell(name: string): HTMLElement {
   if (status === "ok") {
     cell.appendChild(el("span", { class: "muted sanity-cell-ms", text: fmtSanityMs(result.ms) }));
   }
+  cell.appendChild(sanityRunButton(name, spec, "↻"));
   return cell;
 }
 
-function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spec: ProfileSpec): HTMLButtonElement {
+/**
+ * Probes this profile alone. A whole sweep is minutes of real harness calls, so re-testing the
+ * one profile you just edited is the common case, not the exception.
+ */
+function sanityRunButton(
+  name: string,
+  spec: ProfileSpec,
+  label: string = "test",
+  alwaysVisible: boolean = false,
+): HTMLButtonElement {
+  const disabled = spec.enabled === false;
+  const button = el("button", {
+    class: alwaysVisible ? "sanity-run is-shown" : "sanity-run",
+    type: "button",
+    title: disabled ? `${name} is disabled` : `Sanity test ${name}`,
+    "aria-label": `Sanity test ${name}`,
+    text: label,
+  });
+  button.disabled = disabled || sanityRunning();
+  button.addEventListener("click", (event: MouseEvent) => {
+    event.stopPropagation();
+    runProfileSanity([name], () => render());
+  });
+  return button;
+}
+
+/**
+ * A row is a plain container, not one big button, so it can hold a real per-profile action.
+ * The profile name is the button that opens the editor — that is the keyboard and
+ * screen-reader path — and a click anywhere else on the row does the same thing as a
+ * convenience for the mouse. Nesting a button inside a button would be invalid markup.
+ */
+function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spec: ProfileSpec): HTMLElement {
   const isDefault = loaded.settings.default_profile === name;
   const selected = state.editing === name;
   const klass = selected ? "doc-row profile-row selected" : "doc-row profile-row";
-  const row = el("button", { class: klass, type: "button" }, [
-    el("div", { class: "title" }, [name, isDefault ? chip("default") : null]),
-    sanityCell(name),
-    el("div", { class: "harness-cell" }, [harnessMarkIcon(spec.harness, 14), chip(spec.harness)]),
-    spec.cost !== undefined ? chip(spec.cost) : el("span"),
-    modelCell(spec),
-    routingCell(spec),
-    descCell(spec),
-    countsCell(spec),
-  ]);
-  row.addEventListener("click", () => {
+  const row = el("div", { class: klass, role: "row" });
+
+  const toggleEditor = (): void => {
     // Clicking the open row is how you close the editor. A dirty draft is never dropped on a
     // stray click — the form's own Cancel is the explicit discard.
     if (selected) {
@@ -165,7 +200,28 @@ function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spe
       return;
     }
     beginEdit(name);
+  };
+
+  const open = el("button", { class: "profile-open", type: "button" }, [
+    name,
+    isDefault ? chip("default") : null,
+  ]);
+  open.addEventListener("click", (event: MouseEvent) => {
+    event.stopPropagation();
+    toggleEditor();
   });
+
+  row.append(
+    el("div", { class: "title" }, [open]),
+    sanityCell(name, spec),
+    el("div", { class: "harness-cell" }, [harnessMarkIcon(spec.harness, 14), chip(spec.harness)]),
+    spec.cost !== undefined ? chip(spec.cost) : el("span"),
+    modelCell(spec),
+    routingCell(spec),
+    descCell(spec),
+    countsCell(spec),
+  );
+  row.addEventListener("click", toggleEditor);
   return row;
 }
 

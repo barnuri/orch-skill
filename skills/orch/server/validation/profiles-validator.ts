@@ -233,6 +233,9 @@ function modelIssues(name: string, spec: unknown, harnesses: readonly string[]):
       });
     }
   }
+  if ("behaves_as" in spec) {
+    issues.push(...textIssues(`${path}.behaves_as`, spec["behaves_as"], MAX_MODEL_LEN));
+  }
   if ("description" in spec) {
     issues.push(...textIssues(`${path}.description`, spec["description"], MAX_DESCRIPTION_LEN));
   }

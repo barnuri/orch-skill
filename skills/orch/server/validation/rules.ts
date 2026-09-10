@@ -28,6 +28,7 @@ export const LEARNING_KEYS = [
 export const MODEL_KEYS = [
   "slug",
   "harnesses",
+  "behaves_as",
   "description",
   "cost",
   "quality",
