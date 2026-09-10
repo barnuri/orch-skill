@@ -58,11 +58,15 @@ adapter_claude() {
   "$bin" -p "$prompt" --output-format text ${session_args[@]+"${session_args[@]}"} "$@"
 }
 
+# `--force` ("Run Everything") is deliberately NOT passed here. It is a permission bypass, and
+# whether it is even allowed is an org policy — a Cursor team admin can disable it, in which case
+# cursor-agent refuses the whole invocation and every dispatch fails. Profiles that want it list
+# it in `flags`, the same way the claude profiles carry --dangerously-skip-permissions.
 adapter_cursor_agent() {
   local prompt="$1"; shift || true
   local bin
   bin=$(resolve_bin adapter_cursor_agent cursor-agent) || return $?
-  "$bin" -p "$prompt" --output-format text --force "$@"
+  "$bin" -p "$prompt" --output-format text "$@"
 }
 
 adapter_opencode() {

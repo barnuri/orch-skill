@@ -49,6 +49,11 @@ in_list() {
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# profile_load exit code for "the profile is fine, its environment just is not set up" — as
+# opposed to 2 for a malformed profile. Lets callers report "not configured" instead of a
+# failure the user cannot act on by fixing orch.
+PROFILE_UNCONFIGURED_RC=3
+
 # A lowercase RFC-4122 v4 uuid. `claude --session-id` requires that exact shape.
 new_uuid() {
   if command -v uuidgen >/dev/null 2>&1; then
@@ -110,6 +115,14 @@ profiles_migrate() {
         .profiles["cursor-default"].model = "cursor-auto"
         | .profiles["cursor-default"].allowed_models = ["cursor-auto"]
       else . end
+    | if (.profiles["cursor-default"].auth? // []) == ["CURSOR_API_KEY"] then
+        .profiles["cursor-default"].auth = []
+      else . end
+    | .profiles |= with_entries(
+        if .value.harness? == "cursor-agent" then
+          .value.flags = [ (.value.flags // [])[] | select(. != "--force") ]
+        else . end
+      )
     |     .settings.learning //= {
         auto_record_memory: true,
         auto_scan_on_finish: true,
@@ -197,7 +210,8 @@ profile_require() {
 }
 
 # Sets PROFILE_NAME / PROFILE_HARNESS / PROFILE_MODEL / PROFILE_FLAGS[] and exports the profile's
-# env. Exit 2 = bad profile definition, exit 1 = environment missing something the profile needs.
+# env. Exit 2 = bad profile definition, exit 3 ($PROFILE_UNCONFIGURED_RC) = the profile is fine
+# but its declared env/auth is not set, exit 1 = anything else.
 profile_load() {
   local name="$1" json
   require_jq "profile $name"
@@ -249,7 +263,7 @@ profile_resolve_env_value() {
   if ! is_identifier "$ref" || [ -z "${!ref:-}" ]; then
     # shellcheck disable=SC2016
     printf 'profile %s: env %s references unset ${%s}\n' "$name" "$key" "$ref" >&2
-    return 1
+    return "$PROFILE_UNCONFIGURED_RC"
   fi
   printf '%s' "${!ref}"
 }
@@ -262,7 +276,7 @@ profile_export_env() {
       printf 'profile %s: env key "%s" is not a valid variable name\n' "$name" "$key" >&2
       return 2
     fi
-    value=$(profile_resolve_env_value "$name" "$key" "$value") || return 1
+    value=$(profile_resolve_env_value "$name" "$key" "$value") || return $?
     export "$key=$value"
   done <<EOF
 $(printf '%s' "$json" | jq -r '.env // {} | to_entries[] | "\(.key)\t\(.value)"')
@@ -275,7 +289,7 @@ profile_check_auth() {
     [ -n "$var" ] || continue
     if ! is_identifier "$var" || [ -z "${!var:-}" ]; then
       printf 'profile %s: required auth env var %s is not set\n' "$name" "$var" >&2
-      return 1
+      return "$PROFILE_UNCONFIGURED_RC"
     fi
   done <<EOF
 $(printf '%s' "$json" | jq -r '.auth[]? // empty')

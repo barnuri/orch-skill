@@ -1,6 +1,10 @@
-import type { ProfileSanityEnvelope, ProfileSanityResult } from "../../../shared/types/profile-sanity";
+import type {
+  ProfileSanityEnvelope,
+  ProfileSanityResult,
+  SanityStatus,
+} from "../../../shared/types/profile-sanity";
 import { ApiClient } from "../api/api-client";
-import { chip, el } from "../dom/el";
+import { el } from "../dom/el";
 import { toast } from "../ui/toast";
 
 const api = new ApiClient();
@@ -43,18 +47,69 @@ function mergeResults(
   return { generated_at: incoming.generated_at, results: [...incoming.results, ...kept] };
 }
 
+/** `unconfigured` is not a failure — counting it as one made a working setup look broken. */
+function statusOf(result: ProfileSanityResult): SanityStatus {
+  if (result.status !== undefined) {
+    return result.status;
+  }
+  return result.ok ? "ok" : "failed";
+}
+
+const STATUS_LABELS: Readonly<Record<SanityStatus, string>> = {
+  ok: "success",
+  failed: "failure",
+  unconfigured: "needs setup",
+  disabled: "disabled",
+  unknown: "unknown",
+};
+
+// Maps onto the chip colours already in the stylesheet.
+const STATUS_CHIP: Readonly<Record<SanityStatus, string>> = {
+  ok: "success",
+  failed: "failure",
+  unconfigured: "waiting",
+  disabled: "skipped",
+  unknown: "waiting",
+};
+
+function statusChip(status: SanityStatus): HTMLElement {
+  return el("span", { class: `chip ${STATUS_CHIP[status]}`, text: STATUS_LABELS[status] });
+}
+
+// The chip labels a single row ("needs setup"); the summary counts rows, so it needs a phrase
+// that reads correctly after a number for both 1 and many.
+const STATUS_SUMMARY: Readonly<Record<SanityStatus, string>> = {
+  ok: "passed",
+  failed: "failed",
+  unconfigured: "awaiting setup",
+  disabled: "disabled",
+  unknown: "unknown",
+};
+
 function summaryText(data: ProfileSanityEnvelope): string {
-  const ok = data.results.filter((r) => r.ok).length;
+  const counts = new Map<SanityStatus, number>();
+  for (const result of data.results) {
+    const status = statusOf(result);
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
   const total = data.results.length;
   const ms = data.results.reduce((sum, r) => sum + r.ms, 0);
-  return `${ok}/${total} passed · total ${fmtMs(ms)} · ${data.generated_at}`;
+  const parts = [`${counts.get("ok") ?? 0}/${total} passed`];
+  for (const status of ["failed", "unconfigured", "disabled", "unknown"] as const) {
+    const count = counts.get(status) ?? 0;
+    if (count > 0) {
+      parts.push(`${count} ${STATUS_SUMMARY[status]}`);
+    }
+  }
+  parts.push(`total ${fmtMs(ms)}`);
+  return parts.join(" · ");
 }
 
 function resultRow(result: ProfileSanityResult): HTMLElement {
   const model = result.slug !== "" ? result.slug : result.model_id !== "" ? result.model_id : "—";
   return el("div", { class: "sanity-row", role: "row" }, [
     el("div", { class: "sanity-profile", text: result.profile }),
-    chip(result.ok ? "success" : "failure"),
+    statusChip(statusOf(result)),
     el("div", { class: "mono", text: result.harness }),
     el("div", { class: "mono", text: model }),
     el("div", { class: "sanity-ms", text: fmtMs(result.ms) }),
@@ -104,6 +159,16 @@ export function sanityRunning(): boolean {
   return state.running;
 }
 
+/** The classified outcome of a result, used by the panel and the profiles table alike. */
+export function sanityStatusOf(result: ProfileSanityResult): SanityStatus {
+  return statusOf(result);
+}
+
+/** The chip for a classified outcome, so the table and the panel read identically. */
+export function sanityStatusChip(status: SanityStatus): HTMLElement {
+  return statusChip(status);
+}
+
 /** The last probe result for one profile, or null when it has not been tested this session. */
 export function sanityFor(profile: string): ProfileSanityResult | null {
   return state.data?.results.find((result) => result.profile === profile) ?? null;
@@ -123,8 +188,15 @@ export function runProfileSanity(profiles: string[] | undefined, onDone: () => v
       if (result.kind === "ok") {
         state.data = mergeResults(state.data, result.body);
         state.error = null;
-        const failed = result.body.results.filter((r) => !r.ok).length;
-        toast(failed === 0 ? "ok" : "error", failed === 0 ? "All profiles passed" : `${failed} profile(s) failed`);
+        const failed = result.body.results.filter((r) => statusOf(r) === "failed").length;
+        const unconfigured = result.body.results.filter((r) => statusOf(r) === "unconfigured").length;
+        if (failed > 0) {
+          toast("error", `${failed} profile(s) failed`);
+        } else if (unconfigured > 0) {
+          toast("ok", `All configured profiles passed · ${unconfigured} not configured`);
+        } else {
+          toast("ok", "All profiles passed");
+        }
       } else if (result.kind === "error") {
         state.error = result.body?.error ?? "Sanity test failed";
       } else {

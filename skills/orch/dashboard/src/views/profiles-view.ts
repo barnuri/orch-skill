@@ -10,7 +10,14 @@ import type { AppState } from "../state/app-state";
 import { renderDocNotices } from "./doc-notices";
 import { renderProfileForm } from "./profile-form";
 import { pageHead } from "./page-head";
-import { renderSanityPanel, sanityFor, sanityRunning, sanityTestButton } from "./profile-sanity";
+import {
+  renderSanityPanel,
+  sanityFor,
+  sanityRunning,
+  sanityStatusChip,
+  sanityStatusOf,
+  sanityTestButton,
+} from "./profile-sanity";
 import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 
@@ -122,11 +129,13 @@ function sanityCell(name: string): HTMLElement {
   if (result === null) {
     return el("div", { class: "muted sanity-cell", text: "—", title: "Not tested yet" });
   }
+  const status = sanityStatusOf(result);
   const cell = el("div", {
     class: "sanity-cell",
     title: result.error !== "" ? result.error : `exit ${result.exit_code} · ${result.bytes} B`,
-  }, [chip(result.ok ? "success" : "failure")]);
-  if (result.ok) {
+  }, [sanityStatusChip(status)]);
+  // Latency is only meaningful when something actually ran.
+  if (status === "ok") {
     cell.appendChild(el("span", { class: "muted sanity-cell-ms", text: fmtSanityMs(result.ms) }));
   }
   return cell;

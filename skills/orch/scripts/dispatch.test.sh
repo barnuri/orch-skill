@@ -454,10 +454,17 @@ load_profile() {
 }
 out=$(load_profile claude-llm-hub); rc=$?
 expect_match "unset env ref is named" 'env ANTHROPIC_BASE_URL references unset \$\{LLM_HUB_URL\}' "$out"
-expect_exit "unset env ref exits 1" 1 "$rc"
-out=$(load_profile cursor-default); rc=$?
+expect_exit "unset env ref exits 3 (not configured, not broken)" 3 "$rc"
+
+# cursor-agent authenticates through its own login, so the shipped cursor profile declares no
+# auth. Asserting the auth path needs a profile that actually requires something.
+edit_json "$home/profiles.json" '.profiles["needs-auth"] = {harness: "cursor-agent", model: "cursor-auto", flags: [], env: {}, auth: ["CURSOR_API_KEY"]}'
+out=$(load_profile needs-auth); rc=$?
 expect_match "missing auth var is named" 'required auth env var CURSOR_API_KEY is not set' "$out"
-expect_exit "missing auth var exits 1" 1 "$rc"
+expect_exit "missing auth var exits 3 (not configured, not broken)" 3 "$rc"
+out=$(load_profile cursor-default); rc=$?
+expect_exit "the shipped cursor profile needs no auth env var" 0 "$rc"
+edit_json "$home/profiles.json" 'del(.profiles["needs-auth"])' 
 out=$(load_profile bogus); rc=$?
 expect_exit "unknown profile in profile_load exits 2" 2 "$rc"
 out=$(load_profile claude-sub); rc=$?
@@ -582,7 +589,9 @@ expect_match "profile sanity includes harness" '"harness":"claude"' "$out"
 
 edit_json "$home/profiles.json" '.profiles["cursor-default"].model = "gpt-5"'
 out=$(with_shims bash "$SCRIPT" run --profile cursor-default "x" 2>&1)
-expect_match "cursor profile: --model after --force" '^-p x --output-format text --force --model gpt-5$' "$(joined "$out")"
+expect_match "cursor profile: model flag, no forced permission bypass" \
+  '^-p x --output-format text --model gpt-5$' "$(joined "$out")"
+expect_no_match "the cursor adapter never forces --force" '\-\-force' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run --profile opencode-default "x" 2>&1)
 expect_match "opencode profile with empty model: no model flag" '^run x --auto$' "$(joined "$out")"

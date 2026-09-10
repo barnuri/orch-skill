@@ -188,7 +188,7 @@
       "priority": 8,
       "flags": [],
       "env": {},
-      "auth": ["CURSOR_API_KEY"]
+      "auth": []
     },
     "cursor-llm-hub": {
       "harness": "cursor-agent",

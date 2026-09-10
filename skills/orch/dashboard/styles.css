@@ -163,7 +163,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
      "subscription"); a chip cannot wrap, so a narrower track spills into the next column. The
      harness track also carries its glyph, so it is the widest of the two. */
   grid-template-columns:
-    minmax(90px, 1fr) 98px 120px 94px minmax(78px, auto) minmax(64px, .7fr) minmax(64px, 1fr) 56px;
+    minmax(90px, 1fr) 110px 114px 90px minmax(78px, auto) minmax(64px, .7fr) minmax(64px, 1fr) 56px;
   gap: 8px; padding: 10px 12px;
 }
 .sanity-cell { display: flex; align-items: center; gap: 5px; min-width: 0; flex-wrap: nowrap; }
@@ -420,7 +420,7 @@ textarea { min-height: 64px; font-family: var(--mono); resize: vertical; }
 .sanity-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .sanity-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .sanity-row {
-  display: grid; grid-template-columns: minmax(120px, 1.2fr) 90px 100px 100px 80px 72px minmax(120px, 1.4fr);
+  display: grid; grid-template-columns: minmax(120px, 1.2fr) 112px 100px 100px 80px 72px minmax(110px, 1.4fr);
   gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--surface);
 }
 .sanity-row:first-child { border-top: 0; }
