@@ -11,6 +11,7 @@ export function createInitialState(): AppState {
     runEtag: null,
     runMissing: false,
     selectedNode: null,
+    snapshot: false,
     lastOkAt: null,
     lastError: null,
     authRequired: false,

@@ -1,7 +1,11 @@
 import type { RunNode } from "../../../shared/types/run-node";
 
-export const NODE_W: number = 180;
-export const NODE_H: number = 56;
+// 200, not 180: row 2 now carries the duration on its right, and 180 left the left half too
+// narrow to hold a real `status · profile` pair beside it (`done · claude-opus` was cut).
+export const NODE_W: number = 200;
+// 74, not 56: a third row carries the node's cost and duration. Measured alternative was a
+// 260px-wide node to fit them beside `status · profile`, which is 44% wider than the original.
+export const NODE_H: number = 74;
 export const ORCH_NODE_W: number = 132;
 export const ORCH_NODE_H: number = 56;
 export const ORCH_NODE_ID: string = "__orch__";

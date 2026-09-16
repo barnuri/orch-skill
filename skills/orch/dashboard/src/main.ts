@@ -1,3 +1,4 @@
+import { IslandSource } from "./api/island-source";
 import { adoptTokenFromUrl } from "./api/token-store";
 import { FRESH_TICK_MS, POLL_MS } from "./constants";
 import { poll } from "./poll";
@@ -50,9 +51,15 @@ function onKeyDown(event: KeyboardEvent): void {
 function boot(): void {
   wireTheme();
   adoptTokenFromUrl();
+  state.snapshot = IslandSource.fromDocument().active;
   window.addEventListener("hashchange", onHashChange);
   window.addEventListener("keydown", onKeyDown);
   enterRoute(parseRoute(location.hash));
+  // A snapshot's data is in the page, so both timers would only burn cycles: polling would
+  // re-read the same islands, and the freshness tick has nothing to age.
+  if (state.snapshot) {
+    return;
+  }
   setInterval(() => {
     void poll();
   }, POLL_MS);

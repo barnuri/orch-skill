@@ -1,7 +1,8 @@
+import type { NodeCost } from "../../../shared/types/node-cost";
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { chip, el } from "../dom/el";
-import { fmtDur, fmtTime } from "../dom/format";
+import { fmtDur, fmtTime, fmtUsd } from "../dom/format";
 import { renderNodeTranscript } from "./node-transcript";
 
 const NODE_PANEL_ID: string = "node-panel";
@@ -10,6 +11,43 @@ const SELECTED_CLASS: string = "just-selected";
 function detailRow(list: HTMLElement, key: string, value: string, cls: string = ""): void {
   list.appendChild(el("dt", { text: key }));
   list.appendChild(el("dd", { class: cls, text: value }));
+}
+
+function fmtCount(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString() : "—";
+}
+
+/**
+ * The cost rows. `cost_basis` is the harness's own word for what the figure means — in practice
+ * `list`, i.e. list price, which is not what a subscription is billed. Saying so is the whole
+ * point of carrying the field: a bare dollar amount would read as money actually charged.
+ */
+function appendCostRows(list: HTMLElement, cost: NodeCost): void {
+  detailRow(list, "cost", `${fmtUsd(cost.usd)} ${cost.cost_basis} price`);
+  detailRow(
+    list,
+    "tokens",
+    `${fmtCount(cost.input_tokens)} in · ${fmtCount(cost.output_tokens)} out`,
+    "mono",
+  );
+  if (cost.cache_read_tokens > 0 || cost.cache_creation_tokens > 0) {
+    detailRow(
+      list,
+      "cache",
+      `${fmtCount(cost.cache_read_tokens)} read · ${fmtCount(cost.cache_creation_tokens)} written`,
+      "mono",
+    );
+  }
+  // Only worth a breakdown when more than one model was touched; otherwise it restates the rows
+  // above with the model id the profile already names. One row, not one per model: the panel's
+  // key column is a fixed 84px and a model id does not fit in it.
+  if (cost.models.length < 2) {
+    return;
+  }
+  const lines = cost.models
+    .map((model) => `${model.model}  ${fmtUsd(model.usd)}`)
+    .join("\n");
+  detailRow(list, "models", lines, "mono cost-models");
 }
 
 function detailList(node: RunNode): HTMLElement {
@@ -22,6 +60,10 @@ function detailList(node: RunNode): HTMLElement {
   detailRow(list, "started", fmtTime(node.started));
   detailRow(list, "finished", fmtTime(node.finished));
   detailRow(list, "duration", fmtDur(node.started, node.finished));
+  const cost = node.cost;
+  if (cost !== undefined && cost !== null) {
+    appendCostRows(list, cost);
+  }
   if (node.error !== null) {
     detailRow(list, "error", node.error, "err");
   }

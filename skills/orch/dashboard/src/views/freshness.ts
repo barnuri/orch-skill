@@ -4,6 +4,7 @@ import type { AppState } from "../state/app-state";
 
 const WAITING_TEXT: string = "waiting for server…";
 const OFFLINE_TEXT: string = "dashboard offline — CLI still works";
+const SNAPSHOT_TEXT: string = "published snapshot — not live";
 
 function levelClass(ageMs: number, lastError: string | null): string {
   if (lastError !== null || ageMs > DEAD_MS) {
@@ -17,6 +18,12 @@ export function renderFresh(state: AppState): void {
   const root = document.getElementById("fresh");
   const text = document.getElementById("fresh-text");
   if (root === null || text === null) {
+    return;
+  }
+  // A snapshot never refreshes, so ageing it into "stale" and then "dead" would be a lie.
+  if (state.snapshot) {
+    root.className = "fresh snapshot";
+    text.textContent = SNAPSHOT_TEXT;
     return;
   }
   if (state.lastOkAt === null) {

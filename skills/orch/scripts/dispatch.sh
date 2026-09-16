@@ -81,6 +81,7 @@ $RUN_START_USAGE          -> prints run-id
 $NODE_ADD_USAGE
 $NODE_DISPATCH_USAGE
 $NODE_USAGE_USAGE
+$NODE_COST_USAGE
     -> start + marks the node running; omit the target to use the node's own --profile.
 $NODE_UPDATE_USAGE
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
@@ -97,6 +98,11 @@ $SERVE_USAGE
        auth policy are read from <home>/serve.json (see serve config). CLI --host/--port override
        for one shot. /api/* needs the bearer token from <home>/serve.token unless serve.json
        opts out (0600; trash it to rotate).
+$ARTIFACT_USAGE
+    -> emits a self-contained copy of the dashboard for one run into DIR (default
+       <home>/artifacts/<run-id>), with every API document it needs embedded in the page. Renders
+       with no server and no network — publish it as a Claude Code artifact. It is a snapshot, so
+       re-run this to refresh it.
 $SERVE_CONFIG_USAGE
     -> show, get or persist the dashboard bind/auth settings in <home>/serve.json.
 $SERVE_STATUS_USAGE
@@ -348,6 +354,12 @@ cmd_start() {
   export ORCH_SESSION_ID
   printf '%s\n' "$ORCH_SESSION_ID" > "$job_dir/session"
 
+  # An adapter's stdout is this job's log, so anything else it wants to report — the claude
+  # adapter's token/cost usage — needs somewhere else to put it. Start-only for the same reason
+  # as the session id: `run` has no job dir.
+  ORCH_JOB_DIR="$job_dir"
+  export ORCH_JOB_DIR
+
   # Single quotes are deliberate: these lines must reach the child bash unexpanded. The child
   # re-resolves the profile itself — that is how it gets the profile's exported env.
   # shellcheck disable=SC2016
@@ -441,8 +453,8 @@ main() {
       ;;
     node)
       case "${2:-}" in
-        add|update|dispatch|usage) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|dispatch|usage ...\n' >&2; exit 2 ;;
+        add|update|dispatch|usage|cost) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        *) printf 'usage: dispatch.sh node add|update|dispatch|usage|cost ...\n' >&2; exit 2 ;;
       esac
       ;;
     start) shift; cmd_start "$@" ;;
@@ -463,6 +475,7 @@ main() {
       ;;
     sync) shift; cmd_sync "$@" ;;
     ui) shift; cmd_ui "$@" ;;
+    artifact) shift; cmd_artifact "$@" ;;
     profile) shift; cmd_profile "$@" ;;
     model) shift; cmd_model "$@" ;;
     harness) shift; cmd_harness "$@" ;;

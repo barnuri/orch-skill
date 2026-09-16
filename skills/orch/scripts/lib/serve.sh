@@ -19,6 +19,7 @@ SERVE_TOKEN_FILE="$ORCH_HOME/serve.token"
 SERVE_CONFIG_FILE="$ORCH_HOME/serve.json"
 SERVE_CONFIG_TEMPLATE="$TEMPLATES_DIR/serve.json"
 SERVE_ENTRY="$SCRIPT_DIR/../server/main.ts"
+ARTIFACT_ENTRY="$SCRIPT_DIR/../server/artifact/main.ts"
 SERVE_SOURCE_DIRS="$SCRIPT_DIR/../server $SCRIPT_DIR/../dashboard $SCRIPT_DIR/../shared"
 SERVE_DEFAULT_HOST=0.0.0.0
 SERVE_DEFAULT_PORT=6724
@@ -27,6 +28,7 @@ SERVE_START_WAIT_TICKS=50
 SERVE_STOP_WAIT_TICKS=50
 
 SERVE_USAGE='dispatch.sh serve [--host H] [--port P] | serve --stop'
+ARTIFACT_USAGE='dispatch.sh artifact <run-id> [--out DIR]'
 SERVE_STATUS_USAGE='dispatch.sh serve status [--json]'
 SERVE_RECOVER_USAGE='dispatch.sh serve recover [--start|--no-start]'
 SERVE_CONFIG_USAGE='dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]'
@@ -550,4 +552,32 @@ cmd_ui() {
   elif command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$url" >/dev/null 2>&1 &
   fi
+}
+
+# artifact <run-id> [--out DIR] — bundles the dashboard with the run's documents embedded, so the
+# result renders with no server behind it. Bun does the work; this only validates and locates.
+cmd_artifact() {
+  local run_id="" out_dir="" bun_bin
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --out)
+        shift
+        out_dir="${1:-}"
+        [ -n "$out_dir" ] || { printf 'artifact: --out needs a directory\nusage: %s\n' "$ARTIFACT_USAGE" >&2; return 2; }
+        ;;
+      -h|--help) printf 'usage: %s\n' "$ARTIFACT_USAGE"; return 0 ;;
+      -*) printf 'artifact: unknown flag %s\nusage: %s\n' "$1" "$ARTIFACT_USAGE" >&2; return 2 ;;
+      *)
+        [ -z "$run_id" ] || { printf 'artifact: one run id at a time\nusage: %s\n' "$ARTIFACT_USAGE" >&2; return 2; }
+        run_id="$1"
+        ;;
+    esac
+    shift || true
+  done
+  [ -n "$run_id" ] || { printf 'usage: %s\n' "$ARTIFACT_USAGE" >&2; return 2; }
+  [ -f "$ARTIFACT_ENTRY" ] || { printf 'artifact: %s missing\n' "$ARTIFACT_ENTRY" >&2; return 1; }
+  bun_bin=$(serve_bun) || return $?
+  [ -n "$out_dir" ] || out_dir="$ORCH_HOME/artifacts/$run_id"
+  "$bun_bin" "$ARTIFACT_ENTRY" --home "$ORCH_HOME" --run "$run_id" --out "$out_dir" \
+    --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES"
 }

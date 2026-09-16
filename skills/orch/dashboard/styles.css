@@ -39,6 +39,8 @@ header {
 .fresh .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); }
 .fresh.stale .dot { background: var(--warn); }
 .fresh.dead .dot { background: var(--error); }
+/* A published snapshot is neither fresh nor failing — a neutral dot, so it reads as "frozen". */
+.fresh.snapshot .dot { background: var(--waiting); }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
   border-radius: var(--radius); border: 1px solid var(--border); color: var(--text-muted);
@@ -248,6 +250,48 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 }
 .copy-cmd { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
 .copy-cmd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22rem; }
+
+/* Session views: the conversation the harness had (Chat) or the stdout its adapter printed
+   (Output). Laid out like a harness session log — one block per turn, role badge, tools under
+   the text — and ordered newest-first, so the latest turn is what you land on. */
+.session-tabs { display: inline-flex; gap: 0; }
+.session-tab { border-radius: 0; }
+.session-tab:first-child { border-top-left-radius: var(--radius); border-bottom-left-radius: var(--radius); }
+.session-tab:last-child { border-top-right-radius: var(--radius); border-bottom-right-radius: var(--radius); margin-left: -1px; }
+.session-tab.is-active { color: var(--accent); border-color: var(--accent); z-index: 1; }
+.session-tab[disabled] { opacity: .45; cursor: not-allowed; }
+
+.chat-turns {
+  max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 1px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.chat-truncated { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.chat-turn { padding: 10px 12px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+.chat-turn:last-child { border-bottom: none; }
+/* The newest turn is first; a left edge marks it without moving anything. */
+.chat-turn:first-of-type { box-shadow: inset 2px 0 0 var(--accent); }
+.chat-turn.is-user { background: var(--surface); }
+.chat-turn-head { display: flex; align-items: center; gap: 8px; }
+.chat-role {
+  font: 600 10px var(--font); text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border-strong); color: var(--text-muted);
+}
+.chat-role.is-assistant { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); }
+.chat-role.is-user { color: var(--text); }
+.chat-time { font: 11px var(--mono); color: var(--text-faint); }
+.chat-text {
+  margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.chat-tools { display: grid; gap: 4px; }
+.chat-tool { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.chat-tool-name {
+  font: 600 11px var(--mono); color: var(--text); flex: none;
+  padding: 1px 5px; border-radius: 3px; background: var(--surface-2);
+}
+.chat-tool-summary { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The panel caps every `pre` at 200px; a turn's text is inside a scrolling list already. */
+.run-layout .node-panel .chat-text { max-height: none; min-height: 0; }
 .run-layout .node-panel.just-selected { animation: panel-reveal .8s ease-out; }
 @keyframes panel-reveal {
   from { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -301,6 +345,18 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.selected .frame { stroke: var(--accent); stroke-width: 1.5; }
 .node text { fill: var(--text); font: 500 12.5px var(--font); }
 .node .st { fill: var(--text-muted); font: 11px var(--mono); }
+/* Row 3 — the measurements. Tabular figures so digits sit on a common grid and a column of
+   nodes reads down cleanly; a touch more weight than the status text above, because these are
+   measurements rather than labels. No new colour: the status bar keeps that channel. */
+.node .metric { fill: var(--text); font: 600 11px var(--mono); font-variant-numeric: tabular-nums; }
+.node .metrics-rule { stroke: var(--border); stroke-width: 1; }
+/* Cost is the softer of the two: it is the same for every node on a profile far more often
+   than the duration is, so the duration gets the stronger reading. */
+.node .metric.cost { fill: var(--text-muted); font-weight: 500; }
+.node.waiting .metric, .node.skipped .metric { fill: var(--text-faint); font-weight: 500; }
+/* A running node's duration is still climbing; the status bar already pulses, so this only
+   needs to read as provisional rather than final. */
+.node.running .metric.dur { fill: var(--accent); }
 .node .mark { rx: 2; }
 .node.waiting .mark { fill: var(--waiting); }
 .node.running .mark { fill: var(--accent); animation: pulse 1.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
@@ -309,7 +365,8 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.error .frame { stroke: var(--error); }
 .node.skipped .mark { fill: var(--skipped); }
 .node.skipped text { fill: var(--text-faint); text-decoration: line-through; }
-.node.has-profile .mark { fill: var(--profile-accent); }
+/* The mark bar is the status channel — waiting grey, running blue, done green, error red.
+   The profile is carried by the frame stroke below, so the profile accent must not tint it. */
 .node.has-profile .frame { stroke: color-mix(in srgb, var(--profile-accent) 38%, var(--border-strong)); }
 .node.has-profile:hover .frame, .node.has-profile:focus-visible .frame { stroke: var(--profile-accent); }
 .node.has-profile.selected .frame { stroke: var(--profile-accent); stroke-width: 1.5; }
@@ -369,6 +426,9 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .panel-close:hover { color: var(--text); border-color: var(--text-muted); }
 .panel-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .panel dl { display: grid; grid-template-columns: 84px 1fr; gap: 6px 12px; margin: 0; }
+/* One row listing several models: the value carries its own line breaks, since the key column
+   is a fixed width a model id would overflow. */
+.panel dd.cost-models { white-space: pre-line; line-height: 1.5; }
 .panel dt { color: var(--text-muted); }
 .panel dd { margin: 0; overflow-wrap: anywhere; }
 .panel .err { color: var(--error); }

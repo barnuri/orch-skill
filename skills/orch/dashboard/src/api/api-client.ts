@@ -1,4 +1,5 @@
 import type { ApiError } from "../../../shared/types/api-error";
+import type { ChatEnvelope } from "../../../shared/types/chat-envelope";
 import type { DocumentKind } from "../../../shared/types/document-kind";
 import type { HarnessesEnvelope } from "../../../shared/types/harness-status";
 import type { HealthResponse } from "../../../shared/types/health-response";
@@ -10,16 +11,24 @@ import type { RunEnvelope } from "../../../shared/types/run-envelope";
 import type { RunsEnvelope } from "../../../shared/types/runs-envelope";
 import { API_BASE } from "../constants";
 import type { ApiResult } from "./api-result";
+import { IslandSource } from "./island-source";
 import { getToken } from "./token-store";
 
 type Method = "GET" | "PUT" | "POST";
-type RequestOptions = { etag?: string | null; ifMatch?: string; body?: unknown };
+type RequestOptions = { etag?: string | null; ifMatch?: string; body?: unknown; island?: string };
 
-// Thin, stateless wrapper over fetch: the token comes from token-store on every call, so a
-// gate-supplied token is picked up by the very next request. Maps every outcome onto ApiResult
-// — callers never need try/catch.
+// Thin wrapper over fetch: the token comes from token-store on every call, so a gate-supplied
+// token is picked up by the very next request. Maps every outcome onto ApiResult — callers never
+// need try/catch. In an emitted artifact snapshot the IslandSource answers reads from the page
+// itself and writes are refused, so the same views render with no server behind them.
 export class ApiClient {
   private static readonly JSON_MEDIA_TYPE: string = "application/json";
+
+  private readonly islands: IslandSource;
+
+  constructor(islands: IslandSource = IslandSource.fromDocument()) {
+    this.islands = islands;
+  }
 
   private static isApiError(value: unknown): value is ApiError {
     return typeof value === "object" && value !== null && typeof (value as ApiError).error === "string";
@@ -37,19 +46,32 @@ export class ApiClient {
   }
 
   getRuns(etag: string | null): Promise<ApiResult<RunsEnvelope>> {
-    return this.request<RunsEnvelope>("GET", `${API_BASE}/runs`, { etag });
+    return this.request<RunsEnvelope>("GET", `${API_BASE}/runs`, { etag, island: "runs" });
   }
 
   getRun(id: string, etag: string | null): Promise<ApiResult<RunEnvelope>> {
-    return this.request<RunEnvelope>("GET", `${API_BASE}/runs/${encodeURIComponent(id)}`, { etag });
+    return this.request<RunEnvelope>("GET", `${API_BASE}/runs/${encodeURIComponent(id)}`, {
+      etag,
+      island: `run-${id}`,
+    });
   }
 
   getJobLog(jobId: string, etag: string | null): Promise<ApiResult<JobLogEnvelope>> {
-    return this.request<JobLogEnvelope>("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/log`, { etag });
+    return this.request<JobLogEnvelope>("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/log`, {
+      etag,
+      island: `job-${jobId}-log`,
+    });
+  }
+
+  getJobChat(jobId: string, etag: string | null): Promise<ApiResult<ChatEnvelope>> {
+    return this.request<ChatEnvelope>("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/chat`, {
+      etag,
+      island: `job-${jobId}-chat`,
+    });
   }
 
   getDocument<T>(kind: DocumentKind, etag: string | null): Promise<ApiResult<T>> {
-    return this.request<T>("GET", `${API_BASE}/${kind}`, { etag });
+    return this.request<T>("GET", `${API_BASE}/${kind}`, { etag, island: kind });
   }
 
   putDocument(kind: DocumentKind, body: unknown, ifMatch: string): Promise<ApiResult<PutOk>> {
@@ -57,11 +79,11 @@ export class ApiClient {
   }
 
   health(): Promise<ApiResult<HealthResponse>> {
-    return this.request<HealthResponse>("GET", `${API_BASE}/health`);
+    return this.request<HealthResponse>("GET", `${API_BASE}/health`, { island: "health" });
   }
 
   getHarnesses(): Promise<ApiResult<HarnessesEnvelope>> {
-    return this.request<HarnessesEnvelope>("GET", `${API_BASE}/harnesses`);
+    return this.request<HarnessesEnvelope>("GET", `${API_BASE}/harnesses`, { island: "harnesses" });
   }
 
   profileSanity(profiles?: string[]): Promise<ApiResult<ProfileSanityEnvelope>> {
@@ -116,6 +138,17 @@ export class ApiClient {
   }
 
   private async request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
+    if (method === "GET" && options.island !== undefined) {
+      const embedded = this.islands.read<T>(options.island);
+      if (embedded !== null) {
+        return embedded;
+      }
+    }
+    // A snapshot has no server, so a write must fail with something the views can explain
+    // rather than a bare network error the user cannot act on.
+    if (method !== "GET" && this.islands.active) {
+      return this.islands.readOnlyRefusal<T>();
+    }
     const headers = this.headersFor(method, options);
     const init: RequestInit = { method, headers, cache: "no-store" };
     if (method === "PUT" || (method === "POST" && options.body !== undefined)) {

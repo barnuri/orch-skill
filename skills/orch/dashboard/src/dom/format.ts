@@ -40,6 +40,27 @@ export function ago(epochMs: number): string {
   return seconds < JUST_NOW_SECONDS ? "just now" : `${seconds}s ago`;
 }
 
+const USD_DECIMALS = 2;
+/** Below this, two decimals would round a real charge to $0.00 and read as free. */
+const USD_MIN_SHOWN = 0.01;
+
+/**
+ * A node's cost, compact enough for a graph node. Anything above a cent gets two decimals; a
+ * smaller non-zero amount is shown as a bound rather than rounded away to nothing.
+ */
+export function fmtUsd(usd: number): string {
+  if (!Number.isFinite(usd) || usd < 0) {
+    return EM_DASH;
+  }
+  if (usd === 0) {
+    return "$0.00";
+  }
+  if (usd < USD_MIN_SHOWN) {
+    return `<$${USD_MIN_SHOWN.toFixed(USD_DECIMALS)}`;
+  }
+  return `$${usd.toFixed(USD_DECIMALS)}`;
+}
+
 export function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}${ELLIPSIS}` : text;
 }

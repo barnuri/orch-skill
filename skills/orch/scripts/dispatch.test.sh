@@ -576,7 +576,9 @@ cleanup_dir "$home"
 
 # --- claude adapter + --profile grammar --------------------------------------
 # Fake CLI shims print their argv one per line, so the exact argument shape can be asserted
-# without running a real harness.
+# without running a real harness. The claude adapter now asks for `--output-format json`; since
+# an argv echo is not a JSON object, these cases also cover its pass-through fallback — output it
+# cannot parse reaches the log untouched.
 home=$(new_tmp)
 shims=$(new_tmp)
 for tool in claude cursor-agent opencode; do
@@ -588,7 +590,7 @@ joined() { printf '%s' "$1" | tr '\n' ' '; }
 
 out=$(with_shims bash "$SCRIPT" run --profile claude-sub "hi there" --extra 2>&1)
 expect_match "claude profile: argv order is model, profile flags, pass-through" \
-  '^-p hi there --output-format text --model sonnet --dangerously-skip-permissions --extra$' "$(joined "$out")"
+  '^-p hi there --output-format json --model sonnet --dangerously-skip-permissions --extra$' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" profile sanity --profile claude-sub 2>&1); rc=$?
 expect_exit "profile sanity exits 0" 0 "$rc"
@@ -607,7 +609,7 @@ out=$(with_shims bash "$SCRIPT" run --profile opencode-default "x" 2>&1)
 expect_match "opencode profile with empty model: no model flag" '^run x --auto$' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run claude "plain" 2>&1)
-expect_match "plain claude adapter: no model flag" '^-p plain --output-format text$' "$(joined "$out")"
+expect_match "plain claude adapter: no model flag" '^-p plain --output-format json$' "$(joined "$out")"
 
 # A dispatched job is only resumable if orch chose the session id and wrote it down, so both
 # halves are asserted: the flag the harness saw, and the id left behind in the job dir.
@@ -635,7 +637,7 @@ expect_exit "claude missing exits 127" 127 "$rc"
 out=$(env ORCH_BIN_DIRS="$shims" PATH="$(path_without claude)" HARNESS_ORCH_HOME="$home" \
   bash "$SCRIPT" run claude "off-path" 2>&1); rc=$?
 expect_exit "claude off PATH but in ORCH_BIN_DIRS exits 0" 0 "$rc"
-expect_match "claude off PATH is resolved from ORCH_BIN_DIRS" '^-p off-path --output-format text$' "$(joined "$out")"
+expect_match "claude off PATH is resolved from ORCH_BIN_DIRS" '^-p off-path --output-format json$' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run --profile claude-sub 2>&1); rc=$?
 expect_match "run --profile without prompt shows grammar" 'usage: dispatch.sh run \(--profile <name> \| <adapter>\)' "$out"
@@ -972,6 +974,210 @@ fake_orch serve --stop >/dev/null 2>&1
 wait "$serve_job" 2>/dev/null || true
 
 cleanup_dir "$shims"
+cleanup_dir "$home"
+
+# --- claude adapter: JSON capture, cost sidecar, no-jq fallback ----------------
+# The JSON form is what reports tokens and dollars. The log must still hold only the answer, so
+# these cases pin both halves: what reaches stdout, and what lands in the sidecar.
+home=$(new_tmp)
+shims=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+json_shim() {
+  cat > "$shims/claude" <<SHIM
+#!/usr/bin/env bash
+cat <<'PAYLOAD'
+$1
+PAYLOAD
+exit ${2:-0}
+SHIM
+  chmod +x "$shims/claude"
+}
+with_claude() { env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" "$@"; }
+
+SUCCESS_JSON='{"result":"the answer","total_cost_usd":0.2409,"is_error":false,"usage":{"input_tokens":2,"output_tokens":4,"cache_read_input_tokens":81324,"cache_creation_input_tokens":19861},"modelUsage":{"claude-opus-5[1m]":{"inputTokens":2,"outputTokens":4,"cacheReadInputTokens":81324,"cacheCreationInputTokens":19861,"costUSD":0.2394,"costBasis":"list"}}}'
+
+json_shim "$SUCCESS_JSON"
+out=$(with_claude bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
+expect_exit "claude json run exits 0" 0 "$rc"
+expect_match "only the result reaches the log" '^the answer$' "$out"
+expect_no_match "the raw json never reaches the log" 'total_cost_usd' "$out"
+
+# `start` has a job dir, so the usage lands beside the log.
+job=$(with_claude bash "$SCRIPT" start claude "hi")
+expect_match "start prints a job id" '^[0-9]' "$job"
+with_claude bash "$SCRIPT" wait "$job" --timeout 30 --interval 1 >/dev/null 2>&1
+expect_file "start writes the cost sidecar" "$home/jobs/$job/usage.json"
+usage=$(cat "$home/jobs/$job/usage.json" 2>/dev/null)
+expect_match "sidecar carries the dollar total" '"usd":0.2409' "$usage"
+expect_match "sidecar carries the cost basis" '"cost_basis":"list"' "$usage"
+expect_match "sidecar carries input tokens" '"input_tokens":2' "$usage"
+expect_match "sidecar carries cache creation tokens" '"cache_creation_tokens":19861' "$usage"
+expect_match "sidecar carries the per-model split" '"model":"claude-opus-5\[1m\]"' "$usage"
+log=$(cat "$home/jobs/$job/log" 2>/dev/null)
+expect_match "the started job's log is still just the answer" '^the answer$' "$log"
+
+# A harness failure reported inside a zero exit still fails the node.
+json_shim '{"result":"nope","is_error":true,"total_cost_usd":0.01}'
+out=$(with_claude bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
+expect_exit "is_error true fails the dispatch" 1 "$rc"
+expect_match "the result is still logged on a reported failure" '^nope$' "$out"
+
+# Output that is not the expected object passes straight through, so nothing is ever swallowed.
+json_shim 'not json at all'
+out=$(with_claude bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
+expect_exit "unparseable output keeps the harness exit code" 0 "$rc"
+expect_match "unparseable output reaches the log untouched" '^not json at all$' "$out"
+
+# A non-zero exit is reported as-is, with whatever the harness printed.
+json_shim 'boom' 3
+out=$(with_claude bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
+expect_exit "a failing harness keeps its exit code" 3 "$rc"
+
+# Without jq there is nothing to parse JSON with, so the text form runs and no cost is captured.
+# jq sits in /usr/bin beside coreutils here, so it cannot be dropped from PATH without taking
+# `dirname` with it. A `command` function shadows the builtin for jq only — which also relies on
+# dispatch.sh being safe to source, as its header promises.
+json_shim "$SUCCESS_JSON"
+out=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash -c '
+  . "$1"
+  command() {
+    if [ "${1:-}" = -v ] && [ "${2:-}" = jq ]; then return 1; fi
+    builtin command "$@"
+  }
+  adapter_claude "hi"
+' _ "$SCRIPT" 2>&1); rc=$?
+expect_exit "claude without jq still dispatches" 0 "$rc"
+# The shim answers every argv with the same payload, so the proof that the text form ran is that
+# the payload arrived verbatim: nothing extracted `.result`, and no cost was recorded.
+expect_match "without jq the harness output is passed through whole" 'total_cost_usd' "$out"
+expect_no_match "without jq nothing is parsed out of the payload" '^the answer$' "$out"
+expect_missing "without jq no sidecar is written" "$home/usage.json"
+
+cleanup_dir "$shims"
+cleanup_dir "$home"
+
+# --- node cost: the explicit subcommand and the run sync hook ------------------
+home=$(new_tmp)
+shims=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+cost_run=$(orch run start "cost run")
+orch node add "$cost_run" n1 "first" >/dev/null
+cost_state="$home/runs/$cost_run/state.json"
+
+expect_match "node add seeds a null cost" '^null$' "$(jq -r '.nodes[0].cost | tostring' "$cost_state")"
+
+out=$(orch node cost 2>&1); rc=$?
+expect_exit "node cost with no ids exits 2" 2 "$rc"
+expect_match "node cost prints usage" 'dispatch\.sh node cost' "$out"
+
+out=$(orch node cost "$cost_run" n1 2>&1); rc=$?
+expect_exit "node cost with no action exits 2" 2 "$rc"
+expect_match "node cost asks for an action" 'pass --from-job or --clear' "$out"
+
+out=$(orch node cost "$cost_run" n1 --bogus 2>&1); rc=$?
+expect_exit "node cost rejects an unknown flag" 2 "$rc"
+
+out=$(orch node cost "$cost_run" n1 --from-job 2>&1); rc=$?
+expect_exit "node cost --from-job needs a job id" 2 "$rc"
+
+out=$(orch node cost "$cost_run" nope --from-job j1 2>&1); rc=$?
+expect_exit "node cost rejects an unknown node" 2 "$rc"
+
+out=$(orch node cost "$cost_run" n1 --from-job missing-job 2>&1); rc=$?
+expect_exit "node cost reports a job with no usage" 1 "$rc"
+expect_match "node cost says the job recorded nothing" 'recorded no usage' "$out"
+
+# A sidecar written by hand stands in for one the adapter wrote; the subcommand is the only
+# thing that may move it onto the node.
+mkdir -p "$home/jobs/costjob"
+cat > "$home/jobs/costjob/usage.json" <<'USAGE'
+{"usd":0.2409,"cost_basis":"list","input_tokens":2,"output_tokens":4,"cache_read_tokens":81324,"cache_creation_tokens":19861,"models":[{"model":"claude-opus-5[1m]","usd":0.2394,"input_tokens":2,"output_tokens":4,"cache_read_tokens":81324,"cache_creation_tokens":19861}]}
+USAGE
+out=$(orch node cost "$cost_run" n1 --from-job costjob 2>&1); rc=$?
+expect_exit "node cost --from-job exits 0" 0 "$rc"
+expect_match "the node carries the dollar total" '^0.2409$' "$(jq -r '.nodes[0].cost.usd' "$cost_state")"
+expect_match "the node carries the cost basis" '^list$' "$(jq -r '.nodes[0].cost.cost_basis' "$cost_state")"
+expect_match "the node carries the per-model split" '^claude-opus-5\[1m\]$' "$(jq -r '.nodes[0].cost.models[0].model' "$cost_state")"
+
+out=$(orch node cost "$cost_run" n1 --clear 2>&1); rc=$?
+expect_exit "node cost --clear exits 0" 0 "$rc"
+expect_match "clearing returns the node to no cost" '^null$' "$(jq -r '.nodes[0].cost | tostring' "$cost_state")"
+
+out=$(orch node cost "$cost_run" n1 --from-job costjob --clear 2>&1); rc=$?
+expect_exit "node cost refuses both actions at once" 2 "$rc"
+
+# A malformed sidecar is ignored rather than written through.
+printf 'not json\n' > "$home/jobs/costjob/usage.json"
+orch node cost "$cost_run" n1 --from-job costjob >/dev/null 2>&1
+expect_match "a malformed sidecar leaves the node untouched" '^null$' "$(jq -r '.nodes[0].cost | tostring' "$cost_state")"
+
+# run sync is the automatic route: a finished job's sidecar lands on its node without a caller.
+printf '#!/usr/bin/env bash\ncat <<%s\n{"result":"done","total_cost_usd":0.5,"is_error":false,"usage":{"input_tokens":7,"output_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"modelUsage":{"m1":{"inputTokens":7,"outputTokens":9,"costUSD":0.5,"costBasis":"list"}}}\n%s\n' "PAYLOAD" "PAYLOAD" > "$shims/claude"
+chmod +x "$shims/claude"
+sync_job=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node dispatch "$cost_run" n1 claude "hi")
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" wait "$sync_job" --timeout 30 --interval 1 >/dev/null 2>&1
+orch run sync "$cost_run" >/dev/null 2>&1
+expect_match "run sync copies the cost onto the node" '^0.5$' "$(jq -r '.nodes[0].cost.usd' "$cost_state")"
+expect_match "run sync still flips the node to done" '^done$' "$(jq -r '.nodes[0].status' "$cost_state")"
+
+cleanup_dir "$shims"
+cleanup_dir "$home"
+
+# --- artifact: argument validation + a real emit -------------------------------
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+out=$(orch artifact 2>&1); rc=$?
+expect_exit "artifact with no run id exits 2" 2 "$rc"
+expect_match "artifact with no run id prints usage" 'dispatch\.sh artifact <run-id>' "$out"
+
+out=$(orch artifact r1 r2 2>&1); rc=$?
+expect_exit "artifact refuses two run ids" 2 "$rc"
+expect_match "artifact explains the second id" 'one run id at a time' "$out"
+
+out=$(orch artifact r1 --bogus 2>&1); rc=$?
+expect_exit "artifact rejects an unknown flag" 2 "$rc"
+expect_match "artifact names the unknown flag" 'unknown flag --bogus' "$out"
+
+out=$(orch artifact r1 --out 2>&1); rc=$?
+expect_exit "artifact --out needs a directory" 2 "$rc"
+
+out=$(env HARNESS_ORCH_HOME="$home" ORCH_BUN=/nonexistent/bun bash "$SCRIPT" artifact r1 2>&1); rc=$?
+expect_exit "artifact without bun exits 127" 127 "$rc"
+
+if command -v bun >/dev/null 2>&1; then
+  run_id=$(orch run start "snapshot me")
+  orch node add "$run_id" n1 "first node" >/dev/null
+  emit_dir="$home/emitted"
+
+  out=$(orch artifact "$run_id" --out "$emit_dir" 2>&1); rc=$?
+  expect_exit "artifact emits a bundle" 0 "$rc"
+  expect_file "artifact writes index.html" "$emit_dir/index.html"
+  expect_match "artifact reports the embedded documents" 'embedded document' "$out"
+  index_html=$(cat "$emit_dir/index.html" 2>/dev/null)
+  expect_match "the run is embedded as an island" "orch-island-run-$run_id" "$index_html"
+  expect_match "the runs list is embedded" 'orch-island-runs' "$index_html"
+  expect_no_match "health is never embedded" 'orch-island-health' "$index_html"
+  expect_match "the bundle is referenced by a relative path" 'src="\./chunk-' "$index_html"
+  expect_no_match "nothing points at an absolute URL" '(src|href)="https?://' "$index_html"
+
+  # The default output location is under the state dir, so a caller need not pick one.
+  out=$(orch artifact "$run_id" 2>&1); rc=$?
+  expect_exit "artifact defaults its output directory" 0 "$rc"
+  expect_file "artifact defaults under <home>/artifacts" "$home/artifacts/$run_id/index.html"
+
+  out=$(orch artifact 20260101-000000-ffff --out "$home/nope" 2>&1); rc=$?
+  expect_exit "artifact rejects an unknown run id" 1 "$rc"
+  expect_match "artifact says which run is missing" 'no run 20260101-000000-ffff' "$out"
+else
+  printf 'SKIP: artifact emit test (bun not found)\n' >&2
+fi
+
 cleanup_dir "$home"
 
 # --- typescript gates ---------------------------------------------------------

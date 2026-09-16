@@ -1,3 +1,4 @@
+import type { NodeCost } from "./node-cost";
 import type { NodeStatus } from "./node-status";
 import type { NodeUsage } from "./node-usage";
 
@@ -19,4 +20,9 @@ export interface RunNode {
   error: string | null;
   log_tail: string[];
   usage?: NodeUsage;
+  /**
+   * What the dispatch cost, when the harness reported it. Optional and nullable: most adapters
+   * report nothing, and a run written before this field existed has no `cost` key at all.
+   */
+  cost?: NodeCost | null;
 }

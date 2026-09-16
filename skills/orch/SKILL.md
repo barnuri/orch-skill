@@ -192,6 +192,31 @@ any other address still needs the bearer token, which is what the hostname URL c
 `~/.harness-orch/serve.token` holds (minted 0600 on first start). Trash that file and restart to
 rotate it. `ORCH_REQUIRE_TOKEN=1` demands the token from loopback too.
 
+## Publishing a run as an artifact
+
+`orch artifact <run-id> [--out DIR]` emits a self-contained copy of the dashboard for one run —
+`index.html` plus a JS and a CSS chunk — into `DIR` (default `~/.harness-orch/artifacts/<run-id>`).
+Every API document the page would fetch is embedded in `index.html` as a
+`<script type="application/json">` island, so it renders with **no server and no network**. That
+is what makes it publishable as a Claude Code artifact, which has no network access.
+
+Publish all three emitted files together, mapping each to its path in the bundle — the page loads
+the JS and CSS by relative path, so an `index.html` published alone renders blank. Then hand the
+user the artifact link.
+
+Two things to say when you publish one:
+
+- **It is a snapshot, not a live view.** The run's state is frozen at emit time. Re-run
+  `orch artifact` and publish again to refresh it. The header reads "published snapshot — not
+  live" so the reader is not misled, and the page does no polling.
+- **It carries the profiles, memory and suggestions documents too**, because it is the whole
+  dashboard rather than the graph alone. No secrets are in those files — `profiles.json` holds
+  env-var *names*, never values — but anyone with the link can read the profile topology: names,
+  flags, model ids. Say so before publishing to anywhere shared.
+
+Editing is refused rather than broken: a save in a snapshot answers `405` with "This is a
+published snapshot — it has no server to save to." and toasts that message.
+
 ## Retention
 
 `orch prune [--older-than 7d|12h|3] [--dry-run]` recoverably removes finished runs and their jobs

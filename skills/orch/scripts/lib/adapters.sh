@@ -65,6 +65,44 @@ claude_model_settings_file() {
 # ORCH_SESSION_ID is set by `start`, so the job's session is addressable afterwards. Only this
 # adapter takes it: cursor-agent resumes by a chatId minted by its own `create-chat`, not by an
 # id we can choose, so orch does not pretend to control it.
+# Reshapes one `--output-format json` object into the node-cost sidecar. Every field is defaulted:
+# a harness that stops reporting one of them must not produce a sidecar `run sync` cannot read.
+CLAUDE_USAGE_FILTER='{
+  usd: (.total_cost_usd // 0),
+  cost_basis: (((.modelUsage // {}) | to_entries | map(.value.costBasis) | map(select(. != null)) | first) // "unknown"),
+  input_tokens: (.usage.input_tokens // 0),
+  output_tokens: (.usage.output_tokens // 0),
+  cache_read_tokens: (.usage.cache_read_input_tokens // 0),
+  cache_creation_tokens: (.usage.cache_creation_input_tokens // 0),
+  models: ((.modelUsage // {}) | to_entries | map({
+    model: .key,
+    usd: (.value.costUSD // 0),
+    input_tokens: (.value.inputTokens // 0),
+    output_tokens: (.value.outputTokens // 0),
+    cache_read_tokens: (.value.cacheReadInputTokens // 0),
+    cache_creation_tokens: (.value.cacheCreationInputTokens // 0)
+  }))
+}'
+
+# Writes the cost sidecar beside the job log, when this dispatch has a job dir to write into
+# (`start` does, `run` does not). Never fails the dispatch: the work is already done and its
+# output already printed, so a sidecar that cannot be written is only a missing metric.
+claude_write_usage() {
+  local raw="$1" dir="${ORCH_JOB_DIR:-}"
+  [ -n "$dir" ] && [ -d "$dir" ] || return 0
+  printf '%s' "$raw" | jq -c "$CLAUDE_USAGE_FILTER" > "$dir/usage.json.tmp" 2>/dev/null \
+    && mv "$dir/usage.json.tmp" "$dir/usage.json" 2>/dev/null
+  return 0
+}
+
+# ORCH_SESSION_ID is set by `start`, so the job's session is addressable afterwards. Only this
+# adapter takes it: cursor-agent resumes by a chatId minted by its own `create-chat`, not by an
+# id we can choose, so orch does not pretend to control it.
+#
+# `--output-format json` rather than text, because only the JSON form reports the token counts and
+# the dollar cost. Its stdout is this job's log, so just the `result` string is printed — the same
+# bytes the text form would have produced — and the usage goes to the sidecar. Without jq there is
+# nothing to parse it with, so the text form runs unchanged and the node simply has no cost.
 adapter_claude() {
   local prompt="$1"; shift || true
   local bin settings
@@ -75,8 +113,27 @@ adapter_claude() {
     settings=$(claude_model_settings_file "$ORCH_MODEL_SLUG" "$ORCH_MODEL_BEHAVES_AS") \
       && settings_args=(--settings "$settings")
   fi
-  "$bin" -p "$prompt" --output-format text \
-    ${session_args[@]+"${session_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} "$@" </dev/null
+  if ! command -v jq >/dev/null 2>&1; then
+    "$bin" -p "$prompt" --output-format text \
+      ${session_args[@]+"${session_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} "$@" </dev/null
+    return $?
+  fi
+
+  local raw rc
+  raw=$("$bin" -p "$prompt" --output-format json \
+    ${session_args[@]+"${session_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} "$@" </dev/null)
+  rc=$?
+  # A failed call, or output that is not the expected object: pass the bytes through untouched so
+  # the log still holds whatever the harness said, and keep its exit code.
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$raw" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    printf '%s\n' "$raw"
+    return "$rc"
+  fi
+  printf '%s\n' "$(printf '%s' "$raw" | jq -r '.result // ""')"
+  claude_write_usage "$raw"
+  # The harness can report a failure inside a zero exit; the node should show it as an error.
+  printf '%s' "$raw" | jq -e '.is_error != true' >/dev/null 2>&1 || return 1
+  return 0
 }
 
 # `--force` ("Run Everything") is deliberately NOT passed here. It is a permission bypass, and

@@ -2,7 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import type { NodeStatus } from "../../shared/types/node-status";
 import type { RunState } from "../../shared/types/run-state";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { ChatEnvelope } from "../../shared/types/chat-envelope";
+import { orchPaths } from "../files/paths";
+import { SessionChatReader } from "../runs/session-chat-reader";
+import { TempHome } from "../test-support/temp-home";
 import { startTestServer } from "../test-support/test-server";
+import type { ServerContext } from "../types/server-context";
+import { readJobChatHandler } from "./runs-routes";
 import type { TestServerHandle } from "../types/test-server-handle";
 
 const RUN_ID: string = "20260903-120000-abcd";
@@ -166,5 +176,119 @@ describe("GET /api/runs/:id", () => {
     const res = await srv.api(`/api/runs/${RUN_ID}`);
     expect(res.status).toBe(500);
     expect((await res.json()).error).toContain("state.json");
+  });
+});
+
+// --- GET /api/jobs/:id/chat ---------------------------------------------------
+// Driven through the handler rather than the test server: the route is wired with the default
+// reader, which would read the developer's own ~/.claude.
+
+const CHAT_JOB_ID: string = "20260915-120001-pid-1-1-1";
+const CHAT_SESSION: string = "503edded-727a-4e03-86df-3b7ba63f7d8f";
+
+const chatHomes: TempHome[] = [];
+const claudeHomes: string[] = [];
+
+function orchHomeWithSession(session: string | null): TempHome {
+  const home = TempHome.create();
+  chatHomes.push(home);
+  if (session !== null) {
+    home.write(`jobs/${CHAT_JOB_ID}/session`, `${session}\n`);
+  } else {
+    home.write(`jobs/${CHAT_JOB_ID}/log`, "output only\n");
+  }
+  return home;
+}
+
+function claudeHomeWithTurns(): string {
+  const home = mkdtempSync(join(tmpdir(), "orch-claude-route-"));
+  claudeHomes.push(home);
+  const project = join(home, "projects", "-Users-someone-repo");
+  mkdirSync(project, { recursive: true });
+  const lines = [
+    JSON.stringify({ uuid: "u1", type: "user", message: { role: "user", content: "go" } }),
+    JSON.stringify({
+      uuid: "a1",
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "went" }] },
+    }),
+  ];
+  writeFileSync(join(project, `${CHAT_SESSION}.jsonl`), `${lines.join("\n")}\n`);
+  return home;
+}
+
+function chatContext(home: TempHome): ServerContext {
+  return {
+    paths: orchPaths(home.path),
+    bindHost: "127.0.0.1",
+    hostname: "test",
+    tokenDigest: new Uint8Array(),
+    requireToken: false,
+    requireRemoteToken: false,
+    harnesses: ["claude"],
+    outcomes: ["success"],
+  };
+}
+
+function chatRequest(): Request {
+  return new Request("http://test.invalid/api/jobs/x/chat");
+}
+
+afterEach(() => {
+  chatHomes.splice(0);
+  claudeHomes.splice(0);
+});
+
+describe("readJobChatHandler", () => {
+  test("returns the session's turns for a job that recorded one", async () => {
+    const handler = readJobChatHandler(
+      chatContext(orchHomeWithSession(CHAT_SESSION)),
+      new SessionChatReader(claudeHomeWithTurns()),
+    );
+    const res = await handler(chatRequest(), { id: CHAT_JOB_ID });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ChatEnvelope;
+    expect(body.job_id).toBe(CHAT_JOB_ID);
+    expect(body.session).toBe(CHAT_SESSION);
+    expect(body.turns.map((turn) => turn.text)).toEqual(["go", "went"]);
+    expect(body.truncated).toBe(false);
+    expect(res.headers.get("ETag")).toMatch(ETAG_PATTERN);
+  });
+
+  test("304s when the client already has the turns", async () => {
+    const handler = readJobChatHandler(
+      chatContext(orchHomeWithSession(CHAT_SESSION)),
+      new SessionChatReader(claudeHomeWithTurns()),
+    );
+    const first = await handler(chatRequest(), { id: CHAT_JOB_ID });
+    const etag = first.headers.get("ETag") ?? "";
+    const req = new Request("http://test.invalid/api/jobs/x/chat", {
+      headers: { "If-None-Match": etag },
+    });
+    expect((await handler(req, { id: CHAT_JOB_ID })).status).toBe(304);
+  });
+
+  test("404s for a job orch assigned no session — every adapter but claude", async () => {
+    const handler = readJobChatHandler(
+      chatContext(orchHomeWithSession(null)),
+      new SessionChatReader(claudeHomeWithTurns()),
+    );
+    expect((await handler(chatRequest(), { id: CHAT_JOB_ID })).status).toBe(404);
+  });
+
+  test("404s when the session has no transcript on disk", async () => {
+    const handler = readJobChatHandler(
+      chatContext(orchHomeWithSession("11111111-2222-3333-4444-555555555555")),
+      new SessionChatReader(claudeHomeWithTurns()),
+    );
+    expect((await handler(chatRequest(), { id: CHAT_JOB_ID })).status).toBe(404);
+  });
+
+  test("404s for an unknown job id", async () => {
+    const handler = readJobChatHandler(
+      chatContext(orchHomeWithSession(CHAT_SESSION)),
+      new SessionChatReader(claudeHomeWithTurns()),
+    );
+    expect((await handler(chatRequest(), { id: "20260101-000000-pid-9-9-9" })).status).toBe(404);
   });
 });

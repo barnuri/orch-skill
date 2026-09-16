@@ -23,6 +23,8 @@ export interface AppState {
   runMissing: boolean;
   selectedNode: string | null;
   // Freshness / connectivity.
+  /** True on an emitted artifact snapshot: the page has no server, so nothing can refresh. */
+  snapshot: boolean;
   lastOkAt: number | null;
   lastError: string | null;
   authRequired: boolean;

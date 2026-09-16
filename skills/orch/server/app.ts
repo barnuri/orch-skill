@@ -22,7 +22,12 @@ import {
   scanSuggestionsHandler,
 } from "./routes/suggestions-routes";
 import { healthHandler } from "./routes/health-route";
-import { listRunsHandler, readJobLogHandler, readRunHandler } from "./routes/runs-routes";
+import {
+  listRunsHandler,
+  readJobChatHandler,
+  readJobLogHandler,
+  readRunHandler,
+} from "./routes/runs-routes";
 import type { ServerContext } from "./types/server-context";
 import type { ServerOptions } from "./types/server-options";
 
@@ -76,6 +81,7 @@ export function startServer(options: ServerOptions): Server<undefined> {
       "/api/runs": apiRoute(ctx, { GET: listRunsHandler(ctx) }),
       "/api/runs/:id": apiRoute(ctx, { GET: readRunHandler(ctx) }),
       "/api/jobs/:id/log": apiRoute(ctx, { GET: readJobLogHandler(ctx) }),
+      "/api/jobs/:id/chat": apiRoute(ctx, { GET: readJobChatHandler(ctx) }),
       "/api/profiles": apiRoute(ctx, {
         GET: getDocumentHandler(ctx, "profiles"),
         PUT: putDocumentHandler(ctx, "profiles"),

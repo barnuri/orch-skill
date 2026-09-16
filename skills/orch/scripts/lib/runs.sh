@@ -26,6 +26,7 @@ NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] 
 NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"]"
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_USAGE_USAGE='dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]'
+NODE_COST_USAGE='dispatch.sh node cost <run-id> <node-id> (--from-job <job-id> | --clear)'
 PRUNE_USAGE='dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]'
 
 run_state_file() { printf '%s/%s/state.json\n' "$RUNS_HOME" "$1"; }
@@ -170,7 +171,7 @@ cmd_node_add() {
     '($deps | split(",") | map(select(length > 0))) as $d
      | .nodes += [{id: $id, label: $label, status: "waiting", profile: (if $profile == "" then null else $profile end),
                    adapter: null, job_id: null, session: null, started: null, finished: null,
-                   error: null, log_tail: [], usage: {}}]
+                   error: null, log_tail: [], usage: {}, cost: null}]
      | .edges += ($d | map([., $id]))' \
     --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile"
 }
@@ -327,6 +328,64 @@ cmd_node_dispatch() {
   printf '%s\n' "$job_id"
 }
 
+# node_cost_from_job <run-id> <node-id> <job-id> — copies a job's cost sidecar onto its node.
+# Silent no-op when the job wrote none: only the claude adapter reports cost, and only when jq
+# was available, so an absent sidecar is the common case rather than a fault.
+node_cost_from_job() {
+  local run_id="$1" node_id="$2" job_id="$3"
+  # Separate statement: `local` has its arguments expanded before any of them is assigned, so a
+  # path built from job_id in the same declaration reads it while it is still unset (set -u).
+  local file="$JOBS_HOME/$job_id/usage.json"
+  [ -f "$file" ] || return 0
+  jq -e 'type == "object" and has("usd")' "$file" >/dev/null 2>&1 || return 0
+  node_patch "$run_id" "$node_id" '.cost = $c' --argjson c "$(cat "$file")"
+}
+
+# node cost <run-id> <node-id> (--from-job <job-id> | --clear) — the explicit route. `run sync`
+# does this automatically when a node's own job finishes; this is for a caller driving the state
+# itself, and for tests.
+cmd_node_cost() {
+  local run_id="${1:-}" node_id="${2:-}" job_id="" clear=0
+  if [ -z "$run_id" ] || [ -z "$node_id" ]; then
+    printf 'usage: %s\n' "$NODE_COST_USAGE" >&2
+    return 2
+  fi
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from-job)
+        shift
+        job_id="${1:-}"
+        [ -n "$job_id" ] || { printf 'node cost: --from-job expects a job id\n  usage: %s\n' "$NODE_COST_USAGE" >&2; return 2; }
+        ;;
+      --clear) clear=1 ;;
+      *) printf 'node cost: unknown argument %s\n  usage: %s\n' "$1" "$NODE_COST_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  require_jq "node cost"
+  local file
+  file=$(run_require "$run_id") || return $?
+  node_require "$file" "$node_id" || return 2
+  if [ "$clear" -eq 1 ] && [ -n "$job_id" ]; then
+    printf 'node cost: pass either --from-job or --clear, not both\n  usage: %s\n' "$NODE_COST_USAGE" >&2
+    return 2
+  fi
+  if [ "$clear" -eq 1 ]; then
+    node_patch "$run_id" "$node_id" '.cost = null'
+    return $?
+  fi
+  if [ -z "$job_id" ]; then
+    printf 'node cost: nothing to do — pass --from-job or --clear\n  usage: %s\n' "$NODE_COST_USAGE" >&2
+    return 2
+  fi
+  [ -f "$JOBS_HOME/$job_id/usage.json" ] || {
+    printf 'node cost: job %s recorded no usage\n' "$job_id" >&2
+    return 1
+  }
+  node_cost_from_job "$run_id" "$node_id" "$job_id"
+}
+
 # Re-reads each running node's job and flips it to done/error; prints one `id<TAB>status` line per
 # node, then `ready: …` (waiting nodes whose deps are all done) and `running: <count>`.
 cmd_run_sync() {
@@ -345,6 +404,8 @@ cmd_run_sync() {
       done*) node_set_status "$run_id" "$node" error "" "${st#done }" ;;
     esac
     node_patch "$run_id" "$node" '.log_tail = $t' --argjson t "${tail_json:-[]}"
+    # The adapter writes its cost beside the log; this is the only place it reaches the node.
+    node_cost_from_job "$run_id" "$node" "$job"
   done <<EOF
 $(jq -r '.nodes[] | select(.status == "running" and .job_id != null) | "\(.id)\t\(.job_id)"' "$file")
 EOF
