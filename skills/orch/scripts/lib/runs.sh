@@ -27,6 +27,10 @@ NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NO
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_USAGE_USAGE='dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]'
 NODE_COST_USAGE='dispatch.sh node cost <run-id> <node-id> (--from-job <job-id> | --clear)'
+NODE_OUT_USAGE='dispatch.sh node out <run-id> <node-id>'
+NODE_DIGEST_USAGE='dispatch.sh node digest <run-id> <node-id> [--lines N]'
+DIGEST_LINES_DEFAULT=10
+DIGEST_LINES_MAX=200
 PRUNE_USAGE='dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]'
 
 run_state_file() { printf '%s/%s/state.json\n' "$RUNS_HOME" "$1"; }
@@ -321,11 +325,93 @@ cmd_node_dispatch() {
     set -- --profile "$node_profile" "$@"
   fi
 
+  # The node is told where to put its handoff through the environment, so its prompt can stay
+  # about the task rather than carrying a path.
+  ORCH_NODE_OUT=$(node_out_dir "$run_id" "$node_id")
+  mkdir -p "$ORCH_NODE_OUT" || { printf 'node dispatch: cannot create %s\n' "$ORCH_NODE_OUT" >&2; return 1; }
+  ORCH_RUN_ID="$run_id"
+  ORCH_NODE_ID="$node_id"
+  export ORCH_NODE_OUT ORCH_RUN_ID ORCH_NODE_ID
+
   job_id=$(cmd_start "$@") || return $?
   node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" || return 1
   printf '%s\n' "$job_id"
+}
+
+node_out_dir() { printf '%s/%s/out/%s\n' "$RUNS_HOME" "$1" "$2"; }
+
+# The handoff channel between nodes: a node writes what the next one must read here, and the
+# orchestrator passes the path rather than the contents.
+cmd_node_out() {
+  local run_id="${1:-}" node_id="${2:-}" file dir
+  if [ -z "$run_id" ] || [ -z "$node_id" ] || [ $# -gt 2 ]; then
+    printf 'usage: %s\n' "$NODE_OUT_USAGE" >&2
+    return 2
+  fi
+  require_jq "node out"
+  file=$(run_require "$run_id") || return $?
+  valid_id "$node_id" || { printf 'node out: id must match %s\n' "$ID_PATTERN" >&2; return 2; }
+  node_require "$file" "$node_id" || return 2
+  dir=$(node_out_dir "$run_id" "$node_id")
+  mkdir -p "$dir" || { printf 'node out: cannot create %s\n' "$dir" >&2; return 1; }
+  printf '%s\n' "$dir"
+}
+
+# What the orchestrator reads instead of the log itself, so its context stays flat however much
+# a node printed.
+cmd_node_digest() {
+  local run_id="${1:-}" node_id="${2:-}" lines="$DIGEST_LINES_DEFAULT"
+  if [ -z "$run_id" ] || [ -z "$node_id" ]; then
+    printf 'usage: %s\n' "$NODE_DIGEST_USAGE" >&2
+    return 2
+  fi
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --lines)
+        shift
+        lines="${1:-}"
+        is_uint "$lines" && [ "$lines" -ge 1 ] && [ "$lines" -le "$DIGEST_LINES_MAX" ] \
+          || { printf 'node digest: --lines expects 1..%s\n' "$DIGEST_LINES_MAX" >&2; return 2; }
+        ;;
+      *) printf 'node digest: unknown argument %s\n  usage: %s\n' "$1" "$NODE_DIGEST_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  require_jq "node digest"
+  local file
+  file=$(run_require "$run_id") || return $?
+  valid_id "$node_id" || { printf 'node digest: id must match %s\n' "$ID_PATTERN" >&2; return 2; }
+  node_require "$file" "$node_id" || return 2
+
+  local status job log bytes total elided
+  status=$(node_field "$file" "$node_id" status)
+  job=$(node_field "$file" "$node_id" job_id)
+  printf 'node: %s (%s)\n' "$node_id" "$status"
+  printf 'out: %s\n' "$(node_out_dir "$run_id" "$node_id")"
+  if [ -z "$job" ]; then
+    printf 'log: not dispatched\n'
+    return 0
+  fi
+  printf 'job: %s\n' "$job"
+  printf 'exit: %s\n' "$(cat "$JOBS_HOME/$job/exit_code" 2>/dev/null || printf 'running')"
+  log="$JOBS_HOME/$job/log"
+  [ -f "$log" ] || { printf 'log: none on disk\n'; return 0; }
+  bytes=$(wc -c < "$log" | tr -d ' ')
+  total=$(wc -l < "$log" | tr -d ' ')
+  printf 'log: %s bytes, %s lines\n' "$bytes" "$total"
+  if [ "$total" -le $((lines * 2)) ]; then
+    cat "$log"
+    return 0
+  fi
+  elided=$((total - lines * 2))
+  printf -- '--- first %s ---\n' "$lines"
+  head -n "$lines" "$log"
+  printf -- '--- %s lines elided ---\n' "$elided"
+  printf -- '--- last %s ---\n' "$lines"
+  tail -n "$lines" "$log"
 }
 
 # node_cost_from_job <run-id> <node-id> <job-id> — copies a job's cost sidecar onto its node.

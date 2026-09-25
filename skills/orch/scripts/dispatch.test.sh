@@ -1127,6 +1127,110 @@ expect_match "run sync still flips the node to done" '^done$' "$(jq -r '.nodes[0
 cleanup_dir "$shims"
 cleanup_dir "$home"
 
+# --- node out / node digest: the file handoff channel --------------------------
+home=$(new_tmp)
+shims=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+ho_run=$(orch run start "handoff run")
+orch node add "$ho_run" impl "Implement" >/dev/null
+orch node add "$ho_run" review "Review" --after impl >/dev/null
+
+out=$(orch node out 2>&1); rc=$?
+expect_exit "node out with no ids exits 2" 2 "$rc"
+expect_match "node out prints usage" 'dispatch\.sh node out' "$out"
+
+out=$(orch node out "$ho_run" impl extra 2>&1); rc=$?
+expect_exit "node out refuses extra arguments" 2 "$rc"
+
+out=$(orch node out nosuchrun impl 2>&1); rc=$?
+expect_exit "node out rejects an unknown run" 2 "$rc"
+
+out=$(orch node out "$ho_run" nosuchnode 2>&1); rc=$?
+expect_exit "node out rejects an unknown node" 2 "$rc"
+
+out=$(orch node out "$ho_run" "../escape" 2>&1); rc=$?
+expect_exit "node out rejects an id outside the pattern" 2 "$rc"
+
+impl_out=$(orch node out "$ho_run" impl); rc=$?
+expect_exit "node out exits 0" 0 "$rc"
+expect_match "node out prints a path under the run" "runs/$ho_run/out/impl\$" "$impl_out"
+if [ -d "$impl_out" ]; then
+  pass_count=$((pass_count + 1))
+else
+  printf 'FAIL: node out creates the directory\n  expected a directory: %s\n' "$impl_out" >&2
+  failures=$((failures + 1))
+fi
+
+# Calling it twice is how a downstream prompt resolves an upstream node's path; it must not fail
+# on a directory that already exists.
+out=$(orch node out "$ho_run" impl); rc=$?
+expect_exit "node out is idempotent" 0 "$rc"
+expect_match "node out returns the same path" "^$impl_out\$" "$out"
+
+out=$(orch node digest "$ho_run" impl 2>&1); rc=$?
+expect_exit "node digest on a waiting node exits 0" 0 "$rc"
+expect_match "digest names the node and its status" '^node: impl \(waiting\)$' "$out"
+expect_match "digest always points at the out dir" "^out: $impl_out\$" "$out"
+expect_match "digest says a waiting node was never dispatched" '^log: not dispatched$' "$out"
+
+out=$(orch node digest "$ho_run" impl --lines 0 2>&1); rc=$?
+expect_exit "node digest rejects --lines 0" 2 "$rc"
+out=$(orch node digest "$ho_run" impl --lines 9999 2>&1); rc=$?
+expect_exit "node digest rejects --lines above the cap" 2 "$rc"
+out=$(orch node digest "$ho_run" impl --bogus 2>&1); rc=$?
+expect_exit "node digest rejects an unknown flag" 2 "$rc"
+
+# A shim that prints many lines and echoes the exported out dir: one dispatch covers both the
+# digest bounding and the environment contract.
+cat > "$shims/claude" <<'SHIM'
+#!/usr/bin/env bash
+printf 'ORCH_NODE_OUT=%s\n' "${ORCH_NODE_OUT:-unset}"
+printf 'ORCH_RUN_ID=%s\n' "${ORCH_RUN_ID:-unset}"
+printf 'ORCH_NODE_ID=%s\n' "${ORCH_NODE_ID:-unset}"
+i=0
+while [ "$i" -lt 200 ]; do printf 'line %s\n' "$i"; i=$((i + 1)); done
+SHIM
+chmod +x "$shims/claude"
+
+ho_job=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node dispatch "$ho_run" impl claude "go")
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" wait "$ho_job" --timeout 30 --interval 1 >/dev/null 2>&1
+
+job_log=$(cat "$home/jobs/$ho_job/log" 2>/dev/null)
+expect_match "the node is told where its handoff goes" "ORCH_NODE_OUT=$impl_out" "$job_log"
+expect_match "the node knows its run" "ORCH_RUN_ID=$ho_run" "$job_log"
+expect_match "the node knows its own id" 'ORCH_NODE_ID=impl' "$job_log"
+
+out=$(orch node digest "$ho_run" impl 2>&1); rc=$?
+expect_exit "node digest on a dispatched node exits 0" 0 "$rc"
+expect_match "digest reports the job" "^job: $ho_job\$" "$out"
+expect_match "digest reports the exit code" '^exit: 0$' "$out"
+expect_match "digest reports the log size" '^log: [0-9]+ bytes, [0-9]+ lines$' "$out"
+expect_match "digest shows a head section" '^--- first 10 ---$' "$out"
+expect_match "digest shows a tail section" '^--- last 10 ---$' "$out"
+expect_match "digest says how much it dropped" '^--- [0-9]+ lines elided ---$' "$out"
+expect_match "digest keeps the first line" '^ORCH_NODE_OUT=' "$out"
+expect_match "digest keeps the last line" '^line 199$' "$out"
+expect_no_match "digest drops the middle" '^line 100$' "$out"
+
+# The whole point: the digest must not grow with the log.
+digest_lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+if [ "$digest_lines" -lt 40 ]; then
+  pass_count=$((pass_count + 1))
+else
+  printf 'FAIL: digest stays bounded\n  expected under 40 lines, got %s\n' "$digest_lines" >&2
+  failures=$((failures + 1))
+fi
+
+# A log shorter than twice --lines has no middle to drop, so it is shown whole.
+out=$(orch node digest "$ho_run" impl --lines 200 2>&1)
+expect_no_match "a short log is not elided" 'lines elided' "$out"
+expect_match "a short log keeps its middle" '^line 100$' "$out"
+
+cleanup_dir "$shims"
+cleanup_dir "$home"
+
 # --- artifact: argument validation + a real emit -------------------------------
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }

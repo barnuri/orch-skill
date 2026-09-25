@@ -89,16 +89,21 @@ anything after the prompt passes through verbatim to the underlying CLI.
 ### Single task
 
 **Native Tier**
-1. `Bash(run_in_background: true)`: `orch run --profile <name> "<prompt>"` — the harness owns
-   the backgrounding, so the script runs synchronously and streams.
-2. Attach `Monitor` to the returned task; filter for progress **and** failure signatures.
-3. On completion read the output (`TaskOutput`); the exit code is the harness's own.
+1. `Bash(run_in_background: true)`: `orch run --profile <name> "<prompt>" > <file> 2>&1` — the
+   harness owns the backgrounding, so the script runs synchronously and streams. Redirect to a
+   file you choose; what you keep is the **path**, not the answer.
+2. Attach `Monitor` to the returned task; filter for progress **and** failure signatures only —
+   never a raw log tail, or the node's output streams into your context line by line.
+3. On completion the exit code is the harness's own. Read the file only if you must decide
+   something from it, and then read a bounded slice (`head`, `grep`), not the whole thing. If the
+   answer is input for another task, pass the path instead of the text.
 
 **Fallback Tier**
 1. `orch start --profile <name> "<prompt>"` → prints a job-id (self-backgrounds via `nohup`).
 2. `orch status <job-id>` across turns, or block once: `orch wait <job-id> --timeout 300`
    (exit 124 = still running).
-3. `orch tail <job-id> [-n N]` for the output. `orch list` shows every job with its profile.
+3. `orch tail <job-id> -n N` for a bounded look — always pass `-n`. `orch list` shows every job
+   with its profile.
 
 ### Multi-node run (a DAG of tasks)
 
@@ -120,10 +125,38 @@ Loop until every node is terminal:
 1. For each id in `ready:` — `orch node dispatch <run-id> <node-id> "<prompt>"` (uses the node's
    own `--profile`; pass `--profile P` or an adapter to override). It starts the job and marks
    the node `running`. A `claude-native` node is done inline (Step 2) with `node update` instead.
-2. Native Tier: `Monitor` the dispatched jobs' logs if useful; Fallback Tier: nothing to attach.
-3. `orch run sync <run-id>` — flips finished jobs to `done`/`error` (with `exit N` and the last
-   20 log lines), prints the next `ready:` set. Poll with `run sync`, not by reading files.
-4. Skip a node the plan no longer needs: `orch node update <run-id> <node-id> skipped`.
+   End every dispatched prompt with the handoff instruction: **"Write your handoff — what you
+   did, what the next task needs to know, and any file it must read — into `$ORCH_NODE_OUT`."**
+   That variable is exported into the node; you never interpolate the path.
+2. Native Tier: `Monitor` the dispatched jobs only for progress and failure signatures. Never
+   tail a job log into the conversation. Fallback Tier: nothing to attach.
+3. `orch run sync <run-id>` — flips finished jobs to `done`/`error`, prints the next `ready:`
+   set. Its output is bounded by design. Poll with `run sync`, not by reading files.
+4. When a node finishes and you need to judge it, `orch node digest <run-id> <node-id>` — status,
+   exit code, size, and a head+tail excerpt. Never `tail` or `TaskOutput` the whole log.
+5. Skip a node the plan no longer needs: `orch node update <run-id> <node-id> skipped`.
+
+### Passing work between nodes
+
+Nodes hand work to each other through the filesystem; the orchestrator moves **paths**, never
+content. Each node owns `orch node out <run-id> <node-id>` — a directory created at dispatch and
+exported to it as `$ORCH_NODE_OUT`.
+
+```bash
+orch node dispatch <run-id> impl "Implement the parser. Write your handoff into \$ORCH_NODE_OUT."
+orch node dispatch <run-id> review \
+  "Review the parser work. Read the handoff in $(orch node out <run-id> impl) first."
+```
+
+The out dir is the **handoff channel, not the work product**. A code node still edits the repo
+directly; what goes in the out dir is the summary and anything the next node must read. It lives
+under the run, so `prune` reclaims it with the run.
+
+A prompt too long to sit in your own context goes in a file and is passed as `@/path/to/file`.
+
+**The rule:** your context should not grow with a node's output. If you are about to read a whole
+log, a whole answer, or a whole file a node produced, stop — pass its path to whoever needs it, or
+read a bounded slice.
 
 Finish and learn:
 

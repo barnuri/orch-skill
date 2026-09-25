@@ -82,6 +82,10 @@ $NODE_ADD_USAGE
 $NODE_DISPATCH_USAGE
 $NODE_USAGE_USAGE
 $NODE_COST_USAGE
+$NODE_OUT_USAGE
+    -> prints the node's handoff directory, creating it if absent
+$NODE_DIGEST_USAGE
+    -> bounded summary of the node's job: status, exit code, size, head+tail of its log
     -> start + marks the node running; omit the target to use the node's own --profile.
 $NODE_UPDATE_USAGE
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
@@ -453,8 +457,8 @@ main() {
       ;;
     node)
       case "${2:-}" in
-        add|update|dispatch|usage|cost) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|dispatch|usage|cost ...\n' >&2; exit 2 ;;
+        add|update|dispatch|usage|cost|out|digest) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        *) printf 'usage: dispatch.sh node add|update|dispatch|usage|cost|out|digest ...\n' >&2; exit 2 ;;
       esac
       ;;
     start) shift; cmd_start "$@" ;;
