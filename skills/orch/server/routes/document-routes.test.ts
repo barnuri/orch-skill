@@ -53,7 +53,7 @@ describe("GET /api/profiles", () => {
     expect(res.headers.get("etag")).toMatch(ETAG_PATTERN);
 
     const body = await res.json();
-    expect(body.harnesses).toHaveLength(4);
+    expect(body.harnesses).toHaveLength(5);
     // The shipped template must validate clean, or every fresh install opens with errors.
     expect(body.issues).toEqual([]);
     expect(body.limits.max_body_bytes).toBe(MAX_BODY_BYTES);
@@ -88,6 +88,20 @@ describe("GET /api/memory", () => {
 });
 
 describe("PUT happy path", () => {
+  test("deleting the default Copilot profile survives subsequent CLI commands", async () => {
+    const srv = server();
+    expect(runCli(srv, ["init"]).exitCode).toBe(0);
+    const get = await srv.api("/api/profiles");
+    const doc = (await get.json()).document;
+    delete doc.profiles["copilot-default"];
+    const saved = await put(srv, "/api/profiles", JSON.stringify(doc), {
+      "If-Match": get.headers.get("etag") ?? "",
+    });
+    expect(saved.status).toBe(200);
+    expect(runCli(srv, ["profile", "list"]).exitCode).toBe(0);
+    expect(JSON.parse(srv.home.read("profiles.json")).profiles["copilot-default"]).toBeUndefined();
+  });
+
   test("a valid document is written atomically and the ETag matches the body", async () => {
     const srv = server();
     const get = await srv.api("/api/profiles");

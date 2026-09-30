@@ -45,7 +45,7 @@ EOF
 harness_probe_available() {
   local id="$1"
   case "$id" in
-    claude|cursor-agent|opencode|pi|codex|aider|gemini)
+    claude|cursor-agent|opencode|copilot|pi|codex|aider|gemini)
       harness_find_binary "$id" >/dev/null 2>&1
       ;;
     local-llm) [ -n "${LLM_HUB_URL:-}" ] ;;
@@ -67,6 +67,10 @@ harness_probe_reason() {
     opencode)
       harness_find_binary opencode >/dev/null 2>&1 && printf '' && return 0
       hint="install opencode and ensure it is on PATH"
+      ;;
+    copilot)
+      harness_find_binary copilot >/dev/null 2>&1 && printf '' && return 0
+      hint="install the GitHub Copilot CLI (often ~/.local/bin/copilot)"
       ;;
     pi)
       harness_find_binary pi >/dev/null 2>&1 && printf '' && return 0
@@ -126,6 +130,7 @@ harness_list() {
       elif $id == "cursor-agent" then {kind:"cli", binary:"cursor-agent", wired:true, description:"Cursor agent CLI for in-editor tasks.", needs:["CURSOR_API_KEY on profile"]}
       elif $id == "opencode" then {kind:"cli", binary:"opencode", wired:true, description:"OpenCode CLI agent loop.", needs:[]}
       elif $id == "local-llm" then {kind:"http", binary:null, wired:true, description:"OpenAI-compatible HTTP chat API via curl.", needs:["LLM_HUB_URL"]}
+      elif $id == "copilot" then {kind:"cli", binary:"copilot", wired:true, description:"GitHub Copilot CLI (headless -p).", needs:[]}
       elif $id == "pi" then {kind:"cli", binary:"pi", wired:false, description:"pi coding agent CLI.", needs:[]}
       elif $id == "codex" then {kind:"cli", binary:"codex", wired:false, description:"OpenAI Codex CLI.", needs:[]}
       elif $id == "aider" then {kind:"cli", binary:"aider", wired:false, description:"Aider pair-programming CLI.", needs:[]}

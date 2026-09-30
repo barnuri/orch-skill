@@ -45,6 +45,7 @@ adapter_<name> <prompt> [pass-through args...]
 | `cursor-agent` | `cursor-agent` CLI | `cursor-agent -p "<prompt>" --output-format text --force [args…]` (`--force`: no TTY to approve tool calls) |
 | `opencode` | `opencode` CLI | `opencode run "<prompt>" --auto [args…]` (`--auto`: no TTY to approve permissions) |
 | `local-llm` | OpenAI-compatible HTTP | POST `{model, messages:[{role:user,content}], stream:false}` to `$LLM_HUB_URL/chat/completions`; model from `$LLM_HUB_MODEL` (default `local-model`), timeout `$LLM_HUB_TIMEOUT` (default 120 s); prints `.choices[0].message.content`. |
+| `copilot` | GitHub Copilot CLI | `copilot -p "<prompt>" --silent [args…]` (`--silent`: stdout is just the answer, no stats footer; `--allow-all-tools` is a profile flag, not baked into the adapter — same reasoning as cursor-agent's `--force`) |
 
 ## Profiles → adapter arguments
 
@@ -58,7 +59,7 @@ profile's `env` and checks its `auth` names), then invokes `adapter_dispatch` wi
 
 | Harness | Model flag when `model` is non-empty |
 |---|---|
-| `claude`, `cursor-agent` | `--model <model>` |
+| `claude`, `cursor-agent`, `copilot` | `--model <model>` |
 | `opencode` | `-m <model>` |
 | `local-llm` | none — exported as `LLM_HUB_MODEL=<model>` instead |
 

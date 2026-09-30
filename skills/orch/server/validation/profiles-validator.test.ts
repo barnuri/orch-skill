@@ -7,7 +7,7 @@ import { profilesIssues } from "./profiles-validator";
 import type { Issue } from "../../shared/types/issue";
 
 const TEMPLATE_PATH: string = resolve(import.meta.dir, "../../templates/profiles.json");
-const HARNESSES: readonly string[] = ["claude", "cursor-agent", "opencode", "local-llm"];
+const HARNESSES: readonly string[] = ["claude", "cursor-agent", "opencode", "local-llm", "copilot"];
 
 type Mutable = Record<string, unknown>;
 
@@ -64,7 +64,7 @@ describe("profilesIssues", () => {
   test("harness outside the list carries the exact path and the allowed values", () => {
     const document = documentWithProfile({ harness: "codex" });
     expect(issuesFor(document)).toEqual([
-      { path: "profiles.x.harness", reason: "must be one of claude, cursor-agent, opencode, local-llm" },
+      { path: "profiles.x.harness", reason: "must be one of claude, cursor-agent, opencode, local-llm, copilot" },
     ]);
   });
 

@@ -4,7 +4,7 @@ import type { ProfileSpec } from "../../../shared/types/profile-spec";
 import type { ProfilesDocument } from "../../../shared/types/profiles-document";
 import { chip, el } from "../dom/el";
 import { harnessMarkIcon } from "../graph/harness-mark";
-import { beginEdit, cancelEdit } from "../forms/document-editor";
+import { beginEdit, cancelEdit, saveDoc } from "../forms/document-editor";
 import { deepCopy } from "../forms/field-issues";
 import type { AppState } from "../state/app-state";
 import { renderDocNotices } from "./doc-notices";
@@ -22,6 +22,8 @@ import {
 } from "./profile-sanity";
 import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
+import { toast } from "../ui/toast";
+import { profileSwitchDecision } from "./profile-switch";
 
 const NEW_TARGET: string = "new";
 const DESC_MAX: number = 48;
@@ -178,6 +180,35 @@ function sanityRunButton(
   return button;
 }
 
+function enabledSwitch(state: AppState, loaded: ProfilesDocument, name: string, spec: ProfileSpec): HTMLElement {
+  const isEnabled = spec.enabled !== false;
+  const toggle = el("button", {
+    class: isEnabled ? "switch is-on" : "switch",
+    type: "button",
+    role: "switch",
+    "aria-checked": String(isEnabled),
+    "aria-label": isEnabled ? `Disable ${name}` : `Enable ${name}`,
+    title: isEnabled ? `Disable ${name}` : `Enable ${name}`,
+  }, [el("span", { class: "switch-thumb" })]);
+  toggle.addEventListener("click", (event: MouseEvent) => {
+    event.stopPropagation();
+    if (toggle.disabled) {
+      return;
+    }
+    const decision = profileSwitchDecision(loaded, name, state.dirty);
+    if (decision.kind === "dirty") {
+      toast("error", "Save or cancel your edits before changing a profile");
+      return;
+    }
+    if (decision.kind === "missing") {
+      toast("error", `Profile ${name} is no longer available; reload the page`);
+      return;
+    }
+    void saveDoc("profiles", decision.document, toggle);
+  });
+  return el("div", { class: "switch-cell" }, [toggle]);
+}
+
 /**
  * A row is a plain container, not one big button, so it can hold a real per-profile action.
  * The profile name is the button that opens the editor — that is the keyboard and
@@ -220,6 +251,7 @@ function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spe
     routingCell(spec),
     descCell(spec),
     countsCell(spec),
+    enabledSwitch(state, loaded, name, spec),
   );
   row.addEventListener("click", toggleEditor);
   return row;

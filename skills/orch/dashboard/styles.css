@@ -165,11 +165,31 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
      "subscription"); a chip cannot wrap, so a narrower track spills into the next column. The
      harness track also carries its glyph, so it is the widest of the two. */
   grid-template-columns:
-    minmax(90px, 1fr) 110px 114px 90px minmax(78px, auto) minmax(64px, .7fr) minmax(64px, 1fr) 56px;
+    minmax(90px, 1fr) 110px 114px 90px minmax(78px, auto) minmax(64px, .7fr) minmax(64px, 1fr) 56px 40px;
   gap: 8px; padding: 10px 12px;
 }
 .sanity-cell { display: flex; align-items: center; gap: 5px; min-width: 0; flex-wrap: nowrap; }
 .sanity-cell-ms { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Enable/disable, right in the table. A pill track with a sliding thumb — on = accent + thumb
+   right, off = muted + thumb left. Sized independently of any native checkbox so it always
+   matches the design tokens instead of the platform's control theme. */
+.switch-cell { display: flex; justify-content: center; }
+.switch {
+  position: relative; width: 30px; height: 17px; padding: 0; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface-2); cursor: pointer; flex-shrink: 0;
+  transition: background .15s, border-color .15s;
+}
+.switch-thumb {
+  position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--text-muted); transition: transform .15s, background .15s;
+}
+.switch.is-on { background: var(--accent-soft); border-color: var(--accent); }
+.switch.is-on .switch-thumb { background: var(--accent); transform: translateX(13px); }
+.switch:hover { border-color: var(--border-strong); }
+.switch.is-on:hover { border-color: var(--accent); }
+.switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.switch[disabled] { cursor: not-allowed; opacity: .6; }
 
 /* The row is a container now, so the name carries the accessible "open the editor" action. */
 .profile-open {
@@ -403,9 +423,11 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .mark-cursor-agent { color: #e8eaf0; }
 .mark-codex { color: #9b8cd8; }
 .mark-gemini { color: #8e75b2; }
+.mark-copilot { color: #e8eaf0; }
 [data-theme="light"] .mark-claude { color: #a85434; }
 [data-theme="light"] .mark-cursor-agent { color: #141414; }
 [data-theme="light"] .mark-codex { color: #412991; }
+[data-theme="light"] .mark-copilot { color: #141414; }
 
 /* On a node the glyph says which harness ran it; the left bar and frame already carry the
    profile. Two different facts, two channels — so the profile accent must not tint the glyph. */
@@ -567,6 +589,8 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .doc-row { grid-template-columns: 1fr 100px; }
   .doc-row > :nth-child(n+3) { display: none; }
   .profile-row { grid-template-columns: minmax(0, 1fr) 84px; }
+  .profile-row > :nth-child(2) { display: none; }
+  .profile-row > :last-child { display: flex; grid-column: 2; }
   .sanity-row { grid-template-columns: 1fr 80px 72px; }
   .sanity-row > :nth-child(n+4) { display: none; }
 }

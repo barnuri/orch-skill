@@ -91,6 +91,15 @@
       "quality": "standard",
       "speed": "fast",
       "tags": ["cursor"]
+    },
+    "copilot-auto": {
+      "slug": "auto",
+      "harnesses": ["copilot"],
+      "description": "Copilot CLI picks the model per request (auto routing).",
+      "cost": "subscription",
+      "quality": "standard",
+      "speed": "fast",
+      "tags": ["copilot", "auto"]
     }
   },
   "profiles": {
@@ -187,6 +196,23 @@
       "parallel_ok": true,
       "priority": 8,
       "flags": [],
+      "env": {},
+      "auth": []
+    },
+    "copilot-default": {
+      "harness": "copilot",
+      "model": "copilot-auto",
+      "allowed_models": ["copilot-auto"],
+      "description": "GitHub Copilot CLI on Copilot subscription (headless -p).",
+      "cost": "subscription",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "review", "debug"],
+      "parallel_ok": true,
+      "priority": 8,
+      "flags": ["--allow-all-tools"],
       "env": {},
       "auth": []
     },

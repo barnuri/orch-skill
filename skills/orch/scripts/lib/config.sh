@@ -17,7 +17,7 @@ MEMORY_FILE="$ORCH_HOME/memory.json"
 SUGGESTIONS_FILE="$ORCH_HOME/suggestions.json"
 TRASH_FALLBACK_DIR="$ORCH_HOME/.trash"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
-VALID_HARNESSES="claude cursor-agent opencode local-llm"
+VALID_HARNESSES="claude cursor-agent opencode local-llm copilot"
 VALID_OUTCOMES="success failure partial"
 MEMORY_LIST_DEFAULT=20
 MEMORY_ADD_USAGE='dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]'
@@ -117,8 +117,9 @@ suggestions_seed() {
 profiles_migrate() {
   command -v jq >/dev/null 2>&1 || return 0
   [ -f "$PROFILES_FILE" ] || return 0
-  local tmp="$PROFILES_FILE.tmp.$$"
-  if ! jq '
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.copilot-profile-migrated" seed_copilot=true
+  [ -e "$marker" ] && seed_copilot=false
+  if ! jq --argjson seed_copilot "$seed_copilot" '
     def rename_profile($old; $new):
       if .profiles[$old]? then
         .profiles[$new] = .profiles[$old]
@@ -141,6 +142,34 @@ profiles_migrate() {
         speed: "fast",
         tags: ["cursor", "auto"]
       }
+    | if $seed_copilot then
+        .models["copilot-auto"] //= {
+        slug: "auto",
+        harnesses: ["copilot"],
+        description: "Copilot CLI picks the model per request (auto routing).",
+        cost: "subscription",
+        quality: "standard",
+        speed: "fast",
+        tags: ["copilot", "auto"]
+        }
+        | .profiles["copilot-default"] //= {
+        harness: "copilot",
+        model: "copilot-auto",
+        allowed_models: ["copilot-auto"],
+        description: "GitHub Copilot CLI on Copilot subscription (headless -p).",
+        cost: "subscription",
+        quality: "standard",
+        speed: "balanced",
+        risk: "medium",
+        enabled: true,
+        strengths: ["implement", "review", "debug"],
+        parallel_ok: true,
+        priority: 8,
+        flags: ["--allow-all-tools"],
+        env: {},
+        auth: []
+        }
+      else . end
     | if (.profiles["cursor-default"].model? // "") == "cursor-composer" then
         .profiles["cursor-default"].model = "cursor-auto"
         | .profiles["cursor-default"].allowed_models = ["cursor-auto"]
@@ -182,7 +211,8 @@ profiles_migrate() {
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE"
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  [ -e "$marker" ] || { : > "$marker" || return 1; }
 }
 
 # recoverable_remove <path> — `trash` when available, else a timestamped move under .trash/ (never `rm`).

@@ -54,10 +54,10 @@ describe("glyph definitions", () => {
     expect(harnessMarkMeta("not-a-harness").known).toBe(false);
   });
 
-  // These four ship the vendor's own mark; the rest are authored geometry.
+  // These five ship the vendor's own mark; the rest are authored geometry.
   test("the official marks are the ones with a published logo", () => {
     const official = HARNESS_MARK_IDS.filter((id) => harnessMarkMeta(id).official);
-    expect(official).toEqual(["claude", "cursor-agent", "codex", "gemini"]);
+    expect(official).toEqual(["claude", "cursor-agent", "copilot", "codex", "gemini"]);
   });
 });
 

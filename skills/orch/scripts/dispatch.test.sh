@@ -136,10 +136,17 @@ expect_match "budget over threshold, cursor-agent on PATH -> cursor-agent" '^cur
 out=$(env CLAUDE_USAGE_SNAPSHOT="$snapshot" PATH="$(path_without cursor-agent)" bash "$SCRIPT" classify "anything" --complexity trivial 2>/dev/null)
 expect_match "cursor-agent absent, opencode on PATH -> opencode" '^opencode$' "$out"
 
-filtered_path=$(path_without cursor-agent opencode)
+filtered_path2=$(path_without cursor-agent opencode copilot)
+copilot_shim=$(new_tmp)
+printf '#!/usr/bin/env bash\n' > "$copilot_shim/copilot"
+chmod +x "$copilot_shim/copilot"
+out=$(env CLAUDE_USAGE_SNAPSHOT="$snapshot" PATH="$copilot_shim:$filtered_path2" bash "$SCRIPT" classify "anything" --complexity trivial 2>/dev/null)
+expect_match "cursor-agent/opencode absent, copilot on PATH -> copilot" '^copilot$' "$out"
+
+filtered_path=$(path_without cursor-agent opencode copilot)
 out=$(env CLAUDE_USAGE_SNAPSHOT="$snapshot" PATH="$filtered_path" LLM_HUB_URL=http://127.0.0.1:1 \
   bash "$SCRIPT" classify "anything" --complexity trivial 2>/dev/null)
-expect_match "no cursor-agent/opencode, LLM_HUB_URL set -> local-llm" '^local-llm$' "$out"
+expect_match "no cursor-agent/opencode/copilot, LLM_HUB_URL set -> local-llm" '^local-llm$' "$out"
 
 full_out=$(env CLAUDE_USAGE_SNAPSHOT="$snapshot" PATH="$filtered_path" LLM_HUB_URL= bash "$SCRIPT" classify "anything" --complexity trivial 2>&1)
 expect_match "nothing available -> claude-native fallback" 'claude-native' "$full_out"
@@ -199,6 +206,10 @@ expect_exit "cursor-agent missing exits 127" 127 "$rc"
 out=$(env ORCH_BIN_DIRS= PATH="$(path_without opencode)" bash "$SCRIPT" run opencode "hi" 2>&1); rc=$?
 expect_match "opencode missing is reported" 'opencode not found on PATH' "$out"
 expect_exit "opencode missing exits 127" 127 "$rc"
+
+out=$(env ORCH_BIN_DIRS= PATH="$(path_without copilot)" bash "$SCRIPT" run copilot "hi" 2>&1); rc=$?
+expect_match "copilot missing is reported" 'copilot not found on PATH' "$out"
+expect_exit "copilot missing exits 127" 127 "$rc"
 
 hub_home=$(new_tmp)
 out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
@@ -366,6 +377,9 @@ migrated=$(jq -r '.models["cursor-auto"].slug' "$mig/profiles.json")
 expect_match "migration seeds the Auto catalog entry" '^auto$' "$migrated"
 migrated=$(jq -r '.profiles["cursor-pinned"].model' "$mig/profiles.json")
 expect_match "migration leaves other cursor profiles alone" '^cursor-composer$' "$migrated"
+expect_match "migration seeds Copilot on an existing install" '^copilot$' \
+  "$(jq -r '.profiles["copilot-default"].harness' "$mig/profiles.json")"
+expect_file "migration records the one-time Copilot backfill" "$mig/.copilot-profile-migrated"
 cleanup_dir "$mig"
 
 # --- demo seeding -----------------------------------------------------------------------------
@@ -581,7 +595,7 @@ cleanup_dir "$home"
 # cannot parse reaches the log untouched.
 home=$(new_tmp)
 shims=$(new_tmp)
-for tool in claude cursor-agent opencode; do
+for tool in claude cursor-agent opencode copilot; do
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@"\n' > "$shims/$tool"
   chmod +x "$shims/$tool"
 done
@@ -607,6 +621,16 @@ expect_no_match "the cursor adapter never forces --force" '\-\-force' "$(joined 
 
 out=$(with_shims bash "$SCRIPT" run --profile opencode-default "x" 2>&1)
 expect_match "opencode profile with empty model: no model flag" '^run x --auto$' "$(joined "$out")"
+
+out=$(with_shims bash "$SCRIPT" run --profile copilot-default "x" 2>&1)
+expect_match "copilot profile: model flag, permission bypass from profile flags" \
+  '^-p x --silent --model auto --allow-all-tools$' "$(joined "$out")"
+expect_no_match "the copilot adapter never bakes in --allow-all-tools" \
+  '^-p x --silent --allow-all-tools --model' "$(joined "$out")"
+
+out=$(with_shims bash "$SCRIPT" run copilot "plain" 2>&1)
+expect_match "plain copilot adapter: no model flag, no permission bypass" \
+  '^-p plain --silent$' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run claude "plain" 2>&1)
 expect_match "plain claude adapter: no model flag" '^-p plain --output-format json$' "$(joined "$out")"
@@ -869,7 +893,7 @@ expect_match "argv carries --home" "^--home$" "$argv"
 expect_match "argv carries the home path" "^$home$" "$argv"
 expect_match "argv carries the default host" '^0\.0\.0\.0$' "$argv"
 expect_match "argv carries the default port" '^6724$' "$argv"
-expect_match "argv passes the harness enum" '^claude cursor-agent opencode local-llm$' "$argv"
+expect_match "argv passes the harness enum" '^claude cursor-agent opencode local-llm copilot$' "$argv"
 expect_match "argv passes the outcome enum" '^success failure partial$' "$argv"
 expect_match "serve dir is private" '^700$' "$(stat -f '%Lp' "$home/serve" 2>/dev/null || stat -c '%a' "$home/serve")"
 expect_match "serve log is private" '^600$' "$(stat -f '%Lp' "$home/serve/log" 2>/dev/null || stat -c '%a' "$home/serve/log")"

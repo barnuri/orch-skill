@@ -60,7 +60,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 |---|---|
 | `models` | catalog of callable models (`slug` → CLI); referenced by id from profiles |
 | `models.<id>.slug` | value passed to the harness (`--model`, `-m`, or `LLM_HUB_MODEL`) |
-| `harness` | adapter name: `claude`, `cursor-agent`, `opencode`, `local-llm` |
+| `harness` | adapter name: `claude`, `cursor-agent`, `opencode`, `local-llm`, `copilot` |
 | `model` | catalog **id** (not raw slug); resolved to `models[id].slug` at spawn |
 | `allowed_models` | whitelist of catalog ids and/or slug prefix patterns (`llama_swap*`); omitted = all models for this profile's harness |
 | `description`, `cost`, `quality`, `speed`, `risk`, `tags`, `strengths`, `avoid_for`, … | routing metadata for `profile pick` and the dashboard |

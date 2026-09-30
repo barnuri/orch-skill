@@ -57,12 +57,14 @@ Precedence, highest first:
 | `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-sub` (small–medium, default), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
 | `cursor-agent` | `cursor-default` |
 | `opencode` | `opencode-default` |
+| `copilot` | `copilot-default` |
 | `local-llm` | `local-qwen` |
 
 The classifier's policy (top rule wins): trivial/small **and** `budget-check` passes →
 `claude-native`; `budget-check` fails (this Claude session near its subscription limit) → first
-available of `cursor-agent` → `opencode` → `local-llm` → `claude-native` with a warning;
-`--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; otherwise `claude-native`.
+available of `cursor-agent` → `opencode` → `copilot` → `local-llm` → `claude-native` with a
+warning; `--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; otherwise
+`claude-native`.
 `orch budget-check` is callable alone (exit 0 safe / 1 avoid); a missing, stale or
 non-subscription snapshot always counts as safe.
 
@@ -265,6 +267,7 @@ disables). Running runs and jobs are never touched.
 | `claude` | `claude` on `PATH` | `claude -p … --output-format text [--model M] [flags]` |
 | `cursor-agent` | `cursor-agent` on `PATH` | `cursor-agent -p … --output-format text --force [--model M]` |
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
+| `copilot` | `copilot` on `PATH` | `copilot -p … --silent [--model M] [flags]` |
 | `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `/chat/completions` |
 
 A profile supplies the model, CLI flags and env for its harness (e.g. `claude-llm-hub` points

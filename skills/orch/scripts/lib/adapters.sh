@@ -154,6 +154,23 @@ adapter_opencode() {
   "$bin" run "$prompt" --auto "$@"
 }
 
+# `--allow-all-tools` is deliberately NOT passed here — same reasoning as cursor-agent's
+# `--force` above: it is a permission bypass ("required for non-interactive mode" per `copilot
+# --help`, but still a bypass an org policy could restrict), so profiles that want it list it in
+# `flags`, the same way the claude profiles carry --dangerously-skip-permissions. `--silent`
+# drops the stats footer so stdout is just the agent's answer, matching the contract's "stdout =
+# result" every other adapter follows. ORCH_SESSION_ID is set by `start`, so the job's session is
+# addressable afterwards, same as the claude adapter — `copilot --session-id` accepts either a
+# fresh UUID (mints that session) or an existing one (resumes it).
+adapter_copilot() {
+  local prompt="$1"; shift || true
+  local bin
+  bin=$(resolve_bin adapter_copilot copilot) || return $?
+  local -a session_args=()
+  [ -n "${ORCH_SESSION_ID:-}" ] && session_args=(--session-id "$ORCH_SESSION_ID")
+  "$bin" -p "$prompt" --silent ${session_args[@]+"${session_args[@]}"} "$@" </dev/null
+}
+
 adapter_local_llm() {
   local prompt="$1"; shift || true
   orch_load_env_file
@@ -186,6 +203,7 @@ adapter_dispatch() {
     cursor-agent)  adapter_cursor_agent "$prompt" "$@" ;;
     local-llm)     adapter_local_llm "$prompt" "$@" ;;
     opencode)      adapter_opencode "$prompt" "$@" ;;
+    copilot)       adapter_copilot "$prompt" "$@" ;;
     *) printf 'adapter_dispatch: unknown adapter "%s"\n' "$adapter" >&2; return 2 ;;
   esac
 }
@@ -204,7 +222,7 @@ dispatch_with_profile() {
   fi
   if [ -n "$PROFILE_MODEL" ]; then
     case "$PROFILE_HARNESS" in
-      claude|cursor-agent) model_args=(--model "$PROFILE_MODEL") ;;
+      claude|cursor-agent|copilot) model_args=(--model "$PROFILE_MODEL") ;;
       opencode)            model_args=(-m "$PROFILE_MODEL") ;;
       local-llm)           export LLM_HUB_MODEL="$PROFILE_MODEL" ;;
     esac

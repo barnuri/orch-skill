@@ -30,7 +30,7 @@ RESOLVE_MAX_HOPS=8
 usage() {
   cat <<'EOF'
 dispatch.sh classify "<task description>" [--complexity trivial|small|medium|large] [--prefer-local]
-    -> prints exactly one of: claude-native | local-llm | cursor-agent | opencode
+    -> prints exactly one of: claude-native | local-llm | cursor-agent | opencode | copilot
 
 dispatch.sh budget-check
     -> exit 0 = safe to route more work to Claude Code; exit 1 = avoid (near limit).
@@ -40,7 +40,7 @@ dispatch.sh run   (--profile <name> | <adapter>) <prompt-or-@file> [pass-through
     -> runs synchronously in the foreground. Exits with the harness's own exit code.
 dispatch.sh start (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]
     -> self-backgrounds (nohup), prints a job-id to stdout immediately, exits 0.
-       adapters: claude-native | claude | cursor-agent | opencode | local-llm
+       adapters: claude-native | claude | cursor-agent | opencode | local-llm | copilot
        --profile supplies harness + model + flags + env from profiles.json instead of <adapter>.
 
 dispatch.sh status <job-id>       -> prints "running" | "done exit=<n>"
@@ -252,6 +252,8 @@ classify_cmd() {
       printf 'cursor-agent\n'
     elif command -v opencode >/dev/null 2>&1; then
       printf 'opencode\n'
+    elif command -v copilot >/dev/null 2>&1; then
+      printf 'copilot\n'
     elif [ -n "${LLM_HUB_URL:-}" ]; then
       printf 'local-llm\n'
     else
