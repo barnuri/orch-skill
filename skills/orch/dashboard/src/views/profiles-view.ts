@@ -24,11 +24,13 @@ import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 import { toast } from "../ui/toast";
 import { profileSwitchDecision } from "./profile-switch";
+import { visibleProfiles } from "./profile-filter";
 
 const NEW_TARGET: string = "new";
 const DESC_MAX: number = 48;
 const CORRUPT_HINT: string = "profiles.json could not be parsed — fix it in an editor and this page picks it up.";
 const EMPTY_HINT: string = "No profiles yet. Add one from the panel.";
+let hideDisabled = false;
 
 // memory.json is an array, profiles.json an object — that is the whole difference between the two
 // documents the editor slice can be holding.
@@ -259,9 +261,12 @@ function profileRow(state: AppState, loaded: ProfilesDocument, name: string, spe
 
 /** The rows mirror what is on disk (in file order), never the draft — a form is not a list. */
 function renderList(state: AppState, loaded: ProfilesDocument): HTMLElement {
-  const entries = Object.entries(loaded.profiles);
+  const entries = visibleProfiles(loaded.profiles, hideDisabled);
   if (entries.length === 0) {
-    return el("div", { class: "empty", text: EMPTY_HINT });
+    return el("div", {
+      class: "empty",
+      text: Object.keys(loaded.profiles).length === 0 ? EMPTY_HINT : "No enabled profiles. Show disabled to see all profiles.",
+    });
   }
   const list = el("div", { class: "runs" });
   for (const [name, spec] of entries) {
@@ -329,6 +334,19 @@ export function renderProfiles(state: AppState): DocumentFragment {
   const loaded = doc === null ? null : asProfilesDocument(doc.document);
   const frag = document.createDocumentFragment();
   const toolbar = el("div", { class: "toolbar" });
+  const disabledCount = doc === null || loaded === null ? 0
+    : Object.values(loaded.profiles).filter((spec) => spec.enabled === false).length;
+  const filter = el("button", {
+    class: "btn",
+    type: "button",
+    "aria-pressed": String(hideDisabled),
+    text: hideDisabled ? `Show disabled (${disabledCount})` : `Hide disabled (${disabledCount})`,
+  });
+  filter.addEventListener("click", () => {
+    hideDisabled = !hideDisabled;
+    render();
+  });
+  toolbar.appendChild(filter);
   toolbar.appendChild(sanityTestButton("Sanity test all", undefined, () => render()));
   frag.appendChild(pageHead("Profiles", subText(loaded, doc === null), toolbar));
   // Always in the tree: render.ts swaps this element by id when drift or a save error appears.
