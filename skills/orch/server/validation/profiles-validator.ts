@@ -24,6 +24,8 @@ import {
   MAX_FLAG_LEN,
   MAX_FLAGS,
   MAX_MODEL_LEN,
+  MAX_NODES_MAX,
+  MAX_PARALLEL_MAX,
   MAX_MODELS,
   MAX_PRIORITY,
   MAX_PROFILES,
@@ -131,6 +133,18 @@ function defaultProfileIssues(value: unknown, profiles: unknown): Issue[] {
   return profileNames.includes(value) ? [] : [{ path, reason: "no such profile" }];
 }
 
+// Empty means "no planner": `orch plan` then refuses and names the setting.
+function plannerProfileIssues(value: unknown, profiles: unknown): Issue[] {
+  const path = "settings.planner_profile";
+  if (typeof value !== "string") {
+    return [{ path, reason: MUST_BE_STRING }];
+  }
+  if (value === "" || !isPlainObject(profiles)) {
+    return [];
+  }
+  return Object.keys(profiles).includes(value) ? [] : [{ path, reason: "no such profile" }];
+}
+
 function learningIssues(learning: unknown): Issue[] {
   if (!isPlainObject(learning)) {
     return [{ path: "settings.learning", reason: MUST_BE_OBJECT }];
@@ -177,6 +191,15 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
       path: "settings.budget_threshold",
       reason: `must be an integer 0-${PERCENT_MAX}`,
     });
+  }
+  if ("max_parallel" in settings && !isIntegerInRange(settings["max_parallel"], 1, MAX_PARALLEL_MAX)) {
+    issues.push({ path: "settings.max_parallel", reason: `must be an integer 1-${MAX_PARALLEL_MAX}` });
+  }
+  if ("max_nodes" in settings && !isIntegerInRange(settings["max_nodes"], 1, MAX_NODES_MAX)) {
+    issues.push({ path: "settings.max_nodes", reason: `must be an integer 1-${MAX_NODES_MAX}` });
+  }
+  if ("planner_profile" in settings) {
+    issues.push(...plannerProfileIssues(settings["planner_profile"], profiles));
   }
   if ("learning" in settings) {
     issues.push(...learningIssues(settings["learning"]));

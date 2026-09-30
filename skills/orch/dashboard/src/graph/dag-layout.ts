@@ -18,8 +18,12 @@ export const LABEL_MAX: number = 22;
 
 const ORCH_COL_WIDTH: number = ORCH_NODE_W + GAP_X;
 
+/** One column of the layered graph: every node in it can run at the same time. */
+export type DagStage = { index: number; x: number; count: number };
+
 export type DagLayout = {
   pos: Record<string, { x: number; y: number }>;
+  stages: DagStage[];
   orch: { x: number; y: number } | null;
   entryIds: string[];
   width: number;
@@ -134,12 +138,20 @@ export function layoutDag(nodes: readonly RunNode[], edges: readonly [string, st
   const columns = columnsOf(nodes, layer);
   const pos: Record<string, { x: number; y: number }> = {};
   let maxRows = 0;
-  for (const [col, column] of columns) {
+  for (const column of columns.values()) {
     maxRows = Math.max(maxRows, column.length);
+  }
+  const stages: DagStage[] = [];
+  // Each column is centred on the tallest one, so a fan-out and its merge sit on one line.
+  for (const [col, column] of columns) {
+    const x = PAD + col * (NODE_W + GAP_X);
+    const offset = ((maxRows - column.length) * (NODE_H + GAP_Y)) / 2;
+    stages.push({ index: col, x, count: column.length });
     column.forEach((node, row) => {
-      pos[node.id] = { x: PAD + col * (NODE_W + GAP_X), y: PAD + row * (NODE_H + GAP_Y) };
+      pos[node.id] = { x, y: PAD + offset + row * (NODE_H + GAP_Y) };
     });
   }
+  stages.sort((a, b) => a.index - b.index);
   const colCount = columns.size;
   let width = PAD * 2 + colCount * NODE_W + Math.max(0, colCount - 1) * GAP_X;
   let height = PAD * 2 + maxRows * NODE_H + Math.max(0, maxRows - 1) * GAP_Y;
@@ -147,13 +159,17 @@ export function layoutDag(nodes: readonly RunNode[], edges: readonly [string, st
   height = Math.max(height, MIN_SVG_H);
 
   if (nodes.length === 0) {
-    return { pos, orch: null, entryIds: [], width, height, cyclic };
+    return { pos, stages, orch: null, entryIds: [], width, height, cyclic };
   }
 
   const entryIds = entryNodeIds(nodes, edges);
   const orchLayout = withOrchColumn(pos, width, height, entryIds);
+  for (const stage of stages) {
+    stage.x += ORCH_COL_WIDTH;
+  }
   return {
     pos,
+    stages,
     orch: orchLayout.orch,
     entryIds,
     width: orchLayout.width,

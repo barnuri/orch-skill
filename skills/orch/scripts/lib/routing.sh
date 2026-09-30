@@ -188,8 +188,10 @@ cmd_profile_pick() {
     def memory_boost($name):
       ($mem[0] // []) | map(select(.profile == $name and .outcome == "success"
         and (($k == "") or (.task_kind // "") == $k))) | length;
-    [.profiles | to_entries[]
+    (.settings.disabled_harnesses // []) as $disabled
+    | [.profiles | to_entries[]
     | select(.value.enabled != false)
+    | select(.value.harness as $h | ($disabled | index($h)) == null)
     | select(in_band(.value; $c))
     | {name: .key, score: ((memory_boost(.key) * -10) + cost_score(.value) + (10 - (.value.priority // 5)))}]
     | sort_by(.score, .name)

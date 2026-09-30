@@ -331,7 +331,11 @@ cmd_node_dispatch() {
   mkdir -p "$ORCH_NODE_OUT" || { printf 'node dispatch: cannot create %s\n' "$ORCH_NODE_OUT" >&2; return 1; }
   ORCH_RUN_ID="$run_id"
   ORCH_NODE_ID="$node_id"
-  export ORCH_NODE_OUT ORCH_RUN_ID ORCH_NODE_ID
+  # ORCH_DISPATCH + HARNESS_ORCH_HOME let the node reach this same CLI and state dir — that is
+  # how it sends and reads run messages (`msg send|read`) without knowing where orch lives.
+  ORCH_DISPATCH="$SELF_REAL"
+  HARNESS_ORCH_HOME="$ORCH_HOME"
+  export ORCH_NODE_OUT ORCH_RUN_ID ORCH_NODE_ID ORCH_DISPATCH HARNESS_ORCH_HOME
 
   job_id=$(cmd_start "$@") || return $?
   node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
@@ -503,6 +507,9 @@ EOF
         | .id ]
     | "ready: " + join(",")' "$file"
   jq -r '"running: " + ([.nodes[] | select(.status == "running")] | length | tostring)' "$file"
+  # Free dispatch slots under settings.max_parallel: dispatch at most this many of `ready:`.
+  jq -r --argjson max "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" \
+    '"slots: " + ([0, $max - ([.nodes[] | select(.status == "running")] | length)] | max | tostring)' "$file"
 }
 
 # --- retention ---------------------------------------------------------------------------------

@@ -1,8 +1,11 @@
 {
   "settings": {
-    "default_profile": "claude-sub",
+    "default_profile": "copilot-default",
     "retention_days": 7,
     "budget_threshold": 85,
+    "max_parallel": 4,
+    "max_nodes": 12,
+    "planner_profile": "copilot-planner",
     "learning": {
       "auto_record_memory": true,
       "auto_scan_on_finish": true,
@@ -11,7 +14,7 @@
       "recency_days": 30,
       "dismiss_ttl_days": 30
     },
-    "disabled_harnesses": ["opencode", "local-llm"]
+    "disabled_harnesses": ["claude", "local-llm", "opencode"]
   },
   "models": {
     "claude-opus": {
@@ -100,6 +103,16 @@
       "quality": "standard",
       "speed": "fast",
       "tags": ["copilot", "auto"]
+    },
+    "copilot-opus-5.5": {
+      "slug": "claude-opus-5.5",
+      "harnesses": ["copilot"],
+      "description": "Claude Opus 5.5 through Copilot CLI; pair with --context long_context for the 1M window.",
+      "cost": "high",
+      "quality": "best",
+      "speed": "slow",
+      "max_complexity": "large",
+      "tags": ["copilot", "planning", "architecture", "long-context"]
     }
   },
   "profiles": {
@@ -203,7 +216,7 @@
       "harness": "copilot",
       "model": "copilot-auto",
       "allowed_models": ["copilot-auto"],
-      "description": "GitHub Copilot CLI on Copilot subscription (headless -p).",
+      "description": "GitHub Copilot CLI, Auto model routing, headless autopilot. Default worker for planned tasks.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "balanced",
@@ -211,8 +224,27 @@
       "enabled": true,
       "strengths": ["implement", "review", "debug"],
       "parallel_ok": true,
+      "priority": 9,
+      "flags": ["--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
+      "env": {},
+      "auth": []
+    },
+    "copilot-planner": {
+      "harness": "copilot",
+      "model": "copilot-opus-5.5",
+      "allowed_models": ["copilot-opus-5.5"],
+      "description": "Copilot CLI on Claude Opus 5.5, 1M context tier. Splits a goal into a task DAG for copilot-default workers.",
+      "cost": "high",
+      "quality": "best",
+      "speed": "slow",
+      "risk": "low",
+      "enabled": true,
+      "strengths": ["planning", "architecture", "decomposition"],
+      "avoid_for": ["trivial", "format"],
+      "min_complexity": "large",
+      "parallel_ok": false,
       "priority": 8,
-      "flags": ["--allow-all-tools"],
+      "flags": ["--context", "long_context", "--reasoning-effort", "xhigh", "--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
       "env": {},
       "auth": []
     },

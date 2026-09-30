@@ -213,6 +213,64 @@ profiles_migrate() {
   fi
   mv -f "$tmp" "$PROFILES_FILE" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
+  profiles_migrate_copilot_planner
+}
+
+COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
+COPILOT_PLANNER_FLAGS='["--context","long_context","--reasoning-effort","xhigh","--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
+
+# One-time switch to the Copilot-led layout: copilot-default (Auto) becomes the default profile,
+# a copilot-planner profile (Opus 5.5, 1M context) is seeded, Claude Code is disabled, and the
+# planning limits get their defaults. Marker-guarded so a later user edit is never reverted.
+# Every run it also splits a flag written as one string ("--a --b") into separate argv entries —
+# the adapter passes each array element as one argument, so a joined string never parses.
+profiles_migrate_copilot_planner() {
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.copilot-planner-migrated" seed=true
+  [ -e "$marker" ] && seed=false
+  if ! jq --argjson seed "$seed" --argjson worker "$COPILOT_WORKER_FLAGS" \
+      --argjson planner "$COPILOT_PLANNER_FLAGS" '
+    def split_joined:
+      [ .[] | if type == "string" and test("^-[^\\s\"'"'"']*(\\s+[^\\s\"'"'"']+)+$")
+              then (split("\\s+"; null) | .[]) else . end ];
+    .profiles |= with_entries(if (.value.flags | type) == "array" then .value.flags |= split_joined else . end)
+    | if $seed then
+        .models["copilot-opus-5.5"] //= {
+          slug: "claude-opus-5.5",
+          harnesses: ["copilot"],
+          description: "Claude Opus 5.5 through Copilot CLI; pair with --context long_context for the 1M window.",
+          cost: "high", quality: "best", speed: "slow", max_complexity: "large",
+          tags: ["copilot", "planning", "architecture", "long-context"]
+        }
+        | .profiles["copilot-planner"] //= {
+          harness: "copilot",
+          model: "copilot-opus-5.5",
+          allowed_models: ["copilot-opus-5.5"],
+          description: "Copilot CLI on Claude Opus 5.5, 1M context tier. Splits a goal into a task DAG for copilot-default workers.",
+          cost: "high", quality: "best", speed: "slow", risk: "low", enabled: true,
+          strengths: ["planning", "architecture", "decomposition"],
+          avoid_for: ["trivial", "format"],
+          min_complexity: "large", parallel_ok: false, priority: 8,
+          flags: $planner, env: {}, auth: []
+        }
+        | if .profiles["copilot-default"]? then
+            .profiles["copilot-default"].model = "copilot-auto"
+            | .profiles["copilot-default"].allowed_models = ((.profiles["copilot-default"].allowed_models // []) + ["copilot-auto"] | unique)
+            | .profiles["copilot-default"].enabled = true
+            | .profiles["copilot-default"].flags = ((.profiles["copilot-default"].flags // []) as $f
+                | $f + [ $worker[] | select(. as $w | $f | index($w) | not) ])
+            | .settings.default_profile = "copilot-default"
+          else . end
+        | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) + ["claude"] | unique)
+        | .settings.max_parallel //= 4
+        | .settings.max_nodes //= 12
+        | .settings.planner_profile //= "copilot-planner"
+      else . end
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  [ -e "$marker" ] || { : > "$marker" || return 1; }
 }
 
 # recoverable_remove <path> — `trash` when available, else a timestamped move under .trash/ (never `rm`).

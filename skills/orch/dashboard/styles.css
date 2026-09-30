@@ -436,6 +436,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 
 .edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
 .edge.done { stroke: var(--done); opacity: .7; }
+.stage-label { fill: var(--muted); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
 .cycle { fill: var(--warn); font: 11px var(--font); }
 
 .panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; position: sticky; top: 64px; }

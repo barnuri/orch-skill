@@ -91,12 +91,14 @@ describe("profilesIssues", () => {
 
     const namedDefaultWithoutProfiles = loadTemplate();
     namedDefaultWithoutProfiles["profiles"] = {};
+    delete (namedDefaultWithoutProfiles["settings"] as Mutable)["planner_profile"];
     expect(issuesFor(namedDefaultWithoutProfiles)).toEqual([
       { path: "settings.default_profile", reason: "must be empty when there are no profiles" },
     ]);
 
     const emptyDefaultWithoutProfiles = loadTemplate();
     emptyDefaultWithoutProfiles["profiles"] = {};
+    delete (emptyDefaultWithoutProfiles["settings"] as Mutable)["planner_profile"];
     (emptyDefaultWithoutProfiles["settings"] as Mutable)["default_profile"] = "";
     expect(issuesFor(emptyDefaultWithoutProfiles)).toEqual([]);
   });
@@ -121,6 +123,29 @@ describe("profilesIssues", () => {
     ]);
   });
 
+  test("max_parallel and max_nodes must be positive integers in range", () => {
+    const document = loadTemplate();
+    (document["settings"] as Mutable)["max_parallel"] = 0;
+    (document["settings"] as Mutable)["max_nodes"] = 201;
+    expect(issuesFor(document)).toEqual([
+      { path: "settings.max_parallel", reason: "must be an integer 1-64" },
+      { path: "settings.max_nodes", reason: "must be an integer 1-200" },
+    ]);
+    (document["settings"] as Mutable)["max_parallel"] = 64;
+    (document["settings"] as Mutable)["max_nodes"] = 1;
+    expect(issuesFor(document)).toEqual([]);
+  });
+
+  test("planner_profile names an existing profile or is empty", () => {
+    const document = loadTemplate();
+    (document["settings"] as Mutable)["planner_profile"] = "missing";
+    expect(issuesFor(document)).toEqual([
+      { path: "settings.planner_profile", reason: "no such profile" },
+    ]);
+    (document["settings"] as Mutable)["planner_profile"] = "";
+    expect(issuesFor(document)).toEqual([]);
+  });
+
   test("profile names must match PROFILE_NAME", () => {
     const document = loadTemplate();
     (document["profiles"] as Mutable)[".bad"] = { harness: "claude" };
@@ -135,6 +160,7 @@ describe("profilesIssues", () => {
     }
     document["profiles"] = profiles;
     (document["settings"] as Mutable)["default_profile"] = "p0";
+    (document["settings"] as Mutable)["planner_profile"] = "p1";
     expect(issuesFor(document)).toEqual([{ path: "profiles", reason: "at most 64 profiles" }]);
   });
 

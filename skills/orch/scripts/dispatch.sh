@@ -90,7 +90,22 @@ $NODE_DIGEST_USAGE
 $NODE_UPDATE_USAGE
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
                                   then "ready: a,b" (waiting nodes whose deps are all done) and "running: N"
+    -> ... then "slots: N" (free places under settings.max_parallel)
 $RUN_FINISH_USAGE   -> default: error if any node errored
+$RUN_ADVANCE_USAGE
+    -> one scheduler step: sync, apply a finished plan, dispatch ready nodes that have a stored
+       prompt up to settings.max_parallel. --until-done loops (and finishes the run); exit 3 = blocked.
+
+Planned runs (a planner agent splits the goal into a task DAG):
+$PLAN_USAGE
+    -> adds + dispatches the planner node on settings.planner_profile; it writes plan.json.
+$PLAN_APPLY_USAGE
+    -> validates plan.json (ids, deps, cycles, settings.max_nodes, profiles) and adds its tasks as
+       nodes with stored prompts. `run advance` does this on its own once the planner is done.
+
+Run mailbox (coordinator <-> nodes; nodes get ORCH_DISPATCH, ORCH_RUN_ID, ORCH_NODE_ID):
+$MSG_SEND_USAGE
+$MSG_READ_USAGE
 dispatch.sh run list              -> run-id, status, title, done/total — newest first
 
 $UI_USAGE
@@ -453,7 +468,7 @@ main() {
     run)
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
-        start|finish|list|sync) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        start|finish|list|sync|advance) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
@@ -463,6 +478,8 @@ main() {
         *) printf 'usage: dispatch.sh node add|update|dispatch|usage|cost|out|digest ...\n' >&2; exit 2 ;;
       esac
       ;;
+    plan) shift; cmd_plan "$@" ;;
+    msg) shift; cmd_msg "$@" ;;
     start) shift; cmd_start "$@" ;;
     status) shift; cmd_status "$@" ;;
     tail) shift; cmd_tail "$@" ;;

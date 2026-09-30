@@ -35,6 +35,7 @@ describe("layoutDag", () => {
   test("an empty run still gets a minimum canvas", () => {
     const layout = layoutDag([], []);
     expect(layout.pos).toEqual({});
+    expect(layout.stages).toEqual([]);
     expect(layout.orch).toBeNull();
     expect(layout.entryIds).toEqual([]);
     expect(layout.cyclic).toEqual([]);
@@ -54,10 +55,15 @@ describe("layoutDag", () => {
     const canvasH = PAD * 2 + 2 * NODE_H + GAP_Y;
     expect(layout.orch).toEqual({ x: PAD, y: Math.max(PAD, (canvasH - ORCH_NODE_H) / 2) });
     expect(layout.entryIds).toEqual(["a"]);
-    expect(layout.pos.a).toEqual({ x: PAD + ORCH_COL, y: PAD });
+    // The single-node column is centred on the two-node one, so the fan-out reads as one line.
+    expect(layout.pos.a).toEqual({ x: PAD + ORCH_COL, y: PAD + (NODE_H + GAP_Y) / 2 });
     expect(layout.pos.b).toEqual({ x: PAD + ORCH_COL + NODE_W + GAP_X, y: PAD });
     expect(layout.pos.c).toEqual({ x: PAD + ORCH_COL + NODE_W + GAP_X, y: PAD + NODE_H + GAP_Y });
     expect(layout.cyclic).toEqual([]);
+    expect(layout.stages).toEqual([
+      { index: 0, x: PAD + ORCH_COL, count: 1 },
+      { index: 1, x: PAD + ORCH_COL + NODE_W + GAP_X, count: 2 },
+    ]);
     expect(layout.width).toBe(PAD * 2 + 2 * NODE_W + GAP_X + ORCH_COL);
     expect(layout.height).toBe(PAD * 2 + 2 * NODE_H + GAP_Y);
   });

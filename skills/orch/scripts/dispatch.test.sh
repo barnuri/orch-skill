@@ -260,6 +260,7 @@ cat > "$fixture_dir/fixture_server.py" <<'PY'
 import http.server, json, sys, time
 
 port_file, delay = sys.argv[1], float(sys.argv[2])
+forever = len(sys.argv) > 3 and sys.argv[3] == "forever"
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -283,17 +284,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+server_class = http.server.ThreadingHTTPServer if forever else http.server.HTTPServer
+httpd = server_class(("127.0.0.1", 0), Handler)
 with open(port_file, "w") as f:
     f.write(str(httpd.server_address[1]))
-httpd.handle_request()
+if forever:
+    httpd.serve_forever()
+else:
+    httpd.handle_request()
 PY
 
-# start_fixture <delay-secs>: one-shot server on FIXTURE_PORT; records a FAIL and returns 1 if it
+# start_fixture <delay-secs> [forever]: one-shot server (or a multi-request one with `forever`) on FIXTURE_PORT; records a FAIL and returns 1 if it
 # never comes up. Always pair with stop_fixture so a stuck server can't hang the suite.
 start_fixture() {
   local port_file="$fixture_dir/port.$$.$RANDOM"
-  python3 "$fixture_dir/fixture_server.py" "$port_file" "$1" &
+  python3 "$fixture_dir/fixture_server.py" "$port_file" "$1" ${2:+"$2"} &
   FIXTURE_PID=$!
   for _ in $(seq 1 50); do [ -s "$port_file" ] && break; sleep 0.1; done
   FIXTURE_PORT=$(cat "$port_file" 2>/dev/null)
@@ -351,7 +356,8 @@ expect_missing "init installs no index.html" "$home/index.html"
 expect_missing "init creates no data dir" "$home/data"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile list 2>&1)
-expect_match "profile list marks the default" '^\*claude-sub' "$out"
+expect_match "profile list marks the default" '^\*copilot-default' "$out"
+expect_match "profile list shows the planner profile" 'copilot-planner	copilot	copilot-opus-5.5' "$out"
 expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-lfm-8b' "$out"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show cursor-default 2>&1)
@@ -624,9 +630,14 @@ expect_match "opencode profile with empty model: no model flag" '^run x --auto$'
 
 out=$(with_shims bash "$SCRIPT" run --profile copilot-default "x" 2>&1)
 expect_match "copilot profile: model flag, permission bypass from profile flags" \
-  '^-p x --silent --model auto --allow-all-tools$' "$(joined "$out")"
+  '^-p x --silent --model auto --yolo --no-ask-user --autopilot$' "$(joined "$out")"
 expect_no_match "the copilot adapter never bakes in --allow-all-tools" \
   '^-p x --silent --allow-all-tools --model' "$(joined "$out")"
+
+out=$(with_shims bash "$SCRIPT" run --profile copilot-planner "x" 2>&1)
+expect_match "copilot planner: Opus 5.5 on the 1M context tier, headless flags" \
+  '^-p x --silent --model claude-opus-5.5 --context long_context --reasoning-effort xhigh --yolo --no-ask-user --autopilot$' \
+  "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run copilot "plain" 2>&1)
 expect_match "plain copilot adapter: no model flag, no permission bypass" \
@@ -818,7 +829,6 @@ expect_missing "run start auto-prunes per settings.retention_days" "$home/runs/o
 expect_file "the new run itself is untouched" "$home/runs/trig-1/state.json"
 cleanup_dir "$shims"
 cleanup_dir "$home"
-cleanup_dir "$fixture_dir"
 
 
 # --- serve / ui ---------------------------------------------------------------
@@ -1307,6 +1317,108 @@ else
 fi
 
 cleanup_dir "$home"
+
+# --- planned runs: plan, plan apply, run advance, max_parallel, mailbox ------------------------
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+# Claude Code is disabled by default, so pick never lands on a claude profile.
+out=$(orch profile pick "refactor the whole auth layer across services" --complexity large 2>&1)
+expect_no_match "profile pick skips profiles on a disabled harness" '^profile=claude' "$out"
+
+# A flag written as one string is split into separate argv entries on the next load.
+edit_json "$home/profiles.json" '.profiles["copilot-default"].flags = ["--yolo --no-ask-user", "--autopilot"]'
+orch profile list >/dev/null 2>&1
+expect_match "joined flag strings are split into argv entries" '^\["--yolo","--no-ask-user","--autopilot"\]$' \
+  "$(jq -c '.profiles["copilot-default"].flags' "$home/profiles.json")"
+
+# The planner prompt names the goal, the limits and the profile menu; `plan apply` validates.
+edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["claude","opencode","cursor-agent"]
+  | .profiles["local-qwen"].enabled = true | .settings.default_profile = "local-qwen"
+  | .settings.planner_profile = "local-qwen" | .settings.max_parallel = 2 | .settings.max_nodes = 5'
+state="$home/runs/plan-1/state.json"
+orch run start "Planned" --id plan-1 >/dev/null 2>&1
+# A closed port: the planner job fails at once, and the test marks the node done by hand.
+LLM_HUB_URL=http://127.0.0.1:9 orch plan plan-1 "Ship the widget" >/dev/null 2>&1; rc=$?
+expect_exit "plan dispatches the planner node" 0 "$rc"
+expect_match "plan records the planner node on the run" '^plan\tlocal-qwen$' "$(jq -r '"\(.plan.node)\t\(.plan.profile)"' "$state")"
+prompt="$home/runs/plan-1/prompts/plan.md"
+expect_match "planner prompt carries the goal" 'Ship the widget' "$(cat "$prompt")"
+expect_match "planner prompt carries the limits" 'At most 5 tasks. At most 2 run at the same time' "$(cat "$prompt")"
+expect_match "planner prompt lists enabled profiles" '^- local-qwen \(default\)' "$(cat "$prompt")"
+expect_no_match "planner prompt hides disabled harnesses" '^- claude-sub' "$(cat "$prompt")"
+orch node update plan-1 plan "done" >/dev/null 2>&1
+
+plan_out="$home/runs/plan-1/out/plan"
+printf '%s' '{"tasks":[{"id":"a","prompt":"x","after":["b"]},{"id":"b","prompt":"y","after":["a"]}]}' > "$plan_out/bad.json"
+out=$(orch plan apply plan-1 --file "$plan_out/bad.json" 2>&1); rc=$?
+expect_exit "a cyclic plan is refused" 2 "$rc"
+expect_match "the cycle is named" 'dependency cycle among: a, b' "$out"
+printf '%s' '{"tasks":[{"id":"a","prompt":"x","after":["zz"]},{"id":"plan","prompt":"y"},{"id":"c"}]}' > "$plan_out/bad.json"
+out=$(orch plan apply plan-1 --file "$plan_out/bad.json" 2>&1); rc=$?
+expect_match "an unknown dependency is named" 'task a depends on unknown task zz' "$out"
+expect_match "a colliding id is named" 'task id plan collides with an existing node' "$out"
+expect_match "a task without a prompt is named" 'task c has no prompt' "$out"
+printf '%s' '{"tasks":[{"id":"a","prompt":"x"},{"id":"b","prompt":"x"},{"id":"c","prompt":"x"},{"id":"d","prompt":"x"},{"id":"e","prompt":"x"},{"id":"f","prompt":"x"}]}' > "$plan_out/bad.json"
+out=$(orch plan apply plan-1 --file "$plan_out/bad.json" 2>&1)
+expect_match "settings.max_nodes caps the plan" 'plan has 6 tasks; settings.max_nodes is 5' "$out"
+expect_match "a refused plan adds no nodes" '^1$' "$(jq '.nodes | length' "$state")"
+
+printf '%s' '{"summary":"three then merge","tasks":[
+  {"id":"a","label":"Part A","prompt":"do A"},
+  {"id":"b","label":"Part B","profile":"claude-sub","prompt":"do B"},
+  {"id":"c","label":"Part C","prompt":"do C"},
+  {"id":"merge","label":"Integrate","after":["a","b","c"],"prompt":"merge them"}]}' > "$plan_out/plan.json"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'SKIP: run advance fixture test (python3 not found)\n' >&2
+elif start_fixture 1 forever; then
+  out=$(LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" orch run advance plan-1 2>&1); rc=$?
+  expect_exit "run advance exits 0" 0 "$rc"
+  expect_match "advance applies the finished plan" 'applied: 4 task\(s\)' "$out"
+  expect_match "advance reports the stages" 'stages: a\+b\+c -> merge' "$out"
+  expect_match "a disabled profile falls back to the default" 'profile claude-sub is disabled, using local-qwen' "$out"
+  expect_match "max_parallel caps the first dispatch" '^dispatched: a,b$' "$out"
+  expect_match "the rest of the stage is queued" '^queued: c$' "$out"
+  expect_match "root tasks hang off the planner node" '\["plan","a"\]' "$(jq -c '.edges' "$state")"
+  expect_match "the merge task waits on every branch" '\["c","merge"\]' "$(jq -c '.edges' "$state")"
+  expect_match "the plan is marked applied" '^4$' "$(jq -r '.plan.tasks' "$state")"
+  task_prompt=$(cat "$home/runs/plan-1/prompts/merge.md")
+  expect_match "a task prompt starts with the planner's instructions" '^merge them' "$task_prompt"
+  expect_match "a task prompt points at its dependencies' handoffs" 'out/a, .*out/b, .*out/c' "$task_prompt"
+  expect_match "a task prompt explains the mailbox" 'msg send plan-1 --to orch' "$task_prompt"
+  out=$(orch run sync plan-1 2>&1)
+  expect_match "run sync reports no free slot while two run" '^slots: 0$' "$out"
+
+  out=$(LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" orch run advance plan-1 --until-done --interval 1 --timeout 60 2>&1); rc=$?
+  expect_exit "run advance --until-done exits 0" 0 "$rc"
+  expect_match "advance finishes the run" '^finished: done$' "$out"
+  expect_match "every task ran" '^done done done done done$' "$(jq -r '[.nodes[].status] | join(" ")' "$state")"
+  expect_match "dispatched nodes learn the CLI path" 'ORCH_DISPATCH' "$(cat "$home/runs/plan-1/prompts/a.md")"
+  stop_fixture
+fi
+
+out=$(orch plan apply plan-1 2>&1); rc=$?
+expect_exit "a plan applies once" 2 "$rc"
+
+# The mailbox: a node's sender defaults from its env; a reader sees what is addressed to it.
+out=$(ORCH_RUN_ID=plan-1 ORCH_NODE_ID=a orch msg send plan-1 --to orch "need the schema" 2>&1); rc=$?
+expect_exit "msg send exits 0" 0 "$rc"
+orch msg send plan-1 --to all "heads up: API renamed" >/dev/null 2>&1
+orch msg send plan-1 --to b "only for b" >/dev/null 2>&1
+out=$(orch msg read plan-1 2>&1)
+expect_match "the coordinator reads messages sent to orch" '^1	.*	a -> orch	need the schema$' "$out"
+expect_no_match "the coordinator does not read its own broadcast" 'heads up' "$out"
+out=$(ORCH_RUN_ID=plan-1 ORCH_NODE_ID=c orch msg read plan-1 2>&1)
+expect_match "a node reads broadcasts" 'orch -> all	heads up: API renamed' "$out"
+expect_no_match "a node does not read another node's mail" 'only for b' "$out"
+out=$(orch msg read plan-1 --for b --since 2 2>&1)
+expect_match "--since skips older messages" '^3	.*only for b$' "$out"
+out=$(orch msg send plan-1 --to nobody "x" 2>&1); rc=$?
+expect_exit "msg send to an unknown node exits 2" 2 "$rc"
+cleanup_dir "$home"
+cleanup_dir "$fixture_dir"
 
 # --- typescript gates ---------------------------------------------------------
 # The server and dashboard are TypeScript; their own suites are the authority on them, so this

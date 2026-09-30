@@ -33,6 +33,8 @@ const META_CHAR_PX: number = 6.6;
 const META_MIN_CHARS: number = 6;
 /** What `fmtDur` returns when it has nothing to measure. */
 const EM_DASH: string = "—";
+/** Baseline of the stage labels, inside the canvas's top padding. */
+const STAGE_LABEL_Y: number = 16;
 
 /** The node's elapsed time, or null when it has not started or the timestamps are unusable. */
 export function durationOf(node: RunNode): string | null {
@@ -279,6 +281,17 @@ function appendOrchEdges(svg: SVGElement, layout: DagLayout): void {
   }
 }
 
+/** Labels each column in the top padding: which stage, and how many of its nodes run at once. */
+function appendStageLabels(svg: SVGElement, layout: DagLayout): void {
+  if (layout.stages.length < 2) {
+    return;
+  }
+  for (const stage of layout.stages) {
+    const text = stage.count > 1 ? `stage ${stage.index + 1} · ${stage.count} parallel` : `stage ${stage.index + 1}`;
+    svg.appendChild(svgText({ class: "stage-label", x: String(stage.x + 2), y: String(STAGE_LABEL_Y) }, text));
+  }
+}
+
 /**
  * The run's DAG as an `<svg>`: orch coordinator first, then task nodes coloured by profile.
  */
@@ -298,6 +311,7 @@ export function renderGraph(
     role: "img",
     "aria-label": "Task graph",
   });
+  appendStageLabels(svg, layout);
   appendOrchEdges(svg, layout);
   appendTaskEdges(svg, run, layout);
   if (layout.orch !== null) {

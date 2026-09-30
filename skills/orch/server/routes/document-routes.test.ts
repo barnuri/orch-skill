@@ -94,6 +94,8 @@ describe("PUT happy path", () => {
     const get = await srv.api("/api/profiles");
     const doc = (await get.json()).document;
     delete doc.profiles["copilot-default"];
+    // copilot-default is the template's default profile, so the default moves first.
+    doc.settings.default_profile = "claude-sub";
     const saved = await put(srv, "/api/profiles", JSON.stringify(doc), {
       "If-Match": get.headers.get("etag") ?? "",
     });
