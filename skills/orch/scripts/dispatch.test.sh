@@ -630,13 +630,13 @@ expect_match "opencode profile with empty model: no model flag" '^run x --auto$'
 
 out=$(with_shims bash "$SCRIPT" run --profile copilot-default "x" 2>&1)
 expect_match "copilot profile: model flag, permission bypass from profile flags" \
-  '^-p x --silent --model auto --yolo --no-ask-user --autopilot$' "$(joined "$out")"
+  '^-p x --silent --model auto --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot$' "$(joined "$out")"
 expect_no_match "the copilot adapter never bakes in --allow-all-tools" \
   '^-p x --silent --allow-all-tools --model' "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run --profile copilot-planner "x" 2>&1)
 expect_match "copilot planner: Opus 5.5 on the 1M context tier, headless flags" \
-  '^-p x --silent --model claude-opus-5.5 --context long_context --reasoning-effort xhigh --yolo --no-ask-user --autopilot$' \
+  '^-p x --silent --model claude-opus-5.5 --context long_context --reasoning-effort xhigh --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot$' \
   "$(joined "$out")"
 
 out=$(with_shims bash "$SCRIPT" run copilot "plain" 2>&1)

@@ -6,6 +6,7 @@ export const TOAST_MS = 4000;
 export const TOKEN_KEY = "orch-token";
 export const THEME_KEY = "orch-theme";
 export const RUN_FILTERS_KEY = "orch-run-filters";
+export const PROFILES_HIDE_DISABLED_KEY = "orch-profiles-hide-disabled";
 export const API_BASE = "/api";
 // Stacked-bar / meta ordering: the states that need attention come first.
 export const STATUS_ORDER = ["running", "error", "done", "skipped", "waiting"] as const;

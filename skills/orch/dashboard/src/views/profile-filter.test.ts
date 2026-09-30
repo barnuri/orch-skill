@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import type { ProfilesDocument } from "../../../shared/types/profiles-document";
-import { visibleProfiles } from "./profile-filter";
+import { loadHideDisabled, saveHideDisabled, visibleProfiles } from "./profile-filter";
 
 const profiles: ProfilesDocument["profiles"] = {
   on: { harness: "claude", enabled: true },
@@ -22,5 +22,40 @@ describe("visibleProfiles", () => {
     const allDisabled: ProfilesDocument["profiles"] = { off: { harness: "opencode", enabled: false } };
     expect(visibleProfiles(allDisabled, true)).toEqual([]);
     expect(Object.keys(allDisabled)).toEqual(["off"]);
+  });
+});
+
+describe("hide-disabled preference", () => {
+  // `bun test` has no localStorage; a Map-backed stub stands in for the browser's.
+  function stubStorage(storage: unknown): void {
+    Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true, writable: true });
+  }
+
+  afterEach(() => {
+    stubStorage(undefined);
+  });
+
+  test("defaults to showing everything", () => {
+    const items = new Map<string, string>();
+    stubStorage({ getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => items.set(k, v) });
+    expect(loadHideDisabled()).toBe(false);
+  });
+
+  test("remembers the toggle across loads", () => {
+    const items = new Map<string, string>();
+    stubStorage({ getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => items.set(k, v) });
+    saveHideDisabled(true);
+    expect(loadHideDisabled()).toBe(true);
+    saveHideDisabled(false);
+    expect(loadHideDisabled()).toBe(false);
+  });
+
+  test("a blocked localStorage neither throws nor hides", () => {
+    const boom = (): never => {
+      throw new Error("blocked");
+    };
+    stubStorage({ getItem: boom, setItem: boom });
+    expect(() => saveHideDisabled(true)).not.toThrow();
+    expect(loadHideDisabled()).toBe(false);
   });
 });

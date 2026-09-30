@@ -24,13 +24,13 @@ import { render } from "../render";
 import { renderSettingsForm } from "./settings-form";
 import { toast } from "../ui/toast";
 import { profileSwitchDecision } from "./profile-switch";
-import { visibleProfiles } from "./profile-filter";
+import { loadHideDisabled, saveHideDisabled, visibleProfiles } from "./profile-filter";
 
 const NEW_TARGET: string = "new";
 const DESC_MAX: number = 48;
 const CORRUPT_HINT: string = "profiles.json could not be parsed — fix it in an editor and this page picks it up.";
 const EMPTY_HINT: string = "No profiles yet. Add one from the panel.";
-let hideDisabled = false;
+let hideDisabled = loadHideDisabled();
 
 // memory.json is an array, profiles.json an object — that is the whole difference between the two
 // documents the editor slice can be holding.
@@ -344,6 +344,7 @@ export function renderProfiles(state: AppState): DocumentFragment {
   });
   filter.addEventListener("click", () => {
     hideDisabled = !hideDisabled;
+    saveHideDisabled(hideDisabled);
     render();
   });
   toolbar.appendChild(filter);

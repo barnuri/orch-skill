@@ -8,6 +8,8 @@ serve.json             dashboard bind address, port and auth policy (from templa
 cli.json               global CLI command name and bin dir (written by install.sh; default name: orch)
 memory.json            learnings log — [] on first use
 runs/<run-id>/state.json
+runs/<run-id>/prompts/<node-id>.md   stored task prompts written by `plan apply`
+runs/<run-id>/messages.jsonl         the run's mailbox (`msg send|read`)
 jobs/<job-id>/{adapter,profile,pid,log,exit_code}
 serve.token            bearer token for the dashboard, 0600, minted on first `serve`/`ui`
 serve/host             bind host of the running server
@@ -22,7 +24,11 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 ```json
 {
   "settings": {
-    "default_profile": "claude-sub",
+    "default_profile": "copilot-default",
+    "disabled_harnesses": ["claude", "local-llm", "opencode"],
+    "max_parallel": 4,
+    "max_nodes": 12,
+    "planner_profile": "copilot-planner",
     "retention_days": 7,
     "budget_threshold": 85,
     "learning": {
@@ -68,7 +74,10 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `env` | exported at spawn time. A value that is exactly `${NAME}` is replaced by the caller's environment variable; anything else is a literal. Partial interpolation is unsupported on purpose. |
 | `auth` | env-var **names** that must be non-empty before the profile may run. Values are never stored. |
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
-| `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker (adapters remain in code) |
+| `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: `claude`, `local-llm`, `opencode` |
+| `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
+| `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
+| `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `copilot-planner`) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
 
@@ -116,6 +125,9 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 - `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
   and every incoming edge's source is `done`.
 - Run ids: `YYYYMMDD-HHMMSS-<4 hex>` or `--id` matching `^[A-Za-z0-9._-]+$`.
+- `plan` (planned runs only): `{node, profile, applied, summary, tasks}` — the planner node id,
+  its profile, when `plan apply` added the tasks (`null` while the planner works), the plan's
+  summary line and task count.
 
 ## serve.json
 
@@ -177,6 +189,11 @@ dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
 dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"]
 dispatch.sh run sync <run-id>
+dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]
+dispatch.sh plan apply <run-id> [--file plan.json]
+dispatch.sh run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]
+dispatch.sh msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
+dispatch.sh msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
 dispatch.sh run finish <run-id> [--status done|error]
 dispatch.sh run list
 
@@ -189,8 +206,8 @@ dispatch.sh sync [--no-serve]
 dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 ```
 
-`run` is overloaded: `run start|finish|list|sync` is run-state; any other second word is the v1
-`run <adapter|--profile>` foreground dispatch. Adapter names never collide with those four words.
+`run` is overloaded: `run start|finish|list|sync|advance` is run-state; any other second word is the v1
+`run <adapter|--profile>` foreground dispatch. Adapter names never collide with those five words.
 
 Exit codes: `0` ok · `1` environment/request failure · `2` bad arguments or unknown id ·
 `124` `wait` timed out · `127` required binary missing.

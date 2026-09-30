@@ -68,6 +68,11 @@ warning; `--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; othe
 `orch budget-check` is callable alone (exit 0 safe / 1 avoid); a missing, stale or
 non-subscription snapshot always counts as safe.
 
+Harnesses listed in `settings.disabled_harnesses` are off: `profile pick` never returns their
+profiles and the dashboard hides them. The template disables `claude` (plus `local-llm` and
+`opencode`) and makes `copilot-default` (Copilot, model `auto`) the default profile, so when the
+classifier's answer maps to a disabled harness, use `settings.default_profile` instead.
+
 If the choice materially changes cost or risk and none of the three sources settles it, ask —
 `AskUserQuestion` when the options are discrete, plain text otherwise (or where that tool doesn't
 exist). Dispatching to a paid CLI is not free to undo.
@@ -137,6 +142,42 @@ Loop until every node is terminal:
 4. When a node finishes and you need to judge it, `orch node digest <run-id> <node-id>` — status,
    exit code, size, and a head+tail excerpt. Never `tail` or `TaskOutput` the whole log.
 5. Skip a node the plan no longer needs: `orch node update <run-id> <node-id> skipped`.
+
+### Planned run (a planner agent splits the work)
+
+When the split itself is the hard part, hand it to the planner instead of writing nodes by hand:
+
+```bash
+orch run start "<title>"                     # prints <run-id>
+orch plan <run-id> "<goal>"                  # or @/path/to/goal.md; dispatches the planner node
+orch run advance <run-id> --until-done       # applies the plan, dispatches, finishes the run
+```
+
+- `plan` runs on `settings.planner_profile` (template: `copilot-planner` — Copilot on
+  `claude-opus-5.5` with `--context long_context` (1M) and `--reasoning-effort xhigh`). The
+  planner writes `plan.json` — `{summary, tasks:[{id, label, profile, after, prompt}]}` — into
+  its out dir. Tasks default to `settings.default_profile` (`copilot-default`).
+- `run advance` is one scheduler step: `run sync`, apply a finished plan (`plan apply`
+  validates ids, deps, cycles, `settings.max_nodes` and profiles, then adds the nodes with their
+  stored prompts), and dispatch every ready node that has a stored prompt, up to
+  `settings.max_parallel` running at once. Tasks with no dependency between them run in
+  parallel. The dashboard graph shows each parallel stage and where the stages merge.
+  `--until-done` loops and finishes the run. Exit 3 means blocked: a node errored or is waiting
+  on a node with no stored prompt. Native Tier runs it in the background under `Monitor`;
+  Fallback Tier calls `run advance` (without `--until-done`) once per turn.
+- To plan it yourself, write the same JSON and run `orch plan apply <run-id> --file plan.json`.
+
+**Talking between sessions.** Every run has a mailbox, `runs/<run-id>/messages.jsonl`. Planned
+task prompts already tell the node how to use it, and `$ORCH_DISPATCH` points it at this script:
+
+```bash
+orch msg send <run-id> --to orch|all|<node-id> "<text>"   # inside a node, --from defaults to it
+orch msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
+```
+
+Check `msg read <run-id>` whenever `run advance` returns: that is where a node reports blockers
+and scope changes. If `herdr` is on `PATH`, each message also triggers a herdr notification
+(best effort; herdr is optional).
 
 ### Passing work between nodes
 
@@ -267,7 +308,7 @@ disables). Running runs and jobs are never touched.
 | `claude` | `claude` on `PATH` | `claude -p … --output-format text [--model M] [flags]` |
 | `cursor-agent` | `cursor-agent` on `PATH` | `cursor-agent -p … --output-format text --force [--model M]` |
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
-| `copilot` | `copilot` on `PATH` | `copilot -p … --silent [--model M] [flags]` |
+| `copilot` | `copilot` on `PATH` | `copilot -p … --silent [--model M] [flags]` — the template profiles pass `--allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot` |
 | `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `/chat/completions` |
 
 A profile supplies the model, CLI flags and env for its harness (e.g. `claude-llm-hub` points
