@@ -583,6 +583,33 @@ orch suggest scan >/dev/null
 out=$(orch suggest apply --json --all 2>&1); rc=$?
 expect_exit "suggest apply all exits 0" 0 "$rc"
 expect_match "suggest apply all returns json" '"results":' "$out"
+
+# bash 3.2 reuses one $RANDOM seed across a subshell tree, which once gave every suggestion from
+# a single scan the same id and made `run finish` print "sug-… is pending … not pending".
+ids=$(env HARNESS_ORCH_HOME="$home" bash -c '. "$1"; ( : $RANDOM; for i in 1 2 3 4; do echo "$(suggest_new_id)"; done )' _ "$SCRIPT")
+expect_match "suggestion ids stay unique inside a seeded subshell" '^4$' "$(printf '%s\n' "$ids" | sort -u | wc -l | tr -d ' ')"
+orch run start "Ids" --id sug-ids >/dev/null 2>&1
+for n in one two three; do
+  orch node add sug-ids "$n" "Kind $n" --profile local-qwen >/dev/null 2>&1
+  orch node update sug-ids "$n" done >/dev/null 2>&1
+done
+edit_json "$home/profiles.json" '.settings.learning.auto_record_memory = false'
+out=$(env HARNESS_ORCH_HOME="$home" bash -c '( : $RANDOM; bash "$1" run finish sug-ids )' _ "$SCRIPT" 2>&1)
+expect_no_match "run finish applies its suggestions quietly" 'not pending' "$out"
+expect_match "every suggestion keeps its own id" '^0$' \
+  "$(jq '[.suggestions[].id] | length - (unique | length)' "$home/suggestions.json")"
+edit_json "$home/profiles.json" '.settings.learning.auto_record_memory = true'
+edit_json "$home/suggestions.json" '.suggestions += [
+  {"id": "sug-dup", "status": "pending", "created": "2026-01-01T00:00:00Z", "kind": "memory_record",
+   "fingerprint": "memory_record:local-qwen:dup-a",
+   "action": {"type": "memory_record", "memory": {"profile": "local-qwen", "outcome": "success", "task_kind": "dup-a"}}},
+  {"id": "sug-dup", "status": "pending", "created": "2026-01-01T00:00:00Z", "kind": "memory_record",
+   "fingerprint": "memory_record:local-qwen:dup-b",
+   "action": {"type": "memory_record", "memory": {"profile": "local-qwen", "outcome": "success", "task_kind": "dup-b"}}}]'
+out=$(orch suggest apply sug-dup 2>&1); rc=$?
+expect_exit "a duplicated id is repaired before apply" 0 "$rc"
+expect_match "the repaired copy gets its own id" '^1$' \
+  "$(jq '[.suggestions[] | select(.id | startswith("sug-dup-"))] | length' "$home/suggestions.json")"
 out=$(orch profile sanity --profile nope 2>&1); rc=$?
 expect_exit "profile sanity unknown profile exits 0" 0 "$rc"
 expect_match "profile sanity unknown profile ok false" '"ok":false' "$out"

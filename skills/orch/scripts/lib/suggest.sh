@@ -18,13 +18,34 @@ suggest_ensure() {
   jq -e '.suggestions' "$SUGGESTIONS_FILE" >/dev/null 2>&1 || {
     printf '{"generated_at":"%s","suggestions":[]}\n' "$(now_iso)" > "$SUGGESTIONS_FILE"
   }
+  suggest_dedupe_ids
 }
 
+# Older builds could hand one id to several suggestions (see suggest_new_id). A shared id makes
+# `suggest apply` match many entries, so every copy after the first gets a suffixed id.
+suggest_dedupe_ids() {
+  jq -e '[.suggestions[].id] | length != (unique | length)' "$SUGGESTIONS_FILE" >/dev/null 2>&1 || return 0
+  local tmp="$SUGGESTIONS_FILE.tmp.$$"
+  jq '
+    reduce range(0; .suggestions | length) as $i (.;
+      .suggestions[$i].id as $id
+      | if ([.suggestions[0:$i][].id] | index($id)) != null
+        then .suggestions[$i].id = ($id + "-" + ($i | tostring)) else . end)
+  ' "$SUGGESTIONS_FILE" > "$tmp" && mv -f "$tmp" "$SUGGESTIONS_FILE"
+}
+
+# Not $RANDOM: bash 3.2 seeds it once per subshell tree, so every `$(suggest_new_id)` inside a
+# subshell that already used it (e.g. `run advance --until-done` finishing a run) returns the
+# same value.
 suggest_new_id() {
-  printf 'sug-%04x\n' $((RANDOM % 65536))
+  local hex
+  hex=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  [ -n "$hex" ] || hex=$(printf '%04x%04x' "$RANDOM" "$$")
+  printf 'sug-%s\n' "$hex"
 }
 
-# Upsert by fingerprint; returns 0 if added/updated.
+# Upsert by fingerprint; returns 0 if added/updated. A new entry whose id is already taken gets a
+# suffixed one, so ids stay unique even if the generator ever repeats.
 suggest_upsert() {
   local json="$1" fingerprint
   fingerprint=$(printf '%s' "$json" | jq -r '.fingerprint')
@@ -32,11 +53,13 @@ suggest_upsert() {
   if ! jq --argjson s "$json" --arg fp "$fingerprint" --arg now "$(now_iso)" '
     .generated_at = $now
     | if any(.suggestions[]?; .fingerprint == $fp and .status == "pending") then
-        .suggestions |= map(if .fingerprint == $fp and .status == "pending" then $s else . end)
+        .suggestions |= map(if .fingerprint == $fp and .status == "pending" then $s + {id: .id} else . end)
       elif any(.suggestions[]?; .fingerprint == $fp and (.status == "dismissed" or .status == "expired")) then
         .
       else
-        .suggestions += [$s]
+        ([.suggestions[]?.id]) as $ids
+        | .suggestions += [if ($ids | index($s.id)) == null then $s
+                           else $s + {id: ($s.id + "-" + ($ids | length | tostring))} end]
       end
   ' "$SUGGESTIONS_FILE" > "$tmp"; then
     return 1
