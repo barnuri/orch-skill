@@ -1389,7 +1389,10 @@ elif start_fixture 1 forever; then
   expect_match "a task prompt points at its dependencies' handoffs" 'out/a, .*out/b, .*out/c' "$task_prompt"
   expect_match "a task prompt explains the mailbox" 'msg send plan-1 --to orch' "$task_prompt"
   out=$(orch run sync plan-1 2>&1)
-  expect_match "run sync reports no free slot while two run" '^slots: 0$' "$out"
+  # The fixture answers after 1 s, so a job may already be done here; assert the invariant.
+  running_now=$(printf '%s\n' "$out" | grep -c $'\trunning$')
+  expect_match "run sync reports free slots as max_parallel minus running" \
+    "^slots: $((2 - running_now))$" "$out"
 
   out=$(LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" orch run advance plan-1 --until-done --interval 1 --timeout 60 2>&1); rc=$?
   expect_exit "run advance --until-done exits 0" 0 "$rc"
