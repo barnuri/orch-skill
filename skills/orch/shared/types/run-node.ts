@@ -9,6 +9,9 @@ export interface RunNodeAttempt {
   log_tail: string[];
   profile: string | null;
   adapter?: string | null;
+  model?: string | null;
+  model_id?: string | null;
+  cost?: NodeCost | null;
   session?: string | null;
   reason?: string | null;
   retry_mode?: "resumed" | "restarted" | null;
@@ -21,6 +24,8 @@ export interface RunNode {
   status: NodeStatus;
   profile: string | null;
   adapter: string | null;
+  model?: string | null;
+  model_id?: string | null;
   job_id: string | null;
   /**
    * The harness session id orch assigned at dispatch, so the node can be resumed. Optional

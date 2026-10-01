@@ -1,7 +1,7 @@
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { svgEl } from "../dom/el";
-import { fmtDur, fmtUsd, truncate } from "../dom/format";
+import { fmtUsd, truncate } from "../dom/format";
 import {
   NODE_H,
   NODE_W,
@@ -20,9 +20,8 @@ const HARNESS_MARK_SIZE: number = 15;
 // Shorter than the bare node width allows: the harness glyph now sits in the top-right corner.
 const LABEL_MAX: number = 19;
 
-// Row 2 is `status · profile`, row 3 the measurements. The metrics earned their own row once
-// there were two of them: fitting cost and duration beside the pair needs a 260px node, 44%
-// wider than the original, where a third row keeps it at 200 and leaves row 2 uncramped.
+// Row 2 is identity, row 3 is retry/cost. Three compact rows keep the graph legible without
+// widening every node box.
 const META_Y: number = 43;
 const META_LEFT_X: number = 14;
 const METRICS_Y: number = 62;
@@ -31,31 +30,23 @@ const METRICS_RULE_Y: number = 50;
 /** Advance width of the 11px monospace both lower rows use. */
 const META_CHAR_PX: number = 6.6;
 const META_MIN_CHARS: number = 6;
-/** What `fmtDur` returns when it has nothing to measure. */
-const EM_DASH: string = "—";
 /** Baseline of the stage labels, inside the canvas's top padding. */
 const STAGE_LABEL_Y: number = 16;
 
-/** The node's elapsed time, or null when it has not started or the timestamps are unusable. */
-export function durationOf(node: RunNode): string | null {
-  if (node.started === null || node.started === "") {
-    return null;
-  }
-  const text = fmtDur(node.started, node.finished);
-  return text === EM_DASH ? null : text;
-}
-
 /**
- * The node's cost, or null when its harness reported none — which is every adapter but claude,
- * and claude too when jq was unavailable at dispatch.
+ * The node's cost, or null when its harness reported none. When dollars are zero/unknown, token
+ * counts still show useful work volume.
  */
 export function costOf(node: RunNode): string | null {
-  const usd = node.cost?.usd;
-  if (usd === undefined || !Number.isFinite(usd)) {
+  const cost = node.cost;
+  if (cost === undefined || cost === null) {
     return null;
   }
-  const text = fmtUsd(usd);
-  return text === EM_DASH ? null : text;
+  if (Number.isFinite(cost.usd) && cost.usd > 0) {
+    return fmtUsd(cost.usd);
+  }
+  const tokens = cost.input_tokens + cost.output_tokens + cost.cache_read_tokens + cost.cache_creation_tokens;
+  return tokens > 0 ? `${tokens.toLocaleString()} tok` : null;
 }
 
 /**
@@ -63,10 +54,21 @@ export function costOf(node: RunNode): string | null {
  * own row, so this only guards against a profile name longer than the node.
  */
 export function metaLine(node: RunNode): string {
-  const target = node.profile ?? node.adapter;
-  const full = target === null || target === "" ? node.status : `${node.status} · ${target}`;
+  const model = node.model_id ?? node.model ?? node.profile ?? node.adapter;
+  const full = model === null || model === "" || model === undefined ? node.status : `${node.status} · ${model}`;
   const available = NODE_W - META_LEFT_X - (NODE_W - METRICS_RIGHT_X);
   return truncate(full, Math.max(META_MIN_CHARS, Math.floor(available / META_CHAR_PX)));
+}
+
+function attemptLine(node: RunNode, maxAttempts: number): string {
+  const current = (node.attempts ?? []).length + 1;
+  if (maxAttempts === -1) {
+    return `attempt ${current}/∞`;
+  }
+  if (current > maxAttempts) {
+    return `manual retry ${current}`;
+  }
+  return `attempt ${current}/${maxAttempts}`;
 }
 
 function nodeLabel(node: RunNode): string {
@@ -161,8 +163,8 @@ function orchNodeGroup(run: RunState, pos: Point): SVGElement {
  * from identity. Drawn only when there is something to measure, so a waiting node keeps two rows
  * of content and simply has empty space where the numbers will appear.
  */
-function appendMetrics(group: SVGElement, cost: string | null, duration: string | null): void {
-  if (cost === null && duration === null) {
+function appendMetrics(group: SVGElement, cost: string | null, attempt: string): void {
+  if (cost === null && attempt === "") {
     return;
   }
   group.appendChild(
@@ -179,11 +181,11 @@ function appendMetrics(group: SVGElement, cost: string | null, duration: string 
       svgText({ class: "metric cost", x: String(META_LEFT_X), y: String(METRICS_Y) }, cost),
     );
   }
-  if (duration !== null) {
+  if (attempt !== "") {
     group.appendChild(
       svgText(
         { class: "metric dur", x: String(METRICS_RIGHT_X), y: String(METRICS_Y), "text-anchor": "end" },
-        duration,
+        attempt,
       ),
     );
   }
@@ -197,12 +199,13 @@ function nodeGroup(
   onSelect: (nodeId: string) => void,
   palette: ProfilePalette,
   harnessByProfile: Record<string, string>,
+  maxAttempts: number,
 ): SVGElement {
   const label = nodeLabel(node);
   const profile = profileKey(node);
   const harness = harnessOf(node, harnessByProfile);
-  const duration = durationOf(node);
   const cost = costOf(node);
+  const attempt = attemptLine(node, maxAttempts);
   const accent = profile !== null ? palette.accent(profile) : "";
   const accentSoft = profile !== null ? palette.soft(profile) : "";
   const classes = `node task-node ${node.status}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}`;
@@ -213,7 +216,9 @@ function nodeGroup(
     role: "button",
     "aria-label": `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${
       harness !== null ? `, ${harness}` : ""
-    }${duration !== null ? `, ${duration}` : ""}${cost !== null ? `, ${cost} list price` : ""}`,
+    }${node.model_id ?? node.model ? `, model ${node.model_id ?? node.model}` : ""}${
+      cost !== null ? `, ${cost}` : ""
+    }, ${attempt}`,
   });
   if (profile !== null) {
     // Through the CSSOM, not a `style` attribute: the shell's CSP has no 'unsafe-inline', so an
@@ -234,7 +239,7 @@ function nodeGroup(
   group.appendChild(
     svgText({ class: "st", x: String(META_LEFT_X), y: String(META_Y) }, metaLine(node)),
   );
-  appendMetrics(group, cost, duration);
+  appendMetrics(group, cost, attempt);
   if (isCyclic) {
     group.appendChild(
       svgText({ class: "cycle", x: String(NODE_W - 8), y: "14", "text-anchor": "end" }, "cycle"),
@@ -300,6 +305,7 @@ export function renderGraph(
   selectedId: string | null,
   onSelect: (nodeId: string) => void,
   harnessByProfile: Record<string, string> = {},
+  maxAttempts: number = 5,
 ): SVGSVGElement {
   const layout = layoutDag(run.nodes, run.edges);
   const palette = profilePalette(
@@ -324,7 +330,7 @@ export function renderGraph(
     }
     const isCyclic = layout.cyclic.includes(node.id);
     svg.appendChild(
-      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile),
+      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile, maxAttempts),
     );
   }
   return svg;

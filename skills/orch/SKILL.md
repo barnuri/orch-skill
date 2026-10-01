@@ -173,19 +173,33 @@ Every dispatch stores the prompt reference/text and pass-through args on the nod
 can be retried without rebuilding the prompt:
 
 ```bash
-orch node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch]
+orch node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
 orch run retry <run-id> [--profile P] [--no-dispatch]
 ```
 
 `node retry` works for `error` and `skipped` nodes. It archives the failed attempt, clears the
 node back to `waiting`, reopens a finished run, and redispatches unless `--no-dispatch` is set or
-the node has no stored prompt. `run retry` does that for every errored node and obeys
-`settings.max_parallel`; extra nodes stay `waiting` for `run advance`.
+the node has no stored prompt. For old nodes that predate prompt storage, pass a prompt on
+`node retry`; with `--no-dispatch` this only stores the prompt and leaves the node waiting.
+`run retry` does that for every errored node with a stored prompt and obeys `settings.max_parallel`;
+extra nodes stay `waiting` for `run advance`.
 
 `run sync` and `run advance` automatically retry errored nodes with stored prompts until
-`settings.max_attempts` is reached (template: `2`; set `1` to disable). Quota/rate/auth-looking
-failures use the profile's `fallback` profile when that fallback is enabled; otherwise the same
-profile is retried.
+`settings.max_attempts` is reached (template: `5`; set `1` to disable, `-1` for unlimited).
+Automatic retries wait until the node's `next_retry_at`, using an exponential backoff of at
+least the `run advance --interval` value (capped at 5 minutes), so unlimited does not spin.
+Quota/rate/auth-looking failures use the profile's `fallback` profile when that fallback is
+enabled; otherwise the same profile is retried.
+
+Retry continues when it can. If the same resumable harness is used and the node has a session id,
+orch resumes that session and sends a short continuation prompt. If the retry switches harnesses
+or has no resumable session, orch restarts from the stored original prompt with a warning that
+partial work may already exist in the repo and `$ORCH_NODE_OUT`. The node output directory is
+kept across attempts.
+
+Manual retry is always allowed, even after automatic attempts are spent. That one extra dispatch
+is counted too, so the dashboard may show `manual retry 6` or `attempt 6/5`; automatic retries
+still remain stopped after it fails.
 
 **Talking between sessions.** Every run has a mailbox, `runs/<run-id>/messages.jsonl`. Planned
 task prompts already tell the node how to use it, and `$ORCH_DISPATCH` points it at this script:
@@ -277,7 +291,8 @@ instead of opening a browser (headless or remote shells); `orch ui --stop` shuts
 — set `ORCH_BUN` to point at a specific binary; a missing bun exits 127.
 
 The main view lists every run, active first; `#/run/<run-id>` shows one run's graph — running
-nodes pulse, click a node for profile, job, timings, error and log tail. `#/profiles` and
+nodes pulse and each box shows status/model, cost or tokens, and attempt count. Click a node for
+profile, model, job, timings, attempts, error and log tail. `#/profiles` and
 `#/memory` edit the two JSON files in place, with the same validation the CLI applies and an
 ETag check that refuses to overwrite a change made behind your back. The page polls every 2 s and
 shows "updated Ns ago". Give the user the `#/run/<run-id>` link when a run starts.

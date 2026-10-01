@@ -367,6 +367,8 @@ cmd_start() {
   printf '%s\n' "$adapter" > "$job_dir/adapter"
   if [ "$TARGET_KIND" = profile ]; then
     printf '%s\n' "$TARGET_NAME" > "$job_dir/profile"
+    printf '%s\n' "${PROFILE_MODEL:-}" > "$job_dir/model"
+    printf '%s\n' "${PROFILE_MODEL_ID:-}" > "$job_dir/model_id"
   fi
 
   # The harness is told which session id to use, rather than being asked afterwards what it

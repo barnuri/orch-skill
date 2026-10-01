@@ -842,6 +842,8 @@ elif start_fixture 2; then
   out=$(orch run sync disp-1 2>&1)
   expect_match "profile node is done after its job finishes" '^b.done$' "$out"
   expect_match "profile recorded on the dispatched node" '^local-qwen$' "$(state_get '.nodes[1].profile')"
+  expect_match "model id recorded on the dispatched node" '^local-lfm-8b$' "$(state_get '.nodes[1].model_id')"
+  expect_match "model slug recorded on the dispatched node" '^llama_swap/lfm2.5-8b-a1b$' "$(state_get '.nodes[1].model')"
   expect_match "harness recorded as the node adapter" '^local-llm$' "$(state_get '.nodes[1].adapter')"
   stop_fixture
 fi
@@ -877,6 +879,18 @@ orch run sync retry-1 >/dev/null 2>&1
 out=$(orch node retry retry-1 a 2>&1); rc=$?
 expect_exit "node retry wrong state exits 2" 2 "$rc"
 expect_match "node retry wrong state is clear" 'not error or skipped' "$out"
+cleanup_dir "$home"
+
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+orch run start "Old retry" --id retry-old >/dev/null 2>&1
+orch node add retry-old a "a" >/dev/null 2>&1
+edit_json "$home/runs/retry-old/state.json" '.nodes[0] += {status:"error", adapter:"claude-native", job_id:"old", error:"exit=1", finished:"2026-09-01T00:00:00Z"}'
+out=$(orch node retry retry-old a --no-dispatch "@/tmp/old-prompt.md" 2>&1); rc=$?
+expect_exit "node retry old node accepts prompt with no dispatch" 0 "$rc"
+expect_match "node retry old node becomes waiting" '^waiting$' "$(jq -r '.nodes[0].status' "$home/runs/retry-old/state.json")"
+expect_match "node retry old node stores supplied prompt" '^@/tmp/old-prompt.md$' "$(jq -r '.nodes[0].prompt' "$home/runs/retry-old/state.json")"
 cleanup_dir "$home"
 
 home=$(new_tmp)

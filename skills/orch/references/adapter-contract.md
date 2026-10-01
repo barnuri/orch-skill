@@ -35,17 +35,23 @@ adapter_<name> <prompt> [pass-through args...]
   both live; `start` redirects both into the job's `log`.
 - Exit code: propagate the underlying CLI/request's. `127` = required binary not on PATH,
   `1` = request/transport failure, `2` = bad arguments.
+- Retry resume: when `ORCH_RESUME_SESSION` is non-empty, an adapter that supports session resume
+  must continue that session instead of creating a new one. Current mappings: `claude` uses
+  `--resume <id>`, `copilot` uses `--session-id <id>`, `opencode` uses `--session <id>`, and
+  `cursor-agent` uses `--resume <chatId>` when orch has a real Cursor chat id. Adapters that
+  cannot resume ignore the variable. `ORCH_SESSION_ID` is still the id written to the new job's
+  `session` file; on resume it is set to the same value as `ORCH_RESUME_SESSION`.
 
 ## Existing adapters
 
 | Adapter | Target | Invocation |
 |---|---|---|
 | `claude-native` | none — sentinel | Prints a notice, exits 0. `SKILL.md` handles this result before ever calling `run`/`start`; the function only exists so direct scripting against `dispatch.sh` gets defined behavior. |
-| `claude` | `claude` CLI (headless) | `claude -p "<prompt>" --output-format text [args…]` |
-| `cursor-agent` | `cursor-agent` CLI | `cursor-agent -p "<prompt>" --output-format text --force [args…]` (`--force`: no TTY to approve tool calls) |
-| `opencode` | `opencode` CLI | `opencode run "<prompt>" --auto [args…]` (`--auto`: no TTY to approve permissions) |
+| `claude` | `claude` CLI (headless) | `claude -p "<prompt>" --output-format json [--session-id <new-id> \| --resume <existing-id>] [args…]` |
+| `cursor-agent` | `cursor-agent` CLI | `cursor-agent -p "<prompt>" --output-format text [--resume <chatId>] [args…]` |
+| `opencode` | `opencode` CLI | `opencode run "<prompt>" --auto [--session <id>] [args…]` (`--auto`: no TTY to approve permissions) |
 | `local-llm` | OpenAI-compatible HTTP | POST `{model, messages:[{role:user,content}], stream:false}` to `$LLM_HUB_URL/chat/completions`; model from `$LLM_HUB_MODEL` (default `local-model`), timeout `$LLM_HUB_TIMEOUT` (default 120 s); prints `.choices[0].message.content`. |
-| `copilot` | GitHub Copilot CLI | `copilot -p "<prompt>" --silent [args…]` (`--silent`: stdout is just the answer, no stats footer; `--allow-all-tools` is a profile flag, not baked into the adapter — same reasoning as cursor-agent's `--force`) |
+| `copilot` | GitHub Copilot CLI | `copilot -p "<prompt>" --silent [--session-id <id>] [args…]` (`--silent`: stdout is just the answer, no stats footer; `--allow-all-tools` is a profile flag, not baked into the adapter — same reasoning as cursor-agent's `--force`) |
 
 ## Profiles → adapter arguments
 

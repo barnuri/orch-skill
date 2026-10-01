@@ -28,7 +28,7 @@ RUN_RETRY_USAGE='dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]'
 NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]'
 NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"]"
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
-NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch]'
+NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]'
 NODE_USAGE_USAGE='dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]'
 NODE_COST_USAGE='dispatch.sh node cost <run-id> <node-id> (--from-job <job-id> | --clear)'
 NODE_OUT_USAGE='dispatch.sh node out <run-id> <node-id>'
@@ -178,7 +178,7 @@ cmd_node_add() {
   state_write "$run_id" \
     '($deps | split(",") | map(select(length > 0))) as $d
      | .nodes += [{id: $id, label: $label, status: "waiting", profile: (if $profile == "" then null else $profile end),
-                   adapter: null, job_id: null, session: null, started: null, finished: null,
+                   adapter: null, model: null, model_id: null, job_id: null, session: null, started: null, finished: null,
                    error: null, log_tail: [], usage: {}, cost: null, prompt: null, dispatch_args: [], attempts: []}]
      | .edges += ($d | map([., $id]))' \
     --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile"
@@ -272,7 +272,7 @@ node_patch() {
 # terminal states.
 node_set_status() {
   local run_id="$1" node_id="$2" status="$3" job="${4:-}" err="${5:-}" adapter="${6:-}" profile="${7:-}"
-  local session="${8:-}" retry_at=""
+  local session="${8:-}" model="${9:-}" model_id="${10:-}" retry_at=""
   [ "$status" = "error" ] && retry_at=$(node_next_retry_at "$run_id" "$node_id")
   node_patch "$run_id" "$node_id" \
     '.status = $s
@@ -281,6 +281,8 @@ node_set_status() {
      | (if $adapter != "" then .adapter = $adapter else . end)
      | (if $profile != "" then .profile = $profile else . end)
      | (if $session != "" then .session = $session else . end)
+     | (if $model != "" then .model = $model else . end)
+     | (if $model_id != "" then .model_id = $model_id else . end)
      | (if $s == "running" and .started == null then .started = $ts else . end)
      | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $ts else . end)
      | (if $s == "error" then .next_retry_at = $retry_at
@@ -288,6 +290,7 @@ node_set_status() {
         else . end)' \
     --arg s "$status" --arg job "$job" --arg err "$err" \
     --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" \
+    --arg model "$model" --arg model_id "$model_id" \
     --arg retry_at "$retry_at" --arg ts "$(now_iso)"
 }
 
@@ -410,7 +413,9 @@ cmd_node_dispatch() {
   job_id=$(cmd_start "$@") || return $?
   node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
-    "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" || return 1
+    "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" \
+    "$(cat "$JOBS_HOME/$job_id/model" 2>/dev/null)" \
+    "$(cat "$JOBS_HOME/$job_id/model_id" 2>/dev/null)" || return 1
   node_patch "$run_id" "$node_id" '.prompt = $prompt | .dispatch_args = $args' \
     --arg prompt "$raw_prompt" --argjson args "$args_json" || return 1
   printf '%s\n' "$job_id"
@@ -447,6 +452,9 @@ node_archive_attempt() {
        log_tail: (.log_tail // []),
        profile: .profile,
        adapter: .adapter,
+       model: (.model // null),
+       model_id: (.model_id // null),
+       cost: (.cost // null),
        session: (.session // null),
        reason: (if $reason == "" then null else $reason end),
        retry_mode: (if $retry_mode == "" then null else $retry_mode end),
@@ -473,7 +481,7 @@ node_reset_for_retry() {
 }
 
 node_retry_dispatch() {
-  local run_id="$1" node_id="$2" override="$3" no_dispatch="$4" reason="$5" file status prompt profile adapter
+  local run_id="$1" node_id="$2" override="$3" no_dispatch="$4" reason="$5" supplied_prompt="${6:-}" file status prompt profile adapter
   local old_profile old_adapter previous_session target_adapter summary retry_mode="" resume_session="" dispatch_prompt original_text job_id
   file=$(run_state_file "$run_id")
   status=$(node_field "$file" "$node_id" status)
@@ -482,6 +490,7 @@ node_retry_dispatch() {
     *) printf 'node retry: %s is %s, not error or skipped\n' "$node_id" "$status" >&2; return 2 ;;
   esac
   prompt=$(node_field "$file" "$node_id" prompt)
+  [ -n "$prompt" ] || prompt="$supplied_prompt"
   profile=$(node_field "$file" "$node_id" profile)
   adapter=$(node_field "$file" "$node_id" adapter)
   old_profile="$profile"
@@ -517,6 +526,7 @@ node_retry_dispatch() {
   node_reset_for_retry "$run_id" "$node_id" "$profile" "$adapter" || return 1
   node_reopen_run "$run_id" || return 1
   if [ "$no_dispatch" -eq 1 ] || [ -z "$prompt" ]; then
+    [ -z "$prompt" ] || node_patch "$run_id" "$node_id" '.prompt = $prompt' --arg prompt "$prompt" || return 1
     printf 'waiting: %s\n' "$node_id"
     return 0
   fi
@@ -570,7 +580,7 @@ EOF
 }
 
 cmd_node_retry() {
-  local run_id="${1:-}" node_id="${2:-}" override="" no_dispatch=0 file
+  local run_id="${1:-}" node_id="${2:-}" override="" no_dispatch=0 prompt="" file
   if [ -z "$run_id" ] || [ -z "$node_id" ]; then
     printf 'usage: %s\n' "$NODE_RETRY_USAGE" >&2
     return 2
@@ -581,15 +591,22 @@ cmd_node_retry() {
       --profile) shift; override="${1:-}" ;;
       --no-dispatch) no_dispatch=1 ;;
       --*) printf 'node retry: unknown argument %s\n  usage: %s\n' "$1" "$NODE_RETRY_USAGE" >&2; return 2 ;;
-      *) [ -z "$override" ] || { printf 'node retry: pass one override only\n  usage: %s\n' "$NODE_RETRY_USAGE" >&2; return 2; }
-         override="$1" ;;
+      *)
+         if [ -z "$override" ] && in_list "$1" "$ADAPTER_NAMES"; then
+           override="$1"
+         elif [ -z "$prompt" ]; then
+           prompt="$1"
+         else
+           printf 'node retry: pass at most one prompt\n  usage: %s\n' "$NODE_RETRY_USAGE" >&2
+           return 2
+         fi ;;
     esac
     shift
   done
   require_jq "node retry"
   file=$(run_require "$run_id") || return $?
   node_require "$file" "$node_id" || return 2
-  node_retry_dispatch "$run_id" "$node_id" "$override" "$no_dispatch" "manual retry"
+  node_retry_dispatch "$run_id" "$node_id" "$override" "$no_dispatch" "manual retry" "$prompt"
 }
 
 cmd_run_retry() {
@@ -718,13 +735,24 @@ node_auto_retry_reason() {
 }
 
 run_auto_retry_errors() {
-  local run_id="$1" file="$2" max_attempts max_parallel running slots id override reason retried="" now
+  local run_id="$1" file="$2" max_attempts max_parallel running slots id override reason retried="" now retry_at
   max_attempts=$(setting_max_attempts) || return $?
   [ "$max_attempts" = "-1" ] || [ "$max_attempts" -gt 1 ] || return 0
   max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
   running=$(jq '[.nodes[] | select(.status == "running")] | length' "$file")
   slots=$((max_parallel - running))
   [ "$slots" -gt 0 ] || return 0
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    retry_at=$(node_next_retry_at "$run_id" "$id")
+    node_patch "$run_id" "$id" '.next_retry_at = $retry_at' --arg retry_at "$retry_at" || return 1
+  done <<EOF
+$(jq -r '.nodes[]
+  | select(.status == "error")
+  | select((.prompt // "") != "")
+  | select((.next_retry_at // "") == "")
+  | .id' "$file")
+EOF
   now=$(date -u +%s)
   while IFS= read -r id; do
     [ -n "$id" ] || continue

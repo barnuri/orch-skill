@@ -42,6 +42,17 @@ function appendCostRows(list: HTMLElement, cost: NodeCost): void {
       "mono",
     );
   }
+
+  function compactCost(cost: NodeCost | null | undefined): string | null {
+    if (cost === undefined || cost === null) {
+      return null;
+    }
+    if (Number.isFinite(cost.usd) && cost.usd > 0) {
+      return fmtUsd(cost.usd);
+    }
+    const tokens = cost.input_tokens + cost.output_tokens + cost.cache_read_tokens + cost.cache_creation_tokens;
+    return tokens > 0 ? `${fmtCount(tokens)} tokens` : null;
+  }
   // Only worth a breakdown when more than one model was touched; otherwise it restates the rows
   // above with the model id the profile already names. One row, not one per model: the panel's
   // key column is a fixed 84px and a model id does not fit in it.
@@ -59,6 +70,7 @@ function detailList(node: RunNode): HTMLElement {
   detailRow(list, "id", node.id, "mono");
   detailRow(list, "profile", node.profile ?? "—");
   detailRow(list, "adapter", node.adapter ?? "—");
+  detailRow(list, "model", node.model_id ?? node.model ?? "—");
   detailRow(list, "job", node.job_id ?? "—", "mono");
   detailRow(list, "session", node.session ?? "—", "mono");
   detailRow(list, "started", fmtTime(node.started));
@@ -112,10 +124,14 @@ function attemptsHistory(node: RunNode): HTMLElement | null {
     const lines = [
       `#${index + 1}`,
       attempt.profile ?? attempt.adapter ?? "—",
+      attempt.model_id ?? attempt.model ?? "",
+      compactCost(attempt.cost),
       attempt.finished === null ? "not finished" : fmtTime(attempt.finished),
       attempt.error ?? "no error",
+      attempt.retry_mode ?? "",
+      attempt.retry_session ?? "",
       attempt.reason ?? "",
-    ].filter((part) => part !== "");
+    ].filter((part): part is string => typeof part === "string" && part !== "");
     return el("li", { class: "attempt-item" }, [
       el("div", { class: "mono", text: lines.join(" · ") }),
       tail.length > 0

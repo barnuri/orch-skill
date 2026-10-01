@@ -25,6 +25,7 @@ export function createInitialState(): AppState {
     profileNames: [],
     profileHarness: {},
     defaultProfile: "",
+    maxAttempts: 5,
     pendingProfileEdit: null,
     harnesses: null,
     harnessesError: null,

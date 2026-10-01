@@ -92,6 +92,11 @@ function harnessByProfile(profiles: ProfilesDocument["profiles"]): Record<string
     if (typeof spec.harness === "string" && spec.harness !== "") {
       map[name] = spec.harness;
     }
+
+    function maxAttemptsOf(document: ProfilesDocument): number {
+      const value = document.settings.max_attempts;
+      return Number.isInteger(value) && (value === -1 || value >= 1) ? value : 5;
+    }
   }
   return map;
 }
@@ -110,6 +115,7 @@ async function loadProfileHarnesses(): Promise<void> {
     return;
   }
   state.profileHarness = harnessByProfile(result.body.document.profiles);
+  state.maxAttempts = maxAttemptsOf(result.body.document);
 }
 
 async function pollRun(runId: string, seq: number): Promise<void> {
@@ -173,6 +179,7 @@ async function pollDocument(kind: DocumentKind, seq: number): Promise<void> {
     state.profileNames = Object.keys(result.body.document.profiles);
     state.profileHarness = harnessByProfile(result.body.document.profiles);
     state.defaultProfile = result.body.document.settings.default_profile ?? "";
+    state.maxAttempts = maxAttemptsOf(result.body.document);
   }
   const outcome = applyDocLoad({ doc: state.doc, dirty: state.dirty }, toLoadedDocument(kind, result.body, result.etag));
   const driftStarted = outcome.drift && !state.drift;

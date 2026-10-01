@@ -40,6 +40,7 @@ export interface AppState {
   /** profile name -> harness id, so a run page can pick each node's harness glyph. */
   profileHarness: Record<string, string>;
   defaultProfile: string;
+  maxAttempts: number;
   /** Set before navigating to #/profiles; consumed on the next profiles poll. */
   pendingProfileEdit: string | null;
   harnesses: HarnessStatus[] | null;

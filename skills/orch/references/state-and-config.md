@@ -27,7 +27,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
     "default_profile": "copilot-default",
     "disabled_harnesses": ["claude", "local-llm", "opencode"],
     "max_parallel": 4,
-    "max_attempts": 2,
+    "max_attempts": 5,
     "max_nodes": 12,
     "planner_profile": "copilot-planner",
     "retention_days": 7,
@@ -77,7 +77,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
 | `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: `claude`, `local-llm`, `opencode` |
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
-| `settings.max_attempts` | total dispatch tries before automatic retry stops (1–10; template 2; `1` disables) |
+| `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
 | `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `copilot-planner`) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
@@ -115,8 +115,9 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   "started": "ISO", "finished": null, "status": "running",
   "nodes": [ { "id": "n1", "label": "…", "status": "waiting", "profile": "claude-llm-hub",
                "adapter": null, "job_id": null, "started": null, "finished": null,
+               "model": "claude-sonnet", "model_id": "claude-sonnet",
                "error": null, "log_tail": [], "prompt": "@/path/prompt.md",
-               "dispatch_args": [], "attempts": [] } ],
+               "dispatch_args": [], "attempts": [], "next_retry_at": null } ],
   "edges": [ ["n1", "n2"] ] }
 ```
 
@@ -127,13 +128,24 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   `run sync`.
 - `prompt` stores the inline prompt or `@file` reference from the last dispatch; `dispatch_args`
   stores only args that followed the prompt. Older runs may omit both.
+- `model` stores the resolved model slug passed to the harness and `model_id` stores the catalog
+  id when the node was dispatched through a profile. Direct adapter dispatches may leave both null.
 - `attempts` archives each retry source attempt:
-  `{job_id,error,finished,log_tail,profile,adapter,session,reason}`. Older runs may omit it.
+  `{job_id,error,finished,log_tail,profile,adapter,model,model_id,cost,session,reason,retry_mode,retry_session}`.
+  `retry_mode` is `resumed` when the next launch continued the prior harness session, `restarted`
+  when it resent the original task to a fresh/different session, and `null` for `--no-dispatch`.
+  Older runs may omit it.
+- `next_retry_at` is the earliest automatic retry time for an errored node. Backoff starts at the
+  `run advance --interval` value (or the default interval for `run sync`) and doubles per archived
+  attempt, capped at 5 minutes. Manual `node retry` / `run retry` ignore this delay.
 - `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
   and every incoming edge's source is `done`.
 - `node retry` and `run retry` reopen a finished run, reset failed nodes to `waiting`, archive
-  their current fields into `attempts`, and redispatch from `prompt` unless `--no-dispatch` is set.
-  `run sync`/`run advance` do the same automatically while attempts remain.
+  their current fields into `attempts`, and redispatch unless `--no-dispatch` is set. Same-harness
+  retries resume a recorded harness session when the adapter supports it. Manual retries are not
+  blocked by `settings.max_attempts`; automatic retries are. Fallback/different
+  harness retries restart from `prompt` with a note about partial work. `run sync`/`run advance`
+  do the same automatically while attempts remain and backoff has elapsed.
 - Run ids: `YYYYMMDD-HHMMSS-<4 hex>` or `--id` matching `^[A-Za-z0-9._-]+$`.
 - `plan` (planned runs only): `{node, profile, applied, summary, tasks}` — the planner node id,
   its profile, when `plan apply` added the tasks (`null` while the planner works), the plan's
@@ -199,7 +211,7 @@ dispatch.sh status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S]
 dispatch.sh run start "<title>" [--id <run-id>]
 dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
-dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch]
+dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
 dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"]
 dispatch.sh run sync <run-id>
 dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]

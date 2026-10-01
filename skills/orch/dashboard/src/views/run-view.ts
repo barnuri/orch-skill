@@ -115,7 +115,7 @@ export function renderRun(state: AppState, onSelect: (nodeId: string) => void): 
   );
   page.appendChild(
     el("div", { class: "layout run-layout" }, [
-      mountGraph(run, state.selectedNode, onSelect, state.profileHarness),
+      mountGraph(run, state.selectedNode, onSelect, state.profileHarness, state.maxAttempts),
       renderNodePanel(run, state.selectedNode),
     ]),
   );
