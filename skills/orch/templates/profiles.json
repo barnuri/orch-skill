@@ -4,7 +4,7 @@
     "retention_days": 7,
     "budget_threshold": 85,
     "max_parallel": 4,
-    "max_attempts": 2,
+    "max_attempts": 5,
     "max_nodes": 12,
     "planner_profile": "copilot-planner",
     "learning": {

@@ -118,7 +118,6 @@ export const MIN_PRIORITY = 1;
 export const RETENTION_MAX_DAYS = 3650;
 export const PERCENT_MAX = 100;
 export const MAX_PARALLEL_MAX = 64;
-export const MAX_ATTEMPTS_MAX = 10;
 export const MAX_NODES_MAX = 200;
 export const LEARNING_DAYS_MAX = 3650;
 export const LEARNING_SAMPLES_MAX = 1000;

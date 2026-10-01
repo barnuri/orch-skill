@@ -17,7 +17,8 @@ USAGE_CATEGORIES="tool mcp skill subagent agent"
 USAGE_NAME_PATTERN='^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}$'
 USAGE_COUNT_MAX=1000000
 LOG_TAIL_LINES=20
-MAX_ATTEMPTS_DEFAULT=2
+MAX_ATTEMPTS_DEFAULT=5
+RETRY_BACKOFF_CAP_SECS=300
 ADAPTER_NAMES="claude-native $VALID_HARNESSES"
 
 RUN_START_USAGE='dispatch.sh run start "<title>" [--id <run-id>]'
@@ -271,7 +272,8 @@ node_patch() {
 # terminal states.
 node_set_status() {
   local run_id="$1" node_id="$2" status="$3" job="${4:-}" err="${5:-}" adapter="${6:-}" profile="${7:-}"
-  local session="${8:-}"
+  local session="${8:-}" retry_at=""
+  [ "$status" = "error" ] && retry_at=$(node_next_retry_at "$run_id" "$node_id")
   node_patch "$run_id" "$node_id" \
     '.status = $s
      | (if $job != "" then .job_id = $job else . end)
@@ -280,14 +282,56 @@ node_set_status() {
      | (if $profile != "" then .profile = $profile else . end)
      | (if $session != "" then .session = $session else . end)
      | (if $s == "running" and .started == null then .started = $ts else . end)
-     | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $ts else . end)' \
+     | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $ts else . end)
+     | (if $s == "error" then .next_retry_at = $retry_at
+        elif ($s == "running" or $s == "waiting" or $s == "done" or $s == "skipped") then .next_retry_at = null
+        else . end)' \
     --arg s "$status" --arg job "$job" --arg err "$err" \
-    --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" --arg ts "$(now_iso)"
+    --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" \
+    --arg retry_at "$retry_at" --arg ts "$(now_iso)"
 }
 
 node_reopen_run() {
   local run_id="$1"
   state_write "$run_id" 'if .finished != null then .status = "running" | .finished = null else . end'
+}
+
+setting_max_attempts() {
+  local value
+  value=$(setting_get max_attempts "$MAX_ATTEMPTS_DEFAULT")
+  if [ "$value" = "-1" ] || { is_uint "$value" && [ "$value" -ge 1 ]; }; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  printf 'settings.max_attempts must be -1 or an integer >= 1\n' >&2
+  return 2
+}
+
+epoch_to_iso() {
+  local epoch="$1" iso
+  iso=$(date -u -r "$epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) && { printf '%s\n' "$iso"; return 0; }
+  date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null
+}
+
+retry_delay_seconds() {
+  local attempt_count="$1" base="${ORCH_AUTO_RETRY_BASE_SECS:-$ADVANCE_INTERVAL_DEFAULT}" delay i
+  is_uint "$base" && [ "$base" -ge 1 ] || base="$ADVANCE_INTERVAL_DEFAULT"
+  delay="$base"
+  i=0
+  while [ "$i" -lt "$attempt_count" ] && [ "$delay" -lt "$RETRY_BACKOFF_CAP_SECS" ]; do
+    delay=$((delay * 2))
+    [ "$delay" -le "$RETRY_BACKOFF_CAP_SECS" ] || delay="$RETRY_BACKOFF_CAP_SECS"
+    i=$((i + 1))
+  done
+  printf '%s\n' "$delay"
+}
+
+node_next_retry_at() {
+  local run_id="$1" node_id="$2" file attempts delay
+  file=$(run_state_file "$run_id")
+  attempts=$(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | (.attempts // []) | length' "$file")
+  delay=$(retry_delay_seconds "$attempts")
+  epoch_to_iso "$(($(date -u +%s) + delay))"
 }
 
 cmd_node_update() {
@@ -394,7 +438,7 @@ node_retry_target_args() {
 }
 
 node_archive_attempt() {
-  local run_id="$1" node_id="$2" reason="$3"
+  local run_id="$1" node_id="$2" reason="$3" retry_mode="$4" retry_session="$5"
   node_patch "$run_id" "$node_id" \
     '.attempts = ((.attempts // []) + [{
        job_id: .job_id,
@@ -404,9 +448,11 @@ node_archive_attempt() {
        profile: .profile,
        adapter: .adapter,
        session: (.session // null),
-       reason: (if $reason == "" then null else $reason end)
+       reason: (if $reason == "" then null else $reason end),
+       retry_mode: (if $retry_mode == "" then null else $retry_mode end),
+       retry_session: (if $retry_session == "" then null else $retry_session end)
      }])' \
-    --arg reason "$reason"
+    --arg reason "$reason" --arg retry_mode "$retry_mode" --arg retry_session "$retry_session"
 }
 
 node_reset_for_retry() {
@@ -421,12 +467,14 @@ node_reset_for_retry() {
      | .finished = null
      | .error = null
      | .log_tail = []
-     | .cost = null' \
+     | .cost = null
+     | .next_retry_at = null' \
     --arg profile "$profile" --arg adapter "$adapter"
 }
 
 node_retry_dispatch() {
   local run_id="$1" node_id="$2" override="$3" no_dispatch="$4" reason="$5" file status prompt profile adapter
+  local old_profile old_adapter previous_session target_adapter summary retry_mode="" resume_session="" dispatch_prompt original_text job_id
   file=$(run_state_file "$run_id")
   status=$(node_field "$file" "$node_id" status)
   case "$status" in
@@ -436,7 +484,10 @@ node_retry_dispatch() {
   prompt=$(node_field "$file" "$node_id" prompt)
   profile=$(node_field "$file" "$node_id" profile)
   adapter=$(node_field "$file" "$node_id" adapter)
-  node_archive_attempt "$run_id" "$node_id" "$reason" || return 1
+  old_profile="$profile"
+  old_adapter="$adapter"
+  previous_session=$(node_field "$file" "$node_id" session)
+  [ -n "$old_adapter" ] || { [ -n "$old_profile" ] && old_adapter=$(profile_harness "$old_profile"); }
   if [ -n "$override" ]; then
     if in_list "$override" "$ADAPTER_NAMES"; then
       profile=""
@@ -447,6 +498,22 @@ node_retry_dispatch() {
       profile_require "$profile" >/dev/null || return 2
     fi
   fi
+  target_adapter="$adapter"
+  [ -n "$target_adapter" ] || { [ -n "$profile" ] && target_adapter=$(profile_harness "$profile"); }
+  summary=$(node_error_summary "$file" "$node_id")
+  if [ "$no_dispatch" -eq 0 ] && [ -n "$prompt" ] && [ -n "$previous_session" ] \
+      && [ "$target_adapter" = "$old_adapter" ] && adapter_supports_resume "$target_adapter" "$previous_session"; then
+    retry_mode="resumed"
+    resume_session="$previous_session"
+    dispatch_prompt=$(retry_continue_prompt "$summary")
+  elif [ "$no_dispatch" -eq 0 ] && [ -n "$prompt" ]; then
+    retry_mode="restarted"
+    original_text=$(resolve_prompt "$prompt") || return 1
+    dispatch_prompt=$(retry_restart_prompt "$old_profile" "$summary" "$original_text")
+  else
+    dispatch_prompt="$prompt"
+  fi
+  node_archive_attempt "$run_id" "$node_id" "$reason" "$retry_mode" "$resume_session" || return 1
   node_reset_for_retry "$run_id" "$node_id" "$profile" "$adapter" || return 1
   node_reopen_run "$run_id" || return 1
   if [ "$no_dispatch" -eq 1 ] || [ -z "$prompt" ]; then
@@ -466,6 +533,35 @@ EOF
   while IFS= read -r arg; do [ -n "$arg" ] && extra+=("$arg"); done <<EOF
 $(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | (.dispatch_args // [])[]' "$file")
 EOF
+  if [ "${#extra[@]}" -eq 0 ]; then
+    job_id=$(ORCH_RESUME_SESSION="$resume_session" cmd_node_dispatch "$run_id" "$node_id" "${target[@]}" "$dispatch_prompt") || return $?
+    node_patch "$run_id" "$node_id" '.prompt = $prompt' --arg prompt "$prompt" || return 1
+    printf '%s\n' "$job_id"
+    return $?
+  fi
+  job_id=$(ORCH_RESUME_SESSION="$resume_session" cmd_node_dispatch "$run_id" "$node_id" "${target[@]}" "$dispatch_prompt" "${extra[@]}") || return $?
+  node_patch "$run_id" "$node_id" '.prompt = $prompt' --arg prompt "$prompt" || return 1
+  printf '%s\n' "$job_id"
+}
+
+node_dispatch_stored() {
+  local run_id="$1" node_id="$2" prompt="$3" file profile adapter
+  local -a target extra
+  file=$(run_state_file "$run_id")
+  profile=$(node_field "$file" "$node_id" profile)
+  adapter=$(node_field "$file" "$node_id" adapter)
+  target=()
+  extra=()
+  while IFS= read -r arg; do target+=("$arg"); done <<EOF
+$(node_retry_target_args "" "$profile" "$adapter")
+EOF
+  while IFS= read -r arg; do [ -n "$arg" ] && extra+=("$arg"); done <<EOF
+$(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | (.dispatch_args // [])[]' "$file")
+EOF
+  if [ "${#target[@]}" -eq 0 ]; then
+    cmd_node_dispatch "$run_id" "$node_id" "$prompt"
+    return $?
+  fi
   if [ "${#extra[@]}" -eq 0 ]; then
     cmd_node_dispatch "$run_id" "$node_id" "${target[@]}" "$prompt"
     return $?
@@ -544,6 +640,50 @@ profile_fallback() {
   jq -r --arg p "$1" '.profiles[$p].fallback // empty' "$PROFILES_FILE" 2>/dev/null
 }
 
+profile_harness() {
+  jq -r --arg p "$1" '.profiles[$p].harness // empty' "$PROFILES_FILE" 2>/dev/null
+}
+
+adapter_supports_resume() {
+  case "$1" in
+    claude|copilot|opencode) return 0 ;;
+    cursor-agent)
+      case "$2" in cursor:*) return 0 ;; esac
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+node_error_summary() {
+  local file="$1" node_id="$2"
+  jq -r --arg n "$node_id" '
+    .nodes[] | select(.id == $n)
+    | if ((.error // "") != "") then .error
+      else ((.log_tail // []) | join(" | "))
+      end
+    | .[0:500]
+  ' "$file"
+}
+
+retry_continue_prompt() {
+  local summary="$1"
+  cat <<EOF
+The previous attempt stopped with: ${summary:-unknown error}.
+Continue the same task from where you left off; check \$ORCH_NODE_OUT for any partial handoff or notes from the previous attempt.
+EOF
+}
+
+retry_restart_prompt() {
+  local old_profile="$1" summary="$2" original="$3"
+  cat <<EOF
+Previous attempt on ${old_profile:-unknown profile} failed with: ${summary:-unknown error}.
+Partial work may already exist in the repo and in \$ORCH_NODE_OUT. Inspect before changing files and continue carefully.
+
+$original
+EOF
+}
+
 node_error_is_quota_like() {
   local file="$1" node_id="$2"
   jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | [(.error // ""), ((.log_tail // [])[])] | join("\n")' "$file" \
@@ -578,13 +718,14 @@ node_auto_retry_reason() {
 }
 
 run_auto_retry_errors() {
-  local run_id="$1" file="$2" max_attempts max_parallel running slots id override reason retried=""
-  max_attempts=$(setting_uint max_attempts "$MAX_ATTEMPTS_DEFAULT")
-  [ "$max_attempts" -gt 1 ] || return 0
+  local run_id="$1" file="$2" max_attempts max_parallel running slots id override reason retried="" now
+  max_attempts=$(setting_max_attempts) || return $?
+  [ "$max_attempts" = "-1" ] || [ "$max_attempts" -gt 1 ] || return 0
   max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
   running=$(jq '[.nodes[] | select(.status == "running")] | length' "$file")
   slots=$((max_parallel - running))
   [ "$slots" -gt 0 ] || return 0
+  now=$(date -u +%s)
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     [ "$slots" -gt 0 ] || break
@@ -594,11 +735,15 @@ run_auto_retry_errors() {
     retried="$retried${retried:+,}$id"
     slots=$((slots - 1))
   done <<EOF
-$(jq -r --argjson max "$max_attempts" '
+$(jq -r --argjson max "$max_attempts" --argjson now "$now" '
+  def due:
+    (.next_retry_at // "") as $next
+    | $next != "" and (($next | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) <= $now);
   .nodes[]
   | select(.status == "error")
   | select((.prompt // "") != "")
-  | select(((.attempts // []) | length) + 1 < $max)
+  | select(due)
+  | select($max == -1 or (((.attempts // []) | length) + 1 < $max))
   | .id' "$file")
 EOF
   [ -z "$retried" ] || printf 'auto-retried: %s\n' "$retried" >&2

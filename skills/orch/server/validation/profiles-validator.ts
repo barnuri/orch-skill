@@ -16,7 +16,6 @@ import {
   LEARNING_KEYS,
   LEARNING_SAMPLES_MAX,
   MAX_AUTH,
-  MAX_ATTEMPTS_MAX,
   MAX_DESCRIPTION_LEN,
   MAX_ENV,
   MAX_ENV_VALUE_LEN,
@@ -196,8 +195,11 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
   if ("max_parallel" in settings && !isIntegerInRange(settings["max_parallel"], 1, MAX_PARALLEL_MAX)) {
     issues.push({ path: "settings.max_parallel", reason: `must be an integer 1-${MAX_PARALLEL_MAX}` });
   }
-  if ("max_attempts" in settings && !isIntegerInRange(settings["max_attempts"], 1, MAX_ATTEMPTS_MAX)) {
-    issues.push({ path: "settings.max_attempts", reason: `must be an integer 1-${MAX_ATTEMPTS_MAX}` });
+  if (
+    "max_attempts" in settings &&
+    !(settings["max_attempts"] === -1 || isIntegerInRange(settings["max_attempts"], 1, Number.MAX_SAFE_INTEGER))
+  ) {
+    issues.push({ path: "settings.max_attempts", reason: "must be -1 or an integer >= 1" });
   }
   if ("max_nodes" in settings && !isIntegerInRange(settings["max_nodes"], 1, MAX_NODES_MAX)) {
     issues.push({ path: "settings.max_nodes", reason: `must be an integer 1-${MAX_NODES_MAX}` });

@@ -6,7 +6,7 @@ export interface ProfilesSettings {
   budget_threshold?: number;
   /** Most nodes of one run that `run advance` keeps running at once. */
   max_parallel?: number;
-  /** Total tries per node before dependents stay blocked; 1 disables automatic retry. */
+  /** Total tries per node before dependents stay blocked; 1 disables, -1 is unlimited. */
   max_attempts?: number;
   /** Most task nodes `plan apply` accepts from one plan. */
   max_nodes?: number;

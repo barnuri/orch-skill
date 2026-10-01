@@ -11,6 +11,8 @@ export interface RunNodeAttempt {
   adapter?: string | null;
   session?: string | null;
   reason?: string | null;
+  retry_mode?: "resumed" | "restarted" | null;
+  retry_session?: string | null;
 }
 
 export interface RunNode {
@@ -36,6 +38,8 @@ export interface RunNode {
   dispatch_args?: string[];
   /** Failed/skipped attempts archived before retries. Optional for older runs. */
   attempts?: RunNodeAttempt[];
+  /** Earliest automatic retry time for an errored node. Optional for older runs. */
+  next_retry_at?: string | null;
   usage?: NodeUsage;
   /**
    * What the dispatch cost, when the harness reported it. Optional and nullable: most adapters

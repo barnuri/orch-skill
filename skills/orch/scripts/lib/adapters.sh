@@ -108,7 +108,11 @@ adapter_claude() {
   local bin settings
   bin=$(resolve_bin adapter_claude claude) || return $?
   local -a session_args=() settings_args=()
-  [ -n "${ORCH_SESSION_ID:-}" ] && session_args=(--session-id "$ORCH_SESSION_ID")
+  if [ -n "${ORCH_RESUME_SESSION:-}" ]; then
+    session_args=(--resume "$ORCH_RESUME_SESSION")
+  elif [ -n "${ORCH_SESSION_ID:-}" ]; then
+    session_args=(--session-id "$ORCH_SESSION_ID")
+  fi
   if [ -n "${ORCH_MODEL_BEHAVES_AS:-}" ] && [ -n "${ORCH_MODEL_SLUG:-}" ]; then
     settings=$(claude_model_settings_file "$ORCH_MODEL_SLUG" "$ORCH_MODEL_BEHAVES_AS") \
       && settings_args=(--settings "$settings")
@@ -144,14 +148,18 @@ adapter_cursor_agent() {
   local prompt="$1"; shift || true
   local bin
   bin=$(resolve_bin adapter_cursor_agent cursor-agent) || return $?
-  "$bin" -p "$prompt" --output-format text "$@" </dev/null
+  local -a session_args=()
+  [ -n "${ORCH_RESUME_SESSION:-}" ] && session_args=(--resume "$ORCH_RESUME_SESSION")
+  "$bin" -p "$prompt" --output-format text ${session_args[@]+"${session_args[@]}"} "$@" </dev/null
 }
 
 adapter_opencode() {
   local prompt="$1"; shift || true
   local bin
   bin=$(resolve_bin adapter_opencode opencode) || return $?
-  "$bin" run "$prompt" --auto "$@"
+  local -a session_args=()
+  [ -n "${ORCH_RESUME_SESSION:-}" ] && session_args=(--session "$ORCH_RESUME_SESSION")
+  "$bin" run "$prompt" --auto ${session_args[@]+"${session_args[@]}"} "$@"
 }
 
 # `--allow-all-tools` is deliberately NOT passed here — same reasoning as cursor-agent's
@@ -167,7 +175,11 @@ adapter_copilot() {
   local bin
   bin=$(resolve_bin adapter_copilot copilot) || return $?
   local -a session_args=()
-  [ -n "${ORCH_SESSION_ID:-}" ] && session_args=(--session-id "$ORCH_SESSION_ID")
+  if [ -n "${ORCH_RESUME_SESSION:-}" ]; then
+    session_args=(--session-id "$ORCH_RESUME_SESSION")
+  elif [ -n "${ORCH_SESSION_ID:-}" ]; then
+    session_args=(--session-id "$ORCH_SESSION_ID")
+  fi
   "$bin" -p "$prompt" --silent ${session_args[@]+"${session_args[@]}"} "$@" </dev/null
 }
 

@@ -326,7 +326,7 @@ run_advance_once() {
       queued="$queued${queued:+,}$id"
       continue
     fi
-    cmd_node_dispatch "$run_id" "$id" "$prompt" >/dev/null || return 1
+    node_dispatch_stored "$run_id" "$id" "$prompt" >/dev/null || return 1
     dispatched="$dispatched${dispatched:+,}$id"
     slots=$((slots - 1))
   done <<EOF

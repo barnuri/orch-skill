@@ -373,8 +373,9 @@ cmd_start() {
   # chose — that is the only way the id is knowable to us, and it makes the run resumable
   # (`claude --resume <id>`). Exported, so the backgrounded child and its adapter both see it.
   # `run` has no job dir to record it in, so this is deliberately start-only.
-  ORCH_SESSION_ID="$(new_uuid)"
+  ORCH_SESSION_ID="${ORCH_RESUME_SESSION:-$(new_uuid)}"
   export ORCH_SESSION_ID
+  [ -z "${ORCH_RESUME_SESSION:-}" ] || export ORCH_RESUME_SESSION
   printf '%s\n' "$ORCH_SESSION_ID" > "$job_dir/session"
 
   # An adapter's stdout is this job's log, so anything else it wants to report — the claude

@@ -673,6 +673,22 @@ expect_match "plain copilot adapter: no model flag, no permission bypass" \
 out=$(with_shims bash "$SCRIPT" run claude "plain" 2>&1)
 expect_match "plain claude adapter: no model flag" '^-p plain --output-format json$' "$(joined "$out")"
 
+out=$(env ORCH_RESUME_SESSION=resume-123 PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run claude "continue" 2>&1)
+expect_match "claude adapter resumes with --resume" \
+  '^-p continue --output-format json --resume resume-123$' "$(joined "$out")"
+
+out=$(env ORCH_RESUME_SESSION=resume-123 PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run copilot "continue" 2>&1)
+expect_match "copilot adapter resumes with --session-id" \
+  '^-p continue --silent --session-id resume-123$' "$(joined "$out")"
+
+out=$(env ORCH_RESUME_SESSION=resume-123 PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run opencode "continue" 2>&1)
+expect_match "opencode adapter resumes with --session" \
+  '^run continue --auto --session resume-123$' "$(joined "$out")"
+
+out=$(env ORCH_RESUME_SESSION=cursor:abc PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run cursor-agent "continue" 2>&1)
+expect_match "cursor adapter resumes with --resume when given a chat id" \
+  '^-p continue --output-format text --resume cursor:abc$' "$(joined "$out")"
+
 # A dispatched job is only resumable if orch chose the session id and wrote it down, so both
 # halves are asserted: the flag the harness saw, and the id left behind in the job dir.
 session_home=$(new_tmp)
@@ -689,6 +705,26 @@ expect_match "the recorded session id is a uuid" \
 expect_match "the claude adapter is told which session to use" \
   "--session-id $session" "$(joined "$(cat "$session_home/jobs/$session_job/log" 2>/dev/null)")"
 cleanup_dir "$session_home"
+
+resume_home=$(new_tmp)
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" init >/dev/null 2>&1
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" run start "Resume retry" --id resume-retry >/dev/null
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" node add resume-retry a "a" >/dev/null
+resume_first=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" node dispatch resume-retry a claude "full original task" 2>/dev/null)
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" wait "$resume_first" --timeout 5 --interval 1 >/dev/null 2>&1
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" run sync resume-retry >/dev/null
+resume_session=$(jq -r '.nodes[0].session' "$resume_home/runs/resume-retry/state.json")
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" node update resume-retry a error --error "exit=1" >/dev/null
+resume_second=$(env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" node retry resume-retry a 2>/dev/null)
+env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$resume_home" bash "$SCRIPT" wait "$resume_second" --timeout 5 --interval 1 >/dev/null 2>&1
+resume_log=$(cat "$resume_home/jobs/$resume_second/log" 2>/dev/null)
+expect_match "node retry resumes the previous claude session" "--resume $resume_session" "$(joined "$resume_log")"
+expect_match "node retry sends a continuation prompt" 'Continue the same task from where you left off' "$resume_log"
+expect_no_match "node retry does not send the full original prompt when resuming" 'full original task' "$resume_log"
+expect_match "node retry records resumed mode" '^resumed$' "$(jq -r '.nodes[0].attempts[0].retry_mode' "$resume_home/runs/resume-retry/state.json")"
+expect_match "node retry records resumed session" "^$resume_session$" "$(jq -r '.nodes[0].attempts[0].retry_session' "$resume_home/runs/resume-retry/state.json")"
+expect_match "node retry keeps the original stored prompt" '^full original task$' "$(jq -r '.nodes[0].prompt' "$resume_home/runs/resume-retry/state.json")"
+cleanup_dir "$resume_home"
 
 out=$(env ORCH_BIN_DIRS= PATH="$(path_without claude)" bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
 expect_match "claude missing is reported" 'claude not found on PATH' "$out"
@@ -833,6 +869,7 @@ expect_match "node retry reopens a finished run" '^running$' "$(jq -r '.status' 
 expect_match "node retry clears finished time" '^null$' "$(jq -r '.finished | tostring' "$retry_state")"
 expect_match "node retry marks the node running" '^running$' "$(jq -r '.nodes[0].status' "$retry_state")"
 expect_match "node retry archives the failed job" "^$job$" "$(jq -r '.nodes[0].attempts[0].job_id' "$retry_state")"
+expect_match "node retry records restarted mode for non-resumable harnesses" '^restarted$' "$(jq -r '.nodes[0].attempts[0].retry_mode' "$retry_state")"
 expect_match "node retry preserves pass-through args" '^\["--same","args"\]$' "$(jq -c '.nodes[0].dispatch_args' "$retry_state")"
 
 orch wait "$out" --timeout 5 --interval 1 >/dev/null 2>&1
@@ -864,17 +901,40 @@ cleanup_dir "$home"
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 orch init >/dev/null 2>&1
+edit_json "$home/profiles.json" '.settings.max_attempts = 2'
 orch run start "Auto retry" --id retry-3 >/dev/null 2>&1
 orch node add retry-3 first "first" >/dev/null 2>&1
 orch node add retry-3 spent "spent" >/dev/null 2>&1
 edit_json "$home/runs/retry-3/state.json" '
-  .nodes[0] += {status:"error", adapter:"claude-native", prompt:"first", job_id:"old-first", error:"exit=1", finished:"2026-09-01T00:00:00Z"}
-  | .nodes[1] += {status:"error", adapter:"claude-native", prompt:"spent", job_id:"old-spent", error:"exit=1", finished:"2026-09-01T00:00:00Z", attempts:[{job_id:"older", error:"exit=1", finished:"2026-09-01T00:00:00Z", log_tail:[], profile:null}]}'
+  .nodes[0] += {status:"error", adapter:"claude-native", prompt:"first", job_id:"old-first", error:"exit=1", finished:"2026-09-01T00:00:00Z", next_retry_at:"2000-01-01T00:00:00Z"}
+  | .nodes[1] += {status:"error", adapter:"claude-native", prompt:"spent", job_id:"old-spent", error:"exit=1", finished:"2026-09-01T00:00:00Z", next_retry_at:"2000-01-01T00:00:00Z", attempts:[{job_id:"older", error:"exit=1", finished:"2026-09-01T00:00:00Z", log_tail:[], profile:null}]}'
 out=$(orch run sync retry-3 2>&1); rc=$?
 expect_exit "run sync with auto retry exits 0" 0 "$rc"
 expect_match "auto retry consumes an available attempt" '^running$' "$(jq -r '.nodes[0].status' "$home/runs/retry-3/state.json")"
 expect_match "auto retry archives the consumed attempt" '^1$' "$(jq '.nodes[0].attempts | length' "$home/runs/retry-3/state.json")"
 expect_match "auto retry stops at max_attempts" '^error$' "$(jq -r '.nodes[1].status' "$home/runs/retry-3/state.json")"
+cleanup_dir "$home"
+
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+orch run start "Backoff retry" --id retry-backoff >/dev/null 2>&1
+orch node add retry-backoff a "a" >/dev/null 2>&1
+edit_json "$home/runs/retry-backoff/state.json" '
+  .nodes[0] += {status:"error", adapter:"claude-native", prompt:"a", job_id:"old", error:"exit=1", finished:"2026-09-01T00:00:00Z", next_retry_at:"2999-01-01T00:00:00Z"}'
+out=$(orch run sync retry-backoff 2>&1); rc=$?
+expect_exit "auto retry before backoff exits 0" 0 "$rc"
+expect_match "auto retry waits for next_retry_at" '^error$' "$(jq -r '.nodes[0].status' "$home/runs/retry-backoff/state.json")"
+edit_json "$home/profiles.json" '.settings.max_attempts = -1'
+edit_json "$home/runs/retry-backoff/state.json" '.nodes[0].next_retry_at = "2000-01-01T00:00:00Z" | .nodes[0].attempts = [{job_id:"1"},{job_id:"2"},{job_id:"3"},{job_id:"4"},{job_id:"5"}]'
+out=$(orch run sync retry-backoff 2>&1); rc=$?
+expect_exit "unlimited max_attempts auto retry exits 0" 0 "$rc"
+expect_match "unlimited max_attempts still retries" '^running$' "$(jq -r '.nodes[0].status' "$home/runs/retry-backoff/state.json")"
+edit_json "$home/profiles.json" '.settings.max_attempts = 0'
+orch node update retry-backoff a error --error "again" >/dev/null 2>&1
+out=$(orch run sync retry-backoff 2>&1); rc=$?
+expect_exit "invalid max_attempts exits 2" 2 "$rc"
+expect_match "invalid max_attempts is reported" 'settings.max_attempts must be -1 or an integer >= 1' "$out"
 cleanup_dir "$home"
 
 home=$(new_tmp)
@@ -891,11 +951,12 @@ orch run start "Fallback retry" --id retry-4 >/dev/null 2>&1
 orch node add retry-4 a "a" --profile claude-llm-hub >/dev/null 2>&1
 edit_json "$home/runs/retry-4/state.json" '
   .nodes[0] += {status:"error", prompt:"again", job_id:"old", error:"exit=1", finished:"2026-09-01T00:00:00Z",
-    log_tail:["You have exceeded your monthly quota"]}'
+    next_retry_at:"2000-01-01T00:00:00Z", log_tail:["You have exceeded your monthly quota"]}'
 out=$(orch run sync retry-4 2>&1); rc=$?
 expect_exit "quota auto retry exits 0" 0 "$rc"
 expect_match "quota retry switches to fallback profile" '^cursor-llm-hub$' "$(jq -r '.nodes[0].profile' "$home/runs/retry-4/state.json")"
 expect_match "quota retry records the fallback reason" 'fallback profile cursor-llm-hub' "$(jq -r '.nodes[0].attempts[0].reason' "$home/runs/retry-4/state.json")"
+expect_match "quota retry records restarted mode for fallback" '^restarted$' "$(jq -r '.nodes[0].attempts[0].retry_mode' "$home/runs/retry-4/state.json")"
 cleanup_dir "$shims"
 cleanup_dir "$home"
 

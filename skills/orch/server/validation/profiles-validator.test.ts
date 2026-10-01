@@ -123,18 +123,18 @@ describe("profilesIssues", () => {
     ]);
   });
 
-  test("max_parallel, max_attempts and max_nodes must be positive integers in range", () => {
+  test("max_parallel and max_nodes must be positive integers in range; max_attempts allows -1", () => {
     const document = loadTemplate();
     (document["settings"] as Mutable)["max_parallel"] = 0;
-    (document["settings"] as Mutable)["max_attempts"] = 11;
+    (document["settings"] as Mutable)["max_attempts"] = 0;
     (document["settings"] as Mutable)["max_nodes"] = 201;
     expect(issuesFor(document)).toEqual([
       { path: "settings.max_parallel", reason: "must be an integer 1-64" },
-      { path: "settings.max_attempts", reason: "must be an integer 1-10" },
+      { path: "settings.max_attempts", reason: "must be -1 or an integer >= 1" },
       { path: "settings.max_nodes", reason: "must be an integer 1-200" },
     ]);
     (document["settings"] as Mutable)["max_parallel"] = 64;
-    (document["settings"] as Mutable)["max_attempts"] = 1;
+    (document["settings"] as Mutable)["max_attempts"] = -1;
     (document["settings"] as Mutable)["max_nodes"] = 1;
     expect(issuesFor(document)).toEqual([]);
   });
