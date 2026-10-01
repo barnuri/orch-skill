@@ -29,6 +29,34 @@ function runStat(key: string, value: string, extraClass: string = ""): HTMLEleme
   return el("span", { class: klass }, [el("span", { class: "run-stat-key", text: key }), el("b", { text: value })]);
 }
 
+function retryFailedNodes(run: RunState, button: HTMLButtonElement): void {
+  button.disabled = true;
+  void api.retryRun(run.run_id).then((result) => {
+    button.disabled = false;
+    if (result.kind === "ok") {
+      toast("ok", "Retrying failed nodes");
+      void poll();
+      return;
+    }
+    if (result.kind === "error") {
+      toast("error", result.body?.error ?? "Retry failed");
+      return;
+    }
+    toast("error", "Retry failed");
+  });
+}
+
+function runActions(run: RunState): HTMLElement | null {
+  if (!run.nodes.some((node) => node.status === "error")) {
+    return null;
+  }
+  const button = el("button", { class: "btn primary", type: "button", text: "Retry failed nodes" });
+  button.addEventListener("click", () => {
+    retryFailedNodes(run, button);
+  });
+  return el("div", { class: "actions run-actions" }, [button]);
+}
+
 function renderMeta(run: RunState): HTMLElement {
   const counts = countNodes(run);
   const meta = el("div", { class: "meta run-meta", role: "list" });
@@ -40,33 +68,6 @@ function renderMeta(run: RunState): HTMLElement {
     meta.appendChild(runStat("finished", fmtTime(run.finished)));
   }
 
-  function retryFailedNodes(run: RunState, button: HTMLButtonElement): void {
-    button.disabled = true;
-    void api.retryRun(run.run_id).then((result) => {
-      button.disabled = false;
-      if (result.kind === "ok") {
-        toast("ok", "Retrying failed nodes");
-        void poll();
-        return;
-      }
-      if (result.kind === "error") {
-        toast("error", result.body?.error ?? "Retry failed");
-        return;
-      }
-      toast("error", "Retry failed");
-    });
-  }
-
-  function runActions(run: RunState): HTMLElement | null {
-    if (!run.nodes.some((node) => node.status === "error")) {
-      return null;
-    }
-    const button = el("button", { class: "btn primary", type: "button", text: "Retry failed nodes" });
-    button.addEventListener("click", () => {
-      retryFailedNodes(run, button);
-    });
-    return el("div", { class: "actions run-actions" }, [button]);
-  }
   meta.appendChild(runStat("nodes", String(run.nodes.length)));
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) ?? 0;

@@ -208,8 +208,9 @@ describe("POST retry routes", () => {
     const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
     expect(state.status).toBe("running");
     expect(state.finished).toBeNull();
-    expect(state.nodes[0].status).toBe("running");
-    expect(state.nodes[0].attempts?.[0].job_id).toBe("old-job");
+    const retried = state.nodes.find((item) => item.id === "a");
+    expect(retried?.status).toBe("running");
+    expect(retried?.attempts?.[0]?.job_id).toBe("old-job");
   });
 
   test("run retry retries every failed node", async () => {

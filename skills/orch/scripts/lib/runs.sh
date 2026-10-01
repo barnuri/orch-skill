@@ -454,6 +454,8 @@ node_retry_dispatch() {
     return 0
   fi
   local -a target extra
+  target=()
+  extra=()
   while IFS= read -r arg; do target+=("$arg"); done <<EOF
 $(node_retry_target_args "$override" "$profile" "$adapter")
 EOF
@@ -464,6 +466,10 @@ EOF
   while IFS= read -r arg; do [ -n "$arg" ] && extra+=("$arg"); done <<EOF
 $(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | (.dispatch_args // [])[]' "$file")
 EOF
+  if [ "${#extra[@]}" -eq 0 ]; then
+    cmd_node_dispatch "$run_id" "$node_id" "${target[@]}" "$prompt"
+    return $?
+  fi
   cmd_node_dispatch "$run_id" "$node_id" "${target[@]}" "$prompt" "${extra[@]}"
 }
 
