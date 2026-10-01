@@ -1,12 +1,16 @@
 import type { NodeCost } from "../../../shared/types/node-cost";
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
+import { ApiClient } from "../api/api-client";
 import { chip, el } from "../dom/el";
 import { fmtDur, fmtTime, fmtUsd } from "../dom/format";
+import { poll } from "../poll";
+import { toast } from "../ui/toast";
 import { renderNodeTranscript } from "./node-transcript";
 
 const NODE_PANEL_ID: string = "node-panel";
 const SELECTED_CLASS: string = "just-selected";
+const api = new ApiClient();
 
 function detailRow(list: HTMLElement, key: string, value: string, cls: string = ""): void {
   list.appendChild(el("dt", { text: key }));
@@ -70,6 +74,61 @@ function detailList(node: RunNode): HTMLElement {
   return list;
 }
 
+function retryNode(runId: string, node: RunNode, button: HTMLButtonElement): void {
+  button.disabled = true;
+  void api.retryNode(runId, node.id).then((result) => {
+    button.disabled = false;
+    if (result.kind === "ok") {
+      toast("ok", `Retrying ${node.id}`);
+      void poll();
+      return;
+    }
+    if (result.kind === "error") {
+      toast("error", result.body?.error ?? "Retry failed");
+      return;
+    }
+    toast("error", "Retry failed");
+  });
+}
+
+function retryButton(run: RunState, node: RunNode): HTMLButtonElement | null {
+  if (node.status !== "error") {
+    return null;
+  }
+  const button = el("button", { class: "btn primary", type: "button", text: "Retry" });
+  button.addEventListener("click", () => {
+    retryNode(run.run_id, node, button);
+  });
+  return button;
+}
+
+function attemptsHistory(node: RunNode): HTMLElement | null {
+  const attempts = node.attempts ?? [];
+  if (attempts.length === 0) {
+    return null;
+  }
+  const items = attempts.map((attempt, index) => {
+    const tail = attempt.log_tail ?? [];
+    const lines = [
+      `#${index + 1}`,
+      attempt.profile ?? attempt.adapter ?? "—",
+      attempt.finished === null ? "not finished" : fmtTime(attempt.finished),
+      attempt.error ?? "no error",
+      attempt.reason ?? "",
+    ].filter((part) => part !== "");
+    return el("li", { class: "attempt-item" }, [
+      el("div", { class: "mono", text: lines.join(" · ") }),
+      tail.length > 0
+        ? el("pre", { class: "transcript attempt-tail", text: tail.join("\n") })
+        : null,
+    ]);
+  });
+  return el("section", { class: "attempts", "aria-label": "Attempts history" }, [
+    el("h3", { class: "panel-log-title", text: `Attempts — ${attempts.length}` }),
+    el("ol", {}, items),
+  ]);
+}
+
 /** Node details panel below the graph: selected node's details + log tail, or a hint when none is. */
 export function renderNodePanel(run: RunState, selectedId: string | null): HTMLElement {
   const node = run.nodes.find((candidate) => candidate.id === selectedId);
@@ -88,10 +147,14 @@ export function renderNodePanel(run: RunState, selectedId: string | null): HTMLE
     return panel;
   }
   panel.classList.add("has-node");
-  panel.appendChild(el("h2", {}, [node.label || node.id, chip(node.status)]));
+  panel.appendChild(el("h2", {}, [node.label || node.id, chip(node.status), retryButton(run, node)]));
   const grid = el("div", { class: "panel-grid" });
   const details = el("div", { class: "panel-details" });
   details.appendChild(detailList(node));
+  const attempts = attemptsHistory(node);
+  if (attempts !== null) {
+    details.appendChild(attempts);
+  }
   grid.append(details, renderNodeTranscript(node));
   panel.appendChild(grid);
   return panel;

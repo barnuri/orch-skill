@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import type { ApiError } from "../../shared/types/api-error";
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
 import type { JobLogEnvelope } from "../../shared/types/job-log-envelope";
@@ -14,6 +16,7 @@ import type { ServerContext } from "../types/server-context";
 const IF_NONE_MATCH: string = "if-none-match";
 const ETAG_HEADER: string = "ETag";
 const CORRUPT_STATE: string = "state.json is not valid JSON";
+const DISPATCH: string = resolve(import.meta.dir, "../../scripts/dispatch.sh");
 
 // The ETag covers the payload only — never `generated_at` — so an unchanged runs/ tree yields a 304.
 function payloadEtag(payload: unknown): string {
@@ -49,6 +52,42 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
     }
     const body: RunEnvelope = { generated_at: new Date().toISOString(), run: result.run };
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
+  };
+}
+
+function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Response {
+  const proc = Bun.spawnSync(["bash", DISPATCH, ...args], {
+    env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const text = new TextDecoder().decode(proc.stdout).trim();
+  const err = new TextDecoder().decode(proc.stderr).trim();
+  if (proc.exitCode !== 0) {
+    const error: ApiError = { error: err || text || `dispatch exited ${proc.exitCode}` };
+    return jsonResponse(proc.exitCode === 2 ? 400 : 500, error);
+  }
+  return jsonResponse(200, { ok: true, output: text });
+}
+
+export function retryRunHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+    const id = params.id ?? "";
+    if (id === "") {
+      return jsonResponse(400, { error: "missing run id" });
+    }
+    return dispatchSubcommand(ctx, ["run", "retry", id]);
+  };
+}
+
+export function retryNodeHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+    const runId = params.id ?? "";
+    const nodeId = params.node ?? "";
+    if (runId === "" || nodeId === "") {
+      return jsonResponse(400, { error: "missing run or node id" });
+    }
+    return dispatchSubcommand(ctx, ["node", "retry", runId, nodeId]);
   };
 }
 

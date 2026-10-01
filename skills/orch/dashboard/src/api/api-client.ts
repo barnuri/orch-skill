@@ -56,6 +56,20 @@ export class ApiClient {
     });
   }
 
+  retryRun(id: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>(
+      "POST",
+      `${API_BASE}/runs/${encodeURIComponent(id)}/retry`,
+    );
+  }
+
+  retryNode(runId: string, nodeId: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>(
+      "POST",
+      `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/retry`,
+    );
+  }
+
   getJobLog(jobId: string, etag: string | null): Promise<ApiResult<JobLogEnvelope>> {
     return this.request<JobLogEnvelope>("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/log`, {
       etag,

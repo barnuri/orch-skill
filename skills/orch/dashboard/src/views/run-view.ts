@@ -1,11 +1,16 @@
 import type { NodeStatus } from "../../../shared/types/node-status";
 import type { RunState } from "../../../shared/types/run-state";
+import { ApiClient } from "../api/api-client";
 import { STATUS_ORDER } from "../constants";
 import { chip, el } from "../dom/el";
 import { fmtDur, fmtTime } from "../dom/format";
 import { mountGraph } from "../graph/graph-viewport";
+import { poll } from "../poll";
 import type { AppState } from "../state/app-state";
+import { toast } from "../ui/toast";
 import { renderNodePanel } from "./node-panel";
+
+const api = new ApiClient();
 
 function runTitle(run: RunState): string {
   return run.title || run.run_id;
@@ -33,6 +38,34 @@ function renderMeta(run: RunState): HTMLElement {
     meta.appendChild(runStat("elapsed", fmtDur(run.started)));
   } else {
     meta.appendChild(runStat("finished", fmtTime(run.finished)));
+  }
+
+  function retryFailedNodes(run: RunState, button: HTMLButtonElement): void {
+    button.disabled = true;
+    void api.retryRun(run.run_id).then((result) => {
+      button.disabled = false;
+      if (result.kind === "ok") {
+        toast("ok", "Retrying failed nodes");
+        void poll();
+        return;
+      }
+      if (result.kind === "error") {
+        toast("error", result.body?.error ?? "Retry failed");
+        return;
+      }
+      toast("error", "Retry failed");
+    });
+  }
+
+  function runActions(run: RunState): HTMLElement | null {
+    if (!run.nodes.some((node) => node.status === "error")) {
+      return null;
+    }
+    const button = el("button", { class: "btn primary", type: "button", text: "Retry failed nodes" });
+    button.addEventListener("click", () => {
+      retryFailedNodes(run, button);
+    });
+    return el("div", { class: "actions run-actions" }, [button]);
   }
   meta.appendChild(runStat("nodes", String(run.nodes.length)));
   for (const status of STATUS_ORDER) {
@@ -74,6 +107,7 @@ export function renderRun(state: AppState, onSelect: (nodeId: string) => void): 
         el("h1", { text: runTitle(run) }),
         chip(run.status),
         el("a", { class: "muted", href: "#/", text: "← all runs" }),
+        runActions(run),
       ]),
       renderMeta(run),
     ]),

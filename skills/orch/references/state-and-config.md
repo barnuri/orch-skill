@@ -27,6 +27,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
     "default_profile": "copilot-default",
     "disabled_harnesses": ["claude", "local-llm", "opencode"],
     "max_parallel": 4,
+    "max_attempts": 2,
     "max_nodes": 12,
     "planner_profile": "copilot-planner",
     "retention_days": 7,
@@ -76,6 +77,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
 | `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: `claude`, `local-llm`, `opencode` |
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
+| `settings.max_attempts` | total dispatch tries before automatic retry stops (1–10; template 2; `1` disables) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
 | `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `copilot-planner`) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
@@ -113,7 +115,8 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   "started": "ISO", "finished": null, "status": "running",
   "nodes": [ { "id": "n1", "label": "…", "status": "waiting", "profile": "claude-llm-hub",
                "adapter": null, "job_id": null, "started": null, "finished": null,
-               "error": null, "log_tail": [] } ],
+               "error": null, "log_tail": [], "prompt": "@/path/prompt.md",
+               "dispatch_args": [], "attempts": [] } ],
   "edges": [ ["n1", "n2"] ] }
 ```
 
@@ -122,8 +125,15 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 - Node `status`: `waiting | running | done | error | skipped`. `started` is stamped on the first
   `running`, `finished` on any terminal status. `log_tail` = last 20 log lines, refreshed by
   `run sync`.
+- `prompt` stores the inline prompt or `@file` reference from the last dispatch; `dispatch_args`
+  stores only args that followed the prompt. Older runs may omit both.
+- `attempts` archives each retry source attempt:
+  `{job_id,error,finished,log_tail,profile,adapter,session,reason}`. Older runs may omit it.
 - `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
   and every incoming edge's source is `done`.
+- `node retry` and `run retry` reopen a finished run, reset failed nodes to `waiting`, archive
+  their current fields into `attempts`, and redispatch from `prompt` unless `--no-dispatch` is set.
+  `run sync`/`run advance` do the same automatically while attempts remain.
 - Run ids: `YYYYMMDD-HHMMSS-<4 hex>` or `--id` matching `^[A-Za-z0-9._-]+$`.
 - `plan` (planned runs only): `{node, profile, applied, summary, tasks}` — the planner node id,
   its profile, when `plan apply` added the tasks (`null` while the planner works), the plan's
@@ -160,6 +170,8 @@ hostname nor `localhost` is refused with 400.
 | `/api/health` | GET | `{ok, pid, home, version}` |
 | `/api/runs` | GET | `{generated_at, runs:[summary…]}` with `counts: {waiting, running, done, error, skipped}` |
 | `/api/runs/:id` | GET | `{generated_at, run:<state.json>}`; 404 for an id outside `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` |
+| `/api/runs/:id/retry` | POST | dispatches `run retry <id>` |
+| `/api/runs/:id/nodes/:node/retry` | POST | dispatches `node retry <id> <node>` |
 | `/api/profiles` | GET, PUT | envelope adds `harnesses`, `issues`, `limits`; PUT validates before writing |
 | `/api/harnesses` | GET | live probe per adapter (`dispatch.sh harness list --json`); `enabled` reflects `settings.disabled_harnesses` |
 | `/api/memory` | GET, PUT | same shape with `outcomes` |
@@ -187,11 +199,13 @@ dispatch.sh status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S]
 dispatch.sh run start "<title>" [--id <run-id>]
 dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
+dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch]
 dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"]
 dispatch.sh run sync <run-id>
 dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]
 dispatch.sh plan apply <run-id> [--file plan.json]
 dispatch.sh run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]
+dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]
 dispatch.sh msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
 dispatch.sh msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
 dispatch.sh run finish <run-id> [--status done|error]

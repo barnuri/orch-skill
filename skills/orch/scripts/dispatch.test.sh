@@ -782,13 +782,15 @@ state="$home/runs/disp-1/state.json"
 orch run start "Dispatch test" --id disp-1 >/dev/null 2>&1
 orch node add disp-1 a "native" >/dev/null 2>&1
 orch node add disp-1 b "hub" --profile local-qwen >/dev/null 2>&1
-out=$(orch node dispatch disp-1 a claude-native "hello" 2>/dev/null); rc=$?
+out=$(orch node dispatch disp-1 a claude-native "hello" --flag value 2>/dev/null); rc=$?
 expect_exit "node dispatch exits 0" 0 "$rc"
 orch wait "$out" --timeout 5 --interval 1 >/dev/null 2>&1
 out=$(orch run sync disp-1 2>&1)
 expect_match "dispatched claude-native node flips to done" '^a.done$' "$out"
 expect_match "adapter recorded on the node" '^claude-native$' "$(state_get '.nodes[0].adapter')"
 expect_match "log_tail captured on sync" 'no subprocess spawned' "$(state_get '.nodes[0].log_tail[0]')"
+expect_match "dispatch prompt is persisted" '^hello$' "$(state_get '.nodes[0].prompt')"
+expect_match "dispatch pass-through args are persisted" '^\["--flag","value"\]$' "$(state_get -c '.nodes[0].dispatch_args')"
 out=$(orch node dispatch disp-1 a claude-native "again" 2>&1); rc=$?
 expect_match "re-dispatching a finished node is refused" 'is done, not waiting' "$out"
 expect_exit "re-dispatch exits 2" 2 "$rc"
@@ -808,6 +810,95 @@ elif start_fixture 2; then
   stop_fixture
 fi
 cleanup_dir "$home"
+
+# node/run retry: failed attempts are archived, runs reopen, prompts are reused, and the
+# scheduler never retries forever.
+home=$(new_tmp)
+shims=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+
+retry_state="$home/runs/retry-1/state.json"
+orch run start "Retry test" --id retry-1 >/dev/null 2>&1
+orch node add retry-1 a "retry me" >/dev/null 2>&1
+job=$(orch node dispatch retry-1 a claude-native "again" --same args 2>/dev/null)
+orch wait "$job" --timeout 5 --interval 1 >/dev/null 2>&1
+orch run sync retry-1 >/dev/null 2>&1
+orch node update retry-1 a error --job "$job" --error "exit=1" >/dev/null 2>&1
+orch run finish retry-1 >/dev/null 2>&1
+out=$(orch node retry retry-1 a 2>&1); rc=$?
+expect_exit "node retry exits 0" 0 "$rc"
+expect_match "node retry prints a new job id" '^[0-9]' "$out"
+expect_match "node retry reopens a finished run" '^running$' "$(jq -r '.status' "$retry_state")"
+expect_match "node retry clears finished time" '^null$' "$(jq -r '.finished | tostring' "$retry_state")"
+expect_match "node retry marks the node running" '^running$' "$(jq -r '.nodes[0].status' "$retry_state")"
+expect_match "node retry archives the failed job" "^$job$" "$(jq -r '.nodes[0].attempts[0].job_id' "$retry_state")"
+expect_match "node retry preserves pass-through args" '^\["--same","args"\]$' "$(jq -c '.nodes[0].dispatch_args' "$retry_state")"
+
+orch wait "$out" --timeout 5 --interval 1 >/dev/null 2>&1
+orch run sync retry-1 >/dev/null 2>&1
+out=$(orch node retry retry-1 a 2>&1); rc=$?
+expect_exit "node retry wrong state exits 2" 2 "$rc"
+expect_match "node retry wrong state is clear" 'not error or skipped' "$out"
+cleanup_dir "$home"
+
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+edit_json "$home/profiles.json" '.settings.max_parallel = 1'
+orch run start "Run retry" --id retry-2 >/dev/null 2>&1
+orch node add retry-2 a "a" >/dev/null 2>&1
+orch node add retry-2 b "b" >/dev/null 2>&1
+edit_json "$home/runs/retry-2/state.json" '
+  .status = "error" | .finished = "2026-09-01T00:00:00Z"
+  | .nodes[0] += {status:"error", adapter:"claude-native", prompt:"a", job_id:"old-a", error:"exit=1", finished:"2026-09-01T00:00:00Z"}
+  | .nodes[1] += {status:"error", adapter:"claude-native", prompt:"b", job_id:"old-b", error:"exit=1", finished:"2026-09-01T00:00:00Z"}'
+out=$(orch run retry retry-2 2>&1); rc=$?
+expect_exit "run retry exits 0" 0 "$rc"
+expect_match "run retry dispatches within max_parallel" '^retried: a$' "$out"
+expect_match "run retry leaves extra failures waiting" '^waiting: b$' "$out"
+expect_match "run retry records one running node" '^1$' "$(jq '[.nodes[] | select(.status == "running")] | length' "$home/runs/retry-2/state.json")"
+expect_match "run retry records one waiting node" '^1$' "$(jq '[.nodes[] | select(.status == "waiting")] | length' "$home/runs/retry-2/state.json")"
+cleanup_dir "$home"
+
+home=$(new_tmp)
+orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+orch run start "Auto retry" --id retry-3 >/dev/null 2>&1
+orch node add retry-3 first "first" >/dev/null 2>&1
+orch node add retry-3 spent "spent" >/dev/null 2>&1
+edit_json "$home/runs/retry-3/state.json" '
+  .nodes[0] += {status:"error", adapter:"claude-native", prompt:"first", job_id:"old-first", error:"exit=1", finished:"2026-09-01T00:00:00Z"}
+  | .nodes[1] += {status:"error", adapter:"claude-native", prompt:"spent", job_id:"old-spent", error:"exit=1", finished:"2026-09-01T00:00:00Z", attempts:[{job_id:"older", error:"exit=1", finished:"2026-09-01T00:00:00Z", log_tail:[], profile:null}]}'
+out=$(orch run sync retry-3 2>&1); rc=$?
+expect_exit "run sync with auto retry exits 0" 0 "$rc"
+expect_match "auto retry consumes an available attempt" '^running$' "$(jq -r '.nodes[0].status' "$home/runs/retry-3/state.json")"
+expect_match "auto retry archives the consumed attempt" '^1$' "$(jq '.nodes[0].attempts | length' "$home/runs/retry-3/state.json")"
+expect_match "auto retry stops at max_attempts" '^error$' "$(jq -r '.nodes[1].status' "$home/runs/retry-3/state.json")"
+cleanup_dir "$home"
+
+home=$(new_tmp)
+shims=$(new_tmp)
+cat > "$shims/cursor-agent" <<'SHIM'
+#!/usr/bin/env bash
+printf 'cursor fallback ok\n'
+SHIM
+chmod +x "$shims/cursor-agent"
+orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" LLM_HUB_URL=http://127.0.0.1:1 LLM_HUB_KEY=dummy bash "$SCRIPT" "$@"; }
+orch init >/dev/null 2>&1
+edit_json "$home/profiles.json" '.settings.disabled_harnesses = []'
+orch run start "Fallback retry" --id retry-4 >/dev/null 2>&1
+orch node add retry-4 a "a" --profile claude-llm-hub >/dev/null 2>&1
+edit_json "$home/runs/retry-4/state.json" '
+  .nodes[0] += {status:"error", prompt:"again", job_id:"old", error:"exit=1", finished:"2026-09-01T00:00:00Z",
+    log_tail:["You have exceeded your monthly quota"]}'
+out=$(orch run sync retry-4 2>&1); rc=$?
+expect_exit "quota auto retry exits 0" 0 "$rc"
+expect_match "quota retry switches to fallback profile" '^cursor-llm-hub$' "$(jq -r '.nodes[0].profile' "$home/runs/retry-4/state.json")"
+expect_match "quota retry records the fallback reason" 'fallback profile cursor-llm-hub' "$(jq -r '.nodes[0].attempts[0].reason' "$home/runs/retry-4/state.json")"
+cleanup_dir "$shims"
+cleanup_dir "$home"
+
 
 # --- prune / auto-prune ------------------------------------------------------
 # A failing `trash` shim forces the .trash/ fallback so the test is deterministic on every machine.

@@ -190,6 +190,7 @@ profiles_migrate() {
         recency_days: 30,
         dismiss_ttl_days: 30
       }
+    | .settings.max_attempts //= 2
     | .settings.learning.auto_apply_safe //= true
     | reduce (.profiles | keys[]) as $name (
         .;
@@ -263,6 +264,7 @@ profiles_migrate_copilot_planner() {
         | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) + ["claude"] | unique)
         | .settings.max_parallel //= 4
         | .settings.max_nodes //= 12
+        | .settings.max_attempts //= 2
         | .settings.planner_profile //= "copilot-planner"
       else . end
   ' "$PROFILES_FILE" > "$tmp"; then

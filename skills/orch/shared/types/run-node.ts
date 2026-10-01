@@ -2,6 +2,17 @@ import type { NodeCost } from "./node-cost";
 import type { NodeStatus } from "./node-status";
 import type { NodeUsage } from "./node-usage";
 
+export interface RunNodeAttempt {
+  job_id: string | null;
+  error: string | null;
+  finished: string | null;
+  log_tail: string[];
+  profile: string | null;
+  adapter?: string | null;
+  session?: string | null;
+  reason?: string | null;
+}
+
 export interface RunNode {
   id: string;
   label: string;
@@ -19,6 +30,12 @@ export interface RunNode {
   finished: string | null;
   error: string | null;
   log_tail: string[];
+  /** Prompt reference or inline text passed to the last dispatch. Optional for older runs. */
+  prompt?: string | null;
+  /** Arguments that followed the prompt on the last dispatch. Optional for older runs. */
+  dispatch_args?: string[];
+  /** Failed/skipped attempts archived before retries. Optional for older runs. */
+  attempts?: RunNodeAttempt[];
   usage?: NodeUsage;
   /**
    * What the dispatch cost, when the harness reported it. Optional and nullable: most adapters

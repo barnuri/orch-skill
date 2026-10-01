@@ -167,6 +167,26 @@ orch run advance <run-id> --until-done       # applies the plan, dispatches, fin
   Fallback Tier calls `run advance` (without `--until-done`) once per turn.
 - To plan it yourself, write the same JSON and run `orch plan apply <run-id> --file plan.json`.
 
+### Retry and resume
+
+Every dispatch stores the prompt reference/text and pass-through args on the node. A failed node
+can be retried without rebuilding the prompt:
+
+```bash
+orch node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch]
+orch run retry <run-id> [--profile P] [--no-dispatch]
+```
+
+`node retry` works for `error` and `skipped` nodes. It archives the failed attempt, clears the
+node back to `waiting`, reopens a finished run, and redispatches unless `--no-dispatch` is set or
+the node has no stored prompt. `run retry` does that for every errored node and obeys
+`settings.max_parallel`; extra nodes stay `waiting` for `run advance`.
+
+`run sync` and `run advance` automatically retry errored nodes with stored prompts until
+`settings.max_attempts` is reached (template: `2`; set `1` to disable). Quota/rate/auth-looking
+failures use the profile's `fallback` profile when that fallback is enabled; otherwise the same
+profile is retried.
+
 **Talking between sessions.** Every run has a mailbox, `runs/<run-id>/messages.jsonl`. Planned
 task prompts already tell the node how to use it, and `$ORCH_DISPATCH` points it at this script:
 

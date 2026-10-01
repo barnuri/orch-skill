@@ -179,6 +179,70 @@ describe("GET /api/runs/:id", () => {
   });
 });
 
+describe("POST retry routes", () => {
+  function errorRun(): RunState {
+    return runState({
+      finished: "2026-09-03T12:02:00Z",
+      status: "error",
+      nodes: [
+        {
+          ...node("a", "error"),
+          profile: null,
+          adapter: "claude-native",
+          job_id: "old-job",
+          finished: "2026-09-03T12:01:00Z",
+          error: "exit=1",
+          log_tail: ["boom"],
+          prompt: "try again",
+        },
+      ],
+      edges: [],
+    });
+  }
+
+  test("node retry goes through dispatch and reopens the run", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, errorRun());
+    const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
+    expect(state.status).toBe("running");
+    expect(state.finished).toBeNull();
+    expect(state.nodes[0].status).toBe("running");
+    expect(state.nodes[0].attempts?.[0].job_id).toBe("old-job");
+  });
+
+  test("run retry retries every failed node", async () => {
+    const srv = server();
+    seed(
+      srv,
+      RUN_ID,
+      runState({
+        finished: "2026-09-03T12:02:00Z",
+        status: "error",
+        nodes: [
+          { ...node("a", "error"), adapter: "claude-native", prompt: "a" },
+          { ...node("b", "error"), adapter: "claude-native", prompt: "b" },
+        ],
+        edges: [],
+      }),
+    );
+    const res = await srv.api(`/api/runs/${RUN_ID}/retry`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
+    expect(state.nodes.map((item) => item.status)).toEqual(["running", "running"]);
+    expect(state.nodes.map((item) => item.attempts?.length ?? 0)).toEqual([1, 1]);
+  });
+
+  test("wrong node state returns a validation error", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({ nodes: [{ ...node("a", "done"), adapter: "claude-native", prompt: "a" }] }));
+    const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("not error or skipped");
+  });
+});
+
 // --- GET /api/jobs/:id/chat ---------------------------------------------------
 // Driven through the handler rather than the test server: the route is wired with the default
 // reader, which would read the developer's own ~/.claude.

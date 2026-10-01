@@ -88,10 +88,12 @@ $NODE_DIGEST_USAGE
     -> bounded summary of the node's job: status, exit code, size, head+tail of its log
     -> start + marks the node running; omit the target to use the node's own --profile.
 $NODE_UPDATE_USAGE
+$NODE_RETRY_USAGE
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
                                   then "ready: a,b" (waiting nodes whose deps are all done) and "running: N"
     -> ... then "slots: N" (free places under settings.max_parallel)
 $RUN_FINISH_USAGE   -> default: error if any node errored
+$RUN_RETRY_USAGE
 $RUN_ADVANCE_USAGE
     -> one scheduler step: sync, apply a finished plan, dispatch ready nodes that have a stored
        prompt up to settings.max_parallel. --until-done loops (and finishes the run); exit 3 = blocked.
@@ -468,14 +470,14 @@ main() {
     run)
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
-        start|finish|list|sync|advance) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        start|finish|list|sync|advance|retry) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
     node)
       case "${2:-}" in
-        add|update|dispatch|usage|cost|out|digest) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|dispatch|usage|cost|out|digest ...\n' >&2; exit 2 ;;
+        add|update|dispatch|retry|usage|cost|out|digest) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        *) printf 'usage: dispatch.sh node add|update|dispatch|retry|usage|cost|out|digest ...\n' >&2; exit 2 ;;
       esac
       ;;
     plan) shift; cmd_plan "$@" ;;

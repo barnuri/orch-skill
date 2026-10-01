@@ -295,7 +295,7 @@ run_ready_ids() {
 # One scheduler step. Prints what it did, then the same counters `run sync` does.
 # Exit: 0 progressed/finished, 1 a plan or dispatch failed, 3 blocked (nothing can run).
 run_advance_once() {
-  local run_id="$1" file plan_node plan_status max_parallel running slots id dispatched="" queued="" manual=""
+  local run_id="$1" file plan_node plan_status max_parallel running slots id prompt dispatched="" queued="" manual=""
   file=$(run_state_file "$run_id")
   cmd_run_sync "$run_id" >/dev/null || return 1
 
@@ -313,7 +313,12 @@ run_advance_once() {
   slots=$((max_parallel - running))
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    if [ ! -f "$(run_prompt_file "$run_id" "$id")" ]; then
+    if [ -f "$(run_prompt_file "$run_id" "$id")" ]; then
+      prompt="@$(run_prompt_file "$run_id" "$id")"
+    else
+      prompt=$(node_field "$file" "$id" prompt)
+    fi
+    if [ -z "$prompt" ]; then
       manual="$manual${manual:+,}$id"
       continue
     fi
@@ -321,7 +326,7 @@ run_advance_once() {
       queued="$queued${queued:+,}$id"
       continue
     fi
-    cmd_node_dispatch "$run_id" "$id" "@$(run_prompt_file "$run_id" "$id")" >/dev/null || return 1
+    cmd_node_dispatch "$run_id" "$id" "$prompt" >/dev/null || return 1
     dispatched="$dispatched${dispatched:+,}$id"
     slots=$((slots - 1))
   done <<EOF
