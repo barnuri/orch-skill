@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { NodeStatus } from "../../../shared/types/node-status";
 import type { RunNode } from "../../../shared/types/run-node";
-import { costOf, durationOf, metaLine } from "./render-graph.ts";
+import { attemptLine, costOf, metaLine } from "./render-graph.ts";
 
 function node(overrides: Partial<RunNode> = {}): RunNode {
   return {
@@ -20,43 +20,15 @@ function node(overrides: Partial<RunNode> = {}): RunNode {
   };
 }
 
-describe("durationOf", () => {
-  test("seconds below a minute", () => {
-    expect(
-      durationOf(node({ started: "2026-09-15T12:00:00Z", finished: "2026-09-15T12:00:42Z" })),
-    ).toBe("42s");
-  });
-
-  test("minutes and seconds below an hour", () => {
-    expect(
-      durationOf(node({ started: "2026-09-15T12:00:00Z", finished: "2026-09-15T12:03:12Z" })),
-    ).toBe("3m 12s");
-  });
-
-  test("hours and minutes above an hour", () => {
-    expect(
-      durationOf(node({ started: "2026-09-15T12:00:00Z", finished: "2026-09-15T14:05:00Z" })),
-    ).toBe("2h 5m");
-  });
-
-  test("a node that never started has no duration to show", () => {
-    expect(durationOf(node({ started: null }))).toBeNull();
-    expect(durationOf(node({ started: "" }))).toBeNull();
-  });
-
-  test("unusable timestamps yield null rather than a dash on the node", () => {
-    expect(durationOf(node({ started: "not a date", finished: "also not" }))).toBeNull();
-  });
-
-  test("a running node measures against now, so it always has a duration", () => {
-    const started = new Date(Date.now() - 90_000).toISOString();
-    expect(durationOf(node({ started, finished: null, status: "running" }))).toMatch(/^1m \d+s$/);
-  });
-});
-
 describe("metaLine", () => {
-  test("pairs status with the profile", () => {
-    expect(metaLine(node({ status: "done", profile: "claude-sub" }))).toBe("done · claude-sub");
+  test("pairs status with the catalog model id", () => {
+    expect(metaLine(node({ status: "done", profile: "claude-sub", model_id: "claude-sonnet" }))).toBe(
+      "done · claude-sonnet",
+    );
+  });
+
+  test("falls back to the resolved model slug", () => {
+    expect(metaLine(node({ status: "done", model: "sonnet" }))).toBe("done · sonnet");
   });
 
   test("falls back to the adapter when no profile is set", () => {
@@ -69,14 +41,12 @@ describe("metaLine", () => {
     expect(metaLine(node({ status: "waiting" }))).toBe("waiting");
   });
 
-  // The pair a real run produced. It shares row 2 with nothing now that the measurements have
-  // their own row, so it survives whole — this is what the third row bought.
-  test("a real status/profile pair is not truncated", () => {
-    expect(metaLine(node({ status: "done", profile: "claude-opus" }))).toBe("done · claude-opus");
+  test("a real status/model pair is not truncated", () => {
+    expect(metaLine(node({ status: "done", model_id: "claude-opus" }))).toBe("done · claude-opus");
   });
 
   test("a profile longer than the node is cut, not overflowed", () => {
-    const line = metaLine(node({ status: "running", profile: "a".repeat(80) }));
+    const line = metaLine(node({ status: "running", model_id: "a".repeat(80) }));
     expect(line.length).toBeLessThan(40);
     expect(line.endsWith("…")).toBe(true);
   });
@@ -110,7 +80,17 @@ describe("costOf", () => {
   });
 
   test("zero is shown as zero", () => {
-    expect(costOf(withCost(0))).toBe("$0.00");
+    expect(costOf(withCost(0))).toBeNull();
+  });
+
+  test("zero-dollar usage falls back to token count", () => {
+    const item = withCost(0);
+    if (item.cost === undefined || item.cost === null) {
+      throw new Error("expected cost");
+    }
+    item.cost.input_tokens = 1000;
+    item.cost.output_tokens = 234;
+    expect(costOf(item)).toBe("1,234 tok");
   });
 
   test("a node whose harness reported no cost has none to show", () => {
@@ -121,5 +101,29 @@ describe("costOf", () => {
   test("a nonsense amount is not rendered", () => {
     expect(costOf(withCost(Number.NaN))).toBeNull();
     expect(costOf(withCost(-1))).toBeNull();
+  });
+});
+
+describe("attemptLine", () => {
+  test("starts at attempt one", () => {
+    expect(attemptLine(node(), 5)).toBe("attempt 1/5");
+  });
+
+  test("counts archived attempts plus the current try", () => {
+    expect(attemptLine(node({ attempts: [{ job_id: "a", error: null, finished: null, log_tail: [], profile: null }] }), 5)).toBe(
+      "attempt 2/5",
+    );
+  });
+
+  test("uses infinity for unlimited automatic attempts", () => {
+    expect(attemptLine(node({ attempts: [{ job_id: "a", error: null, finished: null, log_tail: [], profile: null }] }), -1)).toBe(
+      "attempt 2/∞",
+    );
+  });
+
+  test("labels manual retries beyond the automatic cap", () => {
+    expect(attemptLine(node({ attempts: new Array(5).fill({ job_id: null, error: null, finished: null, log_tail: [], profile: null }) }), 5)).toBe(
+      "manual retry 6",
+    );
   });
 });

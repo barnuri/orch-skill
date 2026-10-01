@@ -42,17 +42,6 @@ function appendCostRows(list: HTMLElement, cost: NodeCost): void {
       "mono",
     );
   }
-
-  function compactCost(cost: NodeCost | null | undefined): string | null {
-    if (cost === undefined || cost === null) {
-      return null;
-    }
-    if (Number.isFinite(cost.usd) && cost.usd > 0) {
-      return fmtUsd(cost.usd);
-    }
-    const tokens = cost.input_tokens + cost.output_tokens + cost.cache_read_tokens + cost.cache_creation_tokens;
-    return tokens > 0 ? `${fmtCount(tokens)} tokens` : null;
-  }
   // Only worth a breakdown when more than one model was touched; otherwise it restates the rows
   // above with the model id the profile already names. One row, not one per model: the panel's
   // key column is a fixed 84px and a model id does not fit in it.
@@ -63,6 +52,17 @@ function appendCostRows(list: HTMLElement, cost: NodeCost): void {
     .map((model) => `${model.model}  ${fmtUsd(model.usd)}`)
     .join("\n");
   detailRow(list, "models", lines, "mono cost-models");
+}
+
+function compactCost(cost: NodeCost | null | undefined): string | null {
+  if (cost === undefined || cost === null) {
+    return null;
+  }
+  if (Number.isFinite(cost.usd) && cost.usd > 0) {
+    return fmtUsd(cost.usd);
+  }
+  const tokens = cost.input_tokens + cost.output_tokens + cost.cache_read_tokens + cost.cache_creation_tokens;
+  return tokens > 0 ? `${fmtCount(tokens)} tokens` : null;
 }
 
 function detailList(node: RunNode): HTMLElement {

@@ -60,7 +60,7 @@ export function metaLine(node: RunNode): string {
   return truncate(full, Math.max(META_MIN_CHARS, Math.floor(available / META_CHAR_PX)));
 }
 
-function attemptLine(node: RunNode, maxAttempts: number): string {
+export function attemptLine(node: RunNode, maxAttempts: number): string {
   const current = (node.attempts ?? []).length + 1;
   if (maxAttempts === -1) {
     return `attempt ${current}/∞`;

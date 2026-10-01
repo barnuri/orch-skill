@@ -92,13 +92,16 @@ function harnessByProfile(profiles: ProfilesDocument["profiles"]): Record<string
     if (typeof spec.harness === "string" && spec.harness !== "") {
       map[name] = spec.harness;
     }
-
-    function maxAttemptsOf(document: ProfilesDocument): number {
-      const value = document.settings.max_attempts;
-      return Number.isInteger(value) && (value === -1 || value >= 1) ? value : 5;
-    }
   }
   return map;
+}
+
+function maxAttemptsOf(document: ProfilesDocument): number {
+  const value = document.settings.max_attempts;
+  if (value === undefined) {
+    return 5;
+  }
+  return Number.isInteger(value) && (value === -1 || value >= 1) ? value : 5;
 }
 
 /**
