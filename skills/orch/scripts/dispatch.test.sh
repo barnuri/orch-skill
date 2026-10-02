@@ -388,6 +388,27 @@ expect_match "migration seeds Copilot on an existing install" '^copilot$' \
 expect_file "migration records the one-time Copilot backfill" "$mig/.copilot-profile-migrated"
 cleanup_dir "$mig"
 
+# An install from the Copilot-led layout gets Claude back: claude-sub becomes claude-default, a
+# claude-planner is seeded, the harness is re-enabled, and Copilot falls back to its Claude twin.
+mig=$(new_tmp)
+jq -n '{settings:{default_profile:"claude-sub",retention_days:7,budget_threshold:85,disabled_harnesses:["claude","opencode"]},
+        models:{"claude-sonnet":{slug:"sonnet",harnesses:["claude"],description:""}},
+        profiles:{"claude-sub":{harness:"claude",model:"claude-sonnet",enabled:false,parallel_ok:false,max_complexity:"medium",flags:[],env:{},auth:[]},
+                  "claude-llm-hub":{harness:"claude",model:"claude-sonnet",fallback:"claude-sub",flags:[],env:{},auth:[]}}}' \
+  > "$mig/profiles.json"
+: > "$mig/.copilot-planner-migrated"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "claude migration renames claude-sub" '^false$' "$(jq '.profiles | has("claude-sub")' "$mig/profiles.json")"
+expect_match "claude-default is enabled and parallel" '^true,true$' \
+  "$(jq -r '.profiles["claude-default"] | "\(.enabled),\(.parallel_ok)"' "$mig/profiles.json")"
+expect_match "claude-planner runs Opus 1M at xhigh effort" '^opus\[1m\] --effort xhigh' \
+  "$(jq -r '.models[.profiles["claude-planner"].model].slug + " " + (.profiles["claude-planner"].flags | join(" "))' "$mig/profiles.json")"
+expect_match "claude harness is re-enabled" '^opencode$' "$(jq -r '.settings.disabled_harnesses | join(",")' "$mig/profiles.json")"
+expect_match "references follow the rename" '^claude-default claude-default$' \
+  "$(jq -r '.settings.default_profile + " " + .profiles["claude-llm-hub"].fallback' "$mig/profiles.json")"
+expect_file "claude migration records its marker" "$mig/.claude-planner-migrated"
+cleanup_dir "$mig"
+
 # --- demo seeding -----------------------------------------------------------------------------
 # The demo exists so a reader can see the dashboard populated without spending a token, so the
 # thing worth guarding is that it never reaches a harness and that reset removes exactly what
@@ -497,7 +518,7 @@ expect_exit "the shipped cursor profile needs no auth env var" 0 "$rc"
 edit_json "$home/profiles.json" 'del(.profiles["needs-auth"])' 
 out=$(load_profile bogus); rc=$?
 expect_exit "unknown profile in profile_load exits 2" 2 "$rc"
-out=$(load_profile claude-sub); rc=$?
+out=$(load_profile claude-default); rc=$?
 expect_exit "profile with no env/auth loads cleanly" 0 "$rc"
 
 # budget threshold: settings value is honoured, env still wins.
@@ -509,15 +530,15 @@ expect_exit "settings.budget_threshold=80 trips at 82%" 1 "$rc"
 out=$(env HARNESS_ORCH_HOME="$home" CLAUDE_USAGE_SNAPSHOT="$snapshot" HARNESS_ORCH_BUDGET_THRESHOLD=90 bash "$SCRIPT" budget-check 2>&1); rc=$?
 expect_exit "env threshold overrides settings" 0 "$rc"
 
-out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory add --profile claude-sub --outcome success --kind refactor --note "fast and clean" 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory add --profile claude-default --outcome success --kind refactor --note "fast and clean" 2>&1); rc=$?
 expect_exit "memory add exits 0" 0 "$rc"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory list 2>&1)
-expect_match "memory list round-trips the entry" 'claude-sub.success.refactor.fast and clean' "$out"
+expect_match "memory list round-trips the entry" 'claude-default.success.refactor.fast and clean' "$out"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory list --profile nope 2>&1)
-expect_no_match "memory list filters by profile" 'claude-sub' "$out"
+expect_no_match "memory list filters by profile" 'claude-default' "$out"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory add --profile nope --outcome success 2>&1); rc=$?
 expect_exit "memory add rejects unknown profile" 2 "$rc"
-out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory add --profile claude-sub --outcome meh 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" memory add --profile claude-default --outcome meh 2>&1); rc=$?
 expect_match "memory add rejects bad outcome" 'outcome must be one of' "$out"
 expect_exit "memory add bad outcome exits 2" 2 "$rc"
 cleanup_dir "$home"
@@ -529,7 +550,7 @@ orch init >/dev/null
 out=$(orch profile pick "fix a typo" --complexity trivial 2>&1)
 expect_match "profile pick prints profile" '^profile=' "$out"
 expect_match "profile pick prints model id" '^model=' "$out"
-out=$(orch model list --profile claude-sub 2>&1)
+out=$(orch model list --profile claude-default 2>&1)
 expect_match "model list includes catalog id" 'claude-sonnet' "$out"
 edit_json "$home/profiles.json" '
   .models["local-lfm-8b"] = {
@@ -569,12 +590,12 @@ edit_json "$home/suggestions.json" '.suggestions += [{
   "id": "sug-test", "status": "pending", "created": "2026-01-01T00:00:00Z",
   "confidence": "medium", "kind": "memory_record",
   "title": "Record memory", "reason": "test",
-  "evidence": [], "fingerprint": "memory_record:claude-sub:test",
-  "action": {"type": "memory_record", "memory": {"profile": "claude-sub", "outcome": "success", "task_kind": "test", "note": "from test"}}
+  "evidence": [], "fingerprint": "memory_record:claude-default:test",
+  "action": {"type": "memory_record", "memory": {"profile": "claude-default", "outcome": "success", "task_kind": "test", "note": "from test"}}
 }]'
 out=$(orch suggest apply sug-test 2>&1); rc=$?
 expect_exit "suggest apply memory_record exits 0" 0 "$rc"
-out=$(orch memory list --profile claude-sub 2>&1)
+out=$(orch memory list --profile claude-default 2>&1)
 expect_match "suggest apply memory_record writes memory" 'from test' "$out"
 out=$(orch suggest apply --json --id sug-test 2>&1); rc=$?
 expect_match "suggest apply batch json reports failure for applied id" '"ok":false' "$out"
@@ -614,8 +635,8 @@ out=$(orch profile sanity --profile nope 2>&1); rc=$?
 expect_exit "profile sanity unknown profile exits 0" 0 "$rc"
 expect_match "profile sanity unknown profile ok false" '"ok":false' "$out"
 expect_match "profile sanity unknown profile error" 'unknown profile' "$out"
-edit_json "$home/profiles.json" '.profiles["claude-sub"].enabled = false'
-out=$(orch profile sanity --profile claude-sub 2>&1); rc=$?
+edit_json "$home/profiles.json" '.profiles["claude-default"].enabled = false'
+out=$(orch profile sanity --profile claude-default 2>&1); rc=$?
 expect_exit "profile sanity disabled exits 0" 0 "$rc"
 expect_match "profile sanity disabled ok false" '"ok":false' "$out"
 expect_match "profile sanity disabled error" 'profile disabled' "$out"
@@ -635,14 +656,14 @@ done
 with_shims() { env PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" CURSOR_API_KEY=shim "$@"; }
 joined() { printf '%s' "$1" | tr '\n' ' '; }
 
-out=$(with_shims bash "$SCRIPT" run --profile claude-sub "hi there" --extra 2>&1)
+out=$(with_shims bash "$SCRIPT" run --profile claude-default "hi there" --extra 2>&1)
 expect_match "claude profile: argv order is model, profile flags, pass-through" \
   '^-p hi there --output-format json --model sonnet --dangerously-skip-permissions --extra$' "$(joined "$out")"
 
-out=$(with_shims bash "$SCRIPT" profile sanity --profile claude-sub 2>&1); rc=$?
+out=$(with_shims bash "$SCRIPT" profile sanity --profile claude-default 2>&1); rc=$?
 expect_exit "profile sanity exits 0" 0 "$rc"
 expect_match "profile sanity ok with shims" '"ok":true' "$out"
-expect_match "profile sanity includes profile name" '"profile":"claude-sub"' "$out"
+expect_match "profile sanity includes profile name" '"profile":"claude-default"' "$out"
 expect_match "profile sanity includes ms" '"ms":' "$out"
 expect_match "profile sanity includes harness" '"harness":"claude"' "$out"
 
@@ -737,7 +758,7 @@ out=$(env ORCH_BIN_DIRS="$shims" PATH="$(path_without claude)" HARNESS_ORCH_HOME
 expect_exit "claude off PATH but in ORCH_BIN_DIRS exits 0" 0 "$rc"
 expect_match "claude off PATH is resolved from ORCH_BIN_DIRS" '^-p off-path --output-format json$' "$(joined "$out")"
 
-out=$(with_shims bash "$SCRIPT" run --profile claude-sub 2>&1); rc=$?
+out=$(with_shims bash "$SCRIPT" run --profile claude-default 2>&1); rc=$?
 expect_match "run --profile without prompt shows grammar" 'usage: dispatch.sh run \(--profile <name> \| <adapter>\)' "$out"
 expect_exit "run --profile without prompt exits 2" 2 "$rc"
 
@@ -746,10 +767,10 @@ expect_exit "start --profile bogus exits 2" 2 "$rc"
 job_count=$(find "$home/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
 expect_match "start --profile bogus creates no job" '^0$' "$job_count"
 
-job_id=$(with_shims bash "$SCRIPT" start --profile claude-sub "bg" 2>/dev/null)
+job_id=$(with_shims bash "$SCRIPT" start --profile claude-default "bg" 2>/dev/null)
 with_shims bash "$SCRIPT" wait "$job_id" --timeout 5 --interval 1 >/dev/null 2>&1
 out=$(with_shims bash "$SCRIPT" list 2>&1)
-expect_match "list shows the job's profile" "$job_id.done exit=0.claude-sub" "$out"
+expect_match "list shows the job's profile" "$job_id.done exit=0.claude-default" "$out"
 out=$(with_shims bash "$SCRIPT" tail "$job_id" 2>&1)
 expect_match "backgrounded profile job used the profile's model" '--model' "$out"
 
@@ -780,7 +801,7 @@ out=$(orch run start "bad" --id 'bad id' 2>&1); rc=$?
 expect_exit "invalid run id exits 2" 2 "$rc"
 
 orch node add life-1 n1 "Plan" >/dev/null 2>&1
-orch node add life-1 n2 "Implement" --after n1 --profile claude-sub >/dev/null 2>&1
+orch node add life-1 n2 "Implement" --after n1 --profile claude-default >/dev/null 2>&1
 orch node add life-1 n3 "Review" --after n1,n2 >/dev/null 2>&1
 out=$(orch node add life-1 n1 "again" 2>&1); rc=$?
 expect_exit "duplicate node id exits 2" 2 "$rc"
@@ -790,7 +811,7 @@ expect_exit "unknown dep exits 2" 2 "$rc"
 out=$(orch node add life-1 n4 "x" --after n4 2>&1); rc=$?
 expect_exit "self-dependency exits 2" 2 "$rc"
 expect_match "edges recorded from --after" '^\[\["n1","n2"\],\["n1","n3"\],\["n2","n3"\]\]$' "$(state_get -c '.edges')"
-expect_match "node profile recorded" '^claude-sub$' "$(state_get '.nodes[1].profile')"
+expect_match "node profile recorded" '^claude-default$' "$(state_get '.nodes[1].profile')"
 
 out=$(orch run sync life-1 2>&1)
 expect_match "only the root is ready initially" '^ready: n1$' "$out"
@@ -1540,7 +1561,7 @@ prompt="$home/runs/plan-1/prompts/plan.md"
 expect_match "planner prompt carries the goal" 'Ship the widget' "$(cat "$prompt")"
 expect_match "planner prompt carries the limits" 'At most 5 tasks. At most 2 run at the same time' "$(cat "$prompt")"
 expect_match "planner prompt lists enabled profiles" '^- local-qwen \(default\)' "$(cat "$prompt")"
-expect_no_match "planner prompt hides disabled harnesses" '^- claude-sub' "$(cat "$prompt")"
+expect_no_match "planner prompt hides disabled harnesses" '^- claude-default' "$(cat "$prompt")"
 orch node update plan-1 plan "done" >/dev/null 2>&1
 
 plan_out="$home/runs/plan-1/out/plan"
@@ -1560,7 +1581,7 @@ expect_match "a refused plan adds no nodes" '^1$' "$(jq '.nodes | length' "$stat
 
 printf '%s' '{"summary":"three then merge","tasks":[
   {"id":"a","label":"Part A","prompt":"do A"},
-  {"id":"b","label":"Part B","profile":"claude-sub","prompt":"do B"},
+  {"id":"b","label":"Part B","profile":"claude-default","prompt":"do B"},
   {"id":"c","label":"Part C","prompt":"do C"},
   {"id":"merge","label":"Integrate","after":["a","b","c"],"prompt":"merge them"}]}' > "$plan_out/plan.json"
 
@@ -1571,7 +1592,7 @@ elif start_fixture 1 forever; then
   expect_exit "run advance exits 0" 0 "$rc"
   expect_match "advance applies the finished plan" 'applied: 4 task\(s\)' "$out"
   expect_match "advance reports the stages" 'stages: a\+b\+c -> merge' "$out"
-  expect_match "a disabled profile falls back to the default" 'profile claude-sub is disabled, using local-qwen' "$out"
+  expect_match "a disabled profile falls back to the default" 'profile claude-default is disabled, using local-qwen' "$out"
   expect_match "max_parallel caps the first dispatch" '^dispatched: a,b$' "$out"
   expect_match "the rest of the stage is queued" '^queued: c$' "$out"
   expect_match "root tasks hang off the planner node" '\["plan","a"\]' "$(jq -c '.edges' "$state")"

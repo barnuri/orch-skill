@@ -57,7 +57,7 @@ describe("GET /api/profiles", () => {
     // The shipped template must validate clean, or every fresh install opens with errors.
     expect(body.issues).toEqual([]);
     expect(body.limits.max_body_bytes).toBe(MAX_BODY_BYTES);
-    expect(body.document.profiles["claude-sub"].harness).toBe("claude");
+    expect(body.document.profiles["claude-default"].harness).toBe("claude");
   });
 
   test("an unchanged file answers 304", async () => {
@@ -95,7 +95,7 @@ describe("PUT happy path", () => {
     const doc = (await get.json()).document;
     delete doc.profiles["copilot-default"];
     // copilot-default is the template's default profile, so the default moves first.
-    doc.settings.default_profile = "claude-sub";
+    doc.settings.default_profile = "claude-default";
     const saved = await put(srv, "/api/profiles", JSON.stringify(doc), {
       "If-Match": get.headers.get("etag") ?? "",
     });
@@ -110,8 +110,8 @@ describe("PUT happy path", () => {
     const etag = get.headers.get("etag") ?? "";
     const doc = (await get.json()).document;
     // `model` must name a catalog id and sit inside the profile's own allowlist.
-    doc.profiles["claude-sub"].model = "claude-haiku";
-    doc.profiles["claude-sub"].allowed_models = ["claude-haiku"];
+    doc.profiles["claude-default"].model = "claude-haiku";
+    doc.profiles["claude-default"].allowed_models = ["claude-haiku"];
 
     const res = await put(srv, "/api/profiles", JSON.stringify(doc), { "If-Match": etag });
     expect(res.status).toBe(200);
@@ -119,7 +119,7 @@ describe("PUT happy path", () => {
     expect(body.ok).toBe(true);
     expect(res.headers.get("etag")).toBe(body.etag);
 
-    expect(JSON.parse(srv.home.read("profiles.json")).profiles["claude-sub"].model)
+    expect(JSON.parse(srv.home.read("profiles.json")).profiles["claude-default"].model)
       .toBe("claude-haiku");
     expect(srv.home.mode("profiles.json")).toBe(0o644);
     expect(tmpLeftovers(srv)).toEqual([]);
@@ -128,7 +128,7 @@ describe("PUT happy path", () => {
   test("memory keeps UTF-8 bytes raw", async () => {
     const srv = server();
     const entry = [
-      { ts: "2026-09-03T12:00:00Z", profile: "claude-sub", outcome: "success", note: UTF8_NOTE },
+      { ts: "2026-09-03T12:00:00Z", profile: "claude-default", outcome: "success", note: UTF8_NOTE },
     ];
     expect((await put(srv, "/api/memory", JSON.stringify(entry))).status).toBe(200);
     expect(srv.home.read("memory.json")).toContain(UTF8_NOTE);
@@ -160,7 +160,7 @@ describe("optimistic concurrency", () => {
     const get = await srv.api("/api/memory");
     const staleEtag = get.headers.get("etag") ?? "";
 
-    const added = runCli(srv, ["memory", "add", "--profile", "claude-sub", "--outcome", "success"]);
+    const added = runCli(srv, ["memory", "add", "--profile", "claude-default", "--outcome", "success"]);
     expect(added.exitCode).toBe(0);
 
     const res = await put(srv, "/api/memory", "[]", { "If-Match": staleEtag });
@@ -168,7 +168,7 @@ describe("optimistic concurrency", () => {
 
     // The CLI's row survived the rejected overwrite.
     expect(JSON.parse(srv.home.read("memory.json"))).toHaveLength(1);
-    expect(runCli(srv, ["memory", "list"]).stdout.toString()).toContain("claude-sub");
+    expect(runCli(srv, ["memory", "list"]).stdout.toString()).toContain("claude-default");
   });
 });
 

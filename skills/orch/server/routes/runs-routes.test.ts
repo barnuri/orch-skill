@@ -31,7 +31,7 @@ function node(id: string, status: NodeStatus): RunState["nodes"][number] {
     id,
     label: id,
     status,
-    profile: "claude-sub",
+    profile: "claude-default",
     adapter: "claude",
     job_id: null,
     started: "2026-09-03T12:00:00Z",

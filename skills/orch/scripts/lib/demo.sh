@@ -134,11 +134,11 @@ demo_run_payments() {
   run=$(demo_run_begin "Ship the payments service") || return 1
   demo_node "$run" survey   "Survey the existing checkout flow" claude-opus   claude       done
   demo_node "$run" design   "Design the payments API contract"  claude-opus   claude       done    survey
-  demo_node "$run" schema   "Write the schema + migrations"     claude-sub    claude       done    design
-  demo_node "$run" handlers "Implement the payment handlers"     claude-sub    claude       running design
+  demo_node "$run" schema   "Write the schema + migrations"     claude-default claude       done    design
+  demo_node "$run" handlers "Implement the payment handlers"     claude-default claude       running design
   demo_node "$run" fmt      "Format and lint the new files"      claude-haiku  claude       done    design
   demo_node "$run" review   "Review the diff on cursor"          cursor-default cursor-agent waiting handlers,schema
-  demo_node "$run" verify   "Typecheck and run the suite"        claude-sub    claude       waiting review,fmt
+  demo_node "$run" verify   "Typecheck and run the suite"        claude-default claude       waiting review,fmt
   printf '%s\n' "$run"
 }
 
@@ -155,10 +155,10 @@ demo_run_bench() {
 demo_run_migration() {
   local run
   run=$(demo_run_begin "Migrate the llm-hub profiles") || return 1
-  demo_node "$run" rename "Rename hub profiles to llm-hub" claude-sub     claude       done
+  demo_node "$run" rename "Rename hub profiles to llm-hub" claude-default claude       done
   demo_node "$run" probe  "Probe the hub endpoint"          cursor-llm-hub cursor-agent error rename \
     "LLM_HUB_URL is not set in this environment"
-  demo_node "$run" rollout "Roll the change out to profiles.json" claude-sub claude     waiting probe
+  demo_node "$run" rollout "Roll the change out to profiles.json" claude-default claude     waiting probe
   cmd_run_finish "$run" >/dev/null || return 1
   printf '%s\n' "$run"
 }

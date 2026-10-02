@@ -15,7 +15,7 @@
       "recency_days": 30,
       "dismiss_ttl_days": 30
     },
-    "disabled_harnesses": ["claude", "local-llm", "opencode"]
+    "disabled_harnesses": ["local-llm", "opencode"]
   },
   "models": {
     "claude-opus": {
@@ -114,6 +114,16 @@
       "speed": "slow",
       "max_complexity": "large",
       "tags": ["copilot", "planning", "architecture", "long-context"]
+    },
+    "claude-opus-1m": {
+      "slug": "opus[1m]",
+      "harnesses": ["claude"],
+      "description": "Claude Opus with the 1M context window; the planner tier.",
+      "cost": "high",
+      "quality": "best",
+      "speed": "slow",
+      "max_complexity": "large",
+      "tags": ["planning", "architecture", "long-context"]
     }
   },
   "profiles": {
@@ -136,25 +146,6 @@
       "env": {},
       "auth": []
     },
-    "claude-sub": {
-      "harness": "claude",
-      "model": "claude-sonnet",
-      "allowed_models": ["claude-sonnet"],
-      "description": "Claude Code on Anthropic subscription (direct CLI).",
-      "cost": "subscription",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "review", "debug"],
-      "min_complexity": "small",
-      "max_complexity": "medium",
-      "parallel_ok": false,
-      "priority": 9,
-      "flags": ["--dangerously-skip-permissions"],
-      "env": {},
-      "auth": []
-    },
     "claude-opus": {
       "harness": "claude",
       "model": "claude-opus",
@@ -171,6 +162,42 @@
       "parallel_ok": false,
       "priority": 10,
       "flags": ["--dangerously-skip-permissions"],
+      "env": {},
+      "auth": []
+    },
+    "claude-default": {
+      "harness": "claude",
+      "model": "claude-sonnet",
+      "allowed_models": ["claude-sonnet"],
+      "description": "Claude Code on Anthropic subscription (Sonnet). Default Claude worker, the Claude twin of copilot-default.",
+      "cost": "subscription",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "review", "debug"],
+      "parallel_ok": true,
+      "priority": 8,
+      "flags": ["--dangerously-skip-permissions"],
+      "env": {},
+      "auth": []
+    },
+    "claude-planner": {
+      "harness": "claude",
+      "model": "claude-opus-1m",
+      "allowed_models": ["claude-opus-1m"],
+      "description": "Claude Code on Opus, 1M context, xhigh effort. Splits a goal into a task DAG for claude-default workers.",
+      "cost": "high",
+      "quality": "best",
+      "speed": "slow",
+      "risk": "low",
+      "enabled": true,
+      "strengths": ["planning", "architecture", "decomposition"],
+      "avoid_for": ["trivial", "format"],
+      "min_complexity": "large",
+      "parallel_ok": false,
+      "priority": 8,
+      "flags": ["--effort", "xhigh", "--dangerously-skip-permissions"],
       "env": {},
       "auth": []
     },
@@ -228,7 +255,8 @@
       "priority": 9,
       "flags": ["--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
       "env": {},
-      "auth": []
+      "auth": [],
+      "fallback": "claude-default"
     },
     "copilot-planner": {
       "harness": "copilot",
@@ -247,7 +275,8 @@
       "priority": 8,
       "flags": ["--context", "long_context", "--reasoning-effort", "xhigh", "--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
       "env": {},
-      "auth": []
+      "auth": [],
+      "fallback": "claude-planner"
     },
     "cursor-llm-hub": {
       "harness": "cursor-agent",
@@ -302,7 +331,9 @@
       "parallel_ok": true,
       "priority": 4,
       "flags": [],
-      "env": { "LLM_HUB_URL": "${LLM_HUB_URL}" },
+      "env": {
+        "LLM_HUB_URL": "${LLM_HUB_URL}"
+      },
       "auth": ["LLM_HUB_URL"]
     },
     "local-qwen3": {
@@ -321,7 +352,9 @@
       "parallel_ok": true,
       "priority": 2,
       "flags": [],
-      "env": { "LLM_HUB_URL": "${LLM_HUB_URL}" },
+      "env": {
+        "LLM_HUB_URL": "${LLM_HUB_URL}"
+      },
       "auth": ["LLM_HUB_URL"]
     }
   }

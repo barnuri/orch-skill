@@ -214,7 +214,8 @@ profiles_migrate() {
   fi
   mv -f "$tmp" "$PROFILES_FILE" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
-  profiles_migrate_copilot_planner
+  profiles_migrate_copilot_planner || return $?
+  profiles_migrate_claude_planner
 }
 
 COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
@@ -273,6 +274,52 @@ profiles_migrate_copilot_planner() {
   fi
   mv -f "$tmp" "$PROFILES_FILE" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
+}
+
+# One-time Claude Code re-enable, mirroring the Copilot layout: claude-sub is renamed to
+# claude-default (enabled, parallel), a claude-planner profile (Opus 1M, xhigh effort) is seeded,
+# the claude harness leaves disabled_harnesses, and the Copilot profiles fall back to their Claude
+# twins when Copilot quota runs out. Every reference to claude-sub follows the rename.
+# Marker-guarded so a later user edit is never reverted.
+profiles_migrate_claude_planner() {
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.claude-planner-migrated"
+  [ -e "$marker" ] && return 0
+  if ! jq '
+    def rename_ref: if . == "claude-sub" then "claude-default" else . end;
+    (if .profiles["claude-sub"] and (.profiles["claude-default"] | not) then
+       .profiles["claude-default"] = (.profiles["claude-sub"]
+         | .enabled = true | .parallel_ok = true | .priority = 8
+         | .description = "Claude Code on Anthropic subscription (Sonnet). Default Claude worker, the Claude twin of copilot-default."
+         | del(.min_complexity, .max_complexity))
+       | del(.profiles["claude-sub"])
+     else . end)
+    | .profiles |= with_entries(if .value.fallback then .value.fallback |= rename_ref else . end)
+    | .settings.default_profile |= (if . then rename_ref else . end)
+    | .settings.planner_profile |= (if . then rename_ref else . end)
+    | .models["claude-opus-1m"] //= {
+        slug: "opus[1m]", harnesses: ["claude"],
+        description: "Claude Opus with the 1M context window; the planner tier.",
+        cost: "high", quality: "best", speed: "slow", max_complexity: "large",
+        tags: ["planning", "architecture", "long-context"]
+      }
+    | .profiles["claude-planner"] //= {
+        harness: "claude", model: "claude-opus-1m", allowed_models: ["claude-opus-1m"],
+        description: "Claude Code on Opus, 1M context, xhigh effort. Splits a goal into a task DAG for claude-default workers.",
+        cost: "high", quality: "best", speed: "slow", risk: "low", enabled: true,
+        strengths: ["planning", "architecture", "decomposition"], avoid_for: ["trivial", "format"],
+        min_complexity: "large", parallel_ok: false, priority: 8,
+        flags: ["--effort", "xhigh", "--dangerously-skip-permissions"], env: {}, auth: []
+      }
+    | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) | map(select(. != "claude")))
+    | (if .profiles["copilot-default"] and .profiles["claude-default"] then
+         .profiles["copilot-default"].fallback //= "claude-default" else . end)
+    | (if .profiles["copilot-planner"] then .profiles["copilot-planner"].fallback //= "claude-planner" else . end)
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  : > "$marker"
 }
 
 # recoverable_remove <path> — `trash` when available, else a timestamped move under .trash/ (never `rm`).

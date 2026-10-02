@@ -110,7 +110,7 @@ orch tail "$job" -n 40
 # a graph of tasks
 run=$(orch run start "Add pagination")
 orch node add "$run" plan   "Plan the change"
-orch node add "$run" impl   "Implement"   --after plan  --profile claude-sub
+orch node add "$run" impl   "Implement"   --after plan  --profile claude-default
 orch node add "$run" tests  "Write tests" --after plan  --profile local-qwen
 orch node add "$run" review "Review"      --after impl,tests --profile cursor-default
 orch run sync "$run"                           # per-node status + which nodes are ready now

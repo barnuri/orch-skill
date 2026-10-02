@@ -54,7 +54,7 @@ Precedence, highest first:
 | classify prints | Use |
 |---|---|
 | `claude-native` | do the work in this session — Step 2 |
-| `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-sub` (small–medium, default), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
+| `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-default` (small–medium, default), `claude-planner` (Opus 1M, xhigh: planning), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
 | `cursor-agent` | `cursor-default` |
 | `opencode` | `opencode-default` |
 | `copilot` | `copilot-default` |
