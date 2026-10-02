@@ -833,7 +833,9 @@ cmd_node_digest() {
     return 0
   fi
   printf 'job: %s\n' "$job"
-  printf 'exit: %s\n' "$(cat "$JOBS_HOME/$job/exit_code" 2>/dev/null || printf 'running')"
+  local job_st
+  job_st=$(job_status "$job" 2>/dev/null || printf 'unknown')
+  printf 'exit: %s\n' "${job_st#done exit=}"
   log="$JOBS_HOME/$job/log"
   [ -f "$log" ] || { printf 'log: none on disk\n'; return 0; }
   bytes=$(wc -c < "$log" | tr -d ' ')

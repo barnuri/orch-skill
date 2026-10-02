@@ -341,10 +341,30 @@ job_status() {
     printf 'running\n'
     return 0
   fi
-  printf 'done exit=unknown\n'
+  # The job may have written its exit code and exited between the first check and kill -0.
+  if [ -f "$job_dir/exit_code" ]; then
+    printf 'done exit=%s\n' "$(cat "$job_dir/exit_code")"
+    return 0
+  fi
+  # No exit code and no process: killed with an untrappable signal (SIGKILL) or the host rebooted.
+  printf 'done exit=unknown (job process gone without an exit code: killed?)\n'
 }
 
-# Self-backgrounds via nohup, re-sourcing this same file (by its resolved real path, so a
+# Runs "$@" in a new session, so a job outlives the harness that dispatched it: quitting or
+# Ctrl-C-ing that harness signals its whole process group, and nohup alone only ignores SIGHUP.
+# macOS ships no setsid binary, so perl's POSIX::setsid is the fallback. exec keeps the pid, so
+# the caller's $! is still the job's pid.
+run_detached() {
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
+  fi
+  if command -v perl >/dev/null 2>&1; then
+    exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or die "exec: $!\n"' -- "$@"
+  fi
+  exec nohup "$@"
+}
+
+# Self-backgrounds in a new session (run_detached), re-sourcing this same file (by its resolved real path, so a
 # symlinked skill directory still finds the real source) inside a fresh bash -c process to reach
 # adapter_dispatch — that keeps the adapters in one place instead of duplicating them into a
 # standalone wrapper script.
@@ -389,15 +409,22 @@ cmd_start() {
   # Single quotes are deliberate: these lines must reach the child bash unexpanded. The child
   # re-resolves the profile itself — that is how it gets the profile's exported env.
   # shellcheck disable=SC2016
+  # A signal that kills the wrapper still records an exit code (128+N), so `status` can tell an
+  # interrupted job from one whose process vanished without a trace.
+  # exit_code is written to a temp file and renamed, so a poller never reads it half-written.
   start_script=$(printf '%s\n' \
     'self="$1"; shift' \
+    "write_exit() { printf '%s' \"\$1\" > \"$job_dir/exit_code.tmp\" && mv \"$job_dir/exit_code.tmp\" \"$job_dir/exit_code\"; }" \
+    "trap 'write_exit 130; exit 130' INT" \
+    "trap 'write_exit 143; exit 143' TERM" \
+    "trap 'write_exit 129; exit 129' HUP" \
     '. "$self"' \
     'target_dispatch "$@"' \
     'rc=$?' \
-    "printf '%s' \"\$rc\" > \"$job_dir/exit_code\"" \
+    'write_exit "$rc"' \
     'exit "$rc"')
 
-  nohup bash -c "$start_script" _ "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@" \
+  run_detached bash -c "$start_script" _ "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@" \
     >"$job_dir/log" 2>&1 </dev/null &
   local bg_pid=$!
   disown "$bg_pid" 2>/dev/null || true
