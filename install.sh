@@ -202,6 +202,22 @@ install_claude_plugin() {
   require_claude || return $?
   add_marketplace || return 1
   install_plugin || return 1
+  register_graph_mod || return 1
+}
+
+# The orch-graph mod (live run graph pane) loads through CLAUDE_CODE_PLUGIN_DIRS in the user's
+# settings `env`, since a marketplace plugin does not carry function-hook modules. Appends the
+# folder once and keeps any other folders listed there. Writes through a symlinked settings file.
+register_graph_mod() {
+  local settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" mod_dir="$REPO_DIR/mods/orch-graph" updated
+  command -v jq >/dev/null 2>&1 || { printf 'claude: orch-graph mod skipped (jq not on PATH)\n'; return 0; }
+  [ -f "$settings" ] || printf '{}\n' >"$settings"
+  updated=$(jq --arg d "$mod_dir" '
+    (.env.CLAUDE_CODE_PLUGIN_DIRS // "" | split(":") | map(select(. != ""))) as $dirs
+    | if ($dirs | index($d)) then . else .env.CLAUDE_CODE_PLUGIN_DIRS = ($dirs + [$d] | join(":")) end
+  ' "$settings") || { printf 'install: could not read %s\n' "$settings" >&2; return 1; }
+  printf '%s\n' "$updated" >"$settings"
+  printf 'claude: orch-graph mod registered (%s)\n' "$mod_dir"
 }
 
 # Creates missing bootstrap files and prunes legacy dashboard leftovers — never overwrites state.

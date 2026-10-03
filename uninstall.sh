@@ -91,12 +91,28 @@ uninstall_cli() {
   remove_path "$orch_bin"
 }
 
+# Drops this checkout's orch-graph folder from CLAUDE_CODE_PLUGIN_DIRS, keeping the others.
+unregister_graph_mod() {
+  local settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" mod_dir="$REPO_DIR/mods/orch-graph" updated
+  [ -f "$settings" ] && command -v jq >/dev/null 2>&1 || return 0
+  updated=$(jq --arg d "$mod_dir" '
+    if .env.CLAUDE_CODE_PLUGIN_DIRS == null then . else
+      (.env.CLAUDE_CODE_PLUGIN_DIRS | split(":") | map(select(. != "" and . != $d))) as $dirs
+      | if ($dirs | length) == 0 then del(.env.CLAUDE_CODE_PLUGIN_DIRS)
+        else .env.CLAUDE_CODE_PLUGIN_DIRS = ($dirs | join(":")) end
+    end
+  ' "$settings") || { printf 'uninstall: could not read %s\n' "$settings" >&2; return 1; }
+  printf '%s\n' "$updated" >"$settings"
+  printf 'claude: orch-graph mod unregistered\n'
+}
+
 main() {
   parse_args "$@" || return $?
   [ "$WITH_SERVICE" -eq 0 ] || bash "$REPO_DIR/scripts/service.sh" uninstall
   uninstall_cli
   require_claude || return $?
   uninstall_plugin || return 1
+  unregister_graph_mod || return 1
   remove_marketplace || return 1
   if [ "$PURGE_STATE" -eq 1 ]; then
     printf 'removing state directory %s\n' "$ORCH_HOME"

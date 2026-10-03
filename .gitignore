@@ -19,3 +19,5 @@ dist/
 # memory.json, runs/, jobs/. Per-machine and absolute — created by install.sh, never committed.
 # .vscode/settings.json sets explorer.excludeGitIgnore so ./config still shows in the editor.
 /config
+mods/*/.claude-plugin/types/
+mods/*/tsconfig.json

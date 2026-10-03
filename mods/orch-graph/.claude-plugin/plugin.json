@@ -1,0 +1,6 @@
+{
+  "name": "orch-graph",
+  "version": "0.1.0",
+  "description": "Live pane showing the active orch run's DAG, like the dashboard graph",
+  "types": "./types/index.d.ts"
+}

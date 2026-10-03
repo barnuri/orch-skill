@@ -9,6 +9,7 @@ repo root is packaging (install + optional service + docs).
 .claude-plugin/marketplace.json   plugin manifest — marketplace `orch-skill`, plugin `orch`
 install.sh / uninstall.sh         register/unregister this folder with Claude Code
 scripts/service.sh                optional always-on dashboard service (launchd / systemd --user)
+mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.sh)
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
