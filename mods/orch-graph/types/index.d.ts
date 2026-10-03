@@ -1,6 +1,8 @@
 export type NodeView = {
   id: string
+  label: string
   status: string
+  harness: string
   profile: string
   model: string
   attempts: number

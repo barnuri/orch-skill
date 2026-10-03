@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { GraphView, NodeView } from '../types'
-import { STATUS_COLOR, isOrchCommand, isOrchSkill, newestFirst, toRunView } from './graph'
+import type { GraphView } from '../types'
+import { drawGraph } from './canvas'
+import { isOrchCommand, isOrchSkill, newestFirst, toRunView } from './graph'
+import type { ProfileInfo } from './graph'
 
 const PANE = 'orch-graph'
 const POLL_MS = 2000
@@ -24,6 +26,21 @@ async function resolveHome($: EngineInterface): Promise<string> {
   home = stdout
 
   return home
+}
+
+// profiles.json gives each profile's harness and model, for nodes not yet dispatched.
+async function profileInfo($: EngineInterface): Promise<Record<string, ProfileInfo>> {
+  const text = await $.fs.read(`${await resolveHome($)}/profiles.json`).catch(() => '{}')
+  const document = JSON.parse(text)
+  const profiles: Record<string, { harness?: string; model?: string }> = document.profiles ?? {}
+  const models: Record<string, { slug?: string }> = document.models ?? {}
+
+  return Object.fromEntries(
+    Object.entries(profiles).map(([name, spec]) => [
+      name,
+      { harness: spec.harness ?? '', model: models[spec.model ?? '']?.slug ?? spec.model ?? '' },
+    ]),
+  )
 }
 
 // Once per load: closing the pane afterwards keeps it closed.
@@ -99,20 +116,7 @@ export const register: Register = on => {
 
     const nodes = run.layers.flat()
     const done = nodes.filter(node => node.status === 'done').length
-    const card = (node: NodeView) => (
-      <Box flexDirection="column" borderStyle="round" borderColor={STATUS_COLOR[node.status] ?? 'gray'} paddingX={1} marginRight={1}>
-        <Text bold color={STATUS_COLOR[node.status]}>
-          {node.id}
-        </Text>
-        <Text dimColor>
-          {node.status} · {node.model}
-          {node.attempts > 1 ? ` · try ${node.attempts}` : ''}
-          {node.cost !== null ? ` · $${node.cost.toFixed(3)}` : ''}
-        </Text>
-        {node.after.length > 0 && <Text dimColor>after {node.after.join(', ')}</Text>}
-        {node.error && <Text color="red">{node.error}</Text>}
-      </Box>
-    )
+    const columns = e.component === 'Pane' ? e.props.bodyColumns : 120
 
     return (
       <Box flexDirection="column">
@@ -120,13 +124,17 @@ export const register: Register = on => {
         <Text dimColor>
           {run.runId} · {run.status} · {done}/{nodes.length} done
         </Text>
-        {run.layers.map((layer, index) => (
-          <Box flexDirection="column">
-            {index > 0 && <Text dimColor>  ↓</Text>}
-            <Box flexDirection="row" flexWrap="wrap">
-              {layer.map(card)}
-            </Box>
-          </Box>
+        <Text> </Text>
+        {drawGraph(run, columns).map(row => (
+          <Text>
+            {row.length === 0
+              ? ' '
+              : row.map(span => (
+                  <Text color={span.color} bold={span.bold} dimColor={span.dim}>
+                    {span.text}
+                  </Text>
+                ))}
+          </Text>
         ))}
       </Box>
     )

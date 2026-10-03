@@ -2,6 +2,8 @@ import type { NodeView, RunView } from '../types'
 
 type RawNode = {
   id: string
+  label?: string
+  adapter?: string | null
   status?: string
   profile?: string
   model?: string | null
@@ -18,13 +20,6 @@ type RawRun = {
   edges?: [string, string][]
 }
 
-export const STATUS_COLOR: Record<string, string> = {
-  waiting: 'gray',
-  running: 'yellow',
-  done: 'green',
-  error: 'red',
-  skipped: 'gray',
-}
 
 // Longest path from a root decides the layer, so every node sits below all its parents.
 // A cycle (never produced by `node add --after`) is cut after one pass per node.
@@ -45,7 +40,11 @@ export const layerOf = (ids: string[], edges: [string, string][]): Map<string, n
   return layer
 }
 
-export const toRunView = (raw: RawRun): RunView => {
+export type ProfileInfo = { harness: string; model: string }
+
+// `adapter` and `model` are recorded at dispatch; a node not dispatched yet falls back to its
+// profile's harness and model.
+export const toRunView = (raw: RawRun, profiles: Record<string, ProfileInfo> = {}): RunView => {
   const nodes = raw.nodes ?? []
   const edges = (raw.edges ?? []).filter(edge => Array.isArray(edge) && edge.length === 2)
   const layer = layerOf(
@@ -56,9 +55,11 @@ export const toRunView = (raw: RawRun): RunView => {
   for (const node of nodes) {
     const view: NodeView = {
       id: node.id,
+      label: node.label || node.id,
+      harness: node.adapter || profiles[node.profile ?? '']?.harness || '',
       status: node.status ?? 'waiting',
       profile: node.profile ?? '-',
-      model: node.model ?? '-',
+      model: node.model || profiles[node.profile ?? '']?.model || '-',
       attempts: (node.attempts?.length ?? 0) + 1,
       cost: typeof node.cost === 'number' ? node.cost : null,
       after: edges.filter(([, to]) => to === node.id).map(([from]) => from),

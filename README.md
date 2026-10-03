@@ -140,6 +140,36 @@ A request from any other address still needs the bearer token, read from
 `~/.harness-orch/serve.token` (minted `0600` on first start) — that is what the hostname URL
 carries when the server is bound to `0.0.0.0`. Trash that file and restart to rotate it.
 
+## Claude Code mod: the run graph in a pane
+
+![The orch-graph pane in Claude Code: a 13-node run drawn left to right from the orch node, boxes coloured by status, a harness glyph per node, each profile in its own colour, arrows into every node](docs/orch-graph-mod.png)
+
+`mods/orch-graph/` is an optional Claude Code mod that draws the active run's graph in a side
+pane, the same layout as the dashboard: one column per stage, the `orch` node feeding the entry
+nodes, and an arrow into every node. Each box shows a harness glyph (`✻` claude, `◆` cursor-agent,
+`◉` copilot, `❯` opencode, `▣` local-llm, `◎` codex, `✦` gemini, `π` pi), the profile in its own
+colour, the model, cost and attempt count, or the error. The border colour and icon give the status
+(`✓` done, `●` running, `✗` error, `○` waiting, `⊘` skipped). An edge that skips a stage runs on
+its own lane under the boxes.
+
+- `install.sh` registers it through `CLAUDE_CODE_PLUGIN_DIRS` in your user settings, and
+  `uninstall.sh` removes it. Restart Claude Code once after installing.
+- It opens by itself the first time the orch skill loads or a command starts or advances a run.
+  A pane opened that way needs a terminal at least 144 columns wide. `/orch-graph` opens it at
+  any width.
+- `/orch-graph <run-id>` pins one run and `/orch-graph latest` follows the active run again.
+- It only reads `runs/*/state.json` and `profiles.json`, polling every 2 s. Other harnesses are
+  unaffected.
+
+To regenerate the screenshot:
+
+```bash
+scripts/mod-screenshot.sh      # builds a mock run in a scratch state dir, captures docs/orch-graph-mod.png
+```
+
+It draws the run with the mod's own graph code and captures it from a visible Chrome window. It
+never calls a harness, and its state dir is trashed on exit.
+
 ## Optional: run the dashboard as a background service
 
 By default the server starts on demand and dies with the machine. If you would rather have it
