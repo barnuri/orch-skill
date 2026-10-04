@@ -6,8 +6,8 @@ import { TempHome } from "./temp-home";
 
 export const TEST_TOKEN: string = "orch-test-token";
 
-// Mirrors the enum lists bash passes on the real command line (templates/profiles.json uses all five).
-const TEST_HARNESSES: readonly string[] = ["claude", "cursor-agent", "opencode", "local-llm", "copilot"];
+// Mirrors the enum lists bash passes on the real command line (VALID_HARNESSES / VALID_OUTCOMES in config.sh).
+const TEST_HARNESSES: readonly string[] = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
 const TEST_OUTCOMES: readonly string[] = ["success", "failure", "partial"];
 const LOOPBACK_HOST: string = "127.0.0.1";
 const WILDCARD_HOST: string = "0.0.0.0";

@@ -4,7 +4,7 @@
 HARNESS_LIST_USAGE='dispatch.sh harness list [--json]'
 
 # Extra CLIs probed for the dashboard; not orch adapters until wired in adapters.sh.
-DETECTED_CLI_IDS="pi codex aider gemini"
+DETECTED_CLI_IDS="codex aider gemini"
 
 harness_ids() {
   printf '%s\n' $VALID_HARNESSES
@@ -74,7 +74,7 @@ harness_probe_reason() {
       ;;
     pi)
       harness_find_binary pi >/dev/null 2>&1 && printf '' && return 0
-      hint="install pi (mariozechner/pi) — not wired as an orch adapter yet"
+      hint="install the pi coding agent CLI (often ~/.bun/bin/pi)"
       ;;
     codex)
       harness_find_binary codex >/dev/null 2>&1 && printf '' && return 0
@@ -131,7 +131,7 @@ harness_list() {
       elif $id == "opencode" then {kind:"cli", binary:"opencode", wired:true, description:"OpenCode CLI agent loop.", needs:[]}
       elif $id == "local-llm" then {kind:"http", binary:null, wired:true, description:"OpenAI-compatible HTTP chat API via curl.", needs:["LLM_HUB_URL"]}
       elif $id == "copilot" then {kind:"cli", binary:"copilot", wired:true, description:"GitHub Copilot CLI (headless -p).", needs:[]}
-      elif $id == "pi" then {kind:"cli", binary:"pi", wired:false, description:"pi coding agent CLI.", needs:[]}
+      elif $id == "pi" then {kind:"cli", binary:"pi", wired:true, description:"pi coding agent CLI, headless against llm-hub.", needs:["LLM_HUB_URL"]}
       elif $id == "codex" then {kind:"cli", binary:"codex", wired:false, description:"OpenAI Codex CLI.", needs:[]}
       elif $id == "aider" then {kind:"cli", binary:"aider", wired:false, description:"Aider pair-programming CLI.", needs:[]}
       elif $id == "gemini" then {kind:"cli", binary:"gemini", wired:false, description:"Google Gemini CLI.", needs:[]}

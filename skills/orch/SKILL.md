@@ -345,6 +345,7 @@ disables). Running runs and jobs are never touched.
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
 | `copilot` | `copilot` on `PATH` | `copilot -p … --silent [--model M] [flags]` — the template profiles pass `--allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot` |
 | `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `/chat/completions` |
+| `pi` | `pi` on `PATH`, `LLM_HUB_URL`, a model (profile or `LLM_HUB_MODEL`); optional `LLM_HUB_KEY` | `pi --model hub/M --approve --no-session -p … [flags]` with a private agent dir whose `models.json` points provider `hub` at llm-hub `/v1` |
 
 A profile supplies the model, CLI flags and env for its harness (e.g. `claude-llm-hub` points
 `ANTHROPIC_BASE_URL` at `${LLM_HUB_URL}`). A missing binary or unset variable fails fast with a

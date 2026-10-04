@@ -17,7 +17,7 @@ MEMORY_FILE="$ORCH_HOME/memory.json"
 SUGGESTIONS_FILE="$ORCH_HOME/suggestions.json"
 TRASH_FALLBACK_DIR="$ORCH_HOME/.trash"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
-VALID_HARNESSES="claude cursor-agent opencode local-llm copilot"
+VALID_HARNESSES="claude cursor-agent opencode local-llm copilot pi"
 VALID_OUTCOMES="success failure partial"
 MEMORY_LIST_DEFAULT=20
 MEMORY_ADD_USAGE='dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]'
@@ -94,6 +94,19 @@ orch_load_env_file() {
     [ -n "${!name+x}" ] && continue
     export "$name=$value"
   done < "$file"
+}
+
+# llm-hub serves its OpenAI-compatible API only under /v1, while LLM_HUB_URL may be configured
+# with or without it. Exports LLM_HUB_V1_URL as that base with exactly one trailing /v1, so
+# adapters and profile env refs (`${LLM_HUB_V1_URL}`) never have to guess. An LLM_HUB_V1_URL the
+# caller already set wins, by the same "set, not non-empty" rule orch_load_env_file uses.
+llm_hub_derive_v1_url() {
+  local base="${LLM_HUB_URL:-}"
+  [ -n "$base" ] || return 0
+  [ -z "${LLM_HUB_V1_URL+x}" ] || return 0
+  while [ "${base%/}" != "$base" ]; do base="${base%/}"; done
+  base="${base%/v1}"
+  export LLM_HUB_V1_URL="$base/v1"
 }
 
 ensure_home() {
@@ -384,6 +397,7 @@ profile_load() {
   require_jq "profile $name"
   ensure_home || return 1
   orch_load_env_file
+  llm_hub_derive_v1_url
   json=$(profile_require "$name") || return $?
 
   PROFILE_NAME="$name"

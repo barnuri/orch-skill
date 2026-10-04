@@ -183,11 +183,98 @@ adapter_copilot() {
   "$bin" -p "$prompt" --silent ${session_args[@]+"${session_args[@]}"} "$@" </dev/null
 }
 
+# pi only reaches llm-hub through a provider defined in its models.json, and that file lives in
+# its agent dir. So each dispatch gets a private agent dir (PI_CODING_AGENT_DIR) holding a
+# models.json with the hub as provider "hub" — the user's own models.json is never touched. Every
+# other entry of the user's agent dir (skills, extensions, settings, AGENTS.md, auth) is linked
+# in, so the run still sees them; a profile that wants a bare run lists --no-skills and friends
+# in `flags`. The key is written as the `$LLM_HUB_KEY` reference pi resolves itself, never as
+# its value, so no secret lands on disk.
+PI_HUB_PROVIDER=hub
+# shellcheck disable=SC2016  # a jq program: its $vars are jq's, not bash's
+PI_MODELS_FILTER='{providers: {($provider): {
+  baseUrl: $url,
+  api: "openai-completions",
+  apiKey: $key,
+  compat: {
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: false,
+    supportsUsageInStreaming: false,
+    maxTokensField: "max_tokens",
+    requiresToolResultName: true
+  },
+  models: [{
+    id: $model,
+    name: $model,
+    reasoning: false,
+    input: ["text"],
+    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+    contextWindow: 131072,
+    maxTokens: 32768
+  }]
+}}}'
+
+# pi_agent_dir <model>: prints a fresh private agent dir. Under the job dir when this dispatch has
+# one (`start`), so it is pruned with the job and the exact models.json stays inspectable;
+# otherwise a temp dir the caller removes.
+pi_agent_dir() {
+  local model="$1" dir user_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" entry key_ref
+  if [ -n "${ORCH_JOB_DIR:-}" ] && [ -d "$ORCH_JOB_DIR" ]; then
+    dir="$ORCH_JOB_DIR/pi-agent"
+    mkdir -p "$dir" || return 1
+  else
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/orch-pi-agent-XXXXXX") || return 1
+  fi
+  if [ -d "$user_dir" ]; then
+    for entry in "$user_dir"/* "$user_dir"/.[!.]*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      [ "${entry##*/}" = models.json ] && continue
+      ln -sfn "$entry" "$dir/${entry##*/}" || return 1
+    done
+  fi
+  key_ref='llm-hub'
+  # shellcheck disable=SC2016  # the literal reference is the point: pi expands it, not bash
+  [ -n "${LLM_HUB_KEY:-}" ] && key_ref='$LLM_HUB_KEY'
+  jq -n --arg provider "$PI_HUB_PROVIDER" --arg url "$LLM_HUB_V1_URL" --arg key "$key_ref" \
+    --arg model "$model" "$PI_MODELS_FILTER" > "$dir/models.json" || return 1
+  printf '%s\n' "$dir"
+}
+
+# The model comes from LLM_HUB_MODEL, which dispatch_with_profile sets from the profile — the
+# same channel local-llm uses — and is selected as hub/<model>. --no-session: a headless one-shot
+# has no conversation to come back to, so pi does not resume either.
+adapter_pi() {
+  local prompt="$1"; shift || true
+  local bin dir model rc
+  bin=$(resolve_bin adapter_pi pi) || return $?
+  orch_load_env_file
+  llm_hub_derive_v1_url
+  if [ -z "${LLM_HUB_V1_URL:-}" ]; then
+    printf 'adapter_pi: LLM_HUB_URL not set (or set LLM_HUB_V1_URL directly)\n' >&2
+    return 1
+  fi
+  model="${LLM_HUB_MODEL:-}"
+  if [ -z "$model" ]; then
+    printf 'adapter_pi: no model — give the profile a model or set LLM_HUB_MODEL\n' >&2
+    return 2
+  fi
+  require_bin adapter_pi jq || return $?
+  dir=$(pi_agent_dir "$model") \
+    || { printf 'adapter_pi: cannot prepare the pi agent dir\n' >&2; return 1; }
+
+  PI_CODING_AGENT_DIR="$dir" PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 \
+    "$bin" --model "$PI_HUB_PROVIDER/$model" --approve --no-session -p "$prompt" "$@" </dev/null
+  rc=$?
+  [ -n "${ORCH_JOB_DIR:-}" ] && [ "$dir" = "$ORCH_JOB_DIR/pi-agent" ] || recoverable_remove "$dir"
+  return "$rc"
+}
+
 adapter_local_llm() {
   local prompt="$1"; shift || true
   orch_load_env_file
-  if [ -z "${LLM_HUB_URL:-}" ]; then
-    printf 'adapter_local_llm: LLM_HUB_URL not set\n' >&2
+  llm_hub_derive_v1_url
+  if [ -z "${LLM_HUB_V1_URL:-}" ]; then
+    printf 'adapter_local_llm: LLM_HUB_URL not set (or set LLM_HUB_V1_URL directly)\n' >&2
     return 1
   fi
   require_bin adapter_local_llm curl || return $?
@@ -198,8 +285,8 @@ adapter_local_llm() {
   payload=$(jq -n --arg model "$model" --arg prompt "$prompt" \
     '{model: $model, messages: [{role: "user", content: $prompt}], stream: false}')
   response=$(curl -sS --max-time "${LLM_HUB_TIMEOUT:-120}" \
-    -H 'Content-Type: application/json' -d "$payload" "$LLM_HUB_URL/chat/completions") \
-    || { printf 'adapter_local_llm: request to %s failed\n' "$LLM_HUB_URL" >&2; return 1; }
+    -H 'Content-Type: application/json' -d "$payload" "$LLM_HUB_V1_URL/chat/completions") \
+    || { printf 'adapter_local_llm: request to %s failed\n' "$LLM_HUB_V1_URL" >&2; return 1; }
   printf '%s\n' "$response" | jq -r '.choices[0].message.content // .error // empty'
 }
 
@@ -216,6 +303,7 @@ adapter_dispatch() {
     local-llm)     adapter_local_llm "$prompt" "$@" ;;
     opencode)      adapter_opencode "$prompt" "$@" ;;
     copilot)       adapter_copilot "$prompt" "$@" ;;
+    pi)            adapter_pi "$prompt" "$@" ;;
     *) printf 'adapter_dispatch: unknown adapter "%s"\n' "$adapter" >&2; return 2 ;;
   esac
 }
@@ -236,7 +324,7 @@ dispatch_with_profile() {
     case "$PROFILE_HARNESS" in
       claude|cursor-agent|copilot) model_args=(--model "$PROFILE_MODEL") ;;
       opencode)            model_args=(-m "$PROFILE_MODEL") ;;
-      local-llm)           export LLM_HUB_MODEL="$PROFILE_MODEL" ;;
+      local-llm|pi)        export LLM_HUB_MODEL="$PROFILE_MODEL" ;;
     esac
   fi
   adapter_dispatch "$PROFILE_HARNESS" "$prompt" \

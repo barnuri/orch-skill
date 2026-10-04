@@ -52,6 +52,7 @@ adapter_<name> <prompt> [pass-through args...]
 | `opencode` | `opencode` CLI | `opencode run "<prompt>" --auto [--session <id>] [args…]` (`--auto`: no TTY to approve permissions) |
 | `local-llm` | OpenAI-compatible HTTP | POST `{model, messages:[{role:user,content}], stream:false}` to `$LLM_HUB_URL/chat/completions`; model from `$LLM_HUB_MODEL` (default `local-model`), timeout `$LLM_HUB_TIMEOUT` (default 120 s); prints `.choices[0].message.content`. |
 | `copilot` | GitHub Copilot CLI | `copilot -p "<prompt>" --silent [--session-id <id>] [args…]` (`--silent`: stdout is just the answer, no stats footer; `--allow-all-tools` is a profile flag, not baked into the adapter — same reasoning as cursor-agent's `--force`) |
+| `pi` | pi coding agent CLI, against llm-hub | `PI_CODING_AGENT_DIR=<private dir> PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 pi --model hub/<model> --approve --no-session -p "<prompt>" [args…]`. The private agent dir (under `$ORCH_JOB_DIR` for `start`, else a temp dir moved to the Trash afterwards) holds a generated `models.json` defining provider `hub` at `$LLM_HUB_V1_URL` and links every other entry of the user's agent dir, so skills and extensions still load. Model from `$LLM_HUB_MODEL` (required). The hub key is never on the command line: `models.json` holds the literal `$LLM_HUB_KEY` (pi expands it from the environment), or `llm-hub` when unset. |
 
 ## Profiles → adapter arguments
 
@@ -67,7 +68,7 @@ profile's `env` and checks its `auth` names), then invokes `adapter_dispatch` wi
 |---|---|
 | `claude`, `cursor-agent`, `copilot` | `--model <model>` |
 | `opencode` | `-m <model>` |
-| `local-llm` | none — exported as `LLM_HUB_MODEL=<model>` instead |
+| `local-llm`, `pi` | none — exported as `LLM_HUB_MODEL=<model>` instead (`pi` turns it into `--model hub/<model>` plus a `models.json` entry) |
 
 Profiles never store secret values; see `references/state-and-config.md` for the schema.
 

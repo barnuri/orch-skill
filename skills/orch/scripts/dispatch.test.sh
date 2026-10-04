@@ -223,6 +223,40 @@ expect_match "an explicitly cleared var is not refilled from the env file" 'LLM_
 # Unset entirely, the file is what supplies it — that is the point of the file.
 out=$(env HARNESS_ORCH_HOME="$hub_home" -u LLM_HUB_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
 expect_no_match "an unset var is supplied by the env file" 'LLM_HUB_URL not set' "$out"
+
+# LLM_HUB_V1_URL derivation: exactly one trailing /v1, whatever shape LLM_HUB_URL has. Sourced as
+# a library so the exported value itself is observable.
+derive_v1() {
+  env -u LLM_HUB_URL -u LLM_HUB_V1_URL HARNESS_ORCH_HOME="$hub_home" "$@" \
+    bash -c ". '$SCRIPT'; llm_hub_derive_v1_url; printf '%s' \"\${LLM_HUB_V1_URL-<unset>}\"" 2>&1
+}
+out=$(derive_v1 LLM_HUB_URL=http://h:1)
+expect_match "v1 url is appended to a bare hub url" '^http://h:1/v1$' "$out"
+out=$(derive_v1 LLM_HUB_URL=http://h:1/)
+expect_match "v1 url drops a trailing slash" '^http://h:1/v1$' "$out"
+out=$(derive_v1 LLM_HUB_URL=http://h:1/v1)
+expect_match "v1 url is not doubled when the hub url already ends in /v1" '^http://h:1/v1$' "$out"
+out=$(derive_v1 LLM_HUB_URL=http://h:1/v1/)
+expect_match "v1 url handles /v1 plus a trailing slash" '^http://h:1/v1$' "$out"
+out=$(derive_v1 LLM_HUB_URL=http://h:1 LLM_HUB_V1_URL=http://other:2/custom/v1)
+expect_match "an explicit LLM_HUB_V1_URL wins" '^http://other:2/custom/v1$' "$out"
+out=$(derive_v1)
+expect_match "no LLM_HUB_URL exports no v1 url" '^<unset>$' "$out"
+
+# The local-llm adapter posts to the derived /v1 base. curl is stubbed as a shell function that
+# reports the URL it was handed, so no network is touched.
+adapter_url() {
+  env -u LLM_HUB_URL -u LLM_HUB_V1_URL HARNESS_ORCH_HOME="$hub_home" "$@" \
+    bash -c ". '$SCRIPT'
+      curl() { local url; for url; do :; done; jq -n --arg u \"\$url\" '{choices: [{message: {content: \$u}}]}'; }
+      adapter_local_llm hi" 2>&1
+}
+out=$(adapter_url LLM_HUB_URL=http://h:1)
+expect_match "local-llm posts under /v1" '^http://h:1/v1/chat/completions$' "$out"
+out=$(adapter_url LLM_HUB_URL=http://h:1/v1)
+expect_match "local-llm does not double /v1" '^http://h:1/v1/chat/completions$' "$out"
+out=$(adapter_url LLM_HUB_URL=http://h:1 LLM_HUB_V1_URL=http://other:2/v1)
+expect_match "local-llm honors an explicit LLM_HUB_V1_URL" '^http://other:2/v1/chat/completions$' "$out"
 cleanup_dir "$hub_home"
 
 # --- claude-native: run + fast job bookkeeping ------------------------------
@@ -725,6 +759,85 @@ out=$(env ORCH_RESUME_SESSION=cursor:abc PATH="$shims:$PATH" HARNESS_ORCH_HOME="
 expect_match "cursor adapter resumes with --resume when given a chat id" \
   '^-p continue --output-format text --resume cursor:abc$' "$(joined "$out")"
 
+# --- pi adapter ---------------------------------------------------------------
+# The pi shim prints its argv, then the env it was given, and copies the private agent dir's
+# models.json plus a listing of that dir out to $pi_capture — the dir itself is gone (trashed)
+# by the time a `run` returns. The user's agent dir is a fake one, so the real ~/.pi is untouched.
+pi_shim=$(new_tmp)
+pi_capture=$(new_tmp)
+pi_user=$(new_tmp)
+mkdir -p "$pi_user/skills/demo" "$pi_user/extensions"
+printf '{"providers":{"mine":{}}}' > "$pi_user/models.json"
+printf '{}' > "$pi_user/settings.json"
+cat > "$pi_shim/pi" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@"
+printf 'env PI_OFFLINE=%s PI_SKIP_VERSION_CHECK=%s PI_TELEMETRY=%s\n' "\$PI_OFFLINE" "\$PI_SKIP_VERSION_CHECK" "\$PI_TELEMETRY"
+printf '%s\n' "\$PI_CODING_AGENT_DIR" > "$pi_capture/dir"
+cp "\$PI_CODING_AGENT_DIR/models.json" "$pi_capture/models.json"
+for e in "\$PI_CODING_AGENT_DIR"/*; do
+  if [ -L "\$e" ]; then printf '%s -> %s\n' "\${e##*/}" "\$(readlink "\$e")"; else printf '%s\n' "\${e##*/}"; fi
+done > "$pi_capture/listing"
+EOF
+chmod +x "$pi_shim/pi"
+with_pi() {
+  env -u LLM_HUB_V1_URL -u LLM_HUB_KEY PATH="$pi_shim:$PATH" HARNESS_ORCH_HOME="$home" \
+    PI_CODING_AGENT_DIR="$pi_user" LLM_HUB_URL=http://hub:9 "$@"
+}
+edit_json "$home/profiles.json" '
+  .models["hub-qwen"] = {slug: "qwen3-coder", harnesses: ["pi"], description: "hub model"}
+  | .profiles["pi-test"] = {harness: "pi", model: "hub-qwen", flags: ["--thinking", "off"], env: {}, auth: []}'
+
+out=$(with_pi bash "$SCRIPT" run --profile pi-test "do it" --extra 2>&1); rc=$?
+expect_exit "pi profile exits 0" 0 "$rc"
+expect_match "pi profile: hub model, placeholder key, headless flags, then profile flags and pass-through" \
+  '^--model hub/qwen3-coder --approve --no-session -p do it --thinking off --extra env' "$(joined "$out")"
+expect_match "pi runs offline with no version check or telemetry" \
+  'env PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0' "$out"
+expect_no_match "the pi adapter adds no --no-skills of its own" '\-\-no-(skills|extensions)' "$out"
+models=$(cat "$pi_capture/models.json" 2>/dev/null)
+expect_match "models.json points provider hub at the /v1 base" \
+  '^http://hub:9/v1 openai-completions llm-hub$' "$(printf '%s' "$models" | jq -r '.providers.hub | "\(.baseUrl) \(.api) \(.apiKey)"')"
+expect_match "models.json carries the hub compat block" \
+  '^\{"supportsDeveloperRole":false,"supportsReasoningEffort":false,"supportsUsageInStreaming":false,"maxTokensField":"max_tokens","requiresToolResultName":true\}$' \
+  "$(printf '%s' "$models" | jq -c '.providers.hub.compat')"
+expect_match "models.json defines exactly the profile's model" \
+  '^\[\{"id":"qwen3-coder","name":"qwen3-coder","reasoning":false,"input":\["text"\],"cost":\{"input":0,"output":0,"cacheRead":0,"cacheWrite":0\},"contextWindow":131072,"maxTokens":32768\}\]$' \
+  "$(printf '%s' "$models" | jq -c '.providers.hub.models')"
+expect_match "models.json defines only the hub provider" '^\["hub"\]$' "$(printf '%s' "$models" | jq -c '.providers | keys')"
+listing=$(cat "$pi_capture/listing" 2>/dev/null)
+expect_match "the user's skills are linked into the private agent dir" "^skills -> $pi_user/skills$" "$listing"
+expect_match "the user's extensions are linked into the private agent dir" "^extensions -> $pi_user/extensions$" "$listing"
+expect_match "the user's models.json is not linked, the generated one replaces it" '^models\.json$' "$listing"
+expect_missing "a run's private agent dir is cleaned up afterwards" "$(cat "$pi_capture/dir" 2>/dev/null)"
+expect_match "the user's own models.json is untouched" '"mine"' "$(cat "$pi_user/models.json")"
+
+out=$(with_pi LLM_HUB_KEY=hub-secret bash "$SCRIPT" run --profile pi-test "x" 2>&1)
+expect_no_match "the hub key never appears on the pi command line" 'hub-secret' "$(joined "$out")"
+expect_match "models.json references the key instead of holding it" '^\$LLM_HUB_KEY$' \
+  "$(jq -r '.providers.hub.apiKey' "$pi_capture/models.json" 2>/dev/null)"
+expect_no_match "the key value is never written to models.json" 'hub-secret' "$(cat "$pi_capture/models.json" 2>/dev/null)"
+
+pi_job=$(new_tmp)
+out=$(with_pi ORCH_JOB_DIR="$pi_job" LLM_HUB_MODEL=m1 bash "$SCRIPT" run pi "x" 2>&1)
+expect_match "plain pi adapter takes the model from LLM_HUB_MODEL" '^--model hub/m1 --approve --no-session -p x env' "$(joined "$out")"
+expect_match "with a job dir the private agent dir lives inside it" "^$pi_job/pi-agent$" "$(cat "$pi_capture/dir" 2>/dev/null)"
+expect_file "the job's agent dir is kept with the job" "$pi_job/pi-agent/models.json"
+cleanup_dir "$pi_job"
+
+out=$(with_pi bash "$SCRIPT" run pi "x" 2>&1); rc=$?
+expect_exit "pi with no model exits 2" 2 "$rc"
+expect_match "pi with no model says where one comes from" 'adapter_pi: no model' "$out"
+out=$(with_pi LLM_HUB_URL= LLM_HUB_MODEL=m1 bash "$SCRIPT" run pi "x" 2>&1); rc=$?
+expect_exit "pi with no hub url exits 1" 1 "$rc"
+expect_match "pi with no hub url is reported" 'adapter_pi: LLM_HUB_URL not set' "$out"
+out=$(env ORCH_BIN_DIRS= PATH="$(path_without pi)" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run pi "hi" 2>&1); rc=$?
+expect_match "pi missing is reported" 'pi not found on PATH' "$out"
+expect_exit "pi missing exits 127" 127 "$rc"
+cleanup_dir "$pi_shim"
+cleanup_dir "$pi_capture"
+cleanup_dir "$pi_user"
+
 # A dispatched job is only resumable if orch chose the session id and wrote it down, so both
 # halves are asserted: the flag the harness saw, and the id left behind in the job dir.
 session_home=$(new_tmp)
@@ -1132,7 +1245,7 @@ expect_match "argv carries --home" "^--home$" "$argv"
 expect_match "argv carries the home path" "^$home$" "$argv"
 expect_match "argv carries the default host" '^0\.0\.0\.0$' "$argv"
 expect_match "argv carries the default port" '^6724$' "$argv"
-expect_match "argv passes the harness enum" '^claude cursor-agent opencode local-llm copilot$' "$argv"
+expect_match "argv passes the harness enum" '^claude cursor-agent opencode local-llm copilot pi$' "$argv"
 expect_match "argv passes the outcome enum" '^success failure partial$' "$argv"
 expect_match "serve dir is private" '^700$' "$(stat -f '%Lp' "$home/serve" 2>/dev/null || stat -c '%a' "$home/serve")"
 expect_match "serve log is private" '^600$' "$(stat -f '%Lp' "$home/serve/log" 2>/dev/null || stat -c '%a' "$home/serve/log")"

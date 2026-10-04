@@ -40,7 +40,7 @@ dispatch.sh run   (--profile <name> | <adapter>) <prompt-or-@file> [pass-through
     -> runs synchronously in the foreground. Exits with the harness's own exit code.
 dispatch.sh start (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]
     -> self-backgrounds (nohup), prints a job-id to stdout immediately, exits 0.
-       adapters: claude-native | claude | cursor-agent | opencode | local-llm | copilot
+       adapters: claude-native | claude | cursor-agent | opencode | local-llm | copilot | pi
        --profile supplies harness + model + flags + env from profiles.json instead of <adapter>.
 
 dispatch.sh status <job-id>       -> prints "running" | "done exit=<n>"

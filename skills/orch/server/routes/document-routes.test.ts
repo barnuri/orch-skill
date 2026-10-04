@@ -53,7 +53,7 @@ describe("GET /api/profiles", () => {
     expect(res.headers.get("etag")).toMatch(ETAG_PATTERN);
 
     const body = await res.json();
-    expect(body.harnesses).toHaveLength(5);
+    expect(body.harnesses).toHaveLength(6);
     // The shipped template must validate clean, or every fresh install opens with errors.
     expect(body.issues).toEqual([]);
     expect(body.limits.max_body_bytes).toBe(MAX_BODY_BYTES);
