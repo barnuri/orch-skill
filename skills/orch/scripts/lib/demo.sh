@@ -11,7 +11,7 @@
 # jq programs are single-quoted on purpose — their $vars are jq's, bound with --arg.
 # shellcheck disable=SC2016
 
-DEMO_USAGE='dispatch.sh demo seed [--force] | demo reset [--force] | demo advance [--run <id>]'
+DEMO_USAGE='dispatch.sh demo seed [--graph] [--force] | demo reset [--force] | demo advance [--run <id>]'
 # Written into every seeded run dir so `reset` removes exactly what `seed` created and never
 # touches a real run that happens to share a title.
 DEMO_MARKER_FILE='demo.marker'
@@ -173,6 +173,73 @@ demo_run_docs() {
   printf '%s\n' "$run"
 }
 
+# --- the detailed graph run (demo seed --graph) --------------------------------------------
+# One wide run for the Claude Code graph pane's screenshot: six stages, every status, five
+# harnesses, reported costs (dollars and token-only), a retried node and a skip-stage edge.
+
+# demo_usage_write <job> <usd> <input-tokens> <output-tokens> — the sidecar a claude job writes.
+demo_usage_write() {
+  jq -n --argjson usd "$2" --argjson in "$3" --argjson out "$4" \
+    '{usd: $usd, cost_basis: "list", input_tokens: $in, output_tokens: $out,
+      cache_read_tokens: 0, cache_creation_tokens: 0, models: []}' > "$JOBS_HOME/$1/usage.json"
+}
+
+# demo_graph_state <run> <id> <profile> <adapter> <status> <model> <model-id> [usd in out] [error]
+# A mock job for the node, its model, and (when given) its cost, through the same mutations a
+# real dispatch and `run sync` make.
+demo_graph_state() {
+  local run="$1" id="$2" profile="$3" adapter="$4" status="$5" model="$6" model_id="$7"
+  local usd="${8:-}" tokens_in="${9:-0}" tokens_out="${10:-0}" err="${11:-}" job exit_code
+  case "$status" in
+    error) exit_code=1 ;;
+    running) exit_code='-' ;;
+    *) exit_code=0 ;;
+  esac
+  job=$(demo_job_create "$adapter" "$profile" "$id" "$exit_code") || return 1
+  [ -z "$usd" ] || demo_usage_write "$job" "$usd" "$tokens_in" "$tokens_out" || return 1
+  node_set_status "$run" "$id" "$status" "$job" "$err" "$adapter" "$profile" \
+    "$(cat "$JOBS_HOME/$job/session" 2>/dev/null)" "$model" "$model_id" || return 1
+  demo_copy_log_tail "$run" "$id" "$job"
+  [ -z "$usd" ] || node_cost_from_job "$run" "$id" "$job"
+}
+
+demo_run_graph() {
+  local run
+  run=$(demo_run_begin "Ship multi-tenant billing") || return 1
+  cmd_node_add "$run" survey "Survey checkout"    --profile claude-opus >/dev/null || return 1
+  cmd_node_add "$run" audit  "Audit tenancy"      --profile copilot-planner >/dev/null || return 1
+  cmd_node_add "$run" design "Design billing API" --after survey,audit --profile claude-planner >/dev/null || return 1
+  cmd_node_add "$run" threat "Threat model"       --after audit --profile cursor-default >/dev/null || return 1
+  cmd_node_add "$run" schema "Schema + migrate"   --after design --profile claude-default >/dev/null || return 1
+  cmd_node_add "$run" api    "Billing handlers"   --after design --profile cursor-default >/dev/null || return 1
+  cmd_node_add "$run" ui     "Invoices UI"        --after design --profile copilot-default >/dev/null || return 1
+  cmd_node_add "$run" sdk    "Client SDK"         --after design --profile opencode-default >/dev/null || return 1
+  cmd_node_add "$run" tests  "Unit tests"         --after schema --profile claude-llm-hub >/dev/null || return 1
+  cmd_node_add "$run" e2e    "E2E suite"          --after api,ui --profile copilot-default >/dev/null || return 1
+  cmd_node_add "$run" docs   "API docs"           --after sdk --profile claude-haiku >/dev/null || return 1
+  cmd_node_add "$run" review "Security review"    --after tests,e2e,threat --profile cursor-default >/dev/null || return 1
+  cmd_node_add "$run" ship   "Ship it"            --after review --profile claude-default >/dev/null || return 1
+
+  demo_graph_state "$run" survey claude-opus     claude       done opus  claude-opus      1.84 61200 9400 || return 1
+  demo_graph_state "$run" audit  copilot-planner copilot      done auto  copilot-opus-5.5 || return 1
+  # Failed once on a rate limit, retried by hand, then finished.
+  demo_graph_state "$run" design claude-planner  claude       error opus claude-opus-1m   0.92 20100 2300 \
+    "rate limited (429)" || return 1
+  cmd_node_retry "$run" design --no-dispatch >/dev/null || return 1
+  demo_graph_state "$run" design claude-planner  claude       done opus  claude-opus-1m   3.12 98400 14100 || return 1
+  demo_graph_state "$run" threat cursor-default  cursor-agent done auto  cursor-auto || return 1
+  demo_graph_state "$run" schema claude-default  claude       done sonnet claude-sonnet   0.46 30200 4100 || return 1
+  demo_graph_state "$run" api    cursor-default  cursor-agent running auto cursor-auto || return 1
+  demo_graph_state "$run" ui     copilot-default copilot      error auto copilot-auto "" 0 0 "exit=1" || return 1
+  cmd_node_retry "$run" ui --no-dispatch >/dev/null || return 1
+  demo_graph_state "$run" ui     copilot-default copilot      running auto copilot-auto || return 1
+  demo_graph_state "$run" sdk    opencode-default opencode    error "" "" "" 0 0 "tsc: 3 type errors" || return 1
+  # Through a hub that prices at zero: the pane shows the token volume instead.
+  demo_graph_state "$run" tests  claude-llm-hub  claude       done lfm2.5-8b local-lfm-8b 0 41800 6410 || return 1
+  node_set_status "$run" docs skipped "" "blocked by sdk" claude claude-haiku || return 1
+  printf '%s\n' "$run"
+}
+
 demo_seed_memory() {
   memory_add --profile claude-haiku --outcome success --kind format \
     --note "Formatting and lint passes are reliably fast here." >/dev/null 2>&1 || return 0
@@ -183,10 +250,11 @@ demo_seed_memory() {
 }
 
 cmd_demo_seed() {
-  local forced=0
+  local forced=0 graph=0 run
   while [ $# -gt 0 ]; do
     case "$1" in
       --force) forced=1 ;;
+      --graph) graph=1 ;;
       *) printf 'demo seed: unknown argument %s\n  usage: %s\n' "$1" "$DEMO_USAGE" >&2; return 2 ;;
     esac
     shift
@@ -194,6 +262,11 @@ cmd_demo_seed() {
   require_jq "demo seed"
   demo_guard_home "$forced" || return $?
   ensure_home || return 1
+  if [ "$graph" -eq 1 ]; then
+    run=$(demo_run_graph) || return 1
+    printf 'demo: seeded graph run %s in %s\n' "$run" "$ORCH_HOME"
+    return 0
+  fi
   demo_run_payments >/dev/null || return 1
   demo_run_bench >/dev/null || return 1
   demo_run_migration >/dev/null || return 1

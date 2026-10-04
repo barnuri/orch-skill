@@ -3,7 +3,7 @@
 #
 #   scripts/mod-screenshot.sh [--out FILE] [--keep]
 #
-# Builds the run through dispatch.sh subcommands in a scratch HARNESS_ORCH_HOME (trashed on
+# Seeds the run with `dispatch.sh demo seed --graph` in a scratch HARNESS_ORCH_HOME (trashed on
 # exit) and never calls a harness. The picture is the mod's own drawGraph output, styled as a
 # terminal, captured from a VISIBLE Chrome window over CDP, as demo-gif.sh does.
 #
@@ -66,33 +66,10 @@ export HARNESS_ORCH_HOME="$WORK_DIR/home"
 mkdir -p "$HARNESS_ORCH_HOME"
 orch() { bash "$DISPATCH" "$@"; }
 
-log "building the mock run (no harness is called)"
+log "seeding the detailed graph run (no harness is called)"
 orch init >/dev/null || die "init failed"
-RUN=$(orch run start "Ship multi-tenant billing") || die "run start failed"
-
-# node <id> <label> <profile> [after]
-node() { orch node add "$RUN" "$1" "$2" --profile "$3" ${4:+--after "$4"} >/dev/null || die "node add $1 failed"; }
-node survey  "Survey checkout"   claude-opus
-node audit   "Audit tenancy"     copilot-planner
-node design  "Design billing API" claude-planner   survey,audit
-node threat  "Threat model"      cursor-default   audit
-node schema  "Schema + migrate"  claude-default   design
-node api     "Billing handlers"  cursor-default   design
-node ui      "Invoices UI"       copilot-default  design
-node sdk     "Client SDK"        opencode-default design
-node tests   "Unit tests"        local-qwen       schema,api
-node e2e     "E2E suite"         copilot-default  api,ui
-node docs    "API docs"          claude-haiku     sdk
-node review  "Security review"   cursor-default   tests,e2e,threat
-node ship    "Ship it"           claude-default   review
-
-for id in survey audit design threat schema; do orch node update "$RUN" "$id" done >/dev/null; done
-orch node update "$RUN" api running >/dev/null
-orch node update "$RUN" ui error --error "exit=1" >/dev/null
-orch node retry "$RUN" ui --no-dispatch >/dev/null || die "retry ui failed"
-orch node update "$RUN" ui running >/dev/null
-orch node update "$RUN" sdk error --error "tsc: 3 type errors" >/dev/null
-orch node update "$RUN" docs skipped --error "blocked by sdk" >/dev/null
+RUN=$(orch demo seed --graph | sed -n 's/^demo: seeded graph run \([^ ]*\) .*/\1/p')
+[ -n "$RUN" ] || die "demo seed --graph failed"
 
 log "opening Chrome (a window will appear — that is the capture)"
 "$CHROME_BIN" \

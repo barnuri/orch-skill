@@ -145,12 +145,15 @@ carries when the server is bound to `0.0.0.0`. Trash that file and restart to ro
 ![The orch-graph pane in Claude Code: a 13-node run drawn left to right from the orch node, boxes coloured by status, a harness glyph per node, each profile in its own colour, arrows into every node](docs/orch-graph-mod.png)
 
 `mods/orch-graph/` is an optional Claude Code mod that draws the active run's graph in a side
-pane, the same layout as the dashboard: one column per stage, the `orch` node feeding the entry
-nodes, and an arrow into every node. Each box shows a harness glyph (`✻` claude, `◆` cursor-agent,
-`◉` copilot, `❯` opencode, `▣` local-llm, `◎` codex, `✦` gemini, `π` pi), the profile in its own
-colour, the model, cost and attempt count, or the error. The border colour and icon give the status
-(`✓` done, `●` running, `✗` error, `○` waiting, `⊘` skipped). An edge that skips a stage runs on
-its own lane under the boxes.
+pane with what the dashboard's run page shows: one column per stage, labelled `stage N · K
+parallel`, the `orch` node with its session feeding the entry nodes, and an arrow into every node.
+The header carries the run's status, id, start, elapsed time and node counts by status. Each box
+shows a harness glyph (`✻` claude, `◆` cursor-agent, `◉` copilot, `❯` opencode, `▣` local-llm,
+`◎` codex, `✦` gemini, `π` pi), the profile in its own colour, `status · model` (or the error),
+the reported cost (dollars, or tokens when the harness priced it at zero), and
+`attempt N/max` against `settings.max_attempts`. The border colour and icon give the status
+(`✓` done, `●` running, `✗` error, `○` waiting, `⊘` skipped). A node in a cycle gets a `cycle`
+badge, and an edge that skips a stage runs on its own lane under the boxes.
 
 - `install.sh` registers it through `CLAUDE_CODE_PLUGIN_DIRS` in your user settings, and
   `uninstall.sh` removes it. Restart Claude Code once after installing.
@@ -158,13 +161,16 @@ its own lane under the boxes.
   A pane opened that way needs a terminal at least 144 columns wide. `/orch-graph` opens it at
   any width.
 - `/orch-graph <run-id>` pins one run and `/orch-graph latest` follows the active run again.
+- The header links the run's dashboard page. With the pane focused, `o` opens it in the browser
+  (starting the dashboard first if it is down) and `r` retries the failed nodes, as the
+  dashboard's "Retry failed nodes" does.
 - It only reads `runs/*/state.json` and `profiles.json`, polling every 2 s. Other harnesses are
   unaffected.
 
 To regenerate the screenshot:
 
 ```bash
-scripts/mod-screenshot.sh      # builds a mock run in a scratch state dir, captures docs/orch-graph-mod.png
+scripts/mod-screenshot.sh      # seeds `demo seed --graph` in a scratch state dir, captures docs/orch-graph-mod.png
 ```
 
 It draws the run with the mod's own graph code and captures it from a visible Chrome window. It

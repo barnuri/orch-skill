@@ -6,7 +6,8 @@
 import { CdpSession } from '../../../skills/orch/scripts/lib/cdp-session'
 import { drawGraph } from '../hooks/canvas'
 import type { Span } from '../hooks/canvas'
-import { toRunView } from '../hooks/graph'
+import { STATUS_STYLE } from '../hooks/canvas'
+import { clockText, runUrl, statusCounts, toRunView } from '../hooks/graph'
 import type { ProfileInfo } from '../hooks/graph'
 
 const NAMED: Record<string, string> = {
@@ -41,25 +42,33 @@ const spanHtml = (span: Span): string => {
   return style.length ? `<span style="${style.join(';')}">${cells(span.text)}</span>` : cells(span.text)
 }
 
-const profileInfo = (document: {
+type ProfilesDocument = {
   profiles?: Record<string, { harness?: string; model?: string }>
-  models?: Record<string, { slug?: string }>
-}): Record<string, ProfileInfo> =>
-  Object.fromEntries(
-    Object.entries(document.profiles ?? {}).map(([name, spec]) => [
-      name,
-      { harness: spec.harness ?? '', model: document.models?.[spec.model ?? '']?.slug ?? spec.model ?? '' },
-    ]),
-  )
+  settings?: { max_attempts?: number }
+}
 
 const home = arg('home')
+const profiles: ProfilesDocument = JSON.parse(await Bun.file(`${home}/profiles.json`).text())
+const raw = JSON.parse(await Bun.file(`${home}/runs/${arg('run')}/state.json`).text())
 const run = toRunView(
-  JSON.parse(await Bun.file(`${home}/runs/${arg('run')}/state.json`).text()),
-  profileInfo(JSON.parse(await Bun.file(`${home}/profiles.json`).text())),
+  raw,
+  Object.fromEntries(
+    Object.entries(profiles.profiles ?? {}).map(([name, spec]) => [name, { harness: spec.harness ?? '', model: spec.model ?? '' }]),
+  ),
+  profiles.settings?.max_attempts ?? 5,
+  // A fixed clock, so the picture does not change with the time it was taken.
+  new Date(raw.started).getTime() + 754_000,
 )
-const columns = Number(process.argv.find(value => value.startsWith('--columns='))?.slice(10) ?? 220)
+const columns = Number(process.argv.find(value => value.startsWith('--columns='))?.slice(10) ?? 250)
 const nodes = run.layers.flat()
-const done = nodes.filter(node => node.status === 'done').length
+const tint = (status: string, text: string): string =>
+  `<span style="color:${NAMED[STATUS_STYLE[status]?.color ?? 'gray'] ?? '#7f848e'}">${escape(text)}</span>`
+const meta = [
+  `<span style="opacity:.55">${escape(`run ${run.runId} · started ${clockText(run.started)} · elapsed ${run.elapsed}`)}</span>`,
+  `<span style="opacity:.55">nodes ${nodes.length}</span>${statusCounts(run)
+    .map(([status, count]) => tint(status, ` · ${status} ${count}`))
+    .join('')}`,
+].join('\n')
 const graph = drawGraph(run, columns)
   .map(row => row.map(spanHtml).join(''))
   .join('\n')
@@ -75,8 +84,9 @@ const page = `<!doctype html><meta charset="utf-8"><style>
 </style><div class="term">
 <div class="prompt"><b>&gt;</b> /orch-graph</div>
 <div class="reply">  ⎿  orch graph opened.</div>
-<div class="pane"><div class="tab">pane · <b>orch graph</b></div><pre><b>${escape(run.title)}</b>
-<span style="opacity:.55">${escape(`${run.runId} · ${run.status} · ${done}/${nodes.length} done`)}</span>
+<div class="pane"><div class="tab">pane · <b>orch graph</b></div><pre><b>${escape(run.title)}</b>${tint(run.status, `  ${run.status}`)}
+${meta}
+<span style="color:#d97757">o</span>: open in dashboard  <span style="opacity:.55;text-decoration:underline">${escape(runUrl('http://127.0.0.1:6724/', run.runId))}</span>  <span style="color:#d97757">r</span>: retry failed nodes
 
 ${graph}</pre></div></div>`
 

@@ -443,6 +443,21 @@ expect_match "demo covers more than one harness" 'claude,cursor-agent' "$adapter
 tails=$(printf '%s' "$state" | jq -r '[.[].nodes[] | select((.log_tail | length) > 0)] | length')
 expect_match "demo nodes carry a log tail" '^[1-9]' "$tails"
 
+graph_demo=$(new_tmp)
+env HARNESS_ORCH_HOME="$graph_demo" bash "$SCRIPT" init >/dev/null 2>&1
+out=$(env HARNESS_ORCH_HOME="$graph_demo" PATH="$(path_without claude cursor-agent opencode copilot)" \
+  bash "$SCRIPT" demo seed --graph 2>&1); rc=$?
+expect_exit "demo seed --graph exits 0 with no harness CLI present" 0 "$rc"
+expect_match "demo seed --graph names its run" 'seeded graph run' "$out"
+graph_state=$(cat "$graph_demo"/runs/*/state.json)
+expect_match "graph demo seeds one 13-node run" '^13$' "$(printf '%s' "$graph_state" | jq '.nodes | length')"
+expect_match "graph demo covers every node status" '^done,error,running,skipped,waiting$' \
+  "$(printf '%s' "$graph_state" | jq -r '[.nodes[].status] | unique | join(",")')"
+expect_match "graph demo nodes carry a reported cost" '^3.12$' \
+  "$(printf '%s' "$graph_state" | jq '.nodes[] | select(.id == "design") | .cost.usd')"
+expect_match "graph demo records a retried attempt" '^1$' \
+  "$(printf '%s' "$graph_state" | jq '.nodes[] | select(.id == "ui") | .attempts | length')"
+
 # Every job dir a real dispatch would write, so the transcript view and `tail` work on demo data.
 job_dir=$(ls -d "$demo"/jobs/demo-*/ 2>/dev/null | head -1)
 expect_file "demo job has a full log" "$job_dir/log"

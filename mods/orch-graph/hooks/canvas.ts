@@ -79,13 +79,12 @@ export const profileColors = (profiles: string[]): Map<string, string> =>
       .map((name, index) => [name, hslToHex(PROFILE_HUES[index % PROFILE_HUES.length] ?? 212, 58, 60)]),
   )
 
-const BOX_H = 5
+const BOX_H = 6
 const GAP_Y = 1
 const GAP_X = 7
-const ORCH_W = 8
-const ORCH_H = 3
-const MIN_BOX_W = 16
-const MAX_BOX_W = 28
+const MIN_BOX_W = 18
+const MAX_BOX_W = 30
+const SESSION_MAX = 14
 
 const clip = (text: string, width: number): string =>
   text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`
@@ -159,27 +158,33 @@ class Canvas {
 
 type Placed = { node: NodeView; x: number; y: number }
 
-const boxWidthFor = (run: RunView, columns: number): number => {
-  const longest = Math.max(...run.layers.flat().map(node => Math.max(node.label.length + 6, node.profile.length + 4)))
+const metricsWidth = (node: NodeView): number => (node.cost?.length ?? 0) + node.attempt.length + 5
+
+const boxWidthFor = (run: RunView, columns: number, orchW: number): number => {
+  const longest = Math.max(
+    ...run.layers.flat().map(node => Math.max(node.label.length + 8, node.profile.length + 4, metricsWidth(node))),
+  )
   const wanted = Math.min(MAX_BOX_W, Math.max(MIN_BOX_W, longest))
-  const layers = run.layers.length
-  const fits = Math.floor((columns - ORCH_W - GAP_X) / layers) - GAP_X
+  const fits = Math.floor((columns - orchW - GAP_X) / run.layers.length) - GAP_X
 
   return Math.max(MIN_BOX_W, Math.min(wanted, fits))
 }
 
-const costText = (cost: number | null): string => (cost === null ? '' : ` · $${cost.toFixed(cost < 1 ? 3 : 2)}`)
-
 /** Draws the run into rows of styled spans, sized to `columns` where it can be. */
 export const drawGraph = (run: RunView, columns: number): Row[] => {
-  const boxW = boxWidthFor(run, columns)
+  const session = run.session ? clip(run.session, SESSION_MAX) : ''
+  const orchW = session ? SESSION_MAX + 4 : 8
+  const orchH = session ? 4 : 3
+  const boxW = boxWidthFor(run, columns, orchW)
   const colors = profileColors(run.layers.flat().map(node => node.profile))
+  // The stage labels take the top two rows once there is more than one stage.
+  const top = run.layers.length > 1 ? 2 : 0
   const tallest = Math.max(...run.layers.map(layer => layer.length * (BOX_H + GAP_Y) - GAP_Y))
+  const columnX = (index: number) => orchW + GAP_X + index * (boxW + GAP_X)
   const placed = new Map<string, Placed>()
   run.layers.forEach((layer, index) => {
-    const x = ORCH_W + GAP_X + index * (boxW + GAP_X)
-    const top = Math.floor((tallest - (layer.length * (BOX_H + GAP_Y) - GAP_Y)) / 2)
-    layer.forEach((node, row) => placed.set(node.id, { node, x, y: top + row * (BOX_H + GAP_Y) }))
+    const offset = Math.floor((tallest - (layer.length * (BOX_H + GAP_Y) - GAP_Y)) / 2)
+    layer.forEach((node, row) => placed.set(node.id, { node, x: columnX(index), y: top + offset + row * (BOX_H + GAP_Y) }))
   })
 
   const all = [...placed.values()]
@@ -194,20 +199,28 @@ export const drawGraph = (run: RunView, columns: number): Row[] => {
   // An edge that skips a layer runs along its own lane under the graph, never through a box.
   const isLong = ([source, target]: [Placed | null, Placed]) => source !== null && target.x - source.x > boxW + GAP_X
   const lanes = edges.filter(isLong).length
-  const width = ORCH_W + GAP_X + run.layers.length * (boxW + GAP_X)
-  const canvas = new Canvas(width, tallest + (lanes > 0 ? lanes + 1 : 0))
+  const bottom = top + tallest
+  const canvas = new Canvas(columnX(run.layers.length), bottom + (lanes > 0 ? lanes + 1 : 0))
 
-  const orchY = Math.max(0, Math.floor((tallest - ORCH_H) / 2))
-  canvas.box(0, orchY, ORCH_W, ORCH_H, { color: 'cyan' })
+  if (top > 0) {
+    run.layers.forEach((layer, index) => {
+      const label = layer.length > 1 ? `stage ${index + 1} · ${layer.length} parallel` : `stage ${index + 1}`
+      canvas.text(columnX(index) + 1, 0, clip(label, boxW - 1), { dim: true })
+    })
+  }
+
+  const orchY = top + Math.max(0, Math.floor((tallest - orchH) / 2))
+  canvas.box(0, orchY, orchW, orchH, { color: 'cyan' })
   canvas.text(2, orchY + 1, 'orch', { color: 'cyan', bold: true })
+  if (session) canvas.text(2, orchY + 2, session, { dim: true })
 
-  let lane = tallest + 1
+  let lane = bottom + 1
   for (const edge of edges) {
     const [source, target] = edge
     const node = source?.node
     const style: Style =
       node?.status === 'running' || (!node && target.node.status === 'running') ? { color: 'yellow' } : { dim: true }
-    const startX = source ? source.x + boxW : ORCH_W
+    const startX = source ? source.x + boxW : orchW
     const startY = source ? source.y + 2 : orchY + 1
     const endX = target.x - 2
     const endY = target.y + 2
@@ -231,13 +244,26 @@ export const drawGraph = (run: RunView, columns: number): Row[] => {
     const status = STATUS_STYLE[node.status] ?? UNKNOWN_GLYPH_STATUS
     const harness = HARNESS_GLYPH[node.harness] ?? UNKNOWN_GLYPH
     const inner = boxW - 4
+    const badge = node.isCyclic ? 'cycle ' : ''
     canvas.box(x, y, boxW, BOX_H, { color: status.color, bold: node.status === 'running' })
+    // Row 1: harness, label, status. Row 2: profile. Row 3: `status · model`, or the error.
+    // Row 4: cost on the left, the attempt on the right, as the dashboard's metrics row.
     canvas.text(x + 2, y + 1, harness.glyph, { color: harness.color, bold: true })
-    canvas.text(x + 4, y + 1, clip(node.label, inner - 4), { bold: true })
+    canvas.text(x + 4, y + 1, clip(node.label, inner - 4 - badge.length), { bold: true })
+    if (badge) canvas.text(x + boxW - 3 - badge.length, y + 1, badge, { color: 'magenta' })
     canvas.text(x + boxW - 3, y + 1, status.icon, { color: status.color, bold: true })
     canvas.text(x + 2, y + 2, clip(node.profile, inner), { color: colors.get(node.profile) })
-    const meta = `${node.model}${costText(node.cost)}${node.attempts > 1 ? ` · ×${node.attempts}` : ''}`
-    canvas.text(x + 2, y + 3, clip(node.error ?? meta, inner), node.error ? { color: 'red' } : { dim: true })
+    canvas.text(
+      x + 2,
+      y + 3,
+      clip(`${node.status} · ${node.error ?? node.model}`, inner),
+      node.status === 'error' ? { color: 'red' } : { dim: true },
+    )
+    // The cost keeps its width; a tight box shortens `attempt 2/5` to `2/5` first.
+    const isTight = (node.cost?.length ?? 0) + node.attempt.length + 1 > inner
+    const attempt = isTight ? node.attempt.replace(/^attempt /, '').replace(/^manual retry /, 'retry ') : node.attempt
+    if (node.cost) canvas.text(x + 2, y + 4, clip(node.cost, inner - attempt.length - 1), { color: 'green' })
+    canvas.text(x + boxW - 2 - attempt.length, y + 4, attempt, { dim: true })
   }
 
   return canvas.rows()
