@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 
 import type { NodeStatus } from "../../shared/types/node-status";
 import type { RunState } from "../../shared/types/run-state";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,24 @@ const RUN_ID: string = "20260903-120000-abcd";
 const ETAG_PATTERN = /^"[0-9a-f]{64}"$/;
 
 const servers: TestServerHandle[] = [];
+
+const HARNESS_BINARIES: readonly string[] = ["claude", "copilot", "cursor-agent", "opencode", "pi"];
+const realPath: string | undefined = process.env.PATH;
+
+// Retry routes dispatch real jobs; stub every harness CLI so no test ever starts one.
+beforeAll(() => {
+  const stubDir = mkdtempSync(join(tmpdir(), "orch-harness-stubs-"));
+  for (const name of HARNESS_BINARIES) {
+    const stub = join(stubDir, name);
+    writeFileSync(stub, "#!/bin/sh\necho stub\n");
+    chmodSync(stub, 0o755);
+  }
+  process.env.PATH = `${stubDir}:${realPath ?? ""}`;
+});
+
+afterAll(() => {
+  process.env.PATH = realPath;
+});
 
 function server(): TestServerHandle {
   const srv = startTestServer();

@@ -15,7 +15,7 @@
       "recency_days": 30,
       "dismiss_ttl_days": 30
     },
-    "disabled_harnesses": ["local-llm", "opencode"]
+    "disabled_harnesses": []
   },
   "models": {
     "claude-opus": {
@@ -48,35 +48,60 @@
       "max_complexity": "small",
       "tags": ["trivial", "format", "docs"]
     },
-    "local-lfm-8b": {
-      "slug": "llama_swap/lfm2.5-8b-a1b",
-      "harnesses": ["local-llm", "claude", "cursor-agent"],
-      "description": "Local default — ~5.6s e2e, prefill 4.1–4.6s (bench max_tokens 512).",
+    "local-qwen3.6-35b": {
+      "slug": "llama_swap/qwen3.6-35b",
+      "harnesses": ["claude", "copilot", "local-llm", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Local default: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 44 s median; fastest Claude and Copilot pair.",
       "cost": "free",
       "quality": "standard",
-      "speed": "fast",
-      "max_complexity": "small",
+      "speed": "balanced",
+      "max_complexity": "medium",
       "tags": ["local", "llama_swap", "bench-winner"]
     },
-    "local-lfm-2.6b": {
-      "slug": "llama_swap/lfm2.5-2.6b",
-      "harnesses": ["local-llm", "claude", "cursor-agent"],
-      "description": "Avoid — hits 512 token cap with empty answer in bench (9.0s).",
+    "local-ornith-1.0-35b": {
+      "slug": "llama_swap/ornith-1.0-35b",
+      "harnesses": ["claude", "copilot", "local-llm", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Local backup: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 48 s median.",
       "cost": "free",
-      "quality": "draft",
+      "quality": "standard",
       "speed": "balanced",
-      "max_complexity": "trivial",
-      "tags": ["local", "llama_swap", "bench-avoid"]
+      "max_complexity": "medium",
+      "tags": ["local", "llama_swap", "bench-winner"]
     },
-    "local-qwen3-4b": {
-      "slug": "llama_swap/qwen3-4b-2507",
-      "harnesses": ["local-llm", "claude", "cursor-agent"],
-      "description": "Slower prefill ~14s but correct at 10.5s e2e — backup local model.",
+    "local-ornith-1.5-35b": {
+      "slug": "llama_swap/ornith-1.5-35b",
+      "harnesses": ["claude", "copilot", "local-llm", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Local planning/general: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 59 s median; with pi the fastest pair (17/40/32 s).",
+      "cost": "free",
+      "quality": "standard",
+      "speed": "balanced",
+      "max_complexity": "large",
+      "tags": ["local", "llama_swap", "bench-winner", "planning"]
+    },
+    "local-qwen3-coder-next": {
+      "slug": "llama_swap/qwen3-coder-next",
+      "harnesses": ["opencode", "claude", "copilot", "local-llm", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Local coder: 14/14 in the 2026-10-04 local-llm benchmark final matrix, 60 s median; best opencode pair. Not fit for non-coding work.",
+      "cost": "free",
+      "quality": "standard",
+      "speed": "balanced",
+      "max_complexity": "medium",
+      "tags": ["local", "llama_swap", "bench-winner", "coding"]
+    },
+    "local-ornith-1.5-9b": {
+      "slug": "llama_swap/ornith-1.5-9b",
+      "harnesses": ["local-llm", "claude", "copilot", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Smallest local model to pass 16/16 in the 2026-10-04 local-llm benchmark final matrix (143 s median); trivial text only.",
       "cost": "free",
       "quality": "draft",
       "speed": "slow",
       "max_complexity": "small",
-      "tags": ["local", "llama_swap", "qwen"]
+      "tags": ["local", "llama_swap", "bench-winner", "small"]
     },
     "cursor-auto": {
       "slug": "auto",
@@ -203,9 +228,9 @@
     },
     "claude-llm-hub": {
       "harness": "claude",
-      "model": "local-lfm-8b",
+      "model": "local-qwen3.6-35b",
       "allowed_models": ["llama_swap*"],
-      "description": "Claude CLI via LLM hub — llama_swap models only.",
+      "description": "Claude Code via llm-hub on qwen3.6-35b: 15/15 in the 2026-10-04 local-llm benchmark final matrix, the fastest Claude pair (23/38/55 s).",
       "cost": "low",
       "quality": "standard",
       "speed": "balanced",
@@ -213,13 +238,79 @@
       "enabled": true,
       "strengths": ["implement", "bulk"],
       "avoid_for": ["architecture"],
-      "parallel_ok": true,
+      "parallel_ok": false,
       "priority": 7,
-      "fallback": "cursor-llm-hub",
+      "fallback": "copilot-llm-hub",
       "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
       "env": {
         "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
-        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}"
+        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
+        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "claude-llm-hub-planner": {
+      "harness": "claude",
+      "model": "local-ornith-1.5-35b",
+      "allowed_models": ["local-ornith-1.5-35b"],
+      "description": "Claude Code via llm-hub on ornith-1.5-35b, the local planning tier: 15/15 in the 2026-10-04 local-llm benchmark final matrix.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "low",
+      "enabled": true,
+      "strengths": ["planning", "decomposition", "general"],
+      "avoid_for": ["trivial", "format"],
+      "min_complexity": "large",
+      "parallel_ok": false,
+      "priority": 6,
+      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
+      "env": {
+        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
+        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
+        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "copilot-llm-hub": {
+      "harness": "copilot",
+      "model": "local-qwen3.6-35b",
+      "allowed_models": ["llama_swap*"],
+      "description": "Copilot CLI (BYOK) via llm-hub on qwen3.6-35b: 15/15 in the 2026-10-04 local-llm benchmark final matrix (27/44/51 s).",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "review", "bulk"],
+      "avoid_for": ["architecture"],
+      "parallel_ok": false,
+      "priority": 6,
+      "flags": ["--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot", "--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps"],
+      "env": {
+        "COPILOT_PROVIDER_BASE_URL": "${LLM_HUB_V1_URL}",
+        "COPILOT_PROVIDER_TYPE": "openai",
+        "COPILOT_PROVIDER_API_KEY": "${LLM_HUB_KEY}",
+        "COPILOT_MODEL": "${PROFILE_MODEL}",
+        "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "229376",
+        "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "32768",
+        "COPILOT_OFFLINE": "true"
       },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
     },
@@ -278,26 +369,6 @@
       "auth": [],
       "fallback": "claude-planner"
     },
-    "cursor-llm-hub": {
-      "harness": "cursor-agent",
-      "model": "local-lfm-8b",
-      "allowed_models": ["llama_swap*"],
-      "description": "Cursor agent via LLM hub — llama_swap models only.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "fast",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "review", "cursor-ui"],
-      "parallel_ok": true,
-      "priority": 7,
-      "flags": [],
-      "env": {
-        "CURSOR_API_ENDPOINT": "${LLM_HUB_URL}",
-        "CURSOR_API_KEY": "${LLM_HUB_KEY}"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
     "opencode-default": {
       "harness": "opencode",
       "model": "",
@@ -315,46 +386,66 @@
       "env": {},
       "auth": []
     },
-    "local-qwen": {
-      "harness": "local-llm",
-      "model": "local-lfm-8b",
-      "allowed_models": ["local-lfm-8b", "local-qwen3-4b"],
-      "description": "Local llama_swap via LLM_HUB_URL — default lfm2.5-8b (fastest correct in bench).",
-      "cost": "free",
+    "opencode-llm-hub": {
+      "harness": "opencode",
+      "model": "local-qwen3-coder-next",
+      "allowed_models": ["local-qwen3-coder-next"],
+      "description": "OpenCode via llm-hub on qwen3-coder-next: 14/14 in the 2026-10-04 local-llm benchmark final matrix, the best opencode pair (35/62/42 s). Coding only.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "tests"],
+      "avoid_for": ["architecture", "docs"],
+      "parallel_ok": false,
+      "priority": 6,
+      "flags": ["--pure"],
+      "env": {
+        "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+        "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"llama_swap\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"qwen3-coder-next\":{\"id\":\"llama_swap/qwen3-coder-next\",\"limit\":{\"context\":262144,\"output\":32768}}}}}}"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "pi-llm-hub": {
+      "harness": "pi",
+      "model": "local-ornith-1.5-35b",
+      "allowed_models": ["llama_swap*"],
+      "description": "pi via llm-hub on ornith-1.5-35b: the fastest pair in the 2026-10-04 local-llm benchmark final matrix (17/40/32 s, 15/15 for the model).",
+      "cost": "low",
       "quality": "standard",
       "speed": "fast",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "planning", "general"],
+      "avoid_for": ["architecture"],
+      "parallel_ok": false,
+      "priority": 6,
+      "flags": ["--thinking", "off"],
+      "env": {
+        "LLM_HUB_MODEL": "${PROFILE_MODEL}"
+      },
+      "auth": ["LLM_HUB_URL"]
+    },
+    "local-llm-fast": {
+      "harness": "local-llm",
+      "model": "local-ornith-1.5-9b",
+      "allowed_models": ["local-ornith-1.5-9b", "local-qwen3.6-35b"],
+      "description": "Plain chat via llm-hub on ornith-1.5-9b, the smallest model to pass the 2026-10-04 local-llm benchmark final matrix. Trivial text, no tools.",
+      "cost": "free",
+      "quality": "draft",
+      "speed": "fast",
       "risk": "low",
-      "enabled": false,
-      "strengths": ["tests", "format", "trivial"],
+      "enabled": true,
+      "strengths": ["trivial", "format", "classify"],
       "avoid_for": ["architecture", "security"],
       "max_complexity": "small",
       "parallel_ok": true,
       "priority": 4,
       "flags": [],
-      "env": {
-        "LLM_HUB_URL": "${LLM_HUB_URL}"
-      },
-      "auth": ["LLM_HUB_URL"]
-    },
-    "local-qwen3": {
-      "harness": "local-llm",
-      "model": "local-qwen3-4b",
-      "allowed_models": ["local-qwen3-4b"],
-      "description": "Local qwen3-4b — slower prefill, use when 8b is busy or unsuitable.",
-      "cost": "free",
-      "quality": "draft",
-      "speed": "slow",
-      "risk": "low",
-      "enabled": false,
-      "strengths": ["trivial", "format"],
-      "avoid_for": ["architecture", "security", "latency-sensitive"],
-      "max_complexity": "small",
-      "parallel_ok": true,
-      "priority": 2,
-      "flags": [],
-      "env": {
-        "LLM_HUB_URL": "${LLM_HUB_URL}"
-      },
+      "env": {},
       "auth": ["LLM_HUB_URL"]
     }
   }

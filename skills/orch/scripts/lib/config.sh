@@ -228,7 +228,8 @@ profiles_migrate() {
   mv -f "$tmp" "$PROFILES_FILE" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
   profiles_migrate_copilot_planner || return $?
-  profiles_migrate_claude_planner
+  profiles_migrate_claude_planner || return $?
+  profiles_migrate_bench_local
 }
 
 COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
@@ -327,6 +328,81 @@ profiles_migrate_claude_planner() {
     | (if .profiles["copilot-default"] and .profiles["claude-default"] then
          .profiles["copilot-default"].fallback //= "claude-default" else . end)
     | (if .profiles["copilot-planner"] then .profiles["copilot-planner"].fallback //= "claude-planner" else . end)
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  : > "$marker"
+}
+
+# One-time switch to the local models that passed the 2026-10-04 local-llm benchmark. The new
+# catalog entries and llm-hub profiles are seeded from the shipped template (never over a user's
+# own), claude-llm-hub moves to qwen3.6-35b (serial: llama-swap holds one big model) only while it
+# still runs a not-fit model or the old ornith-1.0-35b default, and the claude llm-hub profiles get the model tier pins Claude Code needs
+# against a gateway. cursor-llm-hub (stock cursor-agent cannot reach a local endpoint), local-qwen
+# and local-qwen3 go only while they still run a not-fit model, and every reference to them
+# follows. A not-fit catalog entry is dropped only once no profile uses it — otherwise the slug
+# reduce in profiles_migrate would recreate it as a stub. The opencode, local-llm and pi harnesses
+# leave disabled_harnesses. Marker-guarded so a later user edit is never reverted.
+profiles_migrate_bench_local() {
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.bench-local-migrated"
+  [ -e "$marker" ] && return 0
+  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" '
+    ["local-lfm-8b", "local-lfm-2.6b", "local-qwen3-4b"] as $notfit
+    | ["local-qwen3.6-35b", "local-ornith-1.0-35b", "local-ornith-1.5-35b",
+       "local-qwen3-coder-next", "local-ornith-1.5-9b"] as $new_models
+    | ["claude-llm-hub-planner", "copilot-llm-hub", "opencode-llm-hub", "pi-llm-hub",
+       "local-llm-fast"] as $new_profiles
+    | ($tpl[0].profiles["claude-llm-hub"].env
+        | with_entries(select(.key | test("^ANTHROPIC_(MODEL|DEFAULT_.*_MODEL|SMALL_FAST_MODEL)$|^CLAUDE_CODE_")))) as $pins
+    | def notfit_model: (.model // "") as $m | ($m == "" or ($notfit | index($m)) != null);
+      def pattern_allows($slug): endswith("*") and ($slug | startswith(.[:-1]));
+    reduce $new_models[] as $id (.; .models[$id] //= $tpl[0].models[$id])
+    | (if .profiles["claude-llm-hub"]
+          and (.profiles["claude-llm-hub"] | (notfit_model and .model != "")
+               or .model == "local-ornith-1.0-35b") then
+         .models["local-qwen3.6-35b"].slug as $slug
+         | .profiles["claude-llm-hub"].model = "local-qwen3.6-35b"
+         | .profiles["claude-llm-hub"].parallel_ok = false
+         | .profiles["claude-llm-hub"].allowed_models |= (
+             if type != "array" or any(.[]; . == "local-qwen3.6-35b" or pattern_allows($slug)) then .
+             else . + ["local-qwen3.6-35b"] end)
+       else . end)
+    | .models as $catalog
+    | .profiles |= with_entries(
+        if .value.harness == "claude"
+           and (($catalog[.value.model // ""].slug // .value.model // "") | startswith("llama_swap/")) then
+          .value.env = ($pins + (.value.env // {}))
+        else . end)
+    | ([ (if .profiles["cursor-llm-hub"] | (.harness == "cursor-agent" and notfit_model)
+          then "cursor-llm-hub" else empty end),
+         (if .profiles["local-qwen"] | (. != null and notfit_model and .model != "")
+          then "local-qwen" else empty end),
+         (if .profiles["local-qwen3"] | (. != null and notfit_model and .model != "")
+          then "local-qwen3" else empty end) ]) as $gone
+    | def retarget: . as $ref
+        | if ($gone | index($ref)) == null then .
+          elif . == "cursor-llm-hub" then "copilot-llm-hub"
+          else "local-llm-fast" end;
+    reduce $gone[] as $name (.; del(.profiles[$name]))
+    | .profiles |= with_entries(if .value.fallback then .value.fallback |= retarget else . end)
+    | .settings.default_profile |= (if . then retarget else . end)
+    | .settings.planner_profile |= (if . then retarget else . end)
+    | reduce $new_profiles[] as $name (.; .profiles[$name] //= $tpl[0].profiles[$name])
+    | ([ .profiles[] | .model // empty ]) as $used
+    | reduce ($notfit[] | select(. as $id | $used | index($id) | not)) as $id (.; del(.models[$id]))
+    | .models as $catalog
+    | .profiles |= with_entries(
+        if (.value.allowed_models | type) == "array" then
+          .value.allowed_models |= map(select(. as $a | ($notfit | index($a)) == null or $catalog[$a] != null))
+        else . end)
+    | ([ .profiles[] | select(.harness == "cursor-agent") | .model // empty ]) as $cursor_models
+    | (if .models["local-ornith-1.0-35b"] and ($cursor_models | index("local-ornith-1.0-35b") | not) then
+         .models["local-ornith-1.0-35b"].harnesses |= map(select(. != "cursor-agent"))
+       else . end)
+    | .settings.disabled_harnesses = ((.settings.disabled_harnesses // [])
+        | map(select(. != "opencode" and . != "local-llm" and . != "pi")))
   ' "$PROFILES_FILE" > "$tmp"; then
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1

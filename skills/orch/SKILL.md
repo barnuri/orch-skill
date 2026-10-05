@@ -56,9 +56,9 @@ Precedence, highest first:
 | `claude-native` | do the work in this session — Step 2 |
 | `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-default` (small–medium, default), `claude-planner` (Opus 1M, xhigh: planning), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
 | `cursor-agent` | `cursor-default` |
-| `opencode` | `opencode-default` |
+| `opencode` | `opencode-default`; `opencode-llm-hub` for local coding |
 | `copilot` | `copilot-default` |
-| `local-llm` | `local-qwen` |
+| `local-llm` | a [local profile](#local-models-llm-hub) — `claude-llm-hub` when the task needs tools, `local-llm-fast` for trivial plain text |
 
 The classifier's policy (top rule wins): trivial/small **and** `budget-check` passes →
 `claude-native`; `budget-check` fails (this Claude session near its subscription limit) → first
@@ -69,9 +69,29 @@ warning; `--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; othe
 non-subscription snapshot always counts as safe.
 
 Harnesses listed in `settings.disabled_harnesses` are off: `profile pick` never returns their
-profiles and the dashboard hides them. The template disables `claude` (plus `local-llm` and
-`opencode`) and makes `copilot-default` (Copilot, model `auto`) the default profile, so when the
-classifier's answer maps to a disabled harness, use `settings.default_profile` instead.
+profiles and the dashboard hides them. The template disables none and makes `copilot-default`
+(Copilot, model `auto`) the default profile; when the classifier's answer maps to a harness the
+user disabled, use `settings.default_profile` instead.
+
+### Local models (llm-hub)
+
+Each profile runs a model from the 2026-10-04 local-llm benchmark final matrix. Times are the
+A/B/C task wall times for that harness and model pair.
+
+| Profile | Model | Use it for | Bench evidence |
+|---|---|---|---|
+| `claude-llm-hub` | qwen3.6-35b (local default) | implement and bulk work with tools | 15/15, the fastest Claude pair (23/38/55 s) |
+| `claude-llm-hub-planner` | ornith-1.5-35b | local planning and decomposition, large tasks | 15/15, the strongest planning model |
+| `copilot-llm-hub` | qwen3.6-35b | the same work under Copilot CLI (BYOK); `claude-llm-hub`'s fallback | 15/15 (27/44/51 s) |
+| `opencode-llm-hub` | qwen3-coder-next | coding only | 14/14, the best opencode pair (35/62/42 s) |
+| `pi-llm-hub` | ornith-1.5-35b | the fastest local agent | the fastest pair overall (17/40/32 s) |
+| `local-llm-fast` | ornith-1.5-9b | trivial text: format, classify; no tools | the smallest model to pass 15/15 |
+
+llama-swap holds one big model at a time, so the 35B profiles are serial (`parallel_ok: false`);
+only `local-llm-fast` runs in parallel. Cursor cannot use local models: stock `cursor-agent`
+cannot reach a local endpoint. orch derives `LLM_HUB_V1_URL` (the base with exactly one trailing
+`/v1`) from `LLM_HUB_URL`; the claude profiles use `LLM_HUB_URL`, and every OpenAI-style client
+(`local-llm`, `pi`, `copilot-llm-hub`, `opencode-llm-hub`) uses `LLM_HUB_V1_URL`.
 
 If the choice materially changes cost or risk and none of the three sources settles it, ask —
 `AskUserQuestion` when the options are discrete, plain text otherwise (or where that tool doesn't
@@ -123,7 +143,7 @@ into every following command (and hand the user its dashboard link, `#/run/<run-
 orch run start "<title>"                                   # prints <run-id>; auto-prunes old runs first
 orch node add <run-id> plan   "Plan the change"
 orch node add <run-id> impl   "Implement"    --after plan --profile claude-llm-hub
-orch node add <run-id> tests  "Write tests"  --after plan --profile local-qwen
+orch node add <run-id> tests  "Write tests"  --after plan --profile local-llm-fast
 orch node add <run-id> review "Review + fix" --after impl,tests --profile cursor-default
 orch run sync <run-id>                     # prints id<TAB>status per node, then "ready: plan", "running: 0"
 ```
@@ -344,7 +364,7 @@ disables). Running runs and jobs are never touched.
 | `cursor-agent` | `cursor-agent` on `PATH` | `cursor-agent -p … --output-format text --force [--model M]` |
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
 | `copilot` | `copilot` on `PATH` | `copilot -p … --silent [--model M] [flags]` — the template profiles pass `--allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot` |
-| `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `/chat/completions` |
+| `local-llm` | `LLM_HUB_URL` (OpenAI-compatible base); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | POST `$LLM_HUB_V1_URL/chat/completions` |
 | `pi` | `pi` on `PATH`, `LLM_HUB_URL`, a model (profile or `LLM_HUB_MODEL`); optional `LLM_HUB_KEY` | `pi --model hub/M --approve --no-session -p … [flags]` with a private agent dir whose `models.json` points provider `hub` at llm-hub `/v1` |
 
 A profile supplies the model, CLI flags and env for its harness (e.g. `claude-llm-hub` points

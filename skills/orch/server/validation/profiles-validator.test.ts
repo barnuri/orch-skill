@@ -21,7 +21,7 @@ function documentWithProfile(spec: Mutable): Mutable {
   document["settings"] = { default_profile: "x", retention_days: 7, budget_threshold: 85 };
   document["models"] = {
     "claude-sonnet": { slug: "sonnet", harnesses: ["claude"], description: "workhorse" },
-    "local-lfm-8b": { slug: "llama_swap/lfm2.5-8b-a1b", harnesses: ["claude"], description: "hub" },
+    "local-qwen3.6-35b": { slug: "llama_swap/qwen3.6-35b", harnesses: ["claude"], description: "hub" },
   };
   document["profiles"] = { x: { harness: "claude", model: "claude-sonnet", ...spec } };
   return document;
@@ -293,7 +293,7 @@ describe("profilesIssues", () => {
     const profiles = document["profiles"] as Mutable;
     profiles["hub"] = {
       harness: "claude",
-      model: "local-lfm-8b",
+      model: "local-qwen3.6-35b",
       allowed_models: ["llama_swap*"],
       flags: [],
       env: {},

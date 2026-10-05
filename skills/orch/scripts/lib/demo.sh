@@ -146,7 +146,7 @@ demo_run_bench() {
   local run
   run=$(demo_run_begin "Nightly benchmark sweep") || return 1
   demo_node "$run" warmup "Warm the llama_swap model cache" claude-llm-hub claude       done
-  demo_node "$run" bench  "Benchmark lfm2.5-8b on 40 prompts" claude-llm-hub claude      done warmup
+  demo_node "$run" bench  "Benchmark qwen3.6-35b on 40 prompts" claude-llm-hub claude    done warmup
   demo_node "$run" report "Summarise latency and cost"        claude-haiku   claude       done bench
   cmd_run_finish "$run" >/dev/null || return 1
   printf '%s\n' "$run"
@@ -156,8 +156,8 @@ demo_run_migration() {
   local run
   run=$(demo_run_begin "Migrate the llm-hub profiles") || return 1
   demo_node "$run" rename "Rename hub profiles to llm-hub" claude-default claude       done
-  demo_node "$run" probe  "Probe the hub endpoint"          cursor-llm-hub cursor-agent error rename \
-    "LLM_HUB_URL is not set in this environment"
+  demo_node "$run" probe  "Probe the hub endpoint"          cursor-default cursor-agent error rename \
+    "cursor-agent cannot reach a local endpoint"
   demo_node "$run" rollout "Roll the change out to profiles.json" claude-default claude     waiting probe
   cmd_run_finish "$run" >/dev/null || return 1
   printf '%s\n' "$run"
@@ -235,7 +235,7 @@ demo_run_graph() {
   demo_graph_state "$run" ui     copilot-default copilot      running auto copilot-auto || return 1
   demo_graph_state "$run" sdk    opencode-default opencode    error "" "" "" 0 0 "tsc: 3 type errors" || return 1
   # Through a hub that prices at zero: the pane shows the token volume instead.
-  demo_graph_state "$run" tests  claude-llm-hub  claude       done lfm2.5-8b local-lfm-8b 0 41800 6410 || return 1
+  demo_graph_state "$run" tests  claude-llm-hub  claude       done llama_swap/qwen3.6-35b local-qwen3.6-35b 0 41800 6410 || return 1
   node_set_status "$run" docs skipped "" "blocked by sdk" claude claude-haiku || return 1
   printf '%s\n' "$run"
 }
@@ -245,7 +245,7 @@ demo_seed_memory() {
     --note "Formatting and lint passes are reliably fast here." >/dev/null 2>&1 || return 0
   memory_add --profile claude-opus --outcome success --kind architecture \
     --note "Worth the cost on schema design; caught a missing index." >/dev/null 2>&1 || return 0
-  memory_add --profile cursor-llm-hub --outcome failure --kind review \
+  memory_add --profile copilot-llm-hub --outcome failure --kind review \
     --note "Needs LLM_HUB_URL exported; failed fast without it." >/dev/null 2>&1 || return 0
 }
 

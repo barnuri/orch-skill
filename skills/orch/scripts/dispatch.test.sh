@@ -392,7 +392,17 @@ expect_missing "init creates no data dir" "$home/data"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile list 2>&1)
 expect_match "profile list marks the default" '^\*copilot-default' "$out"
 expect_match "profile list shows the planner profile" 'copilot-planner	copilot	copilot-opus-5.5' "$out"
-expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-lfm-8b' "$out"
+expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-qwen3.6-35b' "$out"
+expect_match "profile list shows the local planner" 'claude-llm-hub-planner	claude	local-ornith-1.5-35b' "$out"
+expect_match "profile list shows the copilot llm-hub profile" 'copilot-llm-hub	copilot	local-qwen3.6-35b' "$out"
+expect_match "profile list shows the opencode llm-hub profile" 'opencode-llm-hub	opencode	local-qwen3-coder-next' "$out"
+expect_match "profile list shows the pi llm-hub profile" 'pi-llm-hub	pi	local-ornith-1.5-35b' "$out"
+expect_match "profile list shows the small local profile" 'local-llm-fast	local-llm	local-ornith-1.5-9b' "$out"
+expect_no_match "profile list drops the retired local profiles" '^(cursor-llm-hub|local-qwen|local-qwen3)	' "$out"
+expect_match "the template ships no not-fit model" '^0$' \
+  "$(jq '[.models[].slug | select(test("lfm2\\.5|qwen3-4b"))] | length' "$home/profiles.json")"
+expect_match "the template disables no local harness" '^\[\]$' \
+  "$(jq -c '.settings.disabled_harnesses' "$home/profiles.json")"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show cursor-default 2>&1)
 expect_match "cursor-default is pinned to the Auto model" '"model": "cursor-auto"' "$out"
@@ -437,10 +447,74 @@ expect_match "claude-default is enabled and parallel" '^true,true$' \
   "$(jq -r '.profiles["claude-default"] | "\(.enabled),\(.parallel_ok)"' "$mig/profiles.json")"
 expect_match "claude-planner runs Opus 1M at xhigh effort" '^opus\[1m\] --effort xhigh' \
   "$(jq -r '.models[.profiles["claude-planner"].model].slug + " " + (.profiles["claude-planner"].flags | join(" "))' "$mig/profiles.json")"
-expect_match "claude harness is re-enabled" '^opencode$' "$(jq -r '.settings.disabled_harnesses | join(",")' "$mig/profiles.json")"
+expect_match "claude harness is re-enabled" '^\[\]$' "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
+expect_match "a claude-llm-hub off llama_swap is not retargeted or pinned" '^claude-sonnet 0$' \
+  "$(jq -r '.profiles["claude-llm-hub"] | "\(.model) \(.env | length)"' "$mig/profiles.json")"
 expect_match "references follow the rename" '^claude-default claude-default$' \
   "$(jq -r '.settings.default_profile + " " + .profiles["claude-llm-hub"].fallback' "$mig/profiles.json")"
 expect_file "claude migration records its marker" "$mig/.claude-planner-migrated"
+cleanup_dir "$mig"
+
+# An install shaped like the live one moves to the benchmark-backed local models: claude-llm-hub
+# leaves the old ornith-1.0-35b default, the profiles on not-fit models go and their references
+# follow, the not-fit catalog entries are dropped, and the local harnesses are re-enabled.
+bench_fixture() {
+  jq -n '{settings:{default_profile:"local-qwen",planner_profile:"copilot-planner",retention_days:7,budget_threshold:85,
+                    disabled_harnesses:["cursor-agent","local-llm","opencode","pi"]},
+          models:{"local-lfm-8b":{slug:"llama_swap/lfm2.5-8b-a1b",harnesses:["local-llm","claude","cursor-agent"],description:""},
+                  "local-lfm-2.6b":{slug:"llama_swap/lfm2.5-2.6b",harnesses:["local-llm"],description:""},
+                  "local-qwen3-4b":{slug:"llama_swap/qwen3-4b-2507",harnesses:["local-llm"],description:""},
+                  "local-ornith-1.0-35b":{slug:"llama_swap/ornith-1.0-35b",harnesses:["claude","cursor-agent"],description:"",behaves_as:"claude-haiku-4-5-20251001"},
+                  "cursor-auto":{slug:"auto",harnesses:["cursor-agent"],description:""}},
+          profiles:{"claude-llm-hub":{harness:"claude",model:"local-ornith-1.0-35b",allowed_models:["llama_swap*"],parallel_ok:true,
+                                      fallback:"cursor-llm-hub",flags:[],env:{ANTHROPIC_BASE_URL:"${LLM_HUB_URL}",ANTHROPIC_MODEL:"mine"},auth:[]},
+                    "cursor-llm-hub":{harness:"cursor-agent",model:"local-lfm-8b",enabled:false,flags:[],env:{},auth:[]},
+                    "local-qwen":{harness:"local-llm",model:"local-lfm-8b",allowed_models:["local-lfm-8b","local-qwen3-4b"],flags:[],env:{},auth:[]},
+                    "local-qwen3":{harness:"local-llm",model:"local-qwen3-4b",fallback:"local-qwen",flags:[],env:{},auth:[]}}}'
+}
+mig=$(new_tmp)
+bench_fixture > "$mig/profiles.json"
+: > "$mig/.copilot-planner-migrated"
+: > "$mig/.claude-planner-migrated"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "bench migration retargets claude-llm-hub, serial, falling back to copilot-llm-hub" \
+  '^local-qwen3.6-35b false copilot-llm-hub$' \
+  "$(jq -r '.profiles["claude-llm-hub"] | "\(.model) \(.parallel_ok) \(.fallback)"' "$mig/profiles.json")"
+expect_match "bench migration adds the model tier pins, keeping the user's own" '^\$\{PROFILE_MODEL\} mine 1$' \
+  "$(jq -r '.profiles["claude-llm-hub"].env | "\(.ANTHROPIC_DEFAULT_SONNET_MODEL) \(.ANTHROPIC_MODEL) \(.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)"' "$mig/profiles.json")"
+expect_match "bench migration removes the profiles on not-fit models" '^false false false$' \
+  "$(jq -r '.profiles | "\(has("cursor-llm-hub")) \(has("local-qwen")) \(has("local-qwen3"))"' "$mig/profiles.json")"
+expect_match "bench migration points the default at local-llm-fast" '^local-llm-fast copilot-planner$' \
+  "$(jq -r '.settings | "\(.default_profile) \(.planner_profile)"' "$mig/profiles.json")"
+expect_match "bench migration drops the not-fit catalog entries" '^0$' \
+  "$(jq '[.models | keys[] | select(. == "local-lfm-8b" or . == "local-lfm-2.6b" or . == "local-qwen3-4b")] | length' "$mig/profiles.json")"
+expect_match "bench migration seeds the llm-hub profiles" '^claude-llm-hub-planner copilot-llm-hub local-llm-fast opencode-llm-hub pi-llm-hub$' \
+  "$(jq -r '[.profiles | keys[] | select(. != "claude-llm-hub" and . != "copilot-default")] | join(" ")' "$mig/profiles.json")"
+expect_match "local-llm-fast runs the small benchmark winner" '^llama_swap/ornith-1.5-9b$' \
+  "$(jq -r '.models[.profiles["local-llm-fast"].model].slug' "$mig/profiles.json")"
+expect_match "ornith-1.0-35b is no longer offered to cursor-agent" '^claude$' \
+  "$(jq -r '.models["local-ornith-1.0-35b"].harnesses | join(",")' "$mig/profiles.json")"
+expect_match "bench migration re-enables opencode, local-llm and pi" '^\["cursor-agent"\]$' \
+  "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
+expect_file "bench migration records its marker" "$mig/.bench-local-migrated"
+edit_json "$mig/profiles.json" '.profiles["claude-llm-hub"].model = "local-ornith-1.0-35b"'
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "a second init keeps claude-llm-hub on a hand-picked model" '^local-ornith-1.0-35b$' \
+  "$(jq -r '.profiles["claude-llm-hub"].model' "$mig/profiles.json")"
+cleanup_dir "$mig"
+
+# A cursor-llm-hub the user moved off the not-fit model is theirs: it stays, so do the references
+# to it, and a not-fit catalog entry a profile still runs is kept rather than recreated as a stub.
+mig=$(new_tmp)
+bench_fixture | jq '.profiles["cursor-llm-hub"].model = "cursor-auto"
+  | .profiles["mine"] = {harness:"local-llm", model:"local-lfm-8b", flags:[], env:{}, auth:[]}' > "$mig/profiles.json"
+: > "$mig/.copilot-planner-migrated"
+: > "$mig/.claude-planner-migrated"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "a retargeted cursor-llm-hub survives, and so does the fallback to it" '^cursor-auto cursor-llm-hub$' \
+  "$(jq -r '"\(.profiles["cursor-llm-hub"].model) \(.profiles["claude-llm-hub"].fallback)"' "$mig/profiles.json")"
+expect_match "a not-fit model still in use keeps its catalog entry" '^true false$' \
+  "$(jq -r '.models | "\(has("local-lfm-8b")) \(has("local-qwen3-4b"))"' "$mig/profiles.json")"
 cleanup_dir "$mig"
 
 # --- demo seeding -----------------------------------------------------------------------------
@@ -528,6 +602,14 @@ expect_match "disabled harness shows enabled false" '^false$' "$enabled"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show claude-llm-hub 2>&1)
 expect_match "profile show keeps env refs unresolved" '\$\{LLM_HUB_URL\}' "$out"
+expect_match "profile show keeps the model pin a reference" '"ANTHROPIC_DEFAULT_SONNET_MODEL": "\$\{PROFILE_MODEL\}"' "$out"
+for p in claude-llm-hub-planner copilot-llm-hub opencode-llm-hub pi-llm-hub; do
+  out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show "$p" 2>&1)
+  expect_match "profile show $p keeps env refs unresolved" '\$\{(LLM_HUB_URL|LLM_HUB_V1_URL|LLM_HUB_KEY|PROFILE_MODEL)\}|\{env:LLM_HUB_V1_URL\}' "$out"
+done
+out=$(env -u LLM_HUB_V1_URL HARNESS_ORCH_HOME="$home" LLM_HUB_URL=http://hub:9 LLM_HUB_KEY=dummy \
+  bash -c ". '$SCRIPT'; profile_load claude-llm-hub && printf '%s %s\n' \"\$ANTHROPIC_DEFAULT_SONNET_MODEL\" \"\$ANTHROPIC_BASE_URL\"" 2>&1)
+expect_match "claude-llm-hub pins every model tier to its hub model" '^llama_swap/qwen3.6-35b http://hub:9$' "$out"
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile show nope 2>&1); rc=$?
 expect_match "unknown profile lists the available ones" 'claude-llm-hub' "$out"
 expect_exit "unknown profile exits 2" 2 "$rc"
@@ -660,7 +742,7 @@ ids=$(env HARNESS_ORCH_HOME="$home" bash -c '. "$1"; ( : $RANDOM; for i in 1 2 3
 expect_match "suggestion ids stay unique inside a seeded subshell" '^4$' "$(printf '%s\n' "$ids" | sort -u | wc -l | tr -d ' ')"
 orch run start "Ids" --id sug-ids >/dev/null 2>&1
 for n in one two three; do
-  orch node add sug-ids "$n" "Kind $n" --profile local-qwen >/dev/null 2>&1
+  orch node add sug-ids "$n" "Kind $n" --profile local-llm-fast >/dev/null 2>&1
   orch node update sug-ids "$n" done >/dev/null 2>&1
 done
 edit_json "$home/profiles.json" '.settings.learning.auto_record_memory = false'
@@ -671,11 +753,11 @@ expect_match "every suggestion keeps its own id" '^0$' \
 edit_json "$home/profiles.json" '.settings.learning.auto_record_memory = true'
 edit_json "$home/suggestions.json" '.suggestions += [
   {"id": "sug-dup", "status": "pending", "created": "2026-01-01T00:00:00Z", "kind": "memory_record",
-   "fingerprint": "memory_record:local-qwen:dup-a",
-   "action": {"type": "memory_record", "memory": {"profile": "local-qwen", "outcome": "success", "task_kind": "dup-a"}}},
+   "fingerprint": "memory_record:local-llm-fast:dup-a",
+   "action": {"type": "memory_record", "memory": {"profile": "local-llm-fast", "outcome": "success", "task_kind": "dup-a"}}},
   {"id": "sug-dup", "status": "pending", "created": "2026-01-01T00:00:00Z", "kind": "memory_record",
-   "fingerprint": "memory_record:local-qwen:dup-b",
-   "action": {"type": "memory_record", "memory": {"profile": "local-qwen", "outcome": "success", "task_kind": "dup-b"}}}]'
+   "fingerprint": "memory_record:local-llm-fast:dup-b",
+   "action": {"type": "memory_record", "memory": {"profile": "local-llm-fast", "outcome": "success", "task_kind": "dup-b"}}}]'
 out=$(orch suggest apply sug-dup 2>&1); rc=$?
 expect_exit "a duplicated id is repaired before apply" 0 "$rc"
 expect_match "the repaired copy gets its own id" '^1$' \
@@ -825,6 +907,47 @@ expect_match "with a job dir the private agent dir lives inside it" "^$pi_job/pi
 expect_file "the job's agent dir is kept with the job" "$pi_job/pi-agent/models.json"
 cleanup_dir "$pi_job"
 
+out=$(with_pi bash "$SCRIPT" run --profile pi-llm-hub "x" 2>&1); rc=$?
+expect_exit "shipped pi-llm-hub profile exits 0" 0 "$rc"
+expect_match "pi-llm-hub runs ornith-1.5-35b as bare as the benchmark did" \
+  '^--model hub/llama_swap/ornith-1.5-35b --approve --no-session -p x --thinking off env' \
+  "$(joined "$out")"
+
+# The shipped llm-hub profiles for copilot and opencode, against shims that also report the env
+# they were given. Only the URL and config are echoed — never the key.
+hub_shims=$(new_tmp)
+cat > "$hub_shims/copilot" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+printf 'env %s %s %s %s\n' "$COPILOT_PROVIDER_BASE_URL" "$COPILOT_PROVIDER_TYPE" "$COPILOT_MODEL" "$COPILOT_OFFLINE"
+SHIM
+cat > "$hub_shims/opencode" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+printf 'config %s\n' "$OPENCODE_CONFIG_CONTENT"
+SHIM
+chmod +x "$hub_shims/copilot" "$hub_shims/opencode"
+with_hub() {
+  env -u LLM_HUB_V1_URL PATH="$hub_shims:$PATH" HARNESS_ORCH_HOME="$home" \
+    LLM_HUB_URL=http://127.0.0.1:8888 LLM_HUB_KEY=dummy "$@"
+}
+out=$(with_hub bash "$SCRIPT" run --profile copilot-llm-hub "x" 2>&1); rc=$?
+expect_exit "copilot-llm-hub exits 0" 0 "$rc"
+expect_match "copilot-llm-hub: hub model, worker flags, then the isolation flags" \
+  '^-p x --silent --model llama_swap/qwen3.6-35b --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot --no-auto-update --no-custom-instructions --disable-builtin-mcps env' \
+  "$(joined "$out")"
+expect_match "copilot-llm-hub points BYOK at the derived /v1 base" \
+  '^env http://127.0.0.1:8888/v1 openai llama_swap/qwen3.6-35b true$' "$out"
+out=$(with_hub bash "$SCRIPT" run --profile opencode-llm-hub "x" 2>&1); rc=$?
+expect_exit "opencode-llm-hub exits 0" 0 "$rc"
+expect_match "opencode-llm-hub: provider/model split of the hub slug, pure mode" \
+  '^run x --auto -m llama_swap/qwen3-coder-next --pure config' "$(joined "$out")"
+oc_config=$(printf '%s\n' "$out" | sed -n 's/^config //p')
+expect_match "opencode config is JSON whose model id is the full hub id" \
+  '^\{env:LLM_HUB_V1_URL\} \{env:LLM_HUB_KEY\} llama_swap/qwen3-coder-next$' \
+  "$(printf '%s' "$oc_config" | jq -r '.provider.llama_swap | "\(.options.baseURL) \(.options.apiKey) \(.models["qwen3-coder-next"].id)"')"
+cleanup_dir "$hub_shims"
+
 out=$(with_pi bash "$SCRIPT" run pi "x" 2>&1); rc=$?
 expect_exit "pi with no model exits 2" 2 "$rc"
 expect_match "pi with no model says where one comes from" 'adapter_pi: no model' "$out"
@@ -906,8 +1029,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   printf 'SKIP: profile env-ref test (python3 not found)\n' >&2
 elif start_fixture 0; then
   out=$(env HARNESS_ORCH_HOME="$home" LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" \
-    bash "$SCRIPT" run --profile local-qwen "ping" 2>&1)
-  expect_match "profile env ref resolves and model reaches the endpoint" 'echo:ping.model=llama_swap/lfm2.5-8b-a1b' "$out"
+    bash "$SCRIPT" run --profile local-llm-fast "ping" 2>&1)
+  expect_match "profile env ref resolves and model reaches the endpoint" 'echo:ping.model=llama_swap/ornith-1.5-9b' "$out"
   stop_fixture
 fi
 cleanup_dir "$shims"
@@ -966,7 +1089,7 @@ expect_match "run list shows status, title and done/total" 'life-1.error.Lifecyc
 state="$home/runs/disp-1/state.json"
 orch run start "Dispatch test" --id disp-1 >/dev/null 2>&1
 orch node add disp-1 a "native" >/dev/null 2>&1
-orch node add disp-1 b "hub" --profile local-qwen >/dev/null 2>&1
+orch node add disp-1 b "hub" --profile local-llm-fast >/dev/null 2>&1
 out=$(orch node dispatch disp-1 a claude-native "hello" --flag value 2>/dev/null); rc=$?
 expect_exit "node dispatch exits 0" 0 "$rc"
 orch wait "$out" --timeout 5 --interval 1 >/dev/null 2>&1
@@ -990,9 +1113,9 @@ elif start_fixture 2; then
   orch wait "$job" --timeout 10 --interval 1 >/dev/null 2>&1
   out=$(orch run sync disp-1 2>&1)
   expect_match "profile node is done after its job finishes" '^b.done$' "$out"
-  expect_match "profile recorded on the dispatched node" '^local-qwen$' "$(state_get '.nodes[1].profile')"
-  expect_match "model id recorded on the dispatched node" '^local-lfm-8b$' "$(state_get '.nodes[1].model_id')"
-  expect_match "model slug recorded on the dispatched node" '^llama_swap/lfm2.5-8b-a1b$' "$(state_get '.nodes[1].model')"
+  expect_match "profile recorded on the dispatched node" '^local-llm-fast$' "$(state_get '.nodes[1].profile')"
+  expect_match "model id recorded on the dispatched node" '^local-ornith-1.5-9b$' "$(state_get '.nodes[1].model_id')"
+  expect_match "model slug recorded on the dispatched node" '^llama_swap/ornith-1.5-9b$' "$(state_get '.nodes[1].model')"
   expect_match "harness recorded as the node adapter" '^local-llm$' "$(state_get '.nodes[1].adapter')"
   stop_fixture
 fi
@@ -1102,11 +1225,11 @@ cleanup_dir "$home"
 
 home=$(new_tmp)
 shims=$(new_tmp)
-cat > "$shims/cursor-agent" <<'SHIM'
+cat > "$shims/copilot" <<'SHIM'
 #!/usr/bin/env bash
-printf 'cursor fallback ok\n'
+printf 'copilot fallback ok\n'
 SHIM
-chmod +x "$shims/cursor-agent"
+chmod +x "$shims/copilot"
 orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" LLM_HUB_URL=http://127.0.0.1:1 LLM_HUB_KEY=dummy bash "$SCRIPT" "$@"; }
 orch init >/dev/null 2>&1
 edit_json "$home/profiles.json" '.settings.disabled_harnesses = []'
@@ -1117,8 +1240,8 @@ edit_json "$home/runs/retry-4/state.json" '
     next_retry_at:"2000-01-01T00:00:00Z", log_tail:["You have exceeded your monthly quota"]}'
 out=$(orch run sync retry-4 2>&1); rc=$?
 expect_exit "quota auto retry exits 0" 0 "$rc"
-expect_match "quota retry switches to fallback profile" '^cursor-llm-hub$' "$(jq -r '.nodes[0].profile' "$home/runs/retry-4/state.json")"
-expect_match "quota retry records the fallback reason" 'fallback profile cursor-llm-hub' "$(jq -r '.nodes[0].attempts[0].reason' "$home/runs/retry-4/state.json")"
+expect_match "quota retry switches to fallback profile" '^copilot-llm-hub$' "$(jq -r '.nodes[0].profile' "$home/runs/retry-4/state.json")"
+expect_match "quota retry records the fallback reason" 'fallback profile copilot-llm-hub' "$(jq -r '.nodes[0].attempts[0].reason' "$home/runs/retry-4/state.json")"
 expect_match "quota retry records restarted mode for fallback" '^restarted$' "$(jq -r '.nodes[0].attempts[0].retry_mode' "$home/runs/retry-4/state.json")"
 cleanup_dir "$shims"
 cleanup_dir "$home"
@@ -1677,18 +1800,18 @@ expect_match "joined flag strings are split into argv entries" '^\["--yolo","--n
 
 # The planner prompt names the goal, the limits and the profile menu; `plan apply` validates.
 edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["claude","opencode","cursor-agent"]
-  | .profiles["local-qwen"].enabled = true | .settings.default_profile = "local-qwen"
-  | .settings.planner_profile = "local-qwen" | .settings.max_parallel = 2 | .settings.max_nodes = 5'
+  | .profiles["local-llm-fast"].enabled = true | .settings.default_profile = "local-llm-fast"
+  | .settings.planner_profile = "local-llm-fast" | .settings.max_parallel = 2 | .settings.max_nodes = 5'
 state="$home/runs/plan-1/state.json"
 orch run start "Planned" --id plan-1 >/dev/null 2>&1
 # A closed port: the planner job fails at once, and the test marks the node done by hand.
 LLM_HUB_URL=http://127.0.0.1:9 orch plan plan-1 "Ship the widget" >/dev/null 2>&1; rc=$?
 expect_exit "plan dispatches the planner node" 0 "$rc"
-expect_match "plan records the planner node on the run" '^plan\tlocal-qwen$' "$(jq -r '"\(.plan.node)\t\(.plan.profile)"' "$state")"
+expect_match "plan records the planner node on the run" '^plan\tlocal-llm-fast$' "$(jq -r '"\(.plan.node)\t\(.plan.profile)"' "$state")"
 prompt="$home/runs/plan-1/prompts/plan.md"
 expect_match "planner prompt carries the goal" 'Ship the widget' "$(cat "$prompt")"
 expect_match "planner prompt carries the limits" 'At most 5 tasks. At most 2 run at the same time' "$(cat "$prompt")"
-expect_match "planner prompt lists enabled profiles" '^- local-qwen \(default\)' "$(cat "$prompt")"
+expect_match "planner prompt lists enabled profiles" '^- local-llm-fast \(default\)' "$(cat "$prompt")"
 expect_no_match "planner prompt hides disabled harnesses" '^- claude-default' "$(cat "$prompt")"
 orch node update plan-1 plan "done" >/dev/null 2>&1
 
@@ -1720,7 +1843,7 @@ elif start_fixture 1 forever; then
   expect_exit "run advance exits 0" 0 "$rc"
   expect_match "advance applies the finished plan" 'applied: 4 task\(s\)' "$out"
   expect_match "advance reports the stages" 'stages: a\+b\+c -> merge' "$out"
-  expect_match "a disabled profile falls back to the default" 'profile claude-default is disabled, using local-qwen' "$out"
+  expect_match "a disabled profile falls back to the default" 'profile claude-default is disabled, using local-llm-fast' "$out"
   expect_match "max_parallel caps the first dispatch" '^dispatched: a,b$' "$out"
   expect_match "the rest of the stage is queued" '^queued: c$' "$out"
   expect_match "root tasks hang off the planner node" '\["plan","a"\]' "$(jq -c '.edges' "$state")"

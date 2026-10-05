@@ -111,7 +111,7 @@ orch tail "$job" -n 40
 run=$(orch run start "Add pagination")
 orch node add "$run" plan   "Plan the change"
 orch node add "$run" impl   "Implement"   --after plan  --profile claude-default
-orch node add "$run" tests  "Write tests" --after plan  --profile local-qwen
+orch node add "$run" tests  "Write tests" --after plan  --profile local-llm-fast
 orch node add "$run" review "Review"      --after impl,tests --profile cursor-default
 orch run sync "$run"                           # per-node status + which nodes are ready now
 orch node dispatch "$run" plan "Plan the change in detail"
@@ -216,7 +216,8 @@ caveat: `ui` restarts the server when it notices the skill's sources changed —
 | `claude` | `claude` on `PATH` | `claude -p … --output-format text [--model M]` |
 | `cursor-agent` | `cursor-agent` on `PATH` | `cursor-agent -p … --output-format text --force [--model M]` |
 | `opencode` | `opencode` on `PATH` | `opencode run … --auto [-m M]` |
-| `local-llm` | `LLM_HUB_URL` (an OpenAI-compatible base URL); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | `POST /chat/completions` |
+| `local-llm` | `LLM_HUB_URL` (an OpenAI-compatible base URL, with or without `/v1`); optional `LLM_HUB_MODEL`, `LLM_HUB_TIMEOUT` | `POST $LLM_HUB_V1_URL/chat/completions` (orch derives it from `LLM_HUB_URL`) |
+| `pi` | `pi` on `PATH`, `LLM_HUB_URL`, a model; optional `LLM_HUB_KEY` | `pi --model hub/M --approve --no-session -p …` against llm-hub `/v1` |
 
 A missing binary or unset variable fails fast with a clear message (exit 127 / 1) rather than
 half-running. Adding an adapter: [`skills/orch/references/adapter-contract.md`](skills/orch/references/adapter-contract.md).
@@ -231,6 +232,13 @@ overwritten afterwards.
 
 Profiles hold env-var **names** and `${VAR}` references only — never a secret value. A profile
 whose `auth` variables are missing refuses to run and says which one is unset.
+
+The local (llm-hub) profiles run models that passed the 2026-10-04 local-llm benchmark:
+`claude-llm-hub` (qwen3.6-35b, the local default), `claude-llm-hub-planner` (ornith-1.5-35b),
+`copilot-llm-hub` (qwen3.6-35b), `opencode-llm-hub` (qwen3-coder-next, coding only),
+`pi-llm-hub` (ornith-1.5-35b, the fastest pair) and `local-llm-fast` (ornith-1.5-9b, plain text,
+no tools). Cursor cannot use a local model. Existing installs move to this set through a one-time
+migration on the next `init` (marker `~/.harness-orch/.bench-local-migrated`).
 
 **Memory** is a flat append-only log of what actually happened (`profile`, `task_kind`,
 `outcome`, `note`). It is the second-highest input to routing, above the classifier: a profile

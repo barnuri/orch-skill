@@ -17,6 +17,7 @@ serve/port             its port
 serve/pid              its pid — truncated (never deleted) on a clean stop
 serve/log              stdout+stderr of a backgrounded server, 0600
 .trash/<utc-stamp>/    prune fallback when `trash` is not on PATH
+.*-migrated            one-time profiles.json migration markers (e.g. .bench-local-migrated)
 ```
 
 ## profiles.json
@@ -25,7 +26,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 {
   "settings": {
     "default_profile": "copilot-default",
-    "disabled_harnesses": ["claude", "local-llm", "opencode"],
+    "disabled_harnesses": [],
     "max_parallel": 4,
     "max_attempts": 5,
     "max_nodes": 12,
@@ -42,11 +43,12 @@ serve/log              stdout+stderr of a backgrounded server, 0600
     }
   },
   "models": {
-    "claude-sonnet": {
-      "slug": "sonnet",
-      "harnesses": ["claude"],
-      "description": "Default workhorse",
-      "cost": "subscription",
+    "local-qwen3.6-35b": {
+      "slug": "llama_swap/qwen3.6-35b",
+      "harnesses": ["claude", "copilot", "local-llm", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "Local default: 15/15 in the 2026-10-04 local-llm benchmark final matrix",
+      "cost": "free",
       "quality": "standard",
       "speed": "balanced"
     }
@@ -54,9 +56,18 @@ serve/log              stdout+stderr of a backgrounded server, 0600
   "profiles": {
     "claude-llm-hub": {
       "harness": "claude",
-      "model": "claude-sonnet",
-      "flags": ["--dangerously-skip-permissions"],
-      "env": { "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}", "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}" },
+      "model": "local-qwen3.6-35b",
+      "allowed_models": ["llama_swap*"],
+      "parallel_ok": false,
+      "fallback": "copilot-llm-hub",
+      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
+      "env": {
+        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
+        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
+        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"
+      },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
     }
   }
@@ -75,13 +86,39 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `env` | exported at spawn time. A value that is exactly `${NAME}` is replaced by the caller's environment variable; anything else is a literal. Partial interpolation is unsupported on purpose. |
 | `auth` | env-var **names** that must be non-empty before the profile may run. Values are never stored. |
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
-| `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: `claude`, `local-llm`, `opencode` |
+| `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: none |
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
 | `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
 | `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `copilot-planner`) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
+
+### Local (llm-hub) profiles
+
+The template ships `claude-llm-hub`, `claude-llm-hub-planner`, `copilot-llm-hub`,
+`opencode-llm-hub`, `pi-llm-hub` and `local-llm-fast`, each on a model that passed the 2026-10-04
+local-llm benchmark final matrix (choice guide: SKILL.md, *Local models (llm-hub)*). Two env
+references they rely on are filled in by orch, not by the user:
+
+- `${PROFILE_MODEL}` is the profile's resolved model slug. The claude profiles pin every Claude
+  Code model tier (`ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`,
+  `CLAUDE_CODE_SUBAGENT_MODEL`) to it.
+- `${LLM_HUB_V1_URL}` is derived from `LLM_HUB_URL` at profile load: trailing slashes and one
+  `/v1` are stripped, then exactly one `/v1` is appended, so `LLM_HUB_URL` may be set with or
+  without it. An `LLM_HUB_V1_URL` already in the environment wins. The claude profiles use
+  `LLM_HUB_URL` (Claude Code appends `/v1/messages` itself); the OpenAI-style clients
+  (`local-llm`, `pi`, `copilot-llm-hub`, `opencode-llm-hub`) use `LLM_HUB_V1_URL`.
+
+Existing installs reach this set through a one-time migration guarded by
+`~/.harness-orch/.bench-local-migrated`. It retargets `claude-llm-hub` to `local-qwen3.6-35b` only
+while it still runs a retired model (`local-lfm-8b`, `local-lfm-2.6b`, `local-qwen3-4b`) or the
+old `local-ornith-1.0-35b` default. It removes `cursor-llm-hub` (stock `cursor-agent` cannot
+reach a local endpoint) and `local-qwen3`, and renames `local-qwen` to `local-llm-fast`, each only
+while it still runs a retired model, and rewrites every reference to them. It seeds the new
+profiles and catalog entries without overwriting your own, and takes `opencode`, `local-llm` and
+`pi` out of `settings.disabled_harnesses`. Once the marker exists, later edits are never
+reverted; delete the marker to run it again.
 
 Errors: unknown profile → exit 2 listing the available names; bad harness → exit 2; unset env
 reference → exit 1 `profile <p>: env <KEY> references unset ${NAME}`; missing auth →
