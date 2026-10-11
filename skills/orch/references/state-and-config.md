@@ -25,12 +25,12 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 ```json
 {
   "settings": {
-    "default_profile": "copilot-default",
+    "default_profile": "claude-default",
     "disabled_harnesses": [],
     "max_parallel": 4,
     "max_attempts": 5,
     "max_nodes": 12,
-    "planner_profile": "copilot-planner",
+    "planner_profile": "claude-planner",
     "retention_days": 7,
     "budget_threshold": 85,
     "learning": {
@@ -90,7 +90,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
 | `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
-| `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `copilot-planner`) |
+| `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `claude-planner`) |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
 

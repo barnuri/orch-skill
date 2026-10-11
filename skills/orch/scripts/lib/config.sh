@@ -229,7 +229,8 @@ profiles_migrate() {
   [ -e "$marker" ] || { : > "$marker" || return 1; }
   profiles_migrate_copilot_planner || return $?
   profiles_migrate_claude_planner || return $?
-  profiles_migrate_bench_local
+  profiles_migrate_bench_local || return $?
+  profiles_migrate_claude_tiers
 }
 
 COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
@@ -403,6 +404,37 @@ profiles_migrate_bench_local() {
        else . end)
     | .settings.disabled_harnesses = ((.settings.disabled_harnesses // [])
         | map(select(. != "opencode" and . != "local-llm" and . != "pi")))
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  : > "$marker"
+}
+
+# One-time switch to the three Claude subscription tiers: claude-planner (Opus) plans,
+# claude-default (Sonnet) is the default worker, claude-haiku (Haiku 5.5) takes small tasks.
+# claude-haiku and its catalog entry are seeded from the template, or replaced while still on the
+# old trivial-only shape; the planner description is refreshed while still the shipped one, and
+# claude-default outranks copilot-default while both keep their shipped priorities. The default and
+# planner settings move only when their Claude profile exists.
+# Marker-guarded so a later user edit is never reverted.
+profiles_migrate_claude_tiers() {
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.claude-tiers-migrated"
+  [ -e "$marker" ] && return 0
+  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" '
+    $tpl[0] as $t
+    | (if (.models["claude-haiku"] | not)
+          or .models["claude-haiku"].description == "Fast and cheap: typos, formatting, tiny edits, boilerplate." then
+         .models["claude-haiku"] = $t.models["claude-haiku"] else . end)
+    | (if (.profiles["claude-haiku"] | not) or .profiles["claude-haiku"].max_complexity == "trivial" then
+         .profiles["claude-haiku"] = $t.profiles["claude-haiku"] else . end)
+    | (if .profiles["claude-planner"].description? == "Claude Code on Opus, 1M context, xhigh effort. Splits a goal into a task DAG for claude-default workers." then
+         .profiles["claude-planner"].description = $t.profiles["claude-planner"].description else . end)
+    | (if .profiles["claude-default"].priority? == 8 then .profiles["claude-default"].priority = 9 else . end)
+    | (if .profiles["copilot-default"].priority? == 9 then .profiles["copilot-default"].priority = 8 else . end)
+    | (if .profiles["claude-default"] then .settings.default_profile = "claude-default" else . end)
+    | (if .profiles["claude-planner"] then .settings.planner_profile = "claude-planner" else . end)
   ' "$PROFILES_FILE" > "$tmp"; then
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1

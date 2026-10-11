@@ -390,8 +390,15 @@ expect_missing "init installs no index.html" "$home/index.html"
 expect_missing "init creates no data dir" "$home/data"
 
 out=$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile list 2>&1)
-expect_match "profile list marks the default" '^\*copilot-default' "$out"
-expect_match "profile list shows the planner profile" 'copilot-planner	copilot	copilot-opus-5.5' "$out"
+expect_match "profile list marks the default" '^\*claude-default	claude	claude-sonnet' "$out"
+expect_match "profile list shows the planner profile" 'claude-planner	claude	claude-opus-1m' "$out"
+expect_match "profile list shows the haiku tier" 'claude-haiku	claude	claude-haiku' "$out"
+expect_match "the template plans on claude-planner" '^claude-planner$' \
+  "$(jq -r '.settings.planner_profile' "$home/profiles.json")"
+expect_match "profile pick sends a small task to claude-haiku" '^profile=claude-haiku$' \
+  "$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile pick "fix a typo" --complexity small 2>/dev/null | head -1)"
+expect_match "profile pick sends a large task to claude-default" '^profile=claude-default$' \
+  "$(env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile pick "rewrite the scheduler" --complexity large 2>/dev/null | head -1)"
 expect_match "profile list shows harness and model id" 'claude-llm-hub	claude	local-qwen3.6-35b' "$out"
 expect_match "profile list shows the local planner" 'claude-llm-hub-planner	claude	local-ornith-1.5-35b' "$out"
 expect_match "profile list shows the copilot llm-hub profile" 'copilot-llm-hub	copilot	local-qwen3.6-35b' "$out"
@@ -476,6 +483,7 @@ mig=$(new_tmp)
 bench_fixture > "$mig/profiles.json"
 : > "$mig/.copilot-planner-migrated"
 : > "$mig/.claude-planner-migrated"
+: > "$mig/.claude-tiers-migrated"
 env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
 expect_match "bench migration retargets claude-llm-hub, serial, falling back to copilot-llm-hub" \
   '^local-qwen3.6-35b false copilot-llm-hub$' \
@@ -510,11 +518,40 @@ bench_fixture | jq '.profiles["cursor-llm-hub"].model = "cursor-auto"
   | .profiles["mine"] = {harness:"local-llm", model:"local-lfm-8b", flags:[], env:{}, auth:[]}' > "$mig/profiles.json"
 : > "$mig/.copilot-planner-migrated"
 : > "$mig/.claude-planner-migrated"
+: > "$mig/.claude-tiers-migrated"
 env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
 expect_match "a retargeted cursor-llm-hub survives, and so does the fallback to it" '^cursor-auto cursor-llm-hub$' \
   "$(jq -r '"\(.profiles["cursor-llm-hub"].model) \(.profiles["claude-llm-hub"].fallback)"' "$mig/profiles.json")"
 expect_match "a not-fit model still in use keeps its catalog entry" '^true false$' \
   "$(jq -r '.models | "\(has("local-lfm-8b")) \(has("local-qwen3-4b"))"' "$mig/profiles.json")"
+cleanup_dir "$mig"
+
+# An install on the Copilot-led settings with the old trivial-only claude-haiku moves to the three
+# Claude tiers; a hand-edited planner description stays, and a second init changes nothing.
+mig=$(new_tmp)
+jq -n '{settings:{default_profile:"copilot-default",planner_profile:"copilot-planner",retention_days:7,budget_threshold:85},
+        models:{"claude-sonnet":{slug:"sonnet",harnesses:["claude"],description:""},
+                "claude-haiku":{slug:"haiku",harnesses:["claude"],description:"Fast and cheap: typos, formatting, tiny edits, boilerplate.",cost:"low"}},
+        profiles:{"claude-default":{harness:"claude",model:"claude-sonnet",flags:[],env:{},auth:[]},
+                  "claude-planner":{harness:"claude",model:"claude-sonnet",description:"mine",flags:[],env:{},auth:[]},
+                  "claude-haiku":{harness:"claude",model:"claude-haiku",max_complexity:"trivial",cost:"low",flags:[],env:{},auth:[]}}}' \
+  > "$mig/profiles.json"
+: > "$mig/.copilot-profile-migrated"
+: > "$mig/.copilot-planner-migrated"
+: > "$mig/.claude-planner-migrated"
+: > "$mig/.bench-local-migrated"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "tiers migration points default and planner at the Claude tiers" '^claude-default claude-planner$' \
+  "$(jq -r '.settings | "\(.default_profile) \(.planner_profile)"' "$mig/profiles.json")"
+expect_match "tiers migration widens claude-haiku to small on the subscription" '^small subscription subscription$' \
+  "$(jq -r '"\(.profiles["claude-haiku"].max_complexity) \(.profiles["claude-haiku"].cost) \(.models["claude-haiku"].cost)"' "$mig/profiles.json")"
+expect_match "tiers migration keeps a hand-edited planner description" '^mine$' \
+  "$(jq -r '.profiles["claude-planner"].description' "$mig/profiles.json")"
+expect_file "tiers migration records its marker" "$mig/.claude-tiers-migrated"
+edit_json "$mig/profiles.json" '.settings.default_profile = "custom"'
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "a second init keeps a hand-picked default" '^custom$' \
+  "$(jq -r '.settings.default_profile' "$mig/profiles.json")"
 cleanup_dir "$mig"
 
 # --- demo seeding -----------------------------------------------------------------------------
@@ -1788,9 +1825,11 @@ home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 orch init >/dev/null 2>&1
 
-# Claude Code is disabled by default, so pick never lands on a claude profile.
+# With Claude Code disabled, pick never lands on a claude profile.
+edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["claude"]'
 out=$(orch profile pick "refactor the whole auth layer across services" --complexity large 2>&1)
 expect_no_match "profile pick skips profiles on a disabled harness" '^profile=claude' "$out"
+edit_json "$home/profiles.json" '.settings.disabled_harnesses = []'
 
 # A flag written as one string is split into separate argv entries on the next load.
 edit_json "$home/profiles.json" '.profiles["copilot-default"].flags = ["--yolo --no-ask-user", "--autopilot"]'

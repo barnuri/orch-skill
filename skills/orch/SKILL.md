@@ -54,7 +54,7 @@ Precedence, highest first:
 | classify prints | Use |
 |---|---|
 | `claude-native` | do the work in this session — Step 2 |
-| `claude` | `profile pick` among the subscription tiers — `claude-haiku` (trivial), `claude-default` (small–medium, default), `claude-planner` (Opus 1M, xhigh: planning), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
+| `claude` | `profile pick` among the subscription tiers — `claude-haiku` (Haiku 5.5: trivial–small), `claude-default` (Sonnet: medium–large, default), `claude-planner` (Opus 1M, xhigh: planning), `claude-opus` (large); or `claude-llm-hub` when the user wants the LLM hub route |
 | `cursor-agent` | `cursor-default` |
 | `opencode` | `opencode-default`; `opencode-llm-hub` for local coding |
 | `copilot` | `copilot-default` |
@@ -69,8 +69,8 @@ warning; `--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; othe
 non-subscription snapshot always counts as safe.
 
 Harnesses listed in `settings.disabled_harnesses` are off: `profile pick` never returns their
-profiles and the dashboard hides them. The template disables none and makes `copilot-default`
-(Copilot, model `auto`) the default profile; when the classifier's answer maps to a harness the
+profiles and the dashboard hides them. The template disables none and makes `claude-default`
+(Claude Code, Sonnet) the default profile; when the classifier's answer maps to a harness the
 user disabled, use `settings.default_profile` instead.
 
 ### Local models (llm-hub)
@@ -173,10 +173,11 @@ orch plan <run-id> "<goal>"                  # or @/path/to/goal.md; dispatches 
 orch run advance <run-id> --until-done       # applies the plan, dispatches, finishes the run
 ```
 
-- `plan` runs on `settings.planner_profile` (template: `copilot-planner` — Copilot on
-  `claude-opus-5.5` with `--context long_context` (1M) and `--reasoning-effort xhigh`). The
+- `plan` runs on `settings.planner_profile` (template: `claude-planner` — Claude Code on
+  Opus with the 1M context and `--effort xhigh`). The
   planner writes `plan.json` — `{summary, tasks:[{id, label, profile, after, prompt}]}` — into
-  its out dir. Tasks default to `settings.default_profile` (`copilot-default`).
+  its out dir. Tasks default to `settings.default_profile` (`claude-default`); the planner
+  assigns `claude-haiku` to small isolated tasks.
 - `run advance` is one scheduler step: `run sync`, apply a finished plan (`plan apply`
   validates ids, deps, cycles, `settings.max_nodes` and profiles, then adds the nodes with their
   stored prompts), and dispatch every ready node that has a stored prompt, up to
