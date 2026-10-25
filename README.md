@@ -140,6 +140,41 @@ A request from any other address still needs the bearer token, read from
 `~/.harness-orch/serve.token` (minted `0600` on first start) — that is what the hostname URL
 carries when the server is bound to `0.0.0.0`. Trash that file and restart to rotate it.
 
+**Stop a run.** A running run's page has a **Stop run** button. After you confirm, it does the
+same as `dispatch.sh run stop <run-id>`: running jobs get `SIGTERM`, running nodes become errors
+with the message `cancelled`, orch skips the waiting nodes, and the run status becomes `cancelled`.
+Automatic retries do not touch a cancelled run. Use it also to close a run whose coordinator
+stopped and left it on `running`.
+
+## Herdr: watch every job in a pane
+
+[Herdr](https://github.com/herdrdev/herdr) is a terminal multiplexer for coding agents. With the setting on,
+every job that `start` starts (including each node of a run) runs in a pane of the main Herdr
+session, so you watch its output live instead of tailing a log:
+
+```bash
+bash skills/orch/scripts/dispatch.sh herdr on       # writes settings.herdr = true
+bash skills/orch/scripts/dispatch.sh herdr status   # the setting, and whether the herdr server runs
+bash skills/orch/scripts/dispatch.sh herdr off
+```
+
+- All jobs go to one workspace labeled `orch`, which orch creates when it is missing.
+- Each run gets its own tab, labeled with the run id. Jobs without a run share the `jobs` tab.
+  Each job gets its own pane in that tab.
+- The job is the same headless job as before. Its log, exit code, pid, cost sidecar and session
+  id stay in `jobs/<id>/`, so `status`, `wait`, `tail`, retry, resume and the dashboard work
+  unchanged. `jobs/<id>/herdr_pane` names the pane.
+- The pane runs `jobs/<id>/herdr-launch.sh`. That file holds only the `ORCH_*` and
+  `HARNESS_ORCH_*` variables, `PATH`, the working folder and the job's arguments. No other
+  variable from your environment goes to disk.
+- Herdr calls always go to the main session, also when orch itself runs inside another Herdr
+  session.
+- When the setting is off, `herdr` is not on `PATH`, or its server does not answer, jobs start
+  detached as before.
+- A finished job's pane stays open with its output. Close the panes yourself when you are done.
+- Separately, `msg send` shows each run message as a Herdr notification when the sender runs
+  inside Herdr.
+
 ## Claude Code mod: the run graph in a pane
 
 ![The orch-graph pane in Claude Code: a 13-node run drawn left to right from the orch node, boxes coloured by status, a harness glyph per node, each profile in its own colour, arrows into every node](docs/orch-graph-mod.png)

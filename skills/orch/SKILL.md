@@ -218,6 +218,11 @@ or has no resumable session, orch restarts from the stored original prompt with 
 partial work may already exist in the repo and `$ORCH_NODE_OUT`. The node output directory is
 kept across attempts.
 
+**Stop a run** with `orch run stop <run-id>`, or the dashboard's **Stop run** button. Running
+jobs get `SIGTERM`, running nodes become errors with the message `cancelled`, waiting nodes are
+skipped, and the run status becomes `cancelled`. Automatic retries skip a cancelled run. Use it
+also for a run left on `running` after its coordinator stopped.
+
 Manual retry is always allowed, even after automatic attempts are spent. That one extra dispatch
 is counted too, so the dashboard may show `manual retry 6` or `attempt 6/5`; automatic retries
 still remain stopped after it fails.
@@ -233,6 +238,11 @@ orch msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
 Check `msg read <run-id>` whenever `run advance` returns: that is where a node reports blockers
 and scope changes. If `herdr` is on `PATH`, each message also triggers a herdr notification
 (best effort; herdr is optional).
+
+**Herdr panes.** With `settings.herdr` on (`orch herdr on|off|status`), `start` runs each job in a
+pane of the main Herdr session: workspace `orch`, one tab per run, one pane per job. Nothing else
+changes: logs, `status`, `wait`, retry and resume work the same. When Herdr is missing or its
+server does not answer, jobs start detached. Do not close those panes while their job runs.
 
 ### Passing work between nodes
 

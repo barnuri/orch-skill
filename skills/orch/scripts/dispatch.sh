@@ -40,6 +40,8 @@ dispatch.sh run   (--profile <name> | <adapter>) <prompt-or-@file> [pass-through
     -> runs synchronously in the foreground. Exits with the harness's own exit code.
 dispatch.sh start (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]
     -> self-backgrounds (nohup), prints a job-id to stdout immediately, exits 0.
+       With settings.herdr on and the main herdr server running, the job runs in a pane of the
+       herdr workspace "orch" instead (one tab per run), and still writes the same log.
        adapters: claude-native | claude | cursor-agent | opencode | local-llm | copilot | pi
        --profile supplies harness + model + flags + env from profiles.json instead of <adapter>.
 
@@ -73,6 +75,8 @@ EOF
   # Unquoted heredoc: these lines expand the per-subcommand usage constants the libs define, so the
   # summary here and each command's own usage line can't drift apart.
   cat <<EOF
+$HERDR_USAGE
+    -> turns settings.herdr on or off, then prints the setting and whether the herdr server runs.
 $MEMORY_ADD_USAGE
 dispatch.sh memory list [--profile P] [-n N]
 
@@ -94,6 +98,9 @@ $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status
     -> ... then "slots: N" (free places under settings.max_parallel)
 $RUN_FINISH_USAGE   -> default: error if any node errored
 $RUN_RETRY_USAGE
+$RUN_STOP_USAGE
+    -> stops the run's running jobs (SIGTERM), marks running nodes error "cancelled" and waiting
+       nodes skipped, and sets the run status to cancelled.
 $RUN_ADVANCE_USAGE
     -> one scheduler step: sync, apply a finished plan, dispatch ready nodes that have a stored
        prompt up to settings.max_parallel. --until-done loops (and finishes the run); exit 3 = blocked.
@@ -424,6 +431,12 @@ cmd_start() {
     'write_exit "$rc"' \
     'exit "$rc"')
 
+  if herdr_enabled \
+    && herdr_start_job "$job_dir" "$start_script" "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@"; then
+    printf '%s\n' "$job_id"
+    return 0
+  fi
+
   run_detached bash -c "$start_script" _ "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@" \
     >"$job_dir/log" 2>&1 </dev/null &
   local bg_pid=$!
@@ -500,7 +513,7 @@ main() {
     run)
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
-        start|finish|list|sync|advance|retry) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        start|finish|list|sync|advance|retry|stop) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
@@ -534,6 +547,7 @@ main() {
     profile) shift; cmd_profile "$@" ;;
     model) shift; cmd_model "$@" ;;
     harness) shift; cmd_harness "$@" ;;
+    herdr) shift; cmd_herdr "$@" ;;
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;
     demo) shift; cmd_demo "$@" ;;

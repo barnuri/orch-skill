@@ -204,6 +204,9 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
   if ("max_nodes" in settings && !isIntegerInRange(settings["max_nodes"], 1, MAX_NODES_MAX)) {
     issues.push({ path: "settings.max_nodes", reason: `must be an integer 1-${MAX_NODES_MAX}` });
   }
+  if ("herdr" in settings && typeof settings["herdr"] !== "boolean") {
+    issues.push({ path: "settings.herdr", reason: MUST_BE_BOOLEAN });
+  }
   if ("planner_profile" in settings) {
     issues.push(...plannerProfileIssues(settings["planner_profile"], profiles));
   }

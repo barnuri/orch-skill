@@ -141,6 +141,7 @@ describe("ApiClient write refusal in island mode", () => {
       await client.applySuggestion("s1"),
       await client.dismissSuggestion("s1"),
       await client.retryRun(RUN_ID),
+      await client.stopRun(RUN_ID),
       await client.retryNode(RUN_ID, "n1"),
     ]) {
       expect(result.kind).toBe("error");

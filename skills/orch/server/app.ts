@@ -29,6 +29,7 @@ import {
   readRunHandler,
   retryNodeHandler,
   retryRunHandler,
+  stopRunHandler,
 } from "./routes/runs-routes";
 import type { ServerContext } from "./types/server-context";
 import type { ServerOptions } from "./types/server-options";
@@ -83,6 +84,7 @@ export function startServer(options: ServerOptions): Server<undefined> {
       "/api/runs": apiRoute(ctx, { GET: listRunsHandler(ctx) }),
       "/api/runs/:id": apiRoute(ctx, { GET: readRunHandler(ctx) }),
       "/api/runs/:id/retry": apiRoute(ctx, { POST: retryRunHandler(ctx) }),
+      "/api/runs/:id/stop": apiRoute(ctx, { POST: stopRunHandler(ctx) }),
       "/api/runs/:id/nodes/:node/retry": apiRoute(ctx, { POST: retryNodeHandler(ctx) }),
       "/api/jobs/:id/log": apiRoute(ctx, { GET: readJobLogHandler(ctx) }),
       "/api/jobs/:id/chat": apiRoute(ctx, { GET: readJobChatHandler(ctx) }),

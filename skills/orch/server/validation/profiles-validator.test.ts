@@ -139,6 +139,14 @@ describe("profilesIssues", () => {
     expect(issuesFor(document)).toEqual([]);
   });
 
+  test("herdr must be a boolean", () => {
+    const document = loadTemplate();
+    (document["settings"] as Mutable)["herdr"] = "yes";
+    expect(issuesFor(document)).toEqual([{ path: "settings.herdr", reason: "must be a boolean" }]);
+    (document["settings"] as Mutable)["herdr"] = true;
+    expect(issuesFor(document)).toEqual([]);
+  });
+
   test("planner_profile names an existing profile or is empty", () => {
     const document = loadTemplate();
     (document["settings"] as Mutable)["planner_profile"] = "missing";

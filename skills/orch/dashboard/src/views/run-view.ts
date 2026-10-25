@@ -7,6 +7,7 @@ import { fmtDur, fmtTime } from "../dom/format";
 import { mountGraph } from "../graph/graph-viewport";
 import { poll } from "../poll";
 import type { AppState } from "../state/app-state";
+import { confirmDialog } from "../ui/confirm-dialog";
 import { toast } from "../ui/toast";
 import { renderNodePanel } from "./node-panel";
 
@@ -46,15 +47,48 @@ function retryFailedNodes(run: RunState, button: HTMLButtonElement): void {
   });
 }
 
+async function stopRun(run: RunState, button: HTMLButtonElement): Promise<void> {
+  const running = run.nodes.filter((node) => node.status === "running").length;
+  const confirmed = await confirmDialog({
+    title: `Stop run ${runTitle(run)}?`,
+    body: `This stops ${running} running job(s), marks running nodes as cancelled errors, skips waiting nodes, and sets the run to cancelled.`,
+    confirmLabel: "Stop run",
+    danger: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  button.disabled = true;
+  const result = await api.stopRun(run.run_id);
+  button.disabled = false;
+  if (result.kind === "ok") {
+    toast("ok", "Run cancelled");
+    void poll();
+    return;
+  }
+  toast("error", result.kind === "error" ? (result.body?.error ?? "Stop failed") : "Stop failed");
+}
+
 function runActions(run: RunState): HTMLElement | null {
-  if (!run.nodes.some((node) => node.status === "error")) {
+  const buttons: HTMLButtonElement[] = [];
+  if (run.nodes.some((node) => node.status === "error")) {
+    const retry = el("button", { class: "btn primary", type: "button", text: "Retry failed nodes" });
+    retry.addEventListener("click", () => {
+      retryFailedNodes(run, retry);
+    });
+    buttons.push(retry);
+  }
+  if (run.status === "running") {
+    const stop = el("button", { class: "btn danger", type: "button", text: "Stop run" });
+    stop.addEventListener("click", () => {
+      void stopRun(run, stop);
+    });
+    buttons.push(stop);
+  }
+  if (buttons.length === 0) {
     return null;
   }
-  const button = el("button", { class: "btn primary", type: "button", text: "Retry failed nodes" });
-  button.addEventListener("click", () => {
-    retryFailedNodes(run, button);
-  });
-  return el("div", { class: "actions run-actions" }, [button]);
+  return el("div", { class: "actions run-actions" }, buttons);
 }
 
 function renderMeta(run: RunState): HTMLElement {

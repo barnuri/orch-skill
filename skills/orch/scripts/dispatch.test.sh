@@ -1035,6 +1035,116 @@ expect_match "node retry records resumed session" "^$resume_session$" "$(jq -r '
 expect_match "node retry keeps the original stored prompt" '^full original task$' "$(jq -r '.nodes[0].prompt' "$resume_home/runs/resume-retry/state.json")"
 cleanup_dir "$resume_home"
 
+# --- herdr panes ----------------------------------------------------------------
+# A fake herdr keeps its layout in one JSON file and runs `pane run` text in the background, the
+# way a real pane shell would, so the whole start -> pane -> log -> exit_code path is exercised.
+herdr_home=$(new_tmp)
+herdr_fake=$(new_tmp)
+cat > "$herdr_fake/herdr" <<'FAKE'
+#!/usr/bin/env bash
+state="$FAKE_HERDR_DIR/state.json"
+[ -f "$state" ] || printf '{"workspaces":[],"tabs":[],"panes":[],"next":1}' > "$state"
+printf '%s\n' "$*" >> "$FAKE_HERDR_DIR/calls"
+[ -z "${HERDR_SOCKET_PATH:-}" ] || printf 'socket leaked\n' >> "$FAKE_HERDR_DIR/calls"
+save() { jq "$@" "$state" > "$state.tmp" && mv "$state.tmp" "$state"; }
+nid() { jq -r '.next' "$state"; save '.next += 1'; }
+case "$1 $2" in
+  "status --json") [ -n "${FAKE_HERDR_DOWN:-}" ] && echo '{"server":{"running":false}}' || echo '{"server":{"running":true}}' ;;
+  "workspace list") jq '{result:{workspaces:.workspaces}}' "$state" ;;
+  "workspace create")
+    n=$(nid); label=$(printf '%s\n' "$@" | sed -n '/^--label$/{n;p;}')
+    save --arg w "w$n" --arg l "$label" '.workspaces += [{workspace_id:$w,label:$l}] | .tabs += [{tab_id:($w+":t1"),workspace_id:$w,label:"1"}] | .panes += [{pane_id:($w+":p1"),tab_id:($w+":t1")}]'
+    echo "{\"result\":{\"workspace\":{\"workspace_id\":\"w$n\"},\"tab\":{\"tab_id\":\"w$n:t1\"},\"root_pane\":{\"pane_id\":\"w$n:p1\"}}}" ;;
+  "tab rename") save --arg t "$3" --arg l "$4" '(.tabs[] | select(.tab_id == $t) | .label) = ("[1] " + $l)'; echo '{}' ;;
+  "tab list") jq --arg w "$4" '{result:{tabs:[.tabs[] | select(.workspace_id == $w)]}}' "$state" ;;
+  "tab create")
+    n=$(nid); w=$4; label=$(printf '%s\n' "$@" | sed -n '/^--label$/{n;p;}')
+    save --arg w "$w" --arg t "$w:t$n" --arg p "$w:p$n" --arg l "$label" '.tabs += [{tab_id:$t,workspace_id:$w,label:$l}] | .panes += [{pane_id:$p,tab_id:$t}]'
+    echo "{\"result\":{\"tab\":{\"tab_id\":\"$w:t$n\"},\"root_pane\":{\"pane_id\":\"$w:p$n\"}}}" ;;
+  "pane list") jq '{result:{panes:.panes}}' "$state" ;;
+  "pane split")
+    n=$(nid); src=$3; tab=$(jq -r --arg p "$src" '.panes[] | select(.pane_id == $p) | .tab_id' "$state")
+    save --arg p "${src%%:*}:p$n" --arg t "$tab" '.panes += [{pane_id:$p,tab_id:$t}]'
+    echo "{\"result\":{\"pane\":{\"pane_id\":\"${src%%:*}:p$n\"}}}" ;;
+  "pane run") nohup bash -c "$4" >/dev/null 2>&1 & echo '{}' ;;
+  *) echo "fake herdr: unsupported $*" >&2; exit 2 ;;
+esac
+FAKE
+chmod +x "$herdr_fake/herdr"
+with_herdr() {
+  env PATH="$herdr_fake:$shims:$PATH" HARNESS_ORCH_HOME="$herdr_home" FAKE_HERDR_DIR="$herdr_fake" \
+    HERDR_SOCKET_PATH=/nonexistent/caller.sock UNRELATED_TEST_SECRET=do-not-store "$@"
+}
+with_herdr bash "$SCRIPT" init >/dev/null 2>&1
+out=$(with_herdr bash "$SCRIPT" herdr on 2>&1)
+expect_match "herdr on reports the setting" '^herdr: on' "$out"
+expect_match "herdr on writes settings.herdr" '^true$' "$(jq '.settings.herdr' "$herdr_home/profiles.json")"
+
+herdr_job=$(with_herdr bash "$SCRIPT" start claude "pane probe" 2>/dev/null)
+with_herdr bash "$SCRIPT" wait "$herdr_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_match "a herdr job finishes with exit 0" '^done exit=0$' "$(with_herdr bash "$SCRIPT" status "$herdr_job")"
+expect_match "a herdr job still writes its log" 'pane probe' "$(cat "$herdr_home/jobs/$herdr_job/log" 2>/dev/null)"
+expect_match "a herdr job records its pane" '^w1:p1$' "$(cat "$herdr_home/jobs/$herdr_job/herdr_pane" 2>/dev/null)"
+expect_match "the first job creates the orch workspace" 'workspace create .*--label orch' "$(cat "$herdr_fake/calls")"
+expect_match "a job with no run gets the jobs tab" 'tab rename w1:t1 jobs' "$(cat "$herdr_fake/calls")"
+expect_no_match "herdr calls use the main session socket" 'socket leaked' "$(cat "$herdr_fake/calls")"
+expect_no_match "the launcher stores no unrelated env" 'do-not-store' "$(cat "$herdr_home/jobs/$herdr_job/herdr-launch.sh")"
+
+second_job=$(with_herdr bash "$SCRIPT" start claude "second probe" 2>/dev/null)
+with_herdr bash "$SCRIPT" wait "$second_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_match "a second job in the same tab splits a pane" 'pane split w1:p1 --direction right' "$(cat "$herdr_fake/calls")"
+
+with_herdr bash "$SCRIPT" run start "Herdr run" --id herdr-run >/dev/null
+with_herdr bash "$SCRIPT" node add herdr-run a "a" >/dev/null
+node_job=$(with_herdr bash "$SCRIPT" node dispatch herdr-run a claude "node probe" 2>/dev/null)
+with_herdr bash "$SCRIPT" wait "$node_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_match "a run gets its own tab" 'tab create --workspace w1 .*--label herdr-run' "$(cat "$herdr_fake/calls")"
+expect_match "a node job in herdr finishes" '^done exit=0$' "$(with_herdr bash "$SCRIPT" status "$node_job")"
+
+down_job=$(with_herdr env FAKE_HERDR_DOWN=1 bash "$SCRIPT" start claude "down probe" 2>/dev/null)
+with_herdr bash "$SCRIPT" wait "$down_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_match "with the herdr server down the job runs detached" '^done exit=0$' "$(with_herdr bash "$SCRIPT" status "$down_job")"
+expect_no_match "a detached fallback job has no pane" '.' "$(cat "$herdr_home/jobs/$down_job/herdr_pane" 2>/dev/null)"
+
+out=$(with_herdr bash "$SCRIPT" herdr off 2>&1)
+expect_match "herdr off reports the setting" '^herdr: off' "$out"
+off_job=$(with_herdr bash "$SCRIPT" start claude "off probe" 2>/dev/null)
+with_herdr bash "$SCRIPT" wait "$off_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_no_match "with herdr off no pane is used" '.' "$(cat "$herdr_home/jobs/$off_job/herdr_pane" 2>/dev/null)"
+out=$(with_herdr bash "$SCRIPT" herdr maybe 2>&1); rc=$?
+expect_exit "herdr with an unknown verb exits 2" 2 "$rc"
+cleanup_dir "$herdr_home"
+cleanup_dir "$herdr_fake"
+
+# --- run stop -------------------------------------------------------------------
+stop_home=$(new_tmp)
+stop_shims=$(new_tmp)
+printf '#!/usr/bin/env bash\nsleep 30\n' > "$stop_shims/claude"
+chmod +x "$stop_shims/claude"
+with_stop() { env PATH="$stop_shims:$PATH" HARNESS_ORCH_HOME="$stop_home" "$@"; }
+with_stop bash "$SCRIPT" init >/dev/null 2>&1
+with_stop bash "$SCRIPT" run start "Stop me" --id stop-run >/dev/null
+with_stop bash "$SCRIPT" node add stop-run a "a" >/dev/null
+with_stop bash "$SCRIPT" node add stop-run b "b" --after a >/dev/null
+stop_job=$(with_stop bash "$SCRIPT" node dispatch stop-run a claude "sleep" 2>/dev/null)
+out=$(with_stop bash "$SCRIPT" run stop stop-run 2>&1); rc=$?
+expect_exit "run stop exits 0" 0 "$rc"
+expect_match "run stop reports the stopped job" 'stopped 1 job' "$out"
+with_stop bash "$SCRIPT" wait "$stop_job" --timeout 10 --interval 1 >/dev/null 2>&1
+expect_match "the stopped job records SIGTERM" '^done exit=143$' "$(with_stop bash "$SCRIPT" status "$stop_job")"
+stop_state="$stop_home/runs/stop-run/state.json"
+expect_match "run stop sets the run to cancelled" '^cancelled$' "$(jq -r '.status' "$stop_state")"
+expect_match "run stop marks nodes error and skipped" '^error skipped$' "$(jq -r '[.nodes[].status] | join(" ")' "$stop_state")"
+expect_match "the running node's error says cancelled" '^cancelled$' "$(jq -r '.nodes[0].error' "$stop_state")"
+with_stop bash "$SCRIPT" run sync stop-run >/dev/null 2>&1
+expect_match "run sync does not retry a cancelled run" '^error$' "$(jq -r '.nodes[0].status' "$stop_state")"
+out=$(with_stop bash "$SCRIPT" run stop 2>&1); rc=$?
+expect_exit "run stop without a run id exits 2" 2 "$rc"
+out=$(with_stop bash "$SCRIPT" run stop no-such-run 2>&1); rc=$?
+expect_exit "run stop on an unknown run exits 2" 2 "$rc"
+cleanup_dir "$stop_shims"
+cleanup_dir "$stop_home"
+
 out=$(env ORCH_BIN_DIRS= PATH="$(path_without claude)" bash "$SCRIPT" run claude "hi" 2>&1); rc=$?
 expect_match "claude missing is reported" 'claude not found on PATH' "$out"
 expect_exit "claude missing exits 127" 127 "$rc"

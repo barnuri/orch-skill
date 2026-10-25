@@ -115,6 +115,8 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .chip.running { color: var(--accent); border-color: var(--accent); }
 .chip.running::before { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 .chip.done::before { background: var(--done); }
+.chip.cancelled { color: var(--skipped); border-color: var(--skipped); }
+.chip.cancelled::before { background: var(--skipped); }
 .chip.error { color: var(--error); border-color: var(--error); }
 .chip.error::before { background: var(--error); }
 .chip.skipped::before { background: var(--skipped); }

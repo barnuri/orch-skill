@@ -20,6 +20,7 @@ export const SETTINGS_KEYS = [
   "planner_profile",
   "learning",
   "disabled_harnesses",
+  "herdr",
 ] as const;
 export const LEARNING_KEYS = [
   "auto_record_memory",

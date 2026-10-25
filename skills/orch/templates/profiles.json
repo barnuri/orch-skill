@@ -7,6 +7,7 @@
     "max_attempts": 5,
     "max_nodes": 12,
     "planner_profile": "claude-planner",
+    "herdr": false,
     "learning": {
       "auto_record_memory": true,
       "auto_scan_on_finish": true,

@@ -15,4 +15,6 @@ export interface ProfilesSettings {
   learning?: LearningSettings;
   /** Harness ids hidden from profile pickers (adapters remain in code). */
   disabled_harnesses?: string[];
+  /** Runs each started job in a pane of the main Herdr session's "orch" workspace. */
+  herdr?: boolean;
 }

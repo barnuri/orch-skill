@@ -63,6 +63,13 @@ export class ApiClient {
     );
   }
 
+  stopRun(id: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>(
+      "POST",
+      `${API_BASE}/runs/${encodeURIComponent(id)}/stop`,
+    );
+  }
+
   retryNode(runId: string, nodeId: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
     return this.request<{ ok: boolean; output?: string }>(
       "POST",

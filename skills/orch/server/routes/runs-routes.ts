@@ -70,14 +70,22 @@ function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Respon
   return jsonResponse(200, { ok: true, output: text });
 }
 
-export function retryRunHandler(ctx: ServerContext): RouteHandler {
+function runVerbHandler(ctx: ServerContext, verb: string): RouteHandler {
   return (_req: Request, params: Readonly<Record<string, string>>): Response => {
     const id = params.id ?? "";
     if (id === "") {
       return jsonResponse(400, { error: "missing run id" });
     }
-    return dispatchSubcommand(ctx, ["run", "retry", id]);
+    return dispatchSubcommand(ctx, ["run", verb, id]);
   };
+}
+
+export function retryRunHandler(ctx: ServerContext): RouteHandler {
+  return runVerbHandler(ctx, "retry");
+}
+
+export function stopRunHandler(ctx: ServerContext): RouteHandler {
+  return runVerbHandler(ctx, "stop");
 }
 
 export function retryNodeHandler(ctx: ServerContext): RouteHandler {

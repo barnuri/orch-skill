@@ -262,6 +262,37 @@ describe("POST retry routes", () => {
   });
 });
 
+describe("POST stop route", () => {
+  test("run stop cancels the run, errors running nodes and skips waiting ones", async () => {
+    const srv = server();
+    seed(
+      srv,
+      RUN_ID,
+      runState({
+        nodes: [
+          { ...node("a", "running"), job_id: "gone-job" },
+          node("b", "waiting"),
+          node("c", "done"),
+        ],
+        edges: [],
+      }),
+    );
+    const res = await srv.api(`/api/runs/${RUN_ID}/stop`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
+    expect(state.status).toBe("cancelled");
+    expect(state.finished).not.toBeNull();
+    expect(state.nodes.map((item) => item.status)).toEqual(["error", "skipped", "done"]);
+    expect(state.nodes[0]?.error).toBe("cancelled");
+  });
+
+  test("an unknown run is a validation error", async () => {
+    const srv = server();
+    const res = await srv.api("/api/runs/20260903-120000-ffff/stop", { method: "POST" });
+    expect(res.status).toBe(400);
+  });
+});
+
 // --- GET /api/jobs/:id/chat ---------------------------------------------------
 // Driven through the handler rather than the test server: the route is wired with the default
 // reader, which would read the developer's own ~/.claude.

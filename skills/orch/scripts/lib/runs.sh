@@ -9,7 +9,7 @@
 # shellcheck disable=SC2016
 
 NODE_STATUSES="waiting running done error skipped"
-RUN_STATUSES="done error"
+RUN_STATUSES="done error cancelled"
 ID_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 USAGE_CATEGORIES="tool mcp skill subagent agent"
 # Wider than ID_PATTERN: these names come from tool ids like `mcp__github__search`, `Bash`, or a
@@ -22,8 +22,10 @@ RETRY_BACKOFF_CAP_SECS=300
 ADAPTER_NAMES="claude-native $VALID_HARNESSES"
 
 RUN_START_USAGE='dispatch.sh run start "<title>" [--id <run-id>]'
-RUN_FINISH_USAGE='dispatch.sh run finish <run-id> [--status done|error]'
+RUN_FINISH_USAGE="dispatch.sh run finish <run-id> [--status $(printf '%s' "$RUN_STATUSES" | tr ' ' '|')]"
 RUN_SYNC_USAGE='dispatch.sh run sync <run-id>'
+RUN_STOP_USAGE='dispatch.sh run stop <run-id>'
+RUN_STOP_ERROR="cancelled"
 RUN_RETRY_USAGE='dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]'
 NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]'
 NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"]"
@@ -137,6 +139,32 @@ cmd_run_finish() {
   state_write "$run_id" '.status = $s | .finished = $ts' --arg s "$status" --arg ts "$(now_iso)" || return 1
   learning_after_finish "$run_id" || true
   printf '%s\n' "$status"
+}
+
+# Jobs lead their own process group, so SIGTERM goes to the group. A node whose job is already gone
+# is marked the same way, which is how a run abandoned by its coordinator gets closed.
+cmd_run_stop() {
+  local run_id="${1:-}" file job_id pid stopped=0
+  [ -n "$run_id" ] && [ $# -eq 1 ] || { printf 'usage: %s\n' "$RUN_STOP_USAGE" >&2; return 2; }
+  require_jq "run stop"
+  file=$(run_require "$run_id") || return $?
+  while IFS= read -r job_id; do
+    [ -n "$job_id" ] || continue
+    pid=$(cat "$JOBS_HOME/$job_id/pid" 2>/dev/null || printf '')
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || continue
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || continue
+    stopped=$((stopped + 1))
+  done <<EOF
+$(jq -r '.nodes[] | select(.status == "running") | .job_id // empty' "$file")
+EOF
+  state_write "$run_id" '
+    .nodes |= map(
+      if .status == "running" then .status = "error" | .error = $err | .finished = $ts | .next_retry_at = null
+      elif .status == "waiting" then .status = "skipped" | .finished = $ts | .next_retry_at = null
+      else . end)
+    | .status = "cancelled" | .finished = $ts' \
+    --arg err "$RUN_STOP_ERROR" --arg ts "$(now_iso)" || return 1
+  printf 'cancelled (stopped %s job(s))\n' "$stopped"
 }
 
 cmd_run_list() {
@@ -736,6 +764,7 @@ node_auto_retry_reason() {
 
 run_auto_retry_errors() {
   local run_id="$1" file="$2" max_attempts max_parallel running slots id override reason retried="" now retry_at
+  [ "$(jq -r '.status' "$file")" != "cancelled" ] || return 0
   max_attempts=$(setting_max_attempts) || return $?
   [ "$max_attempts" = "-1" ] || [ "$max_attempts" -gt 1 ] || return 0
   max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
