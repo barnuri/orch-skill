@@ -148,6 +148,18 @@ orch node add <run-id> review "Review + fix" --after impl,tests --profile cursor
 orch run sync <run-id>                     # prints id<TAB>status per node, then "ready: plan", "running: 0"
 ```
 
+`node add` takes optional metadata for a node. `--role planning|investigation|implementation|validation|conversation`
+states the kind of work, `--tier efficiency|balance|intelligence|fast` picks the Smart Auto tier,
+`--plan-backed` marks a node that has a plan reference, expected files and acceptance checks, and
+`--acceptance "<checks>"` records those checks as free text. Every option is optional and stored
+on the node; `--role` and `--tier` are validated when the node is added. Claude nodes send the role,
+tier and worker identity to llm-hub as headers; other harnesses get only the preset model id (see
+Adapters below).
+
+To see which model the hub actually picked for a node, run
+`orch node selections <run-id> <node-id>`. It appends the hub's selection events for every attempt
+of the node, skips any it already has, and leaves the node's `main_model` and `active_stages` current.
+
 Loop until every node is terminal:
 1. For each id in `ready:` — `orch node dispatch <run-id> <node-id> "<prompt>"` (uses the node's
    own `--profile`; pass `--profile P` or an adapter to override). It starts the job and marks
@@ -382,6 +394,13 @@ A profile supplies the model, CLI flags and env for its harness (e.g. `claude-ll
 `ANTHROPIC_BASE_URL` at `${LLM_HUB_URL}`). A missing binary or unset variable fails fast with a
 clear message (exit 127 / 1) — report it, do not retry. Contract and how to add one:
 [adapter-contract.md](references/adapter-contract.md).
+
+Smart Auto metadata travels per harness. `claude` sends `x-llm-hub-smart-auto-worker`
+(`<run>/<node>/<attempt>`), `-parent`, `-role` and `-tier` in `ANTHROPIC_CUSTOM_HEADERS`, keeping any
+headers the environment already set. `copilot`, `opencode` and `pi` send no headers: their node
+records `metadata_transport: "preset-model"` and `worker_identity: null`, so orch does not claim a
+worker identity it cannot send. Their Smart Auto model comes from the preset profile
+(`*-smart-auto`, model `hub/smart-auto-balance`).
 
 ## Security
 

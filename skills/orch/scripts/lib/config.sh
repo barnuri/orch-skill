@@ -230,7 +230,25 @@ profiles_migrate() {
   profiles_migrate_copilot_planner || return $?
   profiles_migrate_claude_planner || return $?
   profiles_migrate_bench_local || return $?
-  profiles_migrate_claude_tiers
+  profiles_migrate_claude_tiers || return $?
+  profiles_migrate_smart_auto
+}
+
+# Seeds the shipped Smart Auto catalog entry and the four *-smart-auto profiles where the user has
+# no entry of that name. User entries are never replaced, and the marker stops deleted profiles returning.
+SMART_AUTO_PROFILE_NAMES='["claude-smart-auto","copilot-smart-auto","opencode-smart-auto","pi-smart-auto"]'
+profiles_migrate_smart_auto() {
+  local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.smart-auto-migrated"
+  [ -e "$marker" ] && return 0
+  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" --argjson names "$SMART_AUTO_PROFILE_NAMES" '
+    .models["hub-smart-auto-balance"] //= $tpl[0].models["hub-smart-auto-balance"]
+    | reduce $names[] as $name (.; .profiles[$name] //= $tpl[0].profiles[$name])
+  ' "$PROFILES_FILE" > "$tmp"; then
+    printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  : > "$marker"
 }
 
 COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'

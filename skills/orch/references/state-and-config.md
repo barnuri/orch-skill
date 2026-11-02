@@ -177,6 +177,15 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   attempt, capped at 5 minutes. Manual `node retry` / `run retry` ignore this delay.
 - `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
   and every incoming edge's source is `done`.
+- Node options from `node add`: `role` (planning, investigation, implementation, validation,
+  conversation), `tier` (efficiency, balance, intelligence, fast), `plan_backed` (boolean) and
+  `acceptance` (free text). Each is `null` or `false` when the node was added without it.
+- `worker_identity` is `<run>/<node>/<attempt>` for a Claude dispatch and `null` otherwise.
+  `metadata_transport` is `headers` (Claude), `preset-model` (other harnesses) or `null` (claude-native).
+- `selection_history` holds the hub's selection events for the node, ordered by `seq` and capped at
+  500. `last_event_sequence` is the highest stored `seq`, so `node selections` never re-appends an
+  event. `requested_selector`, `main_model` (the model that served the latest solver stage) and
+  `active_stages` (stages with no completion yet) are taken from the latest events.
 - `node retry` and `run retry` reopen a finished run, reset failed nodes to `waiting`, archive
   their current fields into `attempts`, and redispatch unless `--no-dispatch` is set. Same-harness
   retries resume a recorded harness session when the adapter supports it. Manual retries are not
@@ -246,7 +255,8 @@ dispatch.sh start (--profile <name> | <adapter>) <prompt|@file> [pass-through ar
 dispatch.sh status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S] [--interval S] | list
 
 dispatch.sh run start "<title>" [--id <run-id>]
-dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]
+dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--plan-backed] [--acceptance "<checks>"]
+dispatch.sh node selections <run-id> <node-id>
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
 dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
 dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"]

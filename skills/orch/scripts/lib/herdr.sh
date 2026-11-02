@@ -77,7 +77,7 @@ herdr_write_launcher() {
 # herdr_start_job <job_dir> <start_script> <argv...>: runs the job in a Herdr pane. Returns 1 when
 # nothing was sent to Herdr, so the caller can fall back to a detached job.
 herdr_start_job() {
-  local job_dir="$1" start_script="$2" launcher pane_id waited=0
+  local job_dir="$1" start_script="$2" launcher pane_id
   shift 2
   herdr_server_running || return 1
   launcher="$job_dir/herdr-launch.sh"
@@ -86,12 +86,6 @@ herdr_start_job() {
   [ -n "$pane_id" ] || return 1
   herdr_main pane run "$pane_id" "bash $(printf '%q' "$launcher")" >/dev/null 2>&1 || return 1
   printf '%s\n' "$pane_id" > "$job_dir/herdr_pane"
-  while [ ! -s "$job_dir/pid" ] && [ "$waited" -lt $((HERDR_PID_WAIT_SECS * 10)) ]; do
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-  [ -s "$job_dir/pid" ] || printf 'start: herdr pane %s has not started the job after %ss\n' \
-    "$pane_id" "$HERDR_PID_WAIT_SECS" >&2
   return 0
 }
 

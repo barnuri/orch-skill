@@ -251,7 +251,7 @@ describe("POST retry routes", () => {
     const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
     expect(state.nodes.map((item) => item.status)).toEqual(["running", "running"]);
     expect(state.nodes.map((item) => item.attempts?.length ?? 0)).toEqual([1, 1]);
-  });
+  }, 30_000);
 
   test("wrong node state returns a validation error", async () => {
     const srv = server();

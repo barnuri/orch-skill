@@ -150,6 +150,17 @@
       "speed": "slow",
       "max_complexity": "large",
       "tags": ["planning", "architecture", "long-context"]
+    },
+    "hub-smart-auto-balance": {
+      "slug": "hub/smart-auto-balance",
+      "harnesses": ["claude", "copilot", "opencode", "pi"],
+      "behaves_as": "claude-haiku-4-5-20251001",
+      "description": "llm-hub Smart Auto, Balance tier: a role-fit solver picked per request, with bounded review.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "max_complexity": "large",
+      "tags": ["hub", "smart-auto"]
     }
   },
   "profiles": {
@@ -409,6 +420,113 @@
         "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"llama_swap\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"qwen3-coder-next\":{\"id\":\"llama_swap/qwen3-coder-next\",\"limit\":{\"context\":262144,\"output\":32768}}}}}}"
       },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "claude-smart-auto": {
+      "harness": "claude",
+      "model": "hub-smart-auto-balance",
+      "allowed_models": ["hub-smart-auto-balance"],
+      "description": "Claude Code via llm-hub Smart Auto (Balance): the hub picks the worker per request and reviews only where review adds value.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "planning", "general"],
+      "avoid_for": [],
+      "parallel_ok": false,
+      "priority": 6,
+      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
+      "env": {
+        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
+        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
+        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
+        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "copilot-smart-auto": {
+      "harness": "copilot",
+      "model": "hub-smart-auto-balance",
+      "allowed_models": ["hub-smart-auto-balance"],
+      "description": "Copilot CLI (BYOK) via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "review", "general"],
+      "avoid_for": [],
+      "parallel_ok": false,
+      "priority": 5,
+      "flags": [
+        "--allow-all-tools",
+        "--allow-all-paths",
+        "--allow-all",
+        "--yolo",
+        "--no-ask-user",
+        "--autopilot",
+        "--no-auto-update",
+        "--no-custom-instructions",
+        "--disable-builtin-mcps"
+      ],
+      "env": {
+        "COPILOT_PROVIDER_BASE_URL": "${LLM_HUB_V1_URL}",
+        "COPILOT_PROVIDER_TYPE": "openai",
+        "COPILOT_PROVIDER_API_KEY": "${LLM_HUB_KEY}",
+        "COPILOT_MODEL": "${PROFILE_MODEL}",
+        "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "32768",
+        "COPILOT_OFFLINE": "true"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "opencode-smart-auto": {
+      "harness": "opencode",
+      "model": "hub-smart-auto-balance",
+      "allowed_models": ["hub-smart-auto-balance"],
+      "description": "OpenCode via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "tests"],
+      "avoid_for": ["docs"],
+      "parallel_ok": false,
+      "priority": 5,
+      "flags": ["--pure"],
+      "env": {
+        "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+        "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"hub\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"smart-auto-balance\":{\"id\":\"hub/smart-auto-balance\",\"limit\":{\"context\":131072,\"output\":32768}}}}}}"
+      },
+      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
+    },
+    "pi-smart-auto": {
+      "harness": "pi",
+      "model": "hub-smart-auto-balance",
+      "allowed_models": ["hub-smart-auto-balance"],
+      "description": "pi via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
+      "cost": "low",
+      "quality": "standard",
+      "speed": "balanced",
+      "risk": "medium",
+      "enabled": true,
+      "strengths": ["implement", "planning", "general"],
+      "avoid_for": [],
+      "parallel_ok": false,
+      "priority": 5,
+      "flags": ["--thinking", "off"],
+      "env": {
+        "LLM_HUB_MODEL": "${PROFILE_MODEL}"
+      },
+      "auth": ["LLM_HUB_URL"]
     },
     "pi-llm-hub": {
       "harness": "pi",

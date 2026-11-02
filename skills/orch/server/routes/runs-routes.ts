@@ -55,23 +55,29 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
-function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Response {
-  const proc = Bun.spawnSync(["bash", DISPATCH, ...args], {
+// Runs dispatch.sh without blocking the event loop; the handler resolves once the script exits.
+async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {
+  const proc = Bun.spawn(["bash", DISPATCH, ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",
   });
-  const text = new TextDecoder().decode(proc.stdout).trim();
-  const err = new TextDecoder().decode(proc.stderr).trim();
-  if (proc.exitCode !== 0) {
-    const error: ApiError = { error: err || text || `dispatch exited ${proc.exitCode}` };
-    return jsonResponse(proc.exitCode === 2 ? 400 : 500, error);
+  const [stdoutBytes, stderrBytes, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).arrayBuffer(),
+    proc.exited,
+  ]);
+  const text = new TextDecoder().decode(stdoutBytes).trim();
+  const err = new TextDecoder().decode(stderrBytes).trim();
+  if (exitCode !== 0) {
+    const error: ApiError = { error: err || text || `dispatch exited ${exitCode}` };
+    return jsonResponse(exitCode === 2 ? 400 : 500, error);
   }
   return jsonResponse(200, { ok: true, output: text });
 }
 
 function runVerbHandler(ctx: ServerContext, verb: string): RouteHandler {
-  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+  return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
     const id = params.id ?? "";
     if (id === "") {
       return jsonResponse(400, { error: "missing run id" });
@@ -89,7 +95,7 @@ export function stopRunHandler(ctx: ServerContext): RouteHandler {
 }
 
 export function retryNodeHandler(ctx: ServerContext): RouteHandler {
-  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+  return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
     const runId = params.id ?? "";
     const nodeId = params.node ?? "";
     if (runId === "" || nodeId === "") {
@@ -125,13 +131,7 @@ export function readJobLogHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
-/**
- * The conversation behind a node, rather than the stdout its adapter printed. 404 covers both
- * "orch assigned this job no session id" (every adapter but claude) and "the harness kept no
- * transcript for it" — in each case the dashboard falls back to the log, which always exists.
- *
- * The reader is a parameter so a test can point it at a temporary claude home.
- */
+/** Serves the job's conversation; 404 means no session or no transcript, so the dashboard uses the log. */
 export function readJobChatHandler(
   ctx: ServerContext,
   reader: SessionChatReader = new SessionChatReader(),

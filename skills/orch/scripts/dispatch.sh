@@ -84,13 +84,15 @@ Run/node state (one orchestration run = a DAG of nodes; the dashboard reads stat
 $RUN_START_USAGE          -> prints run-id
 $NODE_ADD_USAGE
 $NODE_DISPATCH_USAGE
+    -> start + marks the node running; omit the target to use the node's own --profile.
 $NODE_USAGE_USAGE
 $NODE_COST_USAGE
 $NODE_OUT_USAGE
     -> prints the node's handoff directory, creating it if absent
 $NODE_DIGEST_USAGE
     -> bounded summary of the node's job: status, exit code, size, head+tail of its log
-    -> start + marks the node running; omit the target to use the node's own --profile.
+$NODE_SELECTIONS_USAGE
+    -> appends the hub's model selections for the node's workers, idempotent by sequence
 $NODE_UPDATE_USAGE
 $NODE_RETRY_USAGE
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
@@ -353,6 +355,15 @@ job_status() {
     printf 'done exit=%s\n' "$(cat "$job_dir/exit_code")"
     return 0
   fi
+  # A Herdr pane may still be booting: the launcher is written and the pane is set, but no pid yet.
+  # Count that as running until the launcher is older than the pid wait window.
+  if [ -z "$pid" ] && [ -s "$job_dir/herdr_pane" ] && [ -f "$job_dir/herdr-launch.sh" ]; then
+    launched=$(file_mtime "$job_dir/herdr-launch.sh") || launched=0
+    if [ $(( $(date +%s) - launched )) -lt "$HERDR_PID_WAIT_SECS" ]; then
+      printf 'running\n'
+      return 0
+    fi
+  fi
   # No exit code and no process: killed with an untrappable signal (SIGKILL) or the host rebooted.
   printf 'done exit=unknown (job process gone without an exit code: killed?)\n'
 }
@@ -519,8 +530,8 @@ main() {
       ;;
     node)
       case "${2:-}" in
-        add|update|dispatch|retry|usage|cost|out|digest) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|dispatch|retry|usage|cost|out|digest ...\n' >&2; exit 2 ;;
+        add|update|dispatch|retry|usage|cost|out|digest|selections) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        *) printf 'usage: dispatch.sh node add|update|dispatch|retry|usage|cost|out|digest|selections ...\n' >&2; exit 2 ;;
       esac
       ;;
     plan) shift; cmd_plan "$@" ;;

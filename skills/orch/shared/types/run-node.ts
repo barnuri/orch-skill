@@ -1,6 +1,13 @@
 import type { NodeCost } from "./node-cost";
 import type { NodeStatus } from "./node-status";
 import type { NodeUsage } from "./node-usage";
+import type { SelectionEvent, SelectionStage } from "./selection-event";
+
+export const WORK_ROLE_VALUES = ["planning", "investigation", "implementation", "validation", "conversation"] as const;
+export type WorkRole = (typeof WORK_ROLE_VALUES)[number];
+
+export const SMART_AUTO_TIER_VALUES = ["efficiency", "balance", "intelligence", "fast"] as const;
+export type SmartAutoTier = (typeof SMART_AUTO_TIER_VALUES)[number];
 
 export interface RunNodeAttempt {
   job_id: string | null;
@@ -51,4 +58,26 @@ export interface RunNode {
    * report nothing, and a run written before this field existed has no `cost` key at all.
    */
   cost?: NodeCost | null;
+  /** The work role the node was added with. Optional and nullable for older runs. */
+  role?: WorkRole | null;
+  /** The Smart Auto tier the node was added with. Optional and nullable for older runs. */
+  tier?: SmartAutoTier | null;
+  /** Whether a plan reference, expected files and acceptance checks back the node. */
+  plan_backed?: boolean;
+  /** Acceptance checks the node must meet, as free text. Optional for older runs. */
+  acceptance?: string | null;
+  /** The worker identity sent to the hub as run/node/attempt, or null when none was sent. */
+  worker_identity?: string | null;
+  /** How the worker identity travels: request headers, or only the preset model id. */
+  metadata_transport?: "headers" | "preset-model" | null;
+  /** The selector the node asked for, from the latest hub event. Optional for older runs. */
+  requested_selector?: string | null;
+  /** The model that served the latest solver stage. Optional for older runs. */
+  main_model?: string | null;
+  /** Stages with no completion yet, from the latest hub events. Optional for older runs. */
+  active_stages?: SelectionStage[];
+  /** The highest hub sequence already stored for this node. Optional for older runs. */
+  last_event_sequence?: number | null;
+  /** Hub selection events for this node, ordered by sequence and bounded. Optional for older runs. */
+  selection_history?: SelectionEvent[];
 }

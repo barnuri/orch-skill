@@ -7,6 +7,7 @@ import { fmtDur, fmtTime, fmtUsd } from "../dom/format";
 import { poll } from "../poll";
 import { toast } from "../ui/toast";
 import { renderNodeTranscript } from "./node-transcript";
+import { selectionTimeline } from "./selection-timeline";
 
 const NODE_PANEL_ID: string = "node-panel";
 const SELECTED_CLASS: string = "just-selected";
@@ -71,6 +72,9 @@ function detailList(node: RunNode): HTMLElement {
   detailRow(list, "profile", node.profile ?? "—");
   detailRow(list, "adapter", node.adapter ?? "—");
   detailRow(list, "model", node.model_id ?? node.model ?? "—");
+  if (node.main_model) {
+    detailRow(list, "served by", node.main_model, "mono");
+  }
   detailRow(list, "job", node.job_id ?? "—", "mono");
   detailRow(list, "session", node.session ?? "—", "mono");
   detailRow(list, "started", fmtTime(node.started));
@@ -170,6 +174,10 @@ export function renderNodePanel(run: RunState, selectedId: string | null): HTMLE
   const attempts = attemptsHistory(node);
   if (attempts !== null) {
     details.appendChild(attempts);
+  }
+  const selections = selectionTimeline(node);
+  if (selections !== null) {
+    details.appendChild(selections);
   }
   grid.append(details, renderNodeTranscript(node));
   panel.appendChild(grid);

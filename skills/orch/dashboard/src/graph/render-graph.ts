@@ -54,7 +54,7 @@ export function costOf(node: RunNode): string | null {
  * own row, so this only guards against a profile name longer than the node.
  */
 export function metaLine(node: RunNode): string {
-  const model = node.model_id ?? node.model ?? node.profile ?? node.adapter;
+  const model = node.main_model ?? node.model_id ?? node.model ?? node.profile ?? node.adapter;
   const full = model === null || model === "" || model === undefined ? node.status : `${node.status} · ${model}`;
   const available = NODE_W - META_LEFT_X - (NODE_W - METRICS_RIGHT_X);
   return truncate(full, Math.max(META_MIN_CHARS, Math.floor(available / META_CHAR_PX)));

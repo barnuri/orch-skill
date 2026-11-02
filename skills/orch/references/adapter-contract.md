@@ -72,6 +72,22 @@ profile's `env` and checks its `auth` names), then invokes `adapter_dispatch` wi
 
 Profiles never store secret values; see `references/state-and-config.md` for the schema.
 
+## Smart Auto metadata transport
+
+A node's worker identity, parent run, role and tier reach llm-hub only through a transport the
+harness can carry. Each adapter's transport is fixed here:
+
+| Adapter | Transport | Sent | Node records |
+|---|---|---|---|
+| `claude` | `ANTHROPIC_CUSTOM_HEADERS` | `x-llm-hub-smart-auto-worker: <run>/<node>/<attempt>`, `-parent: <run>`, and `-role` / `-tier` when the node has them | `metadata_transport: "headers"`, `worker_identity` set |
+| `copilot`, `opencode`, `pi` | none (preset model id only) | the profile's `hub/smart-auto-*` model | `metadata_transport: "preset-model"`, `worker_identity: null` |
+| `claude-native`, `cursor-agent`, `local-llm` | not a Smart Auto transport | nothing | both `null` |
+
+The Claude adapter merges into any `ANTHROPIC_CUSTOM_HEADERS` already in the environment, one
+`Name: value` per line, and adds nothing outside a node attempt. The attempt number is the node's
+archived attempts plus one, so a retry gets its own worker id. Only the Claude adapter sends the
+headers; other harnesses are not claimed to carry them until their header support is verified.
+
 ## Adding an adapter
 
 1. Write `adapter_<name>() { ... }` in `lib/adapters.sh` following the signature above. Guard

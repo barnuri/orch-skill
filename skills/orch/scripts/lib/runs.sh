@@ -27,7 +27,13 @@ RUN_SYNC_USAGE='dispatch.sh run sync <run-id>'
 RUN_STOP_USAGE='dispatch.sh run stop <run-id>'
 RUN_STOP_ERROR="cancelled"
 RUN_RETRY_USAGE='dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]'
-NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P]'
+SMART_AUTO_TIERS="efficiency balance intelligence fast"
+WORK_ROLES="planning investigation implementation validation conversation"
+SELECTION_PAGE_LIMIT=500
+SELECTION_HISTORY_MAX=500
+SELECTION_HTTP_TIMEOUT=5
+NODE_SELECTIONS_USAGE='dispatch.sh node selections <run-id> <node-id>'
+NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--plan-backed] [--acceptance "<checks>"]'
 NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"]"
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]'
@@ -178,6 +184,7 @@ cmd_run_list() {
 
 cmd_node_add() {
   local run_id="${1:-}" node_id="${2:-}" label="${3:-}" deps="" profile="" file dep
+  local role="" tier="" acceptance="" plan_backed=false
   if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "$label" ]; then
     printf 'usage: %s\n' "$NODE_ADD_USAGE" >&2
     return 2
@@ -187,10 +194,22 @@ cmd_node_add() {
     case "$1" in
       --after) shift; deps="${1:-}" ;;
       --profile) shift; profile="${1:-}" ;;
+      --role) shift; role="${1:-}" ;;
+      --tier) shift; tier="${1:-}" ;;
+      --plan-backed) plan_backed=true ;;
+      --acceptance) shift; acceptance="${1:-}" ;;
       *) printf 'node add: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
   done
+  if [ -n "$role" ] && ! in_list "$role" "$WORK_ROLES"; then
+    printf 'node add: --role must be one of: %s\n' "$WORK_ROLES" >&2
+    return 2
+  fi
+  if [ -n "$tier" ] && ! in_list "$tier" "$SMART_AUTO_TIERS"; then
+    printf 'node add: --tier must be one of: %s\n' "$SMART_AUTO_TIERS" >&2
+    return 2
+  fi
   require_jq "node add"
   file=$(run_require "$run_id") || return $?
   valid_id "$node_id" || { printf 'node add: id must match %s\n' "$ID_PATTERN" >&2; return 2; }
@@ -207,9 +226,12 @@ cmd_node_add() {
     '($deps | split(",") | map(select(length > 0))) as $d
      | .nodes += [{id: $id, label: $label, status: "waiting", profile: (if $profile == "" then null else $profile end),
                    adapter: null, model: null, model_id: null, job_id: null, session: null, started: null, finished: null,
-                   error: null, log_tail: [], usage: {}, cost: null, prompt: null, dispatch_args: [], attempts: []}]
+                   error: null, log_tail: [], usage: {}, cost: null, prompt: null, dispatch_args: [], attempts: [],
+                   role: (if $role == "" then null else $role end), tier: (if $tier == "" then null else $tier end),
+                   plan_backed: $plan_backed, acceptance: (if $acceptance == "" then null else $acceptance end)}]
      | .edges += ($d | map([., $id]))' \
-    --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile"
+    --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile" \
+    --arg role "$role" --arg tier "$tier" --argjson plan_backed "$plan_backed" --arg acceptance "$acceptance"
 }
 
 # Parses one `<category>.<name>=<count>` term into the globals USAGE_TERM_{CAT,NAME,COUNT}.
@@ -437,8 +459,14 @@ cmd_node_dispatch() {
   ORCH_DISPATCH="$SELF_REAL"
   HARNESS_ORCH_HOME="$ORCH_HOME"
   export ORCH_NODE_OUT ORCH_RUN_ID ORCH_NODE_ID ORCH_DISPATCH HARNESS_ORCH_HOME
+  # The attempt is the count of archived attempts plus one, so retries get their own worker id.
+  ORCH_NODE_ATTEMPT=$(( $(jq -r --arg n "$node_id" '(.nodes[] | select(.id == $n) | (.attempts // []) | length)' "$file") + 1 ))
+  ORCH_NODE_ROLE=$(node_field "$file" "$node_id" role)
+  ORCH_NODE_TIER=$(node_field "$file" "$node_id" tier)
+  export ORCH_NODE_ATTEMPT ORCH_NODE_ROLE ORCH_NODE_TIER
 
   job_id=$(cmd_start "$@") || return $?
+  node_record_worker "$run_id" "$node_id" "$job_id" || return 1
   node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" \
@@ -447,6 +475,65 @@ cmd_node_dispatch() {
   node_patch "$run_id" "$node_id" '.prompt = $prompt | .dispatch_args = $args' \
     --arg prompt "$raw_prompt" --argjson args "$args_json" || return 1
   printf '%s\n' "$job_id"
+}
+
+# Records how this dispatch's worker identity travels. Only the Claude adapter sends the Smart Auto
+# headers; every other harness gets the preset model id, so its worker identity is recorded as absent.
+node_record_worker() {
+  local run_id="$1" node_id="$2" job_id="$3" adapter transport="" worker=""
+  adapter=$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)
+  case "$adapter" in
+    claude) transport=headers; worker="$run_id/$node_id/$ORCH_NODE_ATTEMPT" ;;
+    claude-native) ;;
+    *) transport=preset-model ;;
+  esac
+  node_patch "$run_id" "$node_id" \
+    '.metadata_transport = (if $t == "" then null else $t end) | .worker_identity = (if $w == "" then null else $w end)' \
+    --arg t "$transport" --arg w "$worker"
+}
+
+# Pulls the hub's selection events for every attempt of this node and appends the new ones.
+# Events at or below the stored hub sequence are dropped, so a repeated call is a no-op.
+cmd_node_selections() {
+  local run_id="${1:-}" node_id="${2:-}" file since attempts attempt body page events="[]" count
+  local -a auth=()
+  if [ -z "$run_id" ] || [ -z "$node_id" ] || [ $# -gt 2 ]; then
+    printf 'usage: %s\n' "$NODE_SELECTIONS_USAGE" >&2
+    return 2
+  fi
+  require_jq "node selections"
+  file=$(run_require "$run_id") || return $?
+  node_require "$file" "$node_id" || return 2
+  orch_load_env_file
+  [ -n "${LLM_HUB_URL:-}" ] || { printf 'node selections: LLM_HUB_URL not set\n' >&2; return 2; }
+  [ -z "${LLM_HUB_KEY:-}" ] || auth=(-H "Authorization: Bearer $LLM_HUB_KEY")
+  since=$(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | .last_event_sequence // 0' "$file")
+  attempts=$(jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | ((.attempts // []) | length) + 1' "$file")
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    body=$(curl -sS --max-time "$SELECTION_HTTP_TIMEOUT" -G ${auth[@]+"${auth[@]}"} \
+      --data-urlencode "worker=$run_id/$node_id/$attempt" \
+      --data-urlencode "since_seq=$since" \
+      --data-urlencode "limit=$SELECTION_PAGE_LIMIT" \
+      "${LLM_HUB_URL%/}/api/smart-auto/history") \
+      || { printf 'node selections: request to %s failed\n' "$LLM_HUB_URL" >&2; return 1; }
+    page=$(printf '%s' "$body" | jq -c 'if type == "array" then . else (.events // []) end' 2>/dev/null) \
+      || { printf 'node selections: hub answered with something other than history\n' >&2; return 1; }
+    events=$(jq -cn --argjson a "$events" --argjson p "$page" '$a + $p')
+  done
+  count=$(printf '%s' "$events" | jq -r --argjson since "$since" '[.[] | select(.seq > $since)] | length')
+  node_patch "$run_id" "$node_id" '
+      (.last_event_sequence // 0) as $last
+      | ((.selection_history // []) + [$events[] | select(.seq > $last)]
+        | unique_by(.seq) | sort_by(.seq)) as $all
+      | (if ($all | length) > $max then $all[($all | length) - $max:] else $all end) as $hist
+      | .selection_history = $hist
+      | .last_event_sequence = (if ($hist | length) > 0 then ($hist | last | .seq) else .last_event_sequence end)
+      | .requested_selector = (if ($hist | length) > 0 then ($hist | last | .requested_selector) else .requested_selector end)
+      | .main_model = (([$hist[] | select(.stage == "solver" and .model != null)] | last | .model) // .main_model)
+      | .active_stages = ([$hist[] | {k: [.attempt_key, .stage], s: .}] | group_by(.k)
+          | map(last | .s) | map(select(.state == "selected" or .state == "started") | .stage) | unique)' \
+    --argjson events "$events" --argjson max "$SELECTION_HISTORY_MAX" || return 1
+  printf 'selections: %s new\n' "$count"
 }
 
 node_retry_target_args() {

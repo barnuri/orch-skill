@@ -95,6 +95,36 @@ claude_write_usage() {
   return 0
 }
 
+# Header names of the llm-hub Smart Auto request contract. Only the Claude adapter can send them,
+# because Claude Code is the one harness that takes custom request headers from orch.
+SMART_AUTO_HEADER_WORKER='x-llm-hub-smart-auto-worker'
+SMART_AUTO_HEADER_PARENT='x-llm-hub-smart-auto-parent'
+SMART_AUTO_HEADER_ROLE='x-llm-hub-smart-auto-role'
+SMART_AUTO_HEADER_TIER='x-llm-hub-smart-auto-tier'
+
+# Prints this node attempt's Smart Auto headers, one "Name: value" per line. Prints nothing when
+# the process is not a node attempt, so a plain `run claude` sends no identity.
+claude_smart_auto_headers() {
+  [ -n "${ORCH_RUN_ID:-}" ] && [ -n "${ORCH_NODE_ID:-}" ] && [ -n "${ORCH_NODE_ATTEMPT:-}" ] || return 0
+  printf '%s: %s/%s/%s\n' "$SMART_AUTO_HEADER_WORKER" "$ORCH_RUN_ID" "$ORCH_NODE_ID" "$ORCH_NODE_ATTEMPT"
+  printf '%s: %s\n' "$SMART_AUTO_HEADER_PARENT" "$ORCH_RUN_ID"
+  [ -z "${ORCH_NODE_ROLE:-}" ] || printf '%s: %s\n' "$SMART_AUTO_HEADER_ROLE" "$ORCH_NODE_ROLE"
+  [ -z "${ORCH_NODE_TIER:-}" ] || printf '%s: %s\n' "$SMART_AUTO_HEADER_TIER" "$ORCH_NODE_TIER"
+}
+
+# Prints the ANTHROPIC_CUSTOM_HEADERS value: the inherited lines followed by this attempt's lines.
+claude_custom_headers() {
+  local inherited="${ANTHROPIC_CUSTOM_HEADERS:-}" ours
+  ours=$(claude_smart_auto_headers)
+  if [ -z "$ours" ]; then
+    printf '%s' "$inherited"
+  elif [ -z "$inherited" ]; then
+    printf '%s' "$ours"
+  else
+    printf '%s\n%s' "$inherited" "$ours"
+  fi
+}
+
 # ORCH_SESSION_ID is set by `start`, so the job's session is addressable afterwards. Only this
 # adapter takes it: cursor-agent resumes by a chatId minted by its own `create-chat`, not by an
 # id we can choose, so orch does not pretend to control it.
@@ -105,8 +135,10 @@ claude_write_usage() {
 # nothing to parse it with, so the text form runs unchanged and the node simply has no cost.
 adapter_claude() {
   local prompt="$1"; shift || true
-  local bin settings
+  local bin settings custom_headers
   bin=$(resolve_bin adapter_claude claude) || return $?
+  custom_headers=$(claude_custom_headers)
+  [ -z "$custom_headers" ] || export ANTHROPIC_CUSTOM_HEADERS="$custom_headers"
   local -a session_args=() settings_args=()
   if [ -n "${ORCH_RESUME_SESSION:-}" ]; then
     session_args=(--resume "$ORCH_RESUME_SESSION")
