@@ -1109,6 +1109,37 @@ expect_match "a copilot node records the preset-model transport" '^preset-model$
   "$(jq -r '.nodes[0].metadata_transport' "$hdr_home/runs/wid-2/state.json")"
 expect_match "a copilot node records no worker identity" '^null$' \
   "$(jq -r '.nodes[0].worker_identity | tostring' "$hdr_home/runs/wid-2/state.json")"
+
+# A nested dispatch does not inherit the parent node's Smart Auto headers. The parent's lines arrive
+# in the environment, as a parent node process would export them. A plain child gets only the
+# non-smart-auto header, and a child with its own options sends its own identity, not the parent's.
+horch bash "$SCRIPT" run start "Nested identity" --id wid-3 >/dev/null 2>&1
+horch bash "$SCRIPT" node add wid-3 plain "Plain child" >/dev/null 2>&1
+horch bash "$SCRIPT" node add wid-3 plain2 "Plain child two" >/dev/null 2>&1
+horch bash "$SCRIPT" node add wid-3 opt "Child with options" --tier balance >/dev/null 2>&1
+nest_parent=$(printf '%s\n%s\n%s\n%s' 'x-llm-hub-smart-auto-worker: wid-1/impl/1' \
+  'x-llm-hub-smart-auto-parent: wid-1' 'x-llm-hub-smart-auto-role: implementation' 'x-custom-tag: keep')
+nest_job=$(env ANTHROPIC_CUSTOM_HEADERS="$nest_parent" PATH="$hdr_shims:$PATH" \
+  HARNESS_ORCH_HOME="$hdr_home" bash "$SCRIPT" node dispatch wid-3 plain claude "nested" 2>/dev/null)
+horch bash "$SCRIPT" wait "$nest_job" --timeout 5 --interval 1 >/dev/null 2>&1
+nest_log=$(cat "$hdr_home/jobs/$nest_job/log" 2>/dev/null)
+expect_no_match "a nested plain node does not inherit the parent's smart-auto headers" \
+  'x-llm-hub-smart-auto' "$nest_log"
+expect_match "a nested plain node keeps the inherited non-smart-auto header" \
+  '^x-custom-tag: keep$' "$nest_log"
+nest_only=$(env ANTHROPIC_CUSTOM_HEADERS="$(printf '%s' 'x-llm-hub-smart-auto-worker: wid-1/impl/1')" \
+  PATH="$hdr_shims:$PATH" HARNESS_ORCH_HOME="$hdr_home" bash "$SCRIPT" node dispatch wid-3 plain2 claude "nested" 2>/dev/null)
+horch bash "$SCRIPT" wait "$nest_only" --timeout 5 --interval 1 >/dev/null 2>&1
+expect_match "a nested plain node with only parent smart-auto headers gets no custom headers" \
+  '^unset$' "$(cat "$hdr_home/jobs/$nest_only/log" 2>/dev/null)"
+nest_opt=$(env ANTHROPIC_CUSTOM_HEADERS="$nest_parent" PATH="$hdr_shims:$PATH" \
+  HARNESS_ORCH_HOME="$hdr_home" bash "$SCRIPT" node dispatch wid-3 opt claude "nested" 2>/dev/null)
+horch bash "$SCRIPT" wait "$nest_opt" --timeout 5 --interval 1 >/dev/null 2>&1
+nest_opt_log=$(cat "$hdr_home/jobs/$nest_opt/log" 2>/dev/null)
+expect_match "a nested node with its own options sends its own worker identity" \
+  'x-llm-hub-smart-auto-worker: wid-3/opt/1' "$nest_opt_log"
+expect_no_match "a nested node with its own options does not resend the parent's worker" \
+  'wid-1/impl/1' "$nest_opt_log"
 cleanup_dir "$hdr_home"
 cleanup_dir "$hdr_shims"
 

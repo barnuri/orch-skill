@@ -463,7 +463,8 @@ cmd_node_dispatch() {
   ORCH_NODE_ATTEMPT=$(( $(jq -r --arg n "$node_id" '(.nodes[] | select(.id == $n) | (.attempts // []) | length)' "$file") + 1 ))
   ORCH_NODE_ROLE=$(node_field "$file" "$node_id" role)
   ORCH_NODE_TIER=$(node_field "$file" "$node_id" tier)
-  export ORCH_NODE_ATTEMPT ORCH_NODE_ROLE ORCH_NODE_TIER
+  ORCH_NODE_ACCEPTANCE=$(node_field "$file" "$node_id" acceptance)
+  export ORCH_NODE_ATTEMPT ORCH_NODE_ROLE ORCH_NODE_TIER ORCH_NODE_ACCEPTANCE
 
   job_id=$(cmd_start "$@") || return $?
   node_record_worker "$run_id" "$node_id" "$job_id" || return 1

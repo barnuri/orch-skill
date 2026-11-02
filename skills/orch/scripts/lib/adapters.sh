@@ -102,19 +102,30 @@ SMART_AUTO_HEADER_PARENT='x-llm-hub-smart-auto-parent'
 SMART_AUTO_HEADER_ROLE='x-llm-hub-smart-auto-role'
 SMART_AUTO_HEADER_TIER='x-llm-hub-smart-auto-tier'
 
-# Prints this node attempt's Smart Auto headers, one "Name: value" per line. Prints nothing when
-# the process is not a node attempt, so a plain `run claude` sends no identity.
+# Prints this node attempt's Smart Auto headers, one "Name: value" per line. Prints nothing unless
+# this node was created with Smart Auto options (role, tier or acceptance). A plain node, or a
+# process that only inherited a parent's node env, sends no identity.
 claude_smart_auto_headers() {
   [ -n "${ORCH_RUN_ID:-}" ] && [ -n "${ORCH_NODE_ID:-}" ] && [ -n "${ORCH_NODE_ATTEMPT:-}" ] || return 0
+  [ -n "${ORCH_NODE_ROLE:-}${ORCH_NODE_TIER:-}${ORCH_NODE_ACCEPTANCE:-}" ] || return 0
   printf '%s: %s/%s/%s\n' "$SMART_AUTO_HEADER_WORKER" "$ORCH_RUN_ID" "$ORCH_NODE_ID" "$ORCH_NODE_ATTEMPT"
   printf '%s: %s\n' "$SMART_AUTO_HEADER_PARENT" "$ORCH_RUN_ID"
   [ -z "${ORCH_NODE_ROLE:-}" ] || printf '%s: %s\n' "$SMART_AUTO_HEADER_ROLE" "$ORCH_NODE_ROLE"
   [ -z "${ORCH_NODE_TIER:-}" ] || printf '%s: %s\n' "$SMART_AUTO_HEADER_TIER" "$ORCH_NODE_TIER"
 }
 
+# Prints the inherited ANTHROPIC_CUSTOM_HEADERS without any Smart Auto line. Those lines belong to
+# the parent node that exported them, so a nested dispatch must never copy them.
+claude_inherited_headers() {
+  local kept
+  kept=$(printf '%s\n' "${ANTHROPIC_CUSTOM_HEADERS:-}" | grep -v -i '^[[:space:]]*x-llm-hub-smart-auto-' || true)
+  printf '%s' "$kept"
+}
+
 # Prints the ANTHROPIC_CUSTOM_HEADERS value: the inherited lines followed by this attempt's lines.
 claude_custom_headers() {
-  local inherited="${ANTHROPIC_CUSTOM_HEADERS:-}" ours
+  local inherited ours
+  inherited=$(claude_inherited_headers)
   ours=$(claude_smart_auto_headers)
   if [ -z "$ours" ]; then
     printf '%s' "$inherited"
@@ -138,7 +149,11 @@ adapter_claude() {
   local bin settings custom_headers
   bin=$(resolve_bin adapter_claude claude) || return $?
   custom_headers=$(claude_custom_headers)
-  [ -z "$custom_headers" ] || export ANTHROPIC_CUSTOM_HEADERS="$custom_headers"
+  if [ -n "$custom_headers" ]; then
+    export ANTHROPIC_CUSTOM_HEADERS="$custom_headers"
+  else
+    unset ANTHROPIC_CUSTOM_HEADERS
+  fi
   local -a session_args=() settings_args=()
   if [ -n "${ORCH_RESUME_SESSION:-}" ]; then
     session_args=(--resume "$ORCH_RESUME_SESSION")
