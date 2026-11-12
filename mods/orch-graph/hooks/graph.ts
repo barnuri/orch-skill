@@ -1,4 +1,4 @@
-import type { NodeView, RunView } from '../types'
+import type { ActiveView, NodeView, RunView } from '../types'
 
 type RawCost = {
   usd?: number
@@ -166,4 +166,42 @@ export const runUrl = (base: string, runId: string): string => {
   url.hash = `#/run/${encodeURIComponent(runId)}`
 
   return url.href
+}
+
+
+type RawActive = {
+  kind?: string
+  name?: string
+  status?: string
+  iteration?: number
+  max?: number
+  next?: number
+  events?: number
+  last_event?: string | null
+  interval?: number
+}
+
+const untilText = (seconds: number): string => {
+  if (seconds <= 0) return 'now'
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`
+}
+
+// `orch active --json` rows as one short line each: "3/20 · next 4m" for a loop, "2 events · last 14:12" for a monitor.
+export const toActiveViews = (raw: unknown, nowMs: number): ActiveView[] => {
+  if (!Array.isArray(raw)) return []
+  return (raw as RawActive[]).flatMap(item => {
+    if (typeof item !== 'object' || item === null) return []
+    if (item.kind !== 'loop' && item.kind !== 'watch') return []
+    const status = item.status ?? 'running'
+    const flag = status === 'running' ? '' : ` [${status}]`
+    const line =
+      item.kind === 'loop'
+        ? `${(item.max ?? 0) > 0 ? `${item.iteration ?? 0}/${item.max}` : `iter ${item.iteration ?? 0}`} · next ${untilText((item.next ?? 0) - Math.round(nowMs / 1000))}${flag}`
+        : `${item.events ?? 0} ${item.events === 1 ? 'event' : 'events'}${item.last_event ? ` · last ${clockText(item.last_event)}` : ''}${flag}`
+    return [{ kind: item.kind, name: item.name ?? item.kind, status, line }]
+  })
 }

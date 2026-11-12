@@ -460,6 +460,7 @@ cmd_sync() {
 $(run_state_files)
 EOF
 
+  loops_recover || true
   suggest_scan || true
   if [ "$(learning_get auto_apply_safe true)" = "true" ]; then
     suggest_apply_safe || true

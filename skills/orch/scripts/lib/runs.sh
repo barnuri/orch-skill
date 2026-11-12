@@ -1163,6 +1163,8 @@ EOF
     prune_path "$job_dir" "$dry"
   done
 
+  loops_prune "$cutoff" "$dry"
+
   if [ "$dry" -eq 1 ]; then
     printf 'would prune %s run(s) older than %s\n' "$pruned" "$spec"
     return 0

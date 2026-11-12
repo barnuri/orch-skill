@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GraphView } from '../types'
-import { newestFirst, runUrl, toRunView } from '../hooks/graph'
+import { newestFirst, runUrl, toActiveViews, toRunView } from '../hooks/graph'
 import type { ProfileInfo } from '../hooks/graph'
 
 type ProfilesRead = { profiles: Record<string, ProfileInfo>; maxAttempts: number }
@@ -13,6 +13,7 @@ export class OrchRunSource {
   private static readonly SCAN = 5
   private static readonly DASHBOARD_RECHECK_MS = 15_000
   private static readonly DEFAULT_MAX_ATTEMPTS = 5
+  private static readonly ACTIVE_RECHECK_MS = 10_000
   private static readonly RUNNING = 'running'
   private static readonly SCRIPT_TIMEOUT_MS = 60_000
   private static readonly STATUS_TIMEOUT_MS = 5_000
@@ -21,9 +22,37 @@ export class OrchRunSource {
   private readonly dispatchPath = join(import.meta.dir, '..', '..', '..', 'skills', 'orch', 'scripts', 'dispatch.sh')
   private dashboardBase: string | null = null
   private dashboardCheckedAt = 0
+  private activeCheckedAt = 0
+  private activeCache: GraphView['active'] = []
 
   /** The running run, else the newest one, or the pinned run id. */
   async read(pinned: string): Promise<GraphView> {
+    const view = await this.readRun(pinned)
+    return { ...view, active: await this.readActive() }
+  }
+
+  /** Running loops and monitors, from the one reader the dashboard uses too. Empty when the call fails. */
+  private async readActive(): Promise<GraphView['active']> {
+    // Spawns a shell, so it is asked at most every 10 s, not on every 2 s poll.
+    const now = Date.now()
+    if (now - this.activeCheckedAt < OrchRunSource.ACTIVE_RECHECK_MS) {
+      return this.activeCache
+    }
+    this.activeCheckedAt = now
+    this.activeCache = await this.fetchActive()
+    return this.activeCache
+  }
+
+  private async fetchActive(): Promise<GraphView['active']> {
+    const ran = await this.dispatch(['active', '--json'], OrchRunSource.STATUS_TIMEOUT_MS)
+    try {
+      return ran?.exitCode === 0 ? toActiveViews(JSON.parse(ran.stdout || '[]'), Date.now()) : []
+    } catch {
+      return []
+    }
+  }
+
+  private async readRun(pinned: string): Promise<GraphView> {
     try {
       const runs = join(this.home, 'runs')
       const names = pinned ? [pinned] : newestFirst(await this.runNames(runs)).slice(0, OrchRunSource.SCAN)

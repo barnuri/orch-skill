@@ -371,6 +371,71 @@ Two things to say when you publish one:
 Editing is refused rather than broken: a save in a snapshot answers `405` with "This is a
 published snapshot — it has no server to save to." and toasts that message.
 
+## Loops and monitors
+
+Two detached tools for work that repeats or waits. Both run without this session, so they cost no
+tokens while they run. Each prints an id.
+
+**Loop:** runs a target every interval, fixed-rate (10s minimum). A slow iteration skips the ticks it
+covered. Five failures in a row set the loop to `failed`; failures back off (interval × 2^n, capped at
+1 hour) until then. A loop stops by itself after `--max-runtime` (default 24h).
+
+```bash
+orch loop start --every 10m --max 20 --until 'gh pr checks 123 --json state | grep -q SUCCESS' \
+  --profile claude-default "Check the open PR, fix any failing check"
+orch loop list | stop <id> | resume <id> | tail <id> [-n N]
+```
+
+Every loop is also an orch run with the loop's id: each tick is a node (`i1`, `i2`, …, the newest 50 kept), the tick's
+output is in the node's handoff dir (`output.txt`), and the run closes with the loop (`done` on `--max`, `--until` or the
+runtime limit, `error` after five failures, `cancelled` on stop). So the run list, the run graph and `node digest` show
+loops like any other work.
+
+`--session` picks what each iteration sees. `fresh` (default) is a new session each tick, so context never
+grows. `resume` keeps one session across ticks (claude and copilot targets only). `<id>` resumes a session
+you already have, for any target that can resume (opencode: `--session ses_…`). Into a live opencode session,
+`--when-idle` is on by default: before each tick orch reads the newest message (a finished assistant message is idle),
+waits up to one interval for it to finish, then skips the tick and counts it (`skipped`). Pass `--no-when-idle` to send
+regardless. It prints a warning at start, because the prompt lands in a conversation someone may be using. `loop resume <id>` restarts a
+`failed`, `stopped` or lost loop with a fresh failure count and runtime limit.
+
+The loop ends on `--max`, when `--until` exits 0, when the agent writes `STOP` to the file named in
+its prompt, or on `loop stop`. `--until` runs as your shell command, so quote it like a cron entry.
+
+**Monitor (watch):** runs a command and keeps only the lines that matter, as events. The agent reads
+events, never the raw log.
+
+```bash
+orch watch start --name ci "gh run watch <run-id> --exit-status" --match 'FAIL|Error' --until 'completed'
+orch watch start --name api --every 2m "curl -s localhost:8080/health" --match 'down' \
+  --on-match "The API is down. Diagnose it." --profile claude-default
+orch watch wait <id> --timeout 600 --max-lines 20   # blocks; prints only new events
+orch watch events <id> [--since N] | list | stop <id>
+```
+
+- `--match` and `--ignore` are ERE (bash `[[ =~ ]]`), applied per line. With `--every`, an event fires
+  when the filtered output changes.
+- `watch wait` exit codes: 0 new event, 3 ended with no new event, 124 timeout. Each wait moves a
+  cursor, so the next wait shows only what it has not shown yet.
+- `--on-match` starts one job per event at most every 60s, with the matched lines in its prompt.
+- Limits: `--max-runtime` (default 24h), events capped at 2000 characters each, the newest 500 kept,
+  scheduled output capped at 10 MB per run, 10 active watches at most. A streaming watch stops its
+  source command when it ends.
+
+**Summary:** `orch active` prints one line per running loop or watch, plus any that failed or lost their
+process (marked `[failed]` or `[lost]`). `orch active --json` returns the same data. Check it at the
+start of a turn, not by polling. The dashboard shows the same data: a header pill on every page and a
+"Loops and monitors" strip on the Runs page, from `GET /api/active`, with a Stop button per card
+(`POST /api/active/<id>/stop`, after a confirm dialog).
+
+**Restarts:** a loop or scheduled watch whose process died (reboot, kill) is restarted by `orch sync`.
+Ticks missed while it was down are skipped, and an iteration cut off mid-call is counted and recorded as
+`interrupted`. A streaming watch cannot resume mid-stream and is marked lost. `orch prune` also removes
+ended loops and watches past the retention window.
+
+Without a background shell or a Monitor tool (opencode, pi), the same commands work as written.
+Call `watch wait` once per turn instead of a Monitor.
+
 ## Retention
 
 `orch prune [--older-than 7d|12h|3] [--dry-run]` recoverably removes finished runs and their jobs

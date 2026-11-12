@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GraphView } from '../types'
 import { STATUS_STYLE, drawGraph } from './canvas'
-import { clockText, isOrchCommand, isOrchSkill, newestFirst, runUrl, statusCounts, toRunView } from './graph'
+import { clockText, isOrchCommand, isOrchSkill, newestFirst, runUrl, statusCounts, toActiveViews, toRunView } from './graph'
 import type { ProfileInfo } from './graph'
 
 const PANE = 'orch-graph'
@@ -87,6 +87,32 @@ async function readProfiles($: EngineInterface): Promise<ProfilesRead> {
   )
 
   return { profiles, maxAttempts: Number.isInteger(limit) && (limit === -1 || limit >= 1) ? limit : 5 }
+}
+
+// Running loops and monitors from `orch active --json`, the same reader the dashboard uses.
+let activeCache: GraphView['active'] = []
+let activeCheckedAt = 0
+const ACTIVE_RECHECK_MS = 10_000
+
+// Spawns a shell, so it is asked at most every 10 s, not on every 2 s poll.
+async function readActive($: EngineInterface): Promise<GraphView['active']> {
+  const now = await $.clock.now()
+  if (now - activeCheckedAt < ACTIVE_RECHECK_MS) return activeCache
+  activeCheckedAt = now
+  activeCache = await fetchActive($)
+
+  return activeCache
+}
+
+async function fetchActive($: EngineInterface): Promise<GraphView['active']> {
+  const ran = await $.process
+    .run(['bash', dispatchPath($), 'active', '--json'], { env: { HARNESS_ORCH_HOME: await resolveHome($) }, timeoutMs: 5_000 })
+    .catch(() => null)
+  try {
+    return ran?.exitCode === 0 ? toActiveViews(JSON.parse(ran.stdout || '[]'), await $.clock.now()) : []
+  } catch {
+    return []
+  }
 }
 
 // The dashboard's "Retry failed nodes", through the same subcommand its API calls.
@@ -178,6 +204,7 @@ async function refresh($: EngineInterface): Promise<void> {
   } catch (error) {
     next = { run: null, error: String(error), dashboard: null }
   }
+  next = { ...next, active: await readActive($) }
   const serial = JSON.stringify(next)
   if (serial === last) return
   last = serial
@@ -222,8 +249,21 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Link, Text } = $.ui.resolve(e)
-    const { run, error, dashboard: href } = await read($, view)
-    if (!run) return <Text dimColor>{error ?? 'No orch runs yet.'}</Text>
+    const { run, error, dashboard: href, active = [] } = await read($, view)
+    const activeRows = active.length === 0 ? null : (
+      <Box flexDirection="column">
+        <Text dimColor>{`active · ${active.length}`}</Text>
+        {active.map(item => (
+          <Text color={item.status === 'running' ? (item.kind === 'loop' ? 'cyan' : 'magenta') : 'red'}>
+            {`${item.kind === 'loop' ? '↻' : '◉'} ${item.name} · ${item.line}`}
+          </Text>
+        ))}
+        <Text> </Text>
+      </Box>
+    )
+    if (!run) {
+      return activeRows ? <Box flexDirection="column">{activeRows}</Box> : <Text dimColor>{error ?? 'No orch runs yet.'}</Text>
+    }
 
     const nodes = run.layers.flat()
     const hasFailed = nodes.some(node => node.status === 'error')
@@ -232,6 +272,7 @@ export const register: Register = on => {
     // The dashboard's run meta: id, start, elapsed or finish, node counts by status, session.
     return (
       <Box flexDirection="column">
+        {activeRows}
         <Text>
           <Text bold>{run.title}</Text>
           <Text color={STATUS_STYLE[run.status]?.color}>{`  ${run.status}`}</Text>

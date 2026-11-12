@@ -54,10 +54,27 @@ export class OrchGraphPlugin {
     })
   }
 
+  // Running loops and monitors, one line each. Shown whenever any exist, even with no run on screen.
+  private activeLines(): TuiElement[] {
+    const active = this.state[0].view.active ?? []
+    if (active.length === 0) {
+      return []
+    }
+    return [
+      this.runtime.jsx('text', { fg: 'gray', children: `active · ${active.length}` }),
+      ...active.map(item =>
+        this.runtime.jsx('text', {
+          fg: item.status === 'running' ? (item.kind === 'loop' ? 'cyan' : 'magenta') : 'red',
+          children: `${item.kind === 'loop' ? '↻' : '◉'} ${item.name} · ${item.line}`,
+        }),
+      ),
+    ]
+  }
+
   private summaryLines(): TuiElement[] {
     const { run, error, dashboard } = this.state[0].view
     if (!this.isShown(run?.status, run?.started)) {
-      return []
+      return this.activeLines()
     }
     if (!run) {
       return [this.runtime.jsx('text', { fg: 'gray', children: error ?? 'No orch runs yet.' })]
@@ -73,6 +90,7 @@ export class OrchGraphPlugin {
       this.runtime.jsx('text', { fg: 'gray', children: `run ${run.runId} · started ${clockText(run.started)} · ${timing}` }),
       this.runtime.jsx('text', { fg: 'gray', children: `nodes ${nodes.length}${counts ? ` · ${counts}` : ''}${run.session ? ` · session ${run.session}` : ''}` }),
       this.runtime.jsx('text', { fg: 'gray', children: actions }),
+      ...this.activeLines(),
     ]
   }
 

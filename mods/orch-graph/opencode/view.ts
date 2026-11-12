@@ -15,12 +15,24 @@ const ERROR = 'error'
 const source = new OrchRunSource()
 const node = (type: string, props: Record<string, unknown>, ...children: unknown[]): Node => ({ type, props, children })
 
+// Running loops and monitors, one line each, above the run (or alone when there is no run).
+const activeNodes = (state: { view: GraphView } | null, text: string): Node[] => {
+  const active = state?.view.active ?? []
+  if (active.length === 0) return []
+  return [
+    node(text, { dimColor: true }, `active · ${active.length}`),
+    ...active.map(item => node(text, { color: item.status === 'running' ? (item.kind === 'loop' ? 'cyan' : 'magenta') : 'red' }, `${item.kind === 'loop' ? '↻' : '◉'} ${item.name} · ${item.line}`)),
+    node(text, {}, ' '),
+  ]
+}
+
 // The orch graph pane: run meta, "open in dashboard" and "retry failed nodes" buttons (o / r), then the DAG.
 export default function view(state: { view: GraphView } | null, ui: PaneUi): unknown {
   const { Box, Text, Button } = ui.elements
   const run = state?.view.run
   if (!run) {
-    return node(Text, { dimColor: true }, state?.view.error ?? 'No orch runs yet.')
+    const idle = activeNodes(state, Text)
+    return idle.length > 0 ? node(Box, { flexDirection: 'column' }, ...idle) : node(Text, { dimColor: true }, state?.view.error ?? 'No orch runs yet.')
   }
   const act = (action: () => Promise<string | null>) => () => void action().then(message => ui.notice(message ?? ''))
   const hasFailed = run.layers.flat().some(graphNode => graphNode.status === ERROR)
@@ -28,6 +40,7 @@ export default function view(state: { view: GraphView } | null, ui: PaneUi): unk
   return node(
     Box,
     { flexDirection: 'column' },
+    ...activeNodes(state, Text),
     node(Text, {}, node(Text, { bold: true }, run.title), node(Text, { color: STATUS_STYLE[run.status]?.color }, `  ${run.status}`)),
     node(Text, { dimColor: true }, `run ${run.runId} · started ${clockText(run.started)} · ${timing}`),
     node(

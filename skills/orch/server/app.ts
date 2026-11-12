@@ -11,6 +11,7 @@ import {
   getDocumentHandler,
   putDocumentHandler,
 } from "./routes/document-routes";
+import { listActiveHandler, stopActiveHandler } from "./routes/active-routes";
 import { listHarnessesHandler } from "./routes/harnesses-routes";
 import { profileSanityHandler } from "./routes/profiles-routes";
 import {
@@ -82,6 +83,8 @@ export function startServer(options: ServerOptions): Server<undefined> {
       "/": index,
       "/api/health": apiRoute(ctx, { GET: healthHandler(ctx) }),
       "/api/runs": apiRoute(ctx, { GET: listRunsHandler(ctx) }),
+      "/api/active": apiRoute(ctx, { GET: listActiveHandler(ctx) }),
+      "/api/active/:id/stop": apiRoute(ctx, { POST: stopActiveHandler(ctx) }),
       "/api/runs/:id": apiRoute(ctx, { GET: readRunHandler(ctx) }),
       "/api/runs/:id/retry": apiRoute(ctx, { POST: retryRunHandler(ctx) }),
       "/api/runs/:id/stop": apiRoute(ctx, { POST: stopRunHandler(ctx) }),
