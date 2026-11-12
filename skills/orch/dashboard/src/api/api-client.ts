@@ -1,3 +1,4 @@
+import type { ActiveEnvelope } from "../../../shared/types/active-envelope";
 import type { ApiError } from "../../../shared/types/api-error";
 import type { ChatEnvelope } from "../../../shared/types/chat-envelope";
 import type { DocumentKind } from "../../../shared/types/document-kind";
@@ -47,6 +48,14 @@ export class ApiClient {
 
   getRuns(etag: string | null): Promise<ApiResult<RunsEnvelope>> {
     return this.request<RunsEnvelope>("GET", `${API_BASE}/runs`, { etag, island: "runs" });
+  }
+
+  getActive(etag: string | null): Promise<ApiResult<ActiveEnvelope>> {
+    return this.request<ActiveEnvelope>("GET", `${API_BASE}/active`, { etag, island: "active" });
+  }
+
+  stopActive(id: string): Promise<ApiResult<{ ok: boolean; output?: string }>> {
+    return this.request<{ ok: boolean; output?: string }>("POST", `${API_BASE}/active/${encodeURIComponent(id)}/stop`);
   }
 
   getRun(id: string, etag: string | null): Promise<ApiResult<RunEnvelope>> {

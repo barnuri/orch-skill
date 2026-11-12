@@ -5,6 +5,8 @@ export function createInitialState(): AppState {
   return {
     route: { kind: "list" },
     runs: null,
+    active: [],
+    activeEtag: null,
     runsEtag: null,
     runFilters: loadRunFilters(),
     run: null,

@@ -1,8 +1,11 @@
 import { setToken } from "./api/token-store";
+import { enhanceSelects } from "./components/select";
 import { poll } from "./poll";
 import type { Route } from "./router";
 import { state } from "./state/state";
 import { renderDocNotices as docNoticesView } from "./views/doc-notices";
+import { renderActivePill } from "./views/active-pill";
+import { tickActiveStrip } from "./views/active-strip";
 import { renderFresh as renderFreshness } from "./views/freshness";
 import { renderMemory } from "./views/memory-view";
 import { revealNodePanel } from "./views/node-panel";
@@ -37,6 +40,7 @@ function sectionTitle(route: Route): string {
 function renderChrome(route: Route): void {
   renderNav(route);
   renderFreshness(state);
+  renderActivePill(state.active);
   // Browser tab only — the header brand stays "orch"; section context lives in <main>.
   document.title = `${TITLE_PREFIX}${sectionTitle(route)}`;
 }
@@ -85,10 +89,20 @@ export function render(): void {
     return;
   }
   main.replaceChildren(viewFor(route));
+  enhanceSelects(main);
 }
 
 export function renderFresh(): void {
   renderFreshness(state);
+  tickActiveStrip();
+}
+
+// New active items: the pill is cheap to update anywhere; the strip lives on the runs page only.
+export function renderActive(): void {
+  renderActivePill(state.active);
+  if (state.route.kind === "list" && !state.authRequired) {
+    render();
+  }
 }
 
 // Swaps only the `#doc-notices` block a document view rendered, leaving the form (and the

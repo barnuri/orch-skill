@@ -6,7 +6,7 @@ import type { SuggestionsEnvelope } from "../../shared/types/suggestions-envelop
 import { ApiClient } from "./api/api-client";
 import type { ApiResult } from "./api/api-result";
 import { refreshHarnesses } from "./views/harnesses-panel";
-import { render, renderDocNotices } from "./render";
+import { render, renderActive, renderDocNotices } from "./render";
 import type { Route } from "./router";
 import { beginEdit } from "./forms/document-editor";
 import { applyDocLoad } from "./state/doc-reducer";
@@ -69,6 +69,21 @@ function applyNonOk(result: NonOkResult): void {
     return;
   }
   fail(result.body?.error ?? `HTTP ${result.status}`);
+}
+
+// The header pill and the runs-page strip read this. A failure here never marks the dashboard
+// offline: the route's own poll owns freshness, and a server without /api/active just shows none.
+async function pollActive(): Promise<void> {
+  if (state.snapshot) {
+    return;
+  }
+  const result = await api.getActive(state.activeEtag);
+  if (result.kind !== "ok") {
+    return;
+  }
+  state.active = result.body.items;
+  state.activeEtag = result.etag;
+  renderActive();
 }
 
 async function pollRuns(seq: number): Promise<void> {
@@ -241,5 +256,6 @@ export function invalidateDocument(kind: DocumentKind): void {
 // live-update decision): 200 apply, 304 freshness only, 401 gate, 404 missing run, else error.
 export function poll(): Promise<void> {
   latestPoll += 1;
+  void pollActive();
   return pollRoute(state.route, latestPoll);
 }

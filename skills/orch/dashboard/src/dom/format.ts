@@ -69,3 +69,58 @@ export function truncate(text: string, max: number): string {
 export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
+
+const SECONDS_PER_DAY = 86400;
+const MS = 1000;
+
+/** "3m ago", "2h ago", "5d ago": the age of an ISO timestamp, for lists where the clock matters less. */
+export function rel(iso: string | null): string {
+  if (!iso) {
+    return EM_DASH;
+  }
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) {
+    return iso;
+  }
+  const seconds = Math.max(0, Math.round((Date.now() - then) / MS));
+  if (seconds < JUST_NOW_SECONDS) {
+    return "just now";
+  }
+  if (seconds < SECONDS_PER_MINUTE) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
+  if (minutes < MINUTES_PER_HOUR) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+  return seconds < SECONDS_PER_DAY ? `${hours}h ago` : `${Math.floor(seconds / SECONDS_PER_DAY)}d ago`;
+}
+
+/** Time left until an epoch-seconds moment: "4m 12s", "now" once it has passed. */
+export function until(epochSeconds: number): string {
+  const seconds = Math.round(epochSeconds - Date.now() / MS);
+  if (seconds <= 0) {
+    return "now";
+  }
+  if (seconds < SECONDS_PER_MINUTE) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
+  if (minutes < MINUTES_PER_HOUR) {
+    return `${minutes}m ${seconds - minutes * SECONDS_PER_MINUTE}s`;
+  }
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+  return hours < 48 ? `${hours}h ${minutes - hours * MINUTES_PER_HOUR}m` : `${Math.floor(hours / 24)}d`;
+}
+
+/** An interval in seconds as a short label: 30 -> "30s", 900 -> "15m", 0 -> "stream". */
+export function everyLabel(seconds: number): string {
+  if (seconds <= 0) {
+    return "stream";
+  }
+  if (seconds < SECONDS_PER_MINUTE) {
+    return `${seconds}s`;
+  }
+  return seconds < 3600 ? `${Math.round(seconds / SECONDS_PER_MINUTE)}m` : `${Math.round(seconds / 3600)}h`;
+}

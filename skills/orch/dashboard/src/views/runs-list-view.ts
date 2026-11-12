@@ -1,9 +1,14 @@
+import type { ActiveItem } from "../../../shared/types/active-item";
 import type { NodeStatus } from "../../../shared/types/node-status";
 import { RUN_STATUSES } from "../../../shared/types/run-status";
 import type { RunSummary } from "../../../shared/types/run-summary";
 import { STATUS_ORDER } from "../constants";
+import { emptyState } from "../components/empty-state";
+import { kpiTile } from "../components/kpi-tile";
+import { labelled, segmented } from "../components/segmented";
+import { skeletonRows } from "../components/skeleton";
 import { chip, el } from "../dom/el";
-import { fmtTime } from "../dom/format";
+import { rel, until } from "../dom/format";
 import { render } from "../render";
 import type { AppState } from "../state/app-state";
 import type { RunFilters } from "../state/run-filters";
@@ -17,6 +22,7 @@ import {
   runFiltersActive,
   saveRunFilters,
 } from "../state/run-filters";
+import { renderActiveStrip } from "./active-strip";
 import { pageHead } from "./page-head";
 
 type Counts = Record<NodeStatus, number>;
@@ -54,9 +60,9 @@ function renderRunRow(run: RunSummary): HTMLElement {
   const total = totalOf(run.counts);
   const when =
     run.status === "running"
-      ? `started ${fmtTime(run.started)}`
-      : `finished ${fmtTime(run.finished)}`;
-  return el("a", { class: "run-row", role: "listitem", href: `#/run/${encodeURIComponent(run.run_id)}` }, [
+      ? `started ${rel(run.started)}`
+      : `finished ${rel(run.finished)}`;
+  return el("a", { class: `run-row is-${run.status}`, title: run.started, role: "listitem", href: `#/run/${encodeURIComponent(run.run_id)}` }, [
     el("div", {}, [
       el("div", { class: "title", text: run.title || run.run_id }),
       el("div", { class: "id mono", text: run.run_id }),
@@ -64,7 +70,7 @@ function renderRunRow(run: RunSummary): HTMLElement {
     chip(run.status),
     statusBar(run.counts, total),
     countsText(run.counts, total),
-    el("div", { class: "when muted", text: when }),
+    el("div", { class: "when muted", title: run.finished ?? run.started, text: when }),
   ]);
 }
 
@@ -77,51 +83,32 @@ function sortedRuns(runs: readonly RunSummary[]): RunSummary[] {
   });
 }
 
-function filterSelect(
-  label: string,
-  value: string,
-  options: readonly { value: string; label: string }[],
-  onChange: (next: string) => void,
-): HTMLElement {
-  const select = el("select", { class: "filter-select" }) as HTMLSelectElement;
-  for (const option of options) {
-    select.appendChild(el("option", { value: option.value, text: option.label }));
-  }
-  select.value = value;
-  select.addEventListener("change", () => {
-    onChange(select.value);
-    render();
-  });
-  return el("label", { class: "filter-field" }, [
-    el("span", { class: "filter-label", text: label }),
-    select,
-  ]);
-}
-
 function filterBar(state: AppState): HTMLElement {
   const filters = state.runFilters;
-  const bar = el("div", { class: "run-filters", role: "search" });
+  const bar = el("div", { class: "filter-bar", role: "search" });
+  const apply = (next: RunFilters): void => {
+    state.runFilters = next;
+    saveRunFilters(next);
+    render();
+  };
   bar.append(
-    filterSelect(
+    labelled(
       "Age",
-      filters.age,
-      RUN_AGE_VALUES.map((age) => ({ value: age, label: AGE_LABELS[age] })),
-      (next) => {
-        state.runFilters = { ...filters, age: next as typeof filters.age };
-        saveRunFilters(state.runFilters);
-      },
+      segmented(
+        "Age",
+        filters.age,
+        RUN_AGE_VALUES.map((age) => ({ value: age, label: AGE_LABELS[age] })),
+        (next) => apply({ ...filters, age: next as typeof filters.age }),
+      ),
     ),
-    filterSelect(
+    labelled(
       "Status",
-      filters.status,
-      [
-        { value: ALL_STATUSES, label: "All statuses" },
-        ...RUN_STATUSES.map((status) => ({ value: status, label: status })),
-      ],
-      (next) => {
-        state.runFilters = { ...filters, status: next as typeof filters.status };
-        saveRunFilters(state.runFilters);
-      },
+      segmented(
+        "Status",
+        filters.status,
+        [{ value: ALL_STATUSES, label: "All" }, ...RUN_STATUSES.map((status) => ({ value: status, label: status }))],
+        (next) => apply({ ...filters, status: next as typeof filters.status }),
+      ),
     ),
   );
   if (runFiltersActive(filters)) {
@@ -146,12 +133,11 @@ function applyButton(state: AppState, label: string, next: RunFilters): HTMLButt
  */
 function filteredOutState(state: AppState, hidden: number): HTMLElement {
   const noun = hidden === 1 ? "run" : "runs";
-  return el("div", { class: "empty" }, [
-    el("div", { text: `The current filters hide all ${hidden} ${noun}.` }),
-    el("div", { class: "empty-action" }, [
-      applyButton(state, "Show all runs", SHOW_ALL_RUN_FILTERS),
-    ]),
-  ]);
+  return emptyState(
+    `No runs match the filters`,
+    `The current filters hide all ${hidden} ${noun}. Widen the age or press Show all runs.`,
+    applyButton(state, "Show all runs", SHOW_ALL_RUN_FILTERS),
+  );
 }
 
 function subtitle(visible: readonly RunSummary[], hidden: number): string {
@@ -160,12 +146,31 @@ function subtitle(visible: readonly RunSummary[], hidden: number): string {
   return hidden === 0 ? counted : `${counted} — ${hidden} hidden by filters`;
 }
 
-function emptyState(): HTMLElement {
-  return el("div", { class: "empty" }, [
-    "No runs yet. Start one with ",
-    el("code", { text: 'dispatch.sh run start "<title>"' }),
-    ", then add nodes and dispatch them.",
-  ]);
+function noRunsState(): HTMLElement {
+  const hint = el("span", {}, ["Start one with ", el("code", { text: 'dispatch.sh run start "<title>"' }), ", then add nodes and dispatch them."]);
+  return emptyState("No runs yet", hint);
+}
+
+// A loop is also a run (its id starts with "loop-"); the Loops tile counts it, so this one does not.
+const isLoopRun = (run: RunSummary): boolean => run.run_id.startsWith("loop-");
+
+function kpis(allRuns: readonly RunSummary[], active: readonly ActiveItem[]): HTMLElement {
+  const runs = allRuns.filter((run) => !isLoopRun(run));
+  const running = runs.filter((run) => run.status === "running").length;
+  const failedRuns = runs.filter((run) => run.status === "error").length;
+  const attention = failedRuns + active.filter((item) => item.status !== "running").length;
+  const loops = active.filter((item) => item.kind === "loop" && item.status === "running");
+  const watches = active.filter((item) => item.kind === "watch" && item.status === "running");
+  const events = watches.reduce((sum, item) => sum + (item.events ?? 0), 0);
+  const soonest = loops.map((item) => item.next ?? 0).filter((next) => next > 0).sort((a, b) => a - b)[0];
+  const row = el("div", { class: "kpis" });
+  row.append(
+    kpiTile("Running runs", String(running), `of ${runs.length} in the last window`, running > 0 ? "acc" : "neutral"),
+    kpiTile("Needs attention", String(attention), attention > 0 ? "failed runs, loops or monitors" : "all clear", attention > 0 ? "er" : "ok"),
+    kpiTile("Loops", String(loops.length), soonest === undefined ? "none running" : `next tick in ${until(soonest)}`, loops.length > 0 ? "acc" : "neutral"),
+    kpiTile("Monitors", String(watches.length), watches.length === 0 ? "none running" : `${events} ${events === 1 ? "event" : "events"} captured`, watches.length > 0 ? "pu" : "neutral"),
+  );
+  return row;
 }
 
 /** The `#/` page body. Crumb and `document.title` are set by `render()`, not here. */
@@ -180,8 +185,23 @@ export function renderRunsList(state: AppState): DocumentFragment {
   if (state.lastError !== null && state.runs === null) {
     frag.appendChild(el("div", { class: "notice", text: `Could not load runs: ${state.lastError}` }));
   }
+  if (state.runs === null && state.lastError === null) {
+    frag.appendChild(skeletonRows(4));
+    return frag;
+  }
+  frag.appendChild(kpis(all, state.active));
+  const strip = renderActiveStrip(state.active);
+  if (strip !== null) {
+    frag.appendChild(strip);
+  }
+  frag.appendChild(
+    el("div", { class: "section-head" }, [
+      el("h2", { class: "section-title", text: "Recent runs" }),
+      el("span", { class: "section-meta", text: `${runs.length} of ${all.length}` }),
+    ]),
+  );
   if (all.length === 0) {
-    frag.appendChild(emptyState());
+    frag.appendChild(noRunsState());
     return frag;
   }
   frag.appendChild(filterBar(state));

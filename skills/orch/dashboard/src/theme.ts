@@ -7,11 +7,24 @@ const THEME_ATTR: string = "data-theme";
 function applyTheme(theme: Theme, button: HTMLButtonElement): void {
   document.documentElement.setAttribute(THEME_ATTR, theme);
   button.setAttribute("aria-label", theme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  // The icon shows the theme a click switches to. Toggled by attribute, not by a theme selector.
+  const sun = button.querySelector<SVGElement>(".icon-sun");
+  const moon = button.querySelector<SVGElement>(".icon-moon");
+  sun?.toggleAttribute("hidden", theme !== "dark");
+  moon?.toggleAttribute("hidden", theme !== "light");
 }
 
-// Dark is the default; only an explicit "light" choice is persisted and honoured.
+// With no saved choice the OS decides (theme-boot.js set the attribute before first paint).
+function storedOrSystem(): Theme {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "light" || saved === "dark") {
+    return saved;
+  }
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 export function applyStoredTheme(button: HTMLButtonElement): void {
-  applyTheme(localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark", button);
+  applyTheme(storedOrSystem(), button);
 }
 
 export function toggleTheme(button: HTMLButtonElement): void {

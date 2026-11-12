@@ -73,11 +73,15 @@ describe("brand colours", () => {
     expect(missing).toEqual([]);
   });
 
-  // Cursor's mark is black and OpenAI's near-black: unreadable on the dark surface, so both
-  // must invert for the light theme instead of being left at the dark-theme value.
-  test("the marks that invert per theme have a light-theme override", () => {
-    for (const id of ["cursor-agent", "codex", "claude"]) {
-      expect(css).toContain(`[data-theme="light"] .mark-${id} {`);
+  // Cursor's mark is black and OpenAI's near-black: unreadable on the dark surface, so each one
+  // reads a token that holds both theme values (light-dark), not a dark-only colour.
+  test("the marks that invert per theme read a light-dark token", () => {
+    const tokens = readFileSync(join(SKILL_ROOT, "dashboard/tokens.css"), "utf8");
+    for (const token of ["--mark-claude", "--mark-ink", "--mark-codex"]) {
+      expect(tokens).toContain(`${token}: light-dark(`);
+    }
+    for (const [id, token] of [["cursor-agent", "--mark-ink"], ["codex", "--mark-codex"], ["claude", "--mark-claude"]] as const) {
+      expect(css).toContain(`.mark-${id} { color: var(${token}); }`);
     }
   });
 });

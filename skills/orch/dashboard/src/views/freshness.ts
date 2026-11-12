@@ -3,6 +3,7 @@ import { ago } from "../dom/format";
 import type { AppState } from "../state/app-state";
 
 const WAITING_TEXT: string = "waiting for server…";
+const LIVE_CLASS: string = "live";
 const OFFLINE_TEXT: string = "dashboard offline — CLI still works";
 const SNAPSHOT_TEXT: string = "published snapshot — not live";
 
@@ -22,19 +23,19 @@ export function renderFresh(state: AppState): void {
   }
   // A snapshot never refreshes, so ageing it into "stale" and then "dead" would be a lie.
   if (state.snapshot) {
-    root.className = "fresh snapshot";
+    root.className = `${LIVE_CLASS} snapshot`;
     text.textContent = SNAPSHOT_TEXT;
     return;
   }
   if (state.lastOkAt === null) {
-    root.className = "fresh dead";
+    root.className = `${LIVE_CLASS} dead`;
     text.textContent = state.lastError !== null ? OFFLINE_TEXT : WAITING_TEXT;
     return;
   }
-  root.className = `fresh${levelClass(Date.now() - state.lastOkAt, state.lastError)}`;
+  root.className = `${LIVE_CLASS}${levelClass(Date.now() - state.lastOkAt, state.lastError)}`;
   if (state.lastError !== null) {
     text.textContent = OFFLINE_TEXT;
     return;
   }
-  text.textContent = `updated ${ago(state.lastOkAt)}`;
+  text.textContent = `Live · ${ago(state.lastOkAt)}`;
 }

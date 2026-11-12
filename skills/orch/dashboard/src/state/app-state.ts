@@ -1,3 +1,4 @@
+import type { ActiveItem } from "../../../shared/types/active-item";
 import type { HarnessStatus } from "../../../shared/types/harness-status";
 import type { Issue } from "../../../shared/types/issue";
 import type { MemoryDocument } from "../../../shared/types/memory-document";
@@ -14,6 +15,9 @@ export interface AppState {
   route: Route;
   // Runs list slice (kept across navigations so the list paints instantly and the first poll 304s).
   runs: RunSummary[] | null;
+  /** Running (and needs-attention) loops and monitors; polled on every route for the header pill. */
+  active: ActiveItem[];
+  activeEtag: string | null;
   runsEtag: string | null;
   /** Runs-list view filters. Persisted to localStorage, so they outlive a reload. */
   runFilters: RunFilters;
