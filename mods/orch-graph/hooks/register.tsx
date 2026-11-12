@@ -101,11 +101,57 @@ async function retryFailed($: EngineInterface, runId: string): Promise<void> {
   await refresh($)
 }
 
+const HERDR_MODS_PLUGIN_ID = 'barnuri.mods'
+const HERDR_MODS_VIEW = '../opencode/view.ts'
+const HERDR_STATE_FILE = '.cache/herdr-mods/orch-graph/run.json'
+const HERDR_PANE_KEY = 'run'
+const HERDR_TIMEOUT_MS = 10000
+let herdrModsRoot: string | null | undefined
+
+// The herdr-mods plugin's folder (https://github.com/barnuri/herdr-mods), or null when it is not installed.
+async function herdrModsPluginRoot($: EngineInterface): Promise<string | null> {
+  if (herdrModsRoot !== undefined) return herdrModsRoot
+  const listed = await $.process.run(['herdr', 'plugin', 'list', '--json'], { timeoutMs: HERDR_TIMEOUT_MS }).catch(() => null)
+  const plugins = listed?.exitCode === 0 ? ((JSON.parse(listed.stdout || '{}') as { result?: { plugins?: { plugin_id?: string; plugin_root?: string }[] } }).result?.plugins ?? []) : []
+  herdrModsRoot = plugins.find(plugin => plugin.plugin_id === HERDR_MODS_PLUGIN_ID)?.plugin_root ?? null
+  return herdrModsRoot
+}
+
+// This Claude pane's herdr pane id, or null outside herdr or without the herdr-mods plugin.
+async function herdrBesidePane($: EngineInterface): Promise<string | null> {
+  if ((await $.env.get('HERDR_ENV')) !== '1') return null
+  const paneId = await $.env.get('HERDR_PANE_ID')
+  if (!paneId || (await herdrModsPluginRoot($)) === null) return null
+  return paneId
+}
+
+// Inside herdr with herdr-mods, the graph runs in a herdr pane beside Claude (the orch-graph herdr mod's view).
+async function openHerdrPane($: EngineInterface, isForced: boolean): Promise<boolean> {
+  const besidePaneId = await herdrBesidePane($)
+  const root = await herdrModsPluginRoot($)
+  if (besidePaneId === null || root === null) return false
+  await publishHerdrState($)
+  await $.process
+    .run(
+      ['sh', `${root}/bin/bun.sh`, `${root}/bin/open.ts`, '--mod-id', PANE, '--view', `${$.plugin.root}/${HERDR_MODS_VIEW}`, '--key', HERDR_PANE_KEY, '--beside', besidePaneId, ...(isForced ? ['--force'] : [])],
+      { timeoutMs: HERDR_TIMEOUT_MS },
+    )
+    .catch(() => null)
+  return true
+}
+
+async function publishHerdrState($: EngineInterface): Promise<void> {
+  const home = await $.env.get('HOME')
+  if (home === undefined || (await herdrBesidePane($)) === null) return
+  await $.fs.write(`${home}/${HERDR_STATE_FILE}`, JSON.stringify({ view: await read($, view), pinned: await read($, pinned) })).catch(() => undefined)
+}
+
 // Once per load: closing the pane afterwards keeps it closed.
 async function autoOpen($: EngineInterface): Promise<void> {
   if (isAutoOpened) return
   isAutoOpened = true
   await refresh($)
+  if (await openHerdrPane($, false)) return
   await $.ui.open({ id: PANE, title: 'orch graph' })
 }
 
@@ -136,6 +182,7 @@ async function refresh($: EngineInterface): Promise<void> {
   if (serial === last) return
   last = serial
   await update($, view, () => next)
+  await publishHerdrState($)
 }
 
 export const register: Register = on => {
@@ -153,7 +200,9 @@ export const register: Register = on => {
     const arg = e.args.trim()
     await update($, pinned, () => (arg === 'latest' ? '' : arg || ''))
     await refresh($)
-    await $.ui.open({ id: PANE, title: 'orch graph' })
+    if (!(await openHerdrPane($, true))) {
+      await $.ui.open({ id: PANE, title: 'orch graph' })
+    }
 
     return { text: arg && arg !== 'latest' ? `orch graph pinned to ${arg}.` : 'orch graph opened.' }
   })
