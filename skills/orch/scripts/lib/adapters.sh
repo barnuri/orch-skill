@@ -95,8 +95,9 @@ claude_write_usage() {
   return 0
 }
 
-# Header names of the llm-hub Smart Auto request contract. Only the Claude adapter can send them,
-# because Claude Code is the one harness that takes custom request headers from orch.
+# Header names of the llm-hub Smart Auto request contract. Claude Code takes them through
+# ANTHROPIC_CUSTOM_HEADERS and opencode through its provider's options.headers. copilot and pi
+# select the tier through the model id instead (see hub_tier_model).
 SMART_AUTO_HEADER_WORKER='x-llm-hub-smart-auto-worker'
 SMART_AUTO_HEADER_PARENT='x-llm-hub-smart-auto-parent'
 SMART_AUTO_HEADER_ROLE='x-llm-hub-smart-auto-role'
@@ -200,13 +201,35 @@ adapter_cursor_agent() {
   "$bin" -p "$prompt" --output-format text ${session_args[@]+"${session_args[@]}"} "$@" </dev/null
 }
 
+# Adds this node's Smart Auto headers to the "hub" provider of OPENCODE_CONFIG_CONTENT, so the hub
+# sees the worker, role and tier on every request opencode sends. A config without that provider,
+# or a node without Smart Auto options, is left as it is.
+opencode_smart_auto_config() {
+  local headers config
+  headers=$(claude_smart_auto_headers | jq -R -s -c \
+    'split("\n") | map(select(length > 0) | capture("^(?<k>[^:]+): (?<v>.*)$")) | map({(.k): .v}) | add // {}') || return 0
+  [ "$headers" != "{}" ] || return 0
+  config=$(printf '%s' "${OPENCODE_CONFIG_CONTENT:-}" | jq -c --argjson h "$headers" \
+    'if (.provider.hub? // null) == null then empty
+     else .provider.hub.options.headers = ((.provider.hub.options.headers // {}) + $h) end' 2>/dev/null)
+  [ -z "$config" ] || export OPENCODE_CONFIG_CONTENT="$config"
+}
+
 adapter_opencode() {
   local prompt="$1"; shift || true
   local bin
   bin=$(resolve_bin adapter_opencode opencode) || return $?
-  local -a session_args=()
-  [ -n "${ORCH_RESUME_SESSION:-}" ] && session_args=(--session "$ORCH_RESUME_SESSION")
-  "$bin" run "$prompt" --auto ${session_args[@]+"${session_args[@]}"} "$@"
+  opencode_smart_auto_config
+  local -a session_args=() args=()
+  local arg
+  # opencode mints its own "ses…" ids; an orch-minted id from an earlier attempt is not one.
+  case "${ORCH_RESUME_SESSION:-}" in ses*) session_args=(--session "$ORCH_RESUME_SESSION") ;; esac
+  # opencode 2 removed --pure and runs on a shared background service that does not read this
+  # process's OPENCODE_CONFIG_CONTENT. --standalone gives each run a private server that does.
+  for arg in "$@"; do
+    [ "$arg" = --pure ] || [ "$arg" = --standalone ] || args+=("$arg")
+  done
+  "$bin" run "$prompt" --auto --standalone ${session_args[@]+"${session_args[@]}"} ${args[@]+"${args[@]}"}
 }
 
 # `--allow-all-tools` is deliberately NOT passed here — same reasoning as cursor-agent's
@@ -355,6 +378,19 @@ adapter_dispatch() {
   esac
 }
 
+# hub_tier_model <model> <tier>: a Smart Auto selector moved to <tier>, for harnesses that cannot
+# send the tier header. Any other model, or an empty tier, comes back unchanged.
+hub_tier_model() {
+  local model="$1" tier="$2" base
+  [ -n "$tier" ] || { printf '%s\n' "$model"; return 0; }
+  case "$model" in
+    hub/smart-auto|hub/smart-auto-*) ;;
+    *) printf '%s\n' "$model"; return 0 ;;
+  esac
+  base=$(printf '%s' "$model" | sed -E 's/-(efficiency|balance|intelligence|fast)$//')
+  printf '%s-%s\n' "$base" "$tier"
+}
+
 # Resolves a profile (exporting its env), then runs its harness with: the model flag that harness
 # expects (skipped when the profile has no model), the profile's own flags, then caller args.
 # `${arr[@]+"${arr[@]}"}` is the bash 3.2 idiom for expanding a possibly-empty array under set -u.
@@ -368,6 +404,9 @@ dispatch_with_profile() {
     export ORCH_MODEL_BEHAVES_AS="$PROFILE_MODEL_BEHAVES_AS" ORCH_MODEL_SLUG="$PROFILE_MODEL"
   fi
   if [ -n "$PROFILE_MODEL" ]; then
+    case "$PROFILE_HARNESS" in
+      copilot|pi) PROFILE_MODEL=$(hub_tier_model "$PROFILE_MODEL" "${ORCH_NODE_TIER:-}") ;;
+    esac
     case "$PROFILE_HARNESS" in
       claude|cursor-agent|copilot) model_args=(--model "$PROFILE_MODEL") ;;
       opencode)            model_args=(-m "$PROFILE_MODEL") ;;

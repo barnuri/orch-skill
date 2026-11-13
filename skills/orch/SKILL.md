@@ -97,6 +97,25 @@ If the choice materially changes cost or risk and none of the three sources sett
 `AskUserQuestion` when the options are discrete, plain text otherwise (or where that tool doesn't
 exist). Dispatching to a paid CLI is not free to undo.
 
+### llm-hub native mode (the hub picks every model)
+
+When `dispatch.sh hub status` prints `mode: smart-auto`, do not pick models or profiles. llm-hub is
+the model brain; orch runs the graph, loops and monitors.
+
+- Setup, once: `dispatch.sh hub setup [--harness opencode|claude|copilot|pi]` (default opencode).
+  It checks `$LLM_HUB_URL/healthz`, enables the harness, makes `<harness>-smart-auto` the default
+  and planner profile, and turns the mode on. `hub off` turns it off.
+- Give every node a `--role` (planning, investigation, implementation, validation, conversation)
+  and no `--profile`. The role sets the tier from `settings.llm_hub.role_tiers` (planning →
+  intelligence, implementation and investigation → balance, validation → efficiency, conversation
+  → fast). Pass `--tier` only to override. Pass `--acceptance` so the hub learns from the result.
+- `plan` gives the planner node role planning, and `plan apply` passes each task's `role`
+  (default implementation).
+- Each dispatch records `.hub.expected` (from `/api/smart-auto/resolve`); `run sync` records
+  `.hub.actual` (the model the hub used) and posts `tests_passed`/`tests_failed` to
+  `/api/smart-auto/outcome` for nodes with acceptance checks. `hub resolve <tier> [<role>]`
+  previews a pick.
+
 ## Step 2 — `claude-native` means "here"
 
 If the target is `claude-native`, stop and do the work directly in this session — nothing to
@@ -462,10 +481,10 @@ clear message (exit 127 / 1) — report it, do not retry. Contract and how to ad
 
 Smart Auto metadata travels per harness. `claude` sends `x-llm-hub-smart-auto-worker`
 (`<run>/<node>/<attempt>`), `-parent`, `-role` and `-tier` in `ANTHROPIC_CUSTOM_HEADERS`, keeping any
-headers the environment already set. `copilot`, `opencode` and `pi` send no headers: their node
-records `metadata_transport: "preset-model"` and `worker_identity: null`, so orch does not claim a
-worker identity it cannot send. Their Smart Auto model comes from the preset profile
-(`*-smart-auto`, model `hub/smart-auto-balance`).
+headers the environment already set. `opencode` sends the same headers through its `hub` provider's
+`options.headers`. `copilot` and `pi` cannot send headers: their node records
+`metadata_transport: "preset-model"` and `worker_identity: null`, and their `hub/smart-auto-*` model
+id moves to the node's tier (`hub/smart-auto-balance` → `hub/smart-auto-fast`).
 
 ## Security
 

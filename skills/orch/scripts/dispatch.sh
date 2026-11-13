@@ -85,6 +85,9 @@ EOF
   cat <<EOF
 $HERDR_USAGE
     -> turns settings.herdr on or off, then prints the setting and whether the herdr server runs.
+$HUB_USAGE
+    -> llm-hub native mode: the hub picks every model by node role and tier; orch runs the graph.
+       setup makes <harness>-smart-auto (default opencode) the default and planner profile.
 $MEMORY_ADD_USAGE
 dispatch.sh memory list [--profile P] [-n N]
 
@@ -567,6 +570,7 @@ main() {
     model) shift; cmd_model "$@" ;;
     harness) shift; cmd_harness "$@" ;;
     herdr) shift; cmd_herdr "$@" ;;
+    hub) shift; cmd_hub "$@" ;;
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;
     demo) shift; cmd_demo "$@" ;;

@@ -7,7 +7,7 @@ import { fmtDur, fmtTime, fmtUsd } from "../dom/format";
 import { poll } from "../poll";
 import { toast } from "../ui/toast";
 import { renderNodeTranscript } from "./node-transcript";
-import { selectionTimeline } from "./selection-timeline";
+import { hubPickSummary, selectionTimeline } from "./selection-timeline";
 
 const NODE_PANEL_ID: string = "node-panel";
 const SELECTED_CLASS: string = "just-selected";
@@ -174,6 +174,10 @@ export function renderNodePanel(run: RunState, selectedId: string | null): HTMLE
   const attempts = attemptsHistory(node);
   if (attempts !== null) {
     details.appendChild(attempts);
+  }
+  const hubPick = hubPickSummary(node);
+  if (hubPick !== null) {
+    details.appendChild(el("p", { class: "hint mono", text: hubPick }));
   }
   const selections = selectionTimeline(node);
   if (selections !== null) {

@@ -412,7 +412,7 @@
       "avoid_for": ["architecture", "docs"],
       "parallel_ok": false,
       "priority": 6,
-      "flags": ["--pure"],
+      "flags": [],
       "env": {
         "OPENCODE_DISABLE_CLAUDE_CODE": "1",
         "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
@@ -499,7 +499,7 @@
       "avoid_for": ["docs"],
       "parallel_ok": false,
       "priority": 5,
-      "flags": ["--pure"],
+      "flags": [],
       "env": {
         "OPENCODE_DISABLE_CLAUDE_CODE": "1",
         "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",

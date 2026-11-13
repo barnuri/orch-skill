@@ -91,6 +91,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
 | `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `claude-planner`) |
+| `settings.llm_hub` | `{mode: "smart-auto"\|"off", harness, role_tiers: {role: tier}}`, written by `hub setup`/`hub off`. With `smart-auto`, nodes default to `<harness>-smart-auto` and get their tier from their role |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
 

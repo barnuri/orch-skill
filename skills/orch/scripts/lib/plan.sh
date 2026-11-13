@@ -90,7 +90,9 @@ $(plan_profile_menu)
 
 Write this JSON to $out_dir/plan.json (the same path is in \$ORCH_NODE_OUT):
 
-{"summary": "one line", "tasks": [{"id": "api", "label": "short label", "profile": "$default_profile", "after": [], "prompt": "full instructions"}]}
+{"summary": "one line", "tasks": [{"id": "api", "label": "short label", "profile": "$default_profile", "role": "implementation", "after": [], "prompt": "full instructions"}]}
+
+"role" is one of: $WORK_ROLES. Use investigation for read-only research, implementation for code changes, validation for review and test or integration tasks. llm-hub picks the model for each task from its role.
 
 Also write a readable version to $out_dir/plan.md: the stages, what runs in parallel, why the split, and the risks.
 Finish by replying with the summary line only.
@@ -125,7 +127,9 @@ cmd_plan() {
   goal=$(resolve_prompt "$raw_goal") || return 1
 
   if ! node_require "$file" "$node_id" 2>/dev/null; then
-    cmd_node_add "$run_id" "$node_id" "Plan" --profile "$profile" || return $?
+    local -a plan_role=()
+    hub_mode_on && plan_role=(--role planning)
+    cmd_node_add "$run_id" "$node_id" "Plan" --profile "$profile" ${plan_role[@]+"${plan_role[@]}"} || return $?
   fi
   out_dir=$(node_out_dir "$run_id" "$node_id")
   prompt_file=$(run_prompt_file "$run_id" "$node_id")
@@ -246,19 +250,23 @@ cmd_plan_apply() {
   printf '%s' "$checked" | jq -r '.warnings[] | "plan apply: warning: " + .' >&2
 
   # The plan node itself only gains dependents when it is part of this run's graph.
-  local has_plan_node=0 task id label profile after deps inputs parallel dep prompt_file count=0
+  local has_plan_node=0 task id label profile role after deps inputs parallel dep prompt_file count=0
   node_require "$file" "$plan_node" 2>/dev/null && has_plan_node=1
   while IFS= read -r task; do
     [ -n "$task" ] || continue
     id=$(printf '%s' "$task" | jq -r '.id')
     label=$(printf '%s' "$task" | jq -r '.label')
     profile=$(printf '%s' "$task" | jq -r '.profile // empty')
+    role=$(printf '%s' "$task" | jq -r '.role // empty')
+    in_list "$role" "$WORK_ROLES" || role=""
+    [ -n "$role" ] || ! hub_mode_on || role=implementation
     after=$(printf '%s' "$task" | jq -r '.after | join(",")')
     deps="$after"
     [ -n "$deps" ] || { [ "$has_plan_node" -eq 1 ] && deps="$plan_node"; }
     local -a add_args=("$run_id" "$id" "$label")
     [ -n "$deps" ] && add_args+=(--after "$deps")
     [ -n "$profile" ] && add_args+=(--profile "$profile")
+    [ -n "$role" ] && add_args+=(--role "$role")
     cmd_node_add "${add_args[@]}" || return $?
 
     inputs=""

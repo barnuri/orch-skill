@@ -80,4 +80,21 @@ export interface RunNode {
   last_event_sequence?: number | null;
   /** Hub selection events for this node, ordered by sequence and bounded. Optional for older runs. */
   selection_history?: SelectionEvent[];
+  /** llm-hub native mode: the model the hub expected before dispatch and the one it used. */
+  hub?: NodeHubPick | null;
+}
+
+/** One hub pick: the qualified model id plus the tier, role and reason the hub reported. */
+export interface HubPick {
+  model: string;
+  tier?: string | null;
+  role?: string | null;
+  reason?: string | null;
+}
+
+/** What llm-hub expected for a node, what it used, and the outcome orch reported back. */
+export interface NodeHubPick {
+  expected: HubPick | null;
+  actual: HubPick | null;
+  outcome: "tests_passed" | "tests_failed" | null;
 }

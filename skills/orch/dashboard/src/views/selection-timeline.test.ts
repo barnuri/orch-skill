@@ -6,6 +6,7 @@ import {
   TIMELINE_VISIBLE_EVENTS,
   activeStageSummary,
   formatSelectionLine,
+  hubPickSummary,
   timelineEvents,
 } from "./selection-timeline";
 
@@ -107,5 +108,30 @@ describe("timelineEvents", () => {
     const shown = timelineEvents(many);
     expect(shown).toHaveLength(TIMELINE_VISIBLE_EVENTS);
     expect(shown[0]?.seq).toBe(TIMELINE_VISIBLE_EVENTS + 5);
+  });
+});
+
+describe("hubPickSummary", () => {
+  test("is null without a hub pick", () => {
+    expect(hubPickSummary(node({}))).toBeNull();
+  });
+
+  test("shows expected, used, tier and outcome", () => {
+    const summary = hubPickSummary(
+      node({
+        hub: {
+          expected: { model: "a/x", tier: "intelligence" },
+          actual: { model: "b/y", tier: "intelligence" },
+          outcome: "tests_passed",
+        },
+      }),
+    );
+    expect(summary).toBe("hub expected a/x · used b/y · tier intelligence · tests_passed");
+  });
+
+  test("falls back to the node tier before the node ends", () => {
+    expect(hubPickSummary(node({ tier: "fast", hub: { expected: null, actual: null, outcome: null } }))).toBe(
+      "hub expected ? · tier fast",
+    );
   });
 });

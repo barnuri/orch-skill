@@ -40,6 +40,27 @@ export function timelineEvents(history: readonly SelectionEvent[]): SelectionEve
   return [...history].sort((a, b) => b.seq - a.seq).slice(0, TIMELINE_VISIBLE_EVENTS);
 }
 
+/** "expected X → used Y" for a hub-mode node, or null when orch recorded no hub pick. */
+export function hubPickSummary(node: RunNode): string | null {
+  const hub = node.hub;
+  if (hub === undefined || hub === null) {
+    return null;
+  }
+  const expected = hub.expected?.model ?? "?";
+  const tier = hub.expected?.tier ?? hub.actual?.tier ?? node.tier ?? null;
+  const parts = [`hub expected ${expected}`];
+  if (hub.actual !== null) {
+    parts.push(`used ${hub.actual.model}`);
+  }
+  if (tier !== null) {
+    parts.push(`tier ${tier}`);
+  }
+  if (hub.outcome !== null) {
+    parts.push(hub.outcome);
+  }
+  return parts.join(" · ");
+}
+
 /** The node panel's timeline, or null when the node has no hub selections yet. */
 export function selectionTimeline(node: RunNode): HTMLElement | null {
   const history = node.selection_history ?? [];

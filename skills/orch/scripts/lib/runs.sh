@@ -212,6 +212,10 @@ cmd_node_add() {
   fi
   require_jq "node add"
   file=$(run_require "$run_id") || return $?
+  if hub_mode_on; then
+    [ -n "$profile" ] || profile=$(hub_profile)
+    [ -n "$tier" ] || tier=$(hub_role_tier "$role")
+  fi
   valid_id "$node_id" || { printf 'node add: id must match %s\n' "$ID_PATTERN" >&2; return 2; }
   if node_require "$file" "$node_id" 2>/dev/null; then
     printf 'node add: %s already exists\n' "$node_id" >&2
@@ -465,6 +469,8 @@ cmd_node_dispatch() {
   ORCH_NODE_TIER=$(node_field "$file" "$node_id" tier)
   ORCH_NODE_ACCEPTANCE=$(node_field "$file" "$node_id" acceptance)
   export ORCH_NODE_ATTEMPT ORCH_NODE_ROLE ORCH_NODE_TIER ORCH_NODE_ACCEPTANCE
+  hub_node_expect "$run_id" "$node_id" "$ORCH_NODE_TIER" "$ORCH_NODE_ROLE" \
+    "$run_id/$node_id/$ORCH_NODE_ATTEMPT" || true
 
   job_id=$(cmd_start "$@") || return $?
   node_record_worker "$run_id" "$node_id" "$job_id" || return 1
@@ -478,13 +484,13 @@ cmd_node_dispatch() {
   printf '%s\n' "$job_id"
 }
 
-# Records how this dispatch's worker identity travels. Only the Claude adapter sends the Smart Auto
+# Records how this dispatch's worker identity travels. The Claude and opencode adapters send the Smart Auto
 # headers; every other harness gets the preset model id, so its worker identity is recorded as absent.
 node_record_worker() {
   local run_id="$1" node_id="$2" job_id="$3" adapter transport="" worker=""
   adapter=$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)
   case "$adapter" in
-    claude) transport=headers; worker="$run_id/$node_id/$ORCH_NODE_ATTEMPT" ;;
+    claude|opencode) transport=headers; worker="$run_id/$node_id/$ORCH_NODE_ATTEMPT" ;;
     claude-native) ;;
     *) transport=preset-model ;;
   esac
@@ -1042,8 +1048,8 @@ cmd_run_sync() {
     tail_json=$(tail -n "$LOG_TAIL_LINES" "$JOBS_HOME/$job/log" 2>/dev/null | jq -R -s 'split("\n") | map(select(length > 0))')
     case "$st" in
       running) ;;
-      "done exit=0") node_set_status "$run_id" "$node" "done" ;;
-      done*) node_set_status "$run_id" "$node" error "" "${st#done }" ;;
+      "done exit=0") node_set_status "$run_id" "$node" "done"; hub_node_settle "$run_id" "$node" done || true ;;
+      done*) node_set_status "$run_id" "$node" error "" "${st#done }"; hub_node_settle "$run_id" "$node" error || true ;;
     esac
     node_patch "$run_id" "$node" '.log_tail = $t' --argjson t "${tail_json:-[]}"
     # The adapter writes its cost beside the log; this is the only place it reaches the node.
