@@ -95,9 +95,8 @@ claude_write_usage() {
   return 0
 }
 
-# Header names of the llm-hub Smart Auto request contract. Claude Code takes them through
-# ANTHROPIC_CUSTOM_HEADERS and opencode through its provider's options.headers. copilot and pi
-# select the tier through the model id instead (see hub_tier_model).
+# llm-hub Smart Auto header names, sent by claude and opencode. copilot and pi send the tier in the
+# model id instead (hub_tier_model).
 SMART_AUTO_HEADER_WORKER='x-llm-hub-smart-auto-worker'
 SMART_AUTO_HEADER_PARENT='x-llm-hub-smart-auto-parent'
 SMART_AUTO_HEADER_ROLE='x-llm-hub-smart-auto-role'
@@ -202,8 +201,7 @@ adapter_cursor_agent() {
 }
 
 # Adds this node's Smart Auto headers to the "hub" provider of OPENCODE_CONFIG_CONTENT, so the hub
-# sees the worker, role and tier on every request opencode sends. A config without that provider,
-# or a node without Smart Auto options, is left as it is.
+# sees the worker, role and tier on every request opencode sends.
 opencode_smart_auto_config() {
   local headers config
   headers=$(claude_smart_auto_headers | jq -R -s -c \
@@ -224,8 +222,8 @@ adapter_opencode() {
   local arg
   # opencode mints its own "ses…" ids; an orch-minted id from an earlier attempt is not one.
   case "${ORCH_RESUME_SESSION:-}" in ses*) session_args=(--session "$ORCH_RESUME_SESSION") ;; esac
-  # opencode 2 removed --pure and runs on a shared background service that does not read this
-  # process's OPENCODE_CONFIG_CONTENT. --standalone gives each run a private server that does.
+  # opencode rejects --pure. --standalone starts a private server that reads this process's
+  # OPENCODE_CONFIG_CONTENT, where the shared background service would not.
   for arg in "$@"; do
     [ "$arg" = --pure ] || [ "$arg" = --standalone ] || args+=("$arg")
   done
@@ -387,7 +385,7 @@ hub_tier_model() {
     hub/smart-auto|hub/smart-auto-*) ;;
     *) printf '%s\n' "$model"; return 0 ;;
   esac
-  base=$(printf '%s' "$model" | sed -E 's/-(efficiency|balance|intelligence|fast)$//')
+  base=$(printf '%s' "$model" | sed -E "s/-(${SMART_AUTO_TIERS// /|})\$//")
   printf '%s-%s\n' "$base" "$tier"
 }
 

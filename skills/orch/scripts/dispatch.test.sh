@@ -1014,7 +1014,7 @@ expect_match "copilot-llm-hub points BYOK at the derived /v1 base" \
   '^env http://127.0.0.1:8888/v1 openai llama_swap/qwen3.6-35b true$' "$out"
 out=$(with_hub bash "$SCRIPT" run --profile opencode-llm-hub "x" 2>&1); rc=$?
 expect_exit "opencode-llm-hub exits 0" 0 "$rc"
-expect_match "opencode-llm-hub: provider/model split of the hub slug, pure mode" \
+expect_match "opencode-llm-hub: provider/model split of the hub slug, standalone server" \
   '^run x --auto --standalone -m llama_swap/qwen3-coder-next config' "$(joined "$out")"
 oc_config=$(printf '%s\n' "$out" | sed -n 's/^config //p')
 expect_match "opencode config is JSON whose model id is the full hub id" \
@@ -2426,10 +2426,7 @@ wait_until "[ -s \"$home/watches/$watch_id/events.jsonl\" ]"
 expect_match "an event longer than the cap is truncated" '…$' "$(jq -r .text "$home/watches/$watch_id/events.jsonl")"
 cleanup_dir "$home"
 
-# --- typescript gates ---------------------------------------------------------
 # --- llm-hub native mode: hub setup, role→tier, resolve before, settle after ------------------
-# A loopback fake hub answers healthz, resolve, current and outcome, and logs every POST body, so
-# the test sees what orch asked for and what it reported back.
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'SKIP: llm-hub native mode test (python3 not found)\n' >&2
 else
@@ -2470,7 +2467,6 @@ PY
   for _ in $(seq 1 50); do [ -s "$nh_dir/port" ] && break; sleep 0.1; done
   nh_home=$(new_tmp)
   nh_shims=$(new_tmp)
-  # opencode prints the config it was given; copilot prints its argv.
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${OPENCODE_CONFIG_CONTENT-unset}"\nprintf "%%s\\n" "$@"\n' > "$nh_shims/opencode"
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@"\n' > "$nh_shims/copilot"
   chmod +x "$nh_shims/opencode" "$nh_shims/copilot"
@@ -2532,10 +2528,16 @@ PY
   expect_match "hub_tier_model leaves other models alone" '^llama_swap/x$' \
     "$(bash -c ". '$SCRIPT'; hub_tier_model llama_swap/x fast")"
 
+  edit_json "$nh_home/profiles.json" '.settings.llm_hub.role_tiers.validation = "turbo"'
+  norch node add hub-1 bad-tier "Bad" --role validation >/dev/null 2>&1
+  expect_match "a role_tiers value that is not a tier falls back to the default" '^efficiency$' \
+    "$(jq -r '.nodes[] | select(.id == "bad-tier") | .tier' "$st")"
+
   out=$(norch hub off 2>&1)
   expect_match "hub off turns the mode off" '^mode: off$' "$out"
   norch node add hub-1 after-off "After" --role planning >/dev/null 2>&1
-  expect_match "with hub mode off a role adds no tier" '^null$' "$(jq -r '.nodes[3].tier' "$st")"
+  expect_match "with hub mode off a role adds no tier" '^null$' \
+    "$(jq -r '.nodes[] | select(.id == "after-off") | .tier' "$st")"
 
   kill "$nh_pid" 2>/dev/null
   cleanup_dir "$nh_home"
@@ -2543,6 +2545,7 @@ PY
   cleanup_dir "$nh_dir"
 fi
 
+# --- typescript gates ---------------------------------------------------------
 # The server and dashboard are TypeScript; their own suites are the authority on them, so this
 # file just makes sure a bash-only run cannot report green while they are broken.
 if command -v bun >/dev/null 2>&1; then

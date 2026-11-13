@@ -100,7 +100,7 @@ exist). Dispatching to a paid CLI is not free to undo.
 ### llm-hub native mode (the hub picks every model)
 
 When `dispatch.sh hub status` prints `mode: smart-auto`, do not pick models or profiles. llm-hub is
-the model brain; orch runs the graph, loops and monitors.
+the model brain. orch runs the graph, loops and monitors.
 
 - Setup, once: `dispatch.sh hub setup [--harness opencode|claude|copilot|pi]` (default opencode).
   It checks `$LLM_HUB_URL/healthz`, enables the harness, makes `<harness>-smart-auto` the default
@@ -111,9 +111,9 @@ the model brain; orch runs the graph, loops and monitors.
   → fast). Pass `--tier` only to override. Pass `--acceptance` so the hub learns from the result.
 - `plan` gives the planner node role planning, and `plan apply` passes each task's `role`
   (default implementation).
-- Each dispatch records `.hub.expected` (from `/api/smart-auto/resolve`); `run sync` records
-  `.hub.actual` (the model the hub used) and posts `tests_passed`/`tests_failed` to
-  `/api/smart-auto/outcome` for nodes with acceptance checks. `hub resolve <tier> [<role>]`
+- Each dispatch records `.hub.expected` (from `/api/smart-auto/resolve`). `run sync` records
+  `.hub.actual` (the model the hub used) and posts `tests_passed` to
+  `/api/smart-auto/outcome` for a node with acceptance checks that ended done. `hub resolve <tier> [<role>]`
   previews a pick.
 
 ## Step 2 — `claude-native` means "here"

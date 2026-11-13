@@ -40,7 +40,7 @@ export function timelineEvents(history: readonly SelectionEvent[]): SelectionEve
   return [...history].sort((a, b) => b.seq - a.seq).slice(0, TIMELINE_VISIBLE_EVENTS);
 }
 
-/** "expected X → used Y" for a hub-mode node, or null when orch recorded no hub pick. */
+/** The hub pick line of a hub-mode node, or null when orch recorded no hub pick. */
 export function hubPickSummary(node: RunNode): string | null {
   const hub = node.hub;
   if (hub === undefined || hub === null) {

@@ -1,35 +1,34 @@
-# llm-hub native mode: the hub picks every model, orch runs the graph.
-#
-# settings.llm_hub = {mode: "smart-auto", harness: "<harness>", role_tiers: {<role>: <tier>}}
-# With mode "smart-auto" a node added without --profile runs on "<harness>-smart-auto", a node with
-# a role and no --tier gets the tier its role maps to, and each dispatch asks the hub which model it
-# expects (/api/smart-auto/resolve) and records what the hub actually used after the node ends.
+# llm-hub native mode. Schema: settings.llm_hub in references/state-and-config.md.
 
 HUB_USAGE='dispatch.sh hub setup [--harness H] | hub off | hub status | hub resolve <tier> [<role>]'
 HUB_HARNESSES="claude opencode copilot pi"
 HUB_HTTP_TIMEOUT=5
+HUB_MODE=smart-auto
+HUB_PROFILE_SUFFIX=-smart-auto
 # The defaults for a role with no settings.llm_hub.role_tiers entry. The hub also publishes its own
 # advisory defaults at /api/smart-auto/tiers; these match them so orch works without that call.
 HUB_ROLE_TIERS_DEFAULT='{"planning":"intelligence","investigation":"balance","implementation":"balance","validation":"efficiency","conversation":"fast"}'
 
 hub_mode_on() {
   [ -f "$PROFILES_FILE" ] || return 1
-  [ "$(jq -r '.settings.llm_hub.mode // ""' "$PROFILES_FILE" 2>/dev/null)" = "smart-auto" ]
+  [ "$(jq -r '.settings.llm_hub.mode // ""' "$PROFILES_FILE" 2>/dev/null)" = "$HUB_MODE" ]
 }
 
 # The profile every hub-mode node runs on unless it names its own.
 hub_profile() {
   local harness
   harness=$(jq -r '.settings.llm_hub.harness // "opencode"' "$PROFILES_FILE" 2>/dev/null)
-  printf '%s-smart-auto\n' "${harness:-opencode}"
+  printf '%s%s\n' "${harness:-opencode}" "$HUB_PROFILE_SUFFIX"
 }
 
-# hub_role_tier <role>: the tier for a role, from settings first, then the defaults.
+# hub_role_tier <role>: the tier for a role, from settings first, then the defaults. A configured
+# value that is not a tier falls back to the default.
 hub_role_tier() {
-  local role="$1"
+  local role="$1" tier
   [ -n "$role" ] || return 0
-  jq -r --arg r "$role" --argjson d "$HUB_ROLE_TIERS_DEFAULT" \
-    '(.settings.llm_hub.role_tiers // {})[$r] // $d[$r] // ""' "$PROFILES_FILE" 2>/dev/null
+  tier=$(jq -r --arg r "$role" '(.settings.llm_hub.role_tiers // {})[$r] // ""' "$PROFILES_FILE" 2>/dev/null)
+  in_list "$tier" "$SMART_AUTO_TIERS" || tier=$(jq -rn --arg r "$role" --argjson d "$HUB_ROLE_TIERS_DEFAULT" '$d[$r] // ""')
+  printf '%s\n' "$tier"
 }
 
 # hub_api <method> <path> [json-body]: prints the hub's answer; fails on a transport or HTTP error.
@@ -63,10 +62,11 @@ hub_node_expect() {
   node_patch "$run_id" "$node_id" '.hub = {expected: $e, actual: null, outcome: null}' --argjson e "$expected"
 }
 
-# After a node ends: records the model the hub actually used for its worker and, when the node has
-# acceptance checks, reports whether they passed. Best effort, like hub_node_expect.
+# After a hub-mode node ends: records the model the hub used. A node with acceptance checks that
+# ended done reports tests_passed. An error can be a crash, not a failed check, so it reports nothing.
 hub_node_settle() {
   local run_id="$1" node_id="$2" status="$3" file worker acceptance current actual salted code="" body
+  hub_mode_on || return 0
   file=$(run_require "$run_id" 2>/dev/null) || return 0
   worker=$(node_field "$file" "$node_id" worker_identity)
   [ -n "$worker" ] || return 0
@@ -76,7 +76,7 @@ hub_node_settle() {
   acceptance=$(node_field "$file" "$node_id" acceptance)
   salted=$(printf '%s' "$current" | jq -r '.selection.main.worker // empty')
   if [ -n "$acceptance" ] && [ -n "$salted" ]; then
-    case "$status" in done) code=tests_passed ;; error) code=tests_failed ;; esac
+    [ "$status" != done ] || code=tests_passed
     if [ -n "$code" ]; then
       body=$(jq -cn --arg w "$salted" --arg c "$code" '{worker: $w, code: $c}')
       hub_api POST /api/smart-auto/outcome "$body" >/dev/null 2>&1 || code=""
@@ -91,7 +91,7 @@ hub_settings_write() {
   local filter="$1" tmp="$PROFILES_FILE.tmp.$$"
   shift
   if ! jq "$@" "$filter" "$PROFILES_FILE" > "$tmp"; then
-    rm -f "$tmp"
+    mv -f "$tmp" "$tmp.failed" 2>/dev/null
     printf 'hub: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
@@ -116,16 +116,16 @@ hub_setup() {
     || { printf 'hub setup: set LLM_HUB_URL (and LLM_HUB_KEY if the hub needs one) in %s/env\n' "$ORCH_HOME" >&2; return 2; }
   [ "$(hub_api GET /healthz 2>/dev/null)" = "ok" ] \
     || { printf 'hub setup: %s/healthz did not answer ok\n' "${LLM_HUB_URL%/}" >&2; return 1; }
-  profile="$harness-smart-auto"
+  profile="$harness$HUB_PROFILE_SUFFIX"
   profile_require "$profile" >/dev/null || return 2
   hub_settings_write '
-    .settings.llm_hub = ((.settings.llm_hub // {}) + {mode: "smart-auto", harness: $h})
+    .settings.llm_hub = ((.settings.llm_hub // {}) + {mode: $m, harness: $h})
     | .settings.llm_hub.role_tiers //= $d
     | .settings.default_profile = $p
     | .settings.planner_profile = $p
     | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) - [$h])
     | .profiles[$p].enabled = true' \
-    --arg h "$harness" --arg p "$profile" --argjson d "$HUB_ROLE_TIERS_DEFAULT" || return 1
+    --arg m "$HUB_MODE" --arg h "$harness" --arg p "$profile" --argjson d "$HUB_ROLE_TIERS_DEFAULT" || return 1
   hub_status
 }
 
