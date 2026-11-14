@@ -86,6 +86,17 @@ export const durationText = (startIso: string | null, endMs: number): string => 
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+const FINISHED_NODE = new Set(['done', 'error', 'skipped'])
+
+// Only `run finish` closes a run. A coordinator that died before it leaves the run "running"
+// with every node finished; such a run is stale, not live.
+export const isStaleRun = (raw: RawRun): boolean => {
+  const nodes = raw.nodes ?? []
+  return (raw.status ?? 'running') === 'running' && nodes.length > 0 && nodes.every(node => FINISHED_NODE.has(node.status ?? ''))
+}
+
+export const isLiveRun = (raw: RawRun): boolean => (raw.status ?? 'running') === 'running' && !isStaleRun(raw)
+
 // `adapter` and the model are recorded at dispatch; a node not dispatched yet falls back to its
 // profile's harness and model.
 export const toRunView = (
@@ -122,7 +133,7 @@ export const toRunView = (
   return {
     runId: raw.run_id,
     title: raw.title || raw.run_id,
-    status: raw.status ?? 'running',
+    status: isStaleRun(raw) ? 'stale' : (raw.status ?? 'running'),
     started: raw.started ?? null,
     finished: raw.finished ?? null,
     session: raw.harness_session ?? '',

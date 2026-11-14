@@ -6,6 +6,8 @@ import {
   durationText,
   isOrchCommand,
   isOrchSkill,
+  isLiveRun,
+  isStaleRun,
   layerOf,
   newestFirst,
   runUrl,
@@ -43,6 +45,16 @@ test('the run view groups nodes by layer and lists their parents', async () => {
   expect(run.layers[0]?.[0]?.attempt).toBe('attempt 2/5')
   expect(run.layers[1]?.[0]?.after).toEqual(['plan'])
   expect(run.layers[1]?.[0]?.model).toBe('-')
+})
+
+test('a running run whose nodes all finished is stale, not live', async () => {
+  const finished = { run_id: 'r1', status: 'running', nodes: [{ id: 'a', status: 'done' }, { id: 'b', status: 'error' }] }
+  expect(isStaleRun(finished)).toBe(true)
+  expect(isLiveRun(finished)).toBe(false)
+  expect(toRunView(finished).status).toBe('stale')
+  expect(isLiveRun({ run_id: 'r2', status: 'running', nodes: [{ id: 'a', status: 'done' }, { id: 'b', status: 'waiting' }] })).toBe(true)
+  expect(isLiveRun({ run_id: 'r3', status: 'running', nodes: [] })).toBe(true)
+  expect(isLiveRun({ run_id: 'r4', status: 'done', nodes: [{ id: 'a', status: 'done' }] })).toBe(false)
 })
 
 test('run ids sort newest first', async () => {

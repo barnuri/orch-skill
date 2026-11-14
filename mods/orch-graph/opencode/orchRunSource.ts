@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GraphView } from '../types'
-import { newestFirst, runUrl, toActiveViews, toRunView } from '../hooks/graph'
+import { isLiveRun, newestFirst, runUrl, toActiveViews, toRunView } from '../hooks/graph'
 import type { ProfileInfo } from '../hooks/graph'
 
 type ProfilesRead = { profiles: Record<string, ProfileInfo>; maxAttempts: number }
@@ -14,7 +14,6 @@ export class OrchRunSource {
   private static readonly DASHBOARD_RECHECK_MS = 15_000
   private static readonly DEFAULT_MAX_ATTEMPTS = 5
   private static readonly ACTIVE_RECHECK_MS = 10_000
-  private static readonly RUNNING = 'running'
   private static readonly SCRIPT_TIMEOUT_MS = 60_000
   private static readonly STATUS_TIMEOUT_MS = 5_000
 
@@ -63,7 +62,7 @@ export class OrchRunSource {
           parsed.push(JSON.parse(text))
         }
       }
-      const chosen = parsed.find(run => run.status === OrchRunSource.RUNNING) ?? parsed[0]
+      const chosen = parsed.find(isLiveRun) ?? parsed[0]
       const base = await this.dashboard()
       const { profiles, maxAttempts } = await this.readProfiles()
       return chosen

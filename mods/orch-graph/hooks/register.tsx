@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GraphView } from '../types'
 import { STATUS_STYLE, drawGraph } from './canvas'
-import { clockText, isOrchCommand, isOrchSkill, newestFirst, runUrl, statusCounts, toActiveViews, toRunView } from './graph'
+import { clockText, isLiveRun, isOrchCommand, isOrchSkill, newestFirst, runUrl, statusCounts, toActiveViews, toRunView } from './graph'
 import type { ProfileInfo } from './graph'
 
 const PANE = 'orch-graph'
@@ -195,7 +195,7 @@ async function refresh($: EngineInterface): Promise<void> {
       const text = await $.fs.read(`${runs}/${name}/state.json`).catch(() => '')
       if (text) parsed.push(JSON.parse(text))
     }
-    const chosen = parsed.find(run => run.status === 'running') ?? parsed[0]
+    const chosen = parsed.find(isLiveRun) ?? parsed[0]
     const base = await dashboard($)
     const { profiles, maxAttempts } = await readProfiles($)
     next = chosen
