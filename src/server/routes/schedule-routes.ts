@@ -1,7 +1,7 @@
 import { dispatchPath } from "../dispatch-path";
 
 import type { ApiError } from "../../shared/types/api-error";
-import type { ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
+import type { ScheduleEdit, ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
 import { etagOf } from "../documents/document-store";
 import { jsonResponse, notModified } from "../http/responses";
 import type { RouteHandler } from "../http/route";
@@ -114,6 +114,60 @@ export async function createSchedule(ctx: ServerContext, body: ScheduleInput): P
     return fail(result);
   }
   return jsonResponse(201, { ok: true, id: result.out.trim() });
+}
+
+// Every given field becomes a flag; an omitted one stays as it is in the schedule.
+function editArgs(id: string, body: ScheduleEdit): string[] | string {
+  const args = ["edit", id];
+  if (body.name !== undefined) {
+    args.push("--name", body.name.trim());
+  }
+  if (body.cron !== undefined) {
+    args.push("--cron", body.cron.trim());
+  }
+  if (body.kind === "prompt" && (body.prompt === undefined || body.profile === undefined)) {
+    return "a prompt schedule needs a prompt and a profile";
+  }
+  if (body.kind === "command" && body.command === undefined) {
+    return "a command schedule needs a command";
+  }
+  if (body.kind !== "command") {
+    if (body.prompt !== undefined) {
+      args.push("--prompt", body.prompt);
+    }
+    if (body.profile !== undefined) {
+      args.push("--profile", body.profile);
+    }
+  }
+  if (body.kind !== "prompt") {
+    if (body.command !== undefined) {
+      args.push("--command", body.command);
+    }
+    if (body.workdir !== undefined) {
+      args.push("--workdir", body.workdir.trim());
+    }
+    if (body.timeout !== undefined) {
+      const timeout = body.timeout.trim() === "" ? "0" : body.timeout.trim();
+      if (!DURATION.test(timeout)) {
+        return "timeout must look like 30s, 5m or 1h";
+      }
+      args.push("--timeout", timeout);
+    }
+  }
+  return args.length === 2 ? "nothing to change" : args;
+}
+
+/** Changes a schedule through `dispatch.sh schedule edit`, from an already-validated body (see ScheduleEditDto). */
+export async function editSchedule(ctx: ServerContext, id: string, body: ScheduleEdit): Promise<Response> {
+  if (!SCHEDULE_ID.test(id)) {
+    return badRequest("invalid schedule id");
+  }
+  const args = editArgs(id, body);
+  if (typeof args === "string") {
+    return badRequest(args);
+  }
+  const result = await dispatchSchedule(ctx, args);
+  return result.code === 0 ? jsonResponse(200, { ok: true }) : fail(result);
 }
 
 export function scheduleActionHandler(ctx: ServerContext): RouteHandler {

@@ -62,6 +62,8 @@ export interface RunNode {
   role?: WorkRole | null;
   /** The Smart Auto tier the node was added with. Optional and nullable for older runs. */
   tier?: SmartAutoTier | null;
+  /** Why the node waits on the user (`node update --needs-user`); absent or null when it does not. */
+  needs_user?: string | null;
   /** Whether a plan reference, expected files and acceptance checks back the node. */
   plan_backed?: boolean;
   /** Acceptance checks the node must meet, as free text. Optional for older runs. */
@@ -86,7 +88,21 @@ export interface RunNode {
   owner_kind?: string | null;
   owner_id?: string | null;
   /** From owner verification: alive | finished | gone | unknown. */
-  owner_state?: "alive" | "finished" | "gone" | "unknown" | "unbound" | null;
+  owner_state?: "alive" | "finished" | "idle" | "gone" | "unknown" | "unbound" | "umbrella" | null;
+  /** When the owner session was first seen idle; idle never ends the node by itself. */
+  owner_idle_since?: string | null;
+  /** Last final message text of an idle owner session. */
+  owner_note?: string | null;
+  /** Set by the owner filler: the bound session has had no activity for settings.stall_minutes and is not busy. Never fails the node. */
+  stalled?: boolean | null;
+  /** "no activity since <time>" or "idle since <time>". */
+  stalled_reason?: string | null;
+  /** Node ids an umbrella node's owner text names; the umbrella takes its model and done count from them. */
+  umbrella?: string[] | null;
+  /** "<done>/<total> done" over the umbrella's nodes. */
+  umbrella_status?: string | null;
+  /** Live totals of the bound opencode session, refreshed while the node runs. */
+  session_stats?: NodeSessionStats | null;
   /** Why the owner is unbound or the node unowned, from the owner binder. */
   owner_reason?: string | null;
   /** How the owner session was found: literal | title | time | listing-*. */
@@ -116,6 +132,28 @@ export interface RunNode {
   hub?: NodeHubPick | null;
 }
 
+export interface NodeSessionTotals {
+  cost: number;
+  tokens: { input: number; output: number; reasoning: number; cache_read: number; cache_write: number };
+}
+
+export interface NodeSessionStats {
+  session: string;
+  /** This node's share: the session total less `baseline`. */
+  cost: number;
+  tokens: { input: number; output: number; reasoning: number; cache_read: number; cache_write: number };
+  /** Already credited to earlier nodes of the run on the same session, and to archived attempts. */
+  baseline?: NodeSessionTotals;
+  /** The whole session, as opencode reports it. */
+  session_total?: NodeSessionTotals;
+  /** Set once the node ended and took its final share. */
+  final?: boolean;
+  created: string;
+  updated: string;
+  duration_s: number;
+  busy: boolean;
+}
+
 export interface NodeNote {
   at: string;
   text: string;
@@ -123,7 +161,7 @@ export interface NodeNote {
 
 /** What `node report` recorded for work done inline or by a subagent. Null fields were not reported. */
 export interface NodeReport {
-  reported_by: "inline";
+  reported_by: "inline" | "owner-fill";
   model: string | null;
   input_tokens: number | null;
   output_tokens: number | null;

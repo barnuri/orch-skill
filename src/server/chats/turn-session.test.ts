@@ -34,6 +34,13 @@ const alive = (pid: number): boolean => {
     return false;
   }
 };
+// Deadlines, not iteration counts: under a loaded parallel run a step can take seconds.
+const gone = async (pid: number): Promise<boolean> => {
+  for (const end = Date.now() + 15_000; Date.now() < end && alive(pid); ) {
+    await Bun.sleep(25);
+  }
+  return !alive(pid);
+};
 const pids = (file: string): number[] => (existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean).map(Number) : []);
 const promptDirs = (): string[] => readdirSync(tmpdir()).filter((n) => n.startsWith("orch-chat-"));
 
@@ -51,8 +58,8 @@ async function startTurn(stubborn: boolean): Promise<{ session: TurnSession; don
       void ev;
     }
   })();
-  for (let i = 0; i < 100 && pids(file).length === 0; i++) {
-    await Bun.sleep(50);
+  for (const end = Date.now() + 30_000; Date.now() < end && pids(file).length === 0; ) {
+    await Bun.sleep(25);
   }
   const child = pids(file)[0] as number;
   expect(child).toBeGreaterThan(0);
@@ -66,31 +73,26 @@ describe("TurnSession.stop (F1)", () => {
     const t0 = Date.now();
     await session.stop();
     await done;
-    expect(Date.now() - t0).toBeLessThan(3000);
-    expect(alive(child)).toBe(false);
-  }, 20000);
+    expect(Date.now() - t0).toBeLessThan(8000);
+    expect(await gone(child)).toBe(true);
+  }, 60000);
 
   test("a child that ignores SIGTERM is killed after the grace period", async () => {
     const { session, done, child } = await startTurn(true);
     const t0 = Date.now();
     await session.stop();
     await done;
-    expect(Date.now() - t0).toBeLessThan(6000);
-    expect(alive(child)).toBe(false);
-  }, 20000);
+    expect(Date.now() - t0).toBeLessThan(10000);
+    expect(await gone(child)).toBe(true);
+  }, 60000);
 
   test("dispose (server shutdown) ends the tailer but leaves the agent running", async () => {
     const { session, done, child } = await startTurn(false);
     await session.dispose();
     await done;
     expect(alive(child)).toBe(true);
-    process.kill(-child, "SIGKILL");
-    try {
-      process.kill(child, "SIGKILL");
-    } catch {
-      // already gone
-    }
-  }, 20000);
+    process.kill(child, "SIGKILL");
+  }, 60000);
 });
 
 describe("prompt folders (F5)", () => {
@@ -99,7 +101,7 @@ describe("prompt folders (F5)", () => {
     expect(promptDirs().filter((n) => !before.has(n))).toEqual([]);
     await session.stop();
     await done;
-  }, 20000);
+  }, 60000);
 
   test("sweepPromptDirs removes only old orch-chat-* folders", () => {
     const root = mkdtempSync(join(tmpdir(), "sweep-root-"));

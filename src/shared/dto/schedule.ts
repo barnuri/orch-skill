@@ -45,6 +45,9 @@ export class ScheduleDto extends ZodDto {
   @ZodField(z.string(), { description: "When it was created, ISO 8601 UTC." })
   created_at!: string;
 
+  @ZodField(z.string().nullable().optional(), { description: "When it was last edited, ISO 8601 UTC. Absent until the first edit." })
+  updated_at?: string | null;
+
   @ZodField(z.string().nullable(), { description: "The prompt text, for a prompt schedule." })
   prompt!: string | null;
 
@@ -106,6 +109,36 @@ export class ScheduleInputDto extends ZodDto {
   workdir?: string;
 
   @ZodField(z.string().max(10).optional(), { description: "Time limit such as 30s, 5m or 1h, for kind=command." })
+  timeout?: string;
+}
+
+@ZodObject({
+  description:
+    "A change to a schedule. Omitted fields stay as they are. `kind` switches between a prompt and a command schedule and clears the other kind's fields; a switch needs the new kind's fields. An empty `workdir` and a `timeout` of 0 clear those.",
+})
+export class ScheduleEditDto extends ZodDto {
+  @ZodField(z.string().min(1).max(300).optional(), { description: "Display name." })
+  name?: string;
+
+  @ZodField(z.string().min(1).max(300).optional(), { description: "Cron expression. Check one with GET /api/schedules/preview." })
+  cron?: string;
+
+  @ZodField(KIND.optional(), { description: "What each run does. Omit to keep the current kind." })
+  kind?: "prompt" | "command";
+
+  @ZodField(z.string().min(1).max(20000).optional(), { description: "The prompt, for kind=prompt." })
+  prompt?: string;
+
+  @ZodField(z.string().min(1).max(300).optional(), { description: "The profile that runs the prompt, for kind=prompt." })
+  profile?: string;
+
+  @ZodField(z.string().min(1).max(20000).optional(), { description: "The shell command, for kind=command." })
+  command?: string;
+
+  @ZodField(z.string().max(300).optional(), { description: "Working directory, for kind=command. Empty clears it." })
+  workdir?: string;
+
+  @ZodField(z.string().max(10).optional(), { description: "Time limit such as 30s, 5m or 1h, for kind=command. 0 means the default (1 h)." })
   timeout?: string;
 }
 

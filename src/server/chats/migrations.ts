@@ -61,4 +61,7 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE messages ADD COLUMN context_truncated INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE messages ADD COLUMN warning TEXT;
   `,
+  `
+  ALTER TABLE chats ADD COLUMN title_manual INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

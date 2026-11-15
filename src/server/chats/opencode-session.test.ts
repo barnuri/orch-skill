@@ -79,6 +79,27 @@ describe("opencode as a chat harness", () => {
     expect(store.listMessages(chat.id, { limit: 10, cursor: null }).items.some((m) => (m.warning ?? "").includes("could not be resumed"))).toBe(true);
   });
 
+  test("a missing opencode binary is an error, not a lost session: no retry, no warning, the session id is kept", async () => {
+    const { service, home } = setup();
+    const chat = service.createChat({ harness: "opencode", profile: "oc" });
+    await turn(service, chat.id, "one");
+    const sid = service.chat(chat.id).session_id;
+    expect(sid).toStartWith("ses_");
+    process.env.ORCH_CHAT_OPENCODE_BIN = home.resolve("no-such-dir/opencode");
+    // A fresh chat that resumes the stored id builds its session now, with the missing binary.
+    const store = (service as unknown as { store: ChatStore }).store;
+    const other = service.createChat({ harness: "opencode", profile: "oc" });
+    store.updateChat(other.id, { session_id: sid });
+    const r = service.sendMessage(other.id, { content: "two" });
+    await service.settled(other.id);
+    const row = store.getMessage(r.assistant_message_id);
+    expect(row?.status).toBe("error");
+    expect(row?.error).toContain("code 127");
+    expect(row?.warning).toBeNull();
+    expect(service.chat(other.id).session_id).toBe(sid);
+    expect(service.chat(other.id).status).toBe("idle");
+  });
+
   test("a lost session id is created by the real CLI and the turn still succeeds", async () => {
     const { service } = setup();
     const chat = service.createChat({ harness: "opencode", profile: "oc" });

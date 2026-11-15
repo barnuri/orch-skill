@@ -9,6 +9,7 @@ import { ChatsController } from "./controllers/chats.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
 import { HealthController } from "./controllers/health.controller";
+import { RunHealthController } from "./controllers/run-health.controller";
 import { RunsController } from "./controllers/runs.controller";
 import { SchedulesController } from "./controllers/schedules.controller";
 import { SuggestionsController } from "./controllers/suggestions.controller";
@@ -32,6 +33,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new BuildController(ctx), options);
   registerController(api, new SchedulesController(ctx), options);
   registerController(api, new RunsController(ctx), options);
+  registerController(api, new RunHealthController(ctx), options);
   registerController(api, new DocumentsController(ctx), options);
   registerController(api, new HarnessesController(ctx), options);
   registerController(api, new SuggestionsController(ctx), options);

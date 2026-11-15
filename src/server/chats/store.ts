@@ -97,17 +97,17 @@ export class ChatStore {
 
   // ---- chats ----
 
-  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null }): ChatRow {
+  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null; title_manual?: boolean }): ChatRow {
     const stamp = now();
     const row: ChatRow = {
       id: newId("chat"), project_id: input.project_id ?? null, title: input.title, harness: input.harness,
       profile: input.profile, model_id: input.model_id ?? null, session_id: null, status: "idle",
-      created_at: stamp, updated_at: stamp, archived_at: null,
+      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0,
     };
     this.db.query(
-      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?)`,
-    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp);
+      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?)`,
+    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual);
     return row;
   }
 
@@ -140,6 +140,17 @@ export class ChatStore {
       "UPDATE chats SET title = ?, project_id = ?, harness = ?, profile = ?, model_id = ?, session_id = ?, status = ?, updated_at = ? WHERE id = ?",
     ).run(next.title, next.project_id, next.harness, next.profile, next.model_id, next.session_id, next.status, next.updated_at, id);
     return this.getChat(id);
+  }
+
+  /** A title a person chose. It is marked manual, so the first-message auto-title never replaces it. */
+  renameChat(id: string, title: string): ChatRow | null {
+    this.db.query("UPDATE chats SET title = ?, title_manual = 1 WHERE id = ?").run(title, id);
+    return this.getChat(id);
+  }
+
+  /** The auto-title from the first message, in one statement: it applies only while no person has set a title. */
+  autoTitle(id: string, title: string): void {
+    this.db.query("UPDATE chats SET title = ? WHERE id = ? AND title_manual = 0").run(title, id);
   }
 
   setChatArchived(id: string, archived: boolean): ChatRow | null {

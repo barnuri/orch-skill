@@ -8,6 +8,14 @@ import { readActive } from "./active-reader";
 const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 const DEAD_PID: number = 2147483646;
 const homes: string[] = [];
+const procs: Bun.Subprocess[] = [];
+
+// A live process whose command line names the watch, as a real watch's `watch_run <id>` does.
+function watchProcess(id: string): number {
+  const proc = Bun.spawn(["sh", "-c", "sleep 600; :", "watch_run", id], { stdout: "ignore", stderr: "ignore" });
+  procs.push(proc);
+  return proc.pid;
+}
 
 function newHome(): string {
   const home = mkdtempSync(join(tmpdir(), "orch-active-"));
@@ -16,6 +24,9 @@ function newHome(): string {
 }
 
 afterAll(() => {
+  for (const proc of procs.splice(0)) {
+    proc.kill();
+  }
   const paths = homes.splice(0);
   if (paths.length > 0) {
     Bun.spawnSync(["trash", ...paths]);
@@ -38,7 +49,7 @@ function loop(home: string, id: string, state: Record<string, unknown>, spec: Re
 
 function watch(home: string, id: string, state: Record<string, unknown>): void {
   write(home, `watches/${id}/spec.json`, { id, name: "tail errors", cmd: "tail -f x", interval: 0, started: "2026-11-12T10:00:00Z", deadline: 4102444800 });
-  write(home, `watches/${id}/state.json`, { id, status: "running", events: 7, last_event: "2026-11-12T10:05:00Z", reason: "", pid: process.pid, ...state });
+  write(home, `watches/${id}/state.json`, { id, status: "running", events: 7, last_event: "2026-11-12T10:05:00Z", reason: "", ...("pid" in state ? {} : { pid: watchProcess(id) }), ...state });
 }
 
 function fixture(home: string): void {
@@ -51,6 +62,7 @@ function fixture(home: string): void {
   watch(home, "watch-20261112-100000-0001", {});
   watch(home, "watch-20261112-100000-0002", { pid: DEAD_PID });
   watch(home, "watch-20261112-100000-0003", { status: "stopped", pid: null });
+  watch(home, "watch-20261112-100000-0004", { status: "lost", pid: null, reason: "process gone" });
   write(home, "loops/loop-20261112-100000-0007/state.json", { id: "x", status: "running" });
 }
 
@@ -83,8 +95,15 @@ describe("readActive", () => {
     expect(status("loop-20261112-100000-0003")).toBe("failed");
     expect(status("loop-20261112-100000-0004")).toBeUndefined();
     expect(status("watch-20261112-100000-0001")).toBe("running");
-    expect(status("watch-20261112-100000-0002")).toBe("lost");
+    expect(status("watch-20261112-100000-0002")).toBeUndefined();
     expect(status("watch-20261112-100000-0003")).toBeUndefined();
+    expect(status("watch-20261112-100000-0004")).toBe("lost");
+  });
+
+  test("a watch whose pid now belongs to another process is not alive", () => {
+    const home = newHome();
+    watch(home, "watch-20261112-100000-0009", { pid: process.pid });
+    expect(readActive(home)).toEqual([]);
   });
 
   test("a demo loop with no live process is not reported lost", () => {

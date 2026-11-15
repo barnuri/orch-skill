@@ -10,6 +10,8 @@ export interface ProfilesSettings {
   max_attempts?: number;
   /** Minutes without activity before a running node is marked stale. Default 10. */
   stale_minutes?: number;
+  /** Seconds between the server's node-health sweeps (ORCH_HEALTH_EVERY_SEC wins). Default 30. */
+  health_every_sec?: number;
   /** Most task nodes `plan apply` accepts from one plan. */
   max_nodes?: number;
   /** Profile `orch plan` dispatches the planner node on. */

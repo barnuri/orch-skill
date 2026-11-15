@@ -119,11 +119,48 @@ describe("resolveLaunch", () => {
       profiles: { p: { harness: "claude", model: "m", env: { ANTHROPIC_MODEL: "${PROFILE_MODEL}", URL: "${LLM_HUB_V1_URL}" } } },
     });
     process.env.LLM_HUB_URL = "http://hub:1/v1/";
+    const saved = process.env.LLM_HUB_V1_URL;
+    delete process.env.LLM_HUB_V1_URL;
     try {
       const r = resolveLaunch(h2, "claude", "p", null);
-      expect(r.ok && r.launch.env).toEqual({ ANTHROPIC_MODEL: "slug-1", URL: "http://hub:1/v1" });
+      expect(r.ok && r.launch.env).toEqual({ ANTHROPIC_MODEL: "slug-1", URL: "http://hub:1/v1", LLM_HUB_V1_URL: "http://hub:1/v1" });
     } finally {
       delete process.env.LLM_HUB_URL;
+      if (saved !== undefined) {
+        process.env.LLM_HUB_V1_URL = saved;
+      }
+    }
+  });
+
+  test("<home>/env names and the derived LLM_HUB_V1_URL reach the agent's env, for opencode's {env:NAME} inside OPENCODE_CONFIG_CONTENT", () => {
+    const t = TempHome.create();
+    t.write("profiles.json", JSON.stringify({
+      models: { hub: { slug: "hub/smart-auto-balance", harnesses: ["opencode"] } },
+      profiles: { oc: { harness: "opencode", model: "hub", flags: ["--pure"], auth: ["ORCH_TEST_HUB_URL_X"],
+        env: { OPENCODE_CONFIG_CONTENT: "{\"provider\":{\"hub\":{\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\"}}}}" } } },
+    }));
+    t.write("env", "ORCH_TEST_HUB_URL_X=set-in-file\nLLM_HUB_URL=http://hub:2\n");
+    const saved = { url: process.env.LLM_HUB_URL, v1: process.env.LLM_HUB_V1_URL };
+    delete process.env.LLM_HUB_URL;
+    delete process.env.LLM_HUB_V1_URL;
+    try {
+      const r = resolveLaunch(t.path, "opencode", "oc", null);
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.launch.modelSlug).toBe("hub/smart-auto-balance");
+        expect(r.launch.env.LLM_HUB_V1_URL).toBe("http://hub:2/v1");
+        expect(r.launch.env.LLM_HUB_URL).toBe("http://hub:2");
+        expect(r.launch.env.ORCH_TEST_HUB_URL_X).toBe("set-in-file");
+        expect(r.launch.env.OPENCODE_CONFIG_CONTENT).toContain("{env:LLM_HUB_V1_URL}");
+        expect(r.launch.env.PROFILE_MODEL).toBeUndefined();
+      }
+    } finally {
+      if (saved.url !== undefined) {
+        process.env.LLM_HUB_URL = saved.url;
+      }
+      if (saved.v1 !== undefined) {
+        process.env.LLM_HUB_V1_URL = saved.v1;
+      }
     }
   });
 });

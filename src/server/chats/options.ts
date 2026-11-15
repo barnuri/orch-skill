@@ -25,6 +25,18 @@ const BINARY: Record<string, string> = { claude: "claude", "cursor-agent": "curs
 export const MEMORY: Readonly<Record<string, "process" | "session" | "replay">> = {
   claude: "process", copilot: "session", pi: "session", "cursor-agent": "session", opencode: "session", "local-llm": "replay",
 };
+/** Install folders a harness's installer uses that a supervisor's minimal PATH often lacks (opencode installs to ~/.opencode/bin). */
+const EXTRA_BIN_DIRS: Readonly<Record<string, string>> = { opencode: join(".opencode", "bin") };
+
+/** True when the harness binary is on PATH or in its installer's own folder, the same places the chat session looks. */
+export function harnessAvailable(id: string): boolean {
+  const bin = BINARY[id] ?? id;
+  if (Bun.which(bin) !== null) {
+    return true;
+  }
+  const extra = EXTRA_BIN_DIRS[id];
+  return extra !== undefined && existsSync(join(process.env.HOME ?? "", extra, bin));
+}
 export const PERSISTENT_HARNESSES: ReadonlySet<string> = new Set(["claude"]);
 
 export function readProfiles(home: string): ProfilesDoc {
@@ -109,7 +121,7 @@ export function buildOptions(home: string, harnessIds: readonly string[]): ChatO
         name, description: p.description ?? "", enabled: enabled && p.enabled !== false, configured: problem === null, problem, models,
       };
     });
-    return { id, label: LABELS[id] ?? id, enabled, available: Bun.which(BINARY[id] ?? id) !== null, persistent: PERSISTENT_HARNESSES.has(id), memory: MEMORY[id] ?? "replay", profiles };
+    return { id, label: LABELS[id] ?? id, enabled, available: harnessAvailable(id), persistent: PERSISTENT_HARNESSES.has(id), memory: MEMORY[id] ?? "replay", profiles };
   });
   const def = doc.settings?.default_profile ?? null;
   const defHarness = def === null ? null : (doc.profiles?.[def]?.harness ?? null);
@@ -161,7 +173,15 @@ export function resolveLaunch(home: string, harness: string, profileName: string
   if (problem !== null) {
     return { ok: false, error: `profile "${profileName}": ${problem}` };
   }
+  // Like dispatch.sh (orch_load_env_file + llm_hub_derive_v1_url), the agent also gets the `<home>/env`
+  // names and LLM_HUB_V1_URL the server process lacks: a profile can reference them inside a value
+  // (opencode's `{env:LLM_HUB_V1_URL}` in OPENCODE_CONFIG_CONTENT), not only as a whole `${VAR}`.
   const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    if (key !== "PROFILE_MODEL" && value !== undefined && process.env[key] === undefined) {
+      env[key] = value;
+    }
+  }
   for (const [key, value] of Object.entries(profile.env ?? {})) {
     const ref = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value)?.[1];
     env[key] = ref === undefined ? value : (vars[ref] as string);
@@ -170,8 +190,23 @@ export function resolveLaunch(home: string, harness: string, profileName: string
   return { ok: true, launch: { harness, modelSlug: slug, behavesAs, flags: profile.flags ?? [], env } };
 }
 
-/** " Switch to <harness> (profile <p>) in the composer." for the first enabled, installed harness with a usable profile, other than `current`. */
-export function alternativeHint(options: ChatOptions, current: string): string {
+/**
+ * The fix to suggest after a refused selection. When the chat's own harness is usable, the problem is its profile or model, so
+ * point at a usable profile (or that profile's default model) of the same harness. Otherwise " Switch to <harness> (profile <p>)"
+ * for the first enabled, installed harness with a usable profile, other than `current`.
+ */
+export function alternativeHint(options: ChatOptions, current: string, currentProfile: string = ""): string {
+  const same = options.harnesses.find((h) => h.id === current && h.enabled && h.available);
+  const usable = same?.profiles.filter((p) => p.enabled && p.configured) ?? [];
+  const keep = usable.find((p) => p.name === currentProfile);
+  if (keep !== undefined) {
+    const model = keep.models.find((m) => m.default) ?? keep.models[0];
+    if (model !== undefined) {
+      return `. Pick model ${model.id} for profile ${keep.name} in the composer and send again.`;
+    }
+  } else if (usable[0] !== undefined) {
+    return `. Switch to profile ${usable[0].name} of ${current} in the composer and send again.`;
+  }
   for (const h of options.harnesses) {
     const profile = h.profiles.find((p) => p.enabled && p.configured);
     if (h.id !== current && h.enabled && h.available && profile !== undefined) {

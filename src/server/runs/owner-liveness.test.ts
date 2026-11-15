@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { findStaleProcs, parseEtime, reapStale, reconcileArgs, reconcileOnce } from "./run-reconciler";
+import { findStaleProcs, LIVENESS_MS, MAX_BACKOFF_MS, parseEtime, reapStale, reconcileArgs, reconcileOnce, shouldReconcile } from "./run-reconciler";
+import type { RunSchedule } from "./run-reconciler";
 
 describe("reconciler owner verification", () => {
   test("the sync command carries --no-retry and --verify-owners", () => {
@@ -12,6 +13,53 @@ describe("reconciler owner verification", () => {
     const n = await reconcileOnce({ runningRunIds: () => ["a", "b"], spawn: async (id) => { seen.push(id); return { code: 0, stderr: "" }; } }, () => {});
     expect(n).toBe(2);
     expect(seen).toEqual(["a", "b"]);
+  });
+});
+
+describe("reconciler schedule", () => {
+  test("an unchanged run without a running node is skipped until the liveness interval", async () => {
+    let t = 1_000_000;
+    const schedule = new Map<string, RunSchedule>();
+    const deps = { runningRunIds: () => ["r"], spawn: async () => ({ code: 0, stderr: "" }), signature: () => "sig", hasRunningNode: () => false, schedule, now: () => t };
+    expect(await reconcileOnce(deps, () => {})).toBe(1);
+    t += 30_000;
+    expect(await reconcileOnce(deps, () => {})).toBe(0);
+    t += LIVENESS_MS;
+    expect(await reconcileOnce(deps, () => {})).toBe(1);
+  });
+  test("a changed run, or one with a running node, is reconciled every pass", async () => {
+    let sig = "a";
+    const schedule = new Map<string, RunSchedule>();
+    const deps = { runningRunIds: () => ["r"], spawn: async () => ({ code: 0, stderr: "" }), signature: () => sig, hasRunningNode: () => false, schedule, now: () => 5 };
+    await reconcileOnce(deps, () => {});
+    sig = "b";
+    expect(await reconcileOnce(deps, () => {})).toBe(1);
+    expect(await reconcileOnce({ ...deps, hasRunningNode: () => true }, () => {})).toBe(1);
+  });
+  test("a timeout doubles the run's interval up to 5 min, a success resets it, and the log line is timestamped", async () => {
+    let t = 0;
+    let code = 137;
+    const lines: string[] = [];
+    const schedule = new Map<string, RunSchedule>();
+    const deps = { runningRunIds: () => ["r"], spawn: async () => ({ code, stderr: "killed" }), signature: () => null, hasRunningNode: () => true, schedule, now: () => t };
+    await reconcileOnce(deps, (l) => lines.push(l));
+    expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\S+Z run reconcile r failed \(137\)/);
+    expect(schedule.get("r")?.intervalMs).toBe(60_000);
+    t += 30_000;
+    expect(await reconcileOnce(deps, () => {})).toBe(0);
+    for (let i = 0; i < 6; i++) {
+      t = schedule.get("r")?.nextAt ?? t;
+      await reconcileOnce(deps, () => {});
+    }
+    expect(schedule.get("r")?.intervalMs).toBe(MAX_BACKOFF_MS);
+    code = 0;
+    t = schedule.get("r")?.nextAt ?? t;
+    await reconcileOnce(deps, () => {});
+    expect(schedule.get("r")?.intervalMs).toBe(30_000);
+  });
+  test("a run already in flight is not started again", () => {
+    const s: RunSchedule = { okSignature: null, lastRunAt: 0, intervalMs: 30_000, nextAt: 0, inFlight: true };
+    expect(shouldReconcile(s, "x", true, 10)).toBe(false);
   });
 });
 

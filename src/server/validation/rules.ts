@@ -18,6 +18,7 @@ export const SETTINGS_KEYS = [
   "max_attempts",
   "max_nodes",
   "stale_minutes",
+  "health_every_sec",
   "planner_profile",
   "learning",
   "disabled_harnesses",

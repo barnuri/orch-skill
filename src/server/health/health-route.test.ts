@@ -1,0 +1,94 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { HealthSummary, RunHealthEnvelope } from "../../shared/types/run-health";
+import { startTestServer } from "../test-support/test-server";
+import type { TestServerHandle } from "../types/test-server-handle";
+
+const RUN = "20261115-100000-abcd";
+const servers: TestServerHandle[] = [];
+let previous: string | undefined;
+
+// A stand-in for dispatch.sh: `run health <id> --json` prints the contract's JSON for that id.
+const FAKE = `#!/usr/bin/env bash
+if [ "$1" = run ] && [ "$2" = health ] && [ "$4" = --json ]; then
+  printf '{"run":"%s","at":"2026-11-15T10:00:00Z","max_parallel":2,"running":1,"slots":1,"nodes":[{"id":"a","status":"running","health":"dead","owner_id":null,"last_activity":null,"idle_min":null,"note":"owner gone"}],"ready":["b"],"changes":[]}\\n' "$3"
+  exit 0
+fi
+echo "fake: unsupported $*" >&2
+exit 2
+`;
+
+beforeAll(() => {
+  const dir = mkdtempSync(join(tmpdir(), "orch-health-fake-"));
+  const path = join(dir, "dispatch.sh");
+  writeFileSync(path, FAKE);
+  chmodSync(path, 0o755);
+  previous = process.env["ORCH_DISPATCH"];
+  process.env["ORCH_DISPATCH"] = path;
+});
+
+afterAll(() => {
+  for (const s of servers) {
+    s.stop();
+  }
+  if (previous === undefined) {
+    delete process.env["ORCH_DISPATCH"];
+  } else {
+    process.env["ORCH_DISPATCH"] = previous;
+  }
+});
+
+function server(): TestServerHandle {
+  const srv = startTestServer();
+  servers.push(srv);
+  srv.home.write(
+    `runs/${RUN}/state.json`,
+    JSON.stringify({ run_id: RUN, title: "t", harness_session: "", started: "2026-11-15T10:00:00Z", finished: null, status: "running", nodes: [], edges: [] }),
+  );
+  return srv;
+}
+
+describe.concurrent("GET /api/runs/{id}/health", () => {
+  test("200 with the latest check", async () => {
+    const srv = server();
+    const res = await srv.api(`/api/runs/${RUN}/health`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as RunHealthEnvelope;
+    expect(body.source).toBe("watcher");
+    expect(body.health?.run).toBe(RUN);
+    expect(body.health?.nodes[0]?.health).toBe("dead");
+    expect(body.health?.ready).toEqual(["b"]);
+  });
+
+  test("404 for an unknown run", async () => {
+    const srv = server();
+    const res = await srv.api("/api/runs/20200101-000000-0000/health");
+    expect(res.status).toBe(404);
+  });
+
+  test("401 without the token", async () => {
+    const srv = server();
+    const res = await srv.api(`/api/runs/${RUN}/health`, {}, false);
+    expect(res.status).toBe(401);
+  });
+
+  test("GET /api/health/summary answers from memory: zeros before a check, counts after", async () => {
+    const srv = server();
+    const before = (await (await srv.api("/api/health/summary")).json()) as HealthSummary;
+    expect(before).toMatchObject({ running_runs: 1, dead: 0, flagged_runs: [] });
+    await srv.api(`/api/runs/${RUN}/health`);
+    const after = (await (await srv.api("/api/health/summary")).json()) as HealthSummary;
+    expect(after).toMatchObject({ running_runs: 1, dead: 1, ready: 1, flagged_runs: [RUN] });
+    expect((await srv.api("/api/health/summary", {}, false)).status).toBe(401);
+  });
+
+  test("is in the OpenAPI document", async () => {
+    const srv = server();
+    const doc = (await (await srv.api("/api/openapi.json")).json()) as { paths: Record<string, { get?: unknown }> };
+    expect(doc.paths["/api/runs/{id}/health"]?.get).toBeDefined();
+    expect(doc.paths["/api/health/summary"]?.get).toBeDefined();
+  });
+});

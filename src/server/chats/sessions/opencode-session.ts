@@ -1,6 +1,6 @@
 import type { Launch } from "../options";
 import { buildReplayPrompt } from "./history-replay";
-import { INTERRUPTED_TEXT, startTurn, TurnHandle, type TurnParser, tailTurn } from "./turn-files";
+import { agentCouldNotRun, INTERRUPTED_TEXT, startTurn, TurnHandle, type TurnParser, tailTurn } from "./turn-files";
 import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
 
 const LOST_SESSION = /session|not found|no such|invalid|unknown|resume/i;
@@ -26,7 +26,7 @@ function summarize(input: unknown): string {
 }
 
 type Usage = { input_tokens: number; output_tokens: number; cost_usd: number | null; model: string | null };
-interface Outcome { error: string | null; streamed: boolean; sessionId: string | null; usage: Usage | null }
+interface Outcome { error: string | null; streamed: boolean; sessionId: string | null; usage: Usage | null; couldNotRun: boolean }
 
 /** Maps `opencode run --format json` lines to chat events; keeps what the retry logic and the closing events need. */
 export class OpencodeParser implements TurnParser {
@@ -93,7 +93,7 @@ export class OpencodeParser implements TurnParser {
       error = `agent exited with code ${code}${why === "" ? "" : `: ${why}`}`;
     }
     return {
-      error, streamed: this.streamed, sessionId: this.session,
+      error, streamed: this.streamed, sessionId: this.session, couldNotRun: agentCouldNotRun(code),
       usage: this.seenUsage ? { input_tokens: this.input, output_tokens: this.output, cost_usd: this.cost, model: this.model } : null,
     };
   }
@@ -151,7 +151,7 @@ export class OpencodeSession implements AgentSession {
         return;
       }
       if (out.error !== null) {
-        if (session !== null && attempt === 0 && !out.streamed && LOST_SESSION.test(out.error)) {
+        if (session !== null && attempt === 0 && !out.streamed && !out.couldNotRun && LOST_SESSION.test(out.error)) {
           session = null;
           this.sessionId = null;
           replay = true;
@@ -177,14 +177,16 @@ export class OpencodeSession implements AgentSession {
 
   private async *once(session: string | null, text: string, id: string, messageId: string): AsyncGenerator<AgentEvent, Outcome | null> {
     const { launch } = this;
-    const args = ["run", "--format", "json", "--auto"];
+    // Same as the dispatch.sh opencode adapter: opencode 2.x rejects --pure, and --standalone starts a
+    // private server that reads this process's OPENCODE_CONFIG_CONTENT, which the shared background service would not.
+    const args = ["run", "--format", "json", "--auto", "--standalone"];
     if (session !== null) {
       args.push("--session", session);
     }
     if (launch.modelSlug !== "") {
       args.push("-m", launch.modelSlug);
     }
-    args.push(...launch.flags, text);
+    args.push(...launch.flags.filter((flag) => flag !== "--pure" && flag !== "--standalone"), text);
     const signal = this.handle.begin();
     let started: ReturnType<typeof startTurn>;
     try {
@@ -195,7 +197,7 @@ export class OpencodeSession implements AgentSession {
       });
     } catch (err) {
       this.handle.end();
-      return { error: `could not start the agent: ${String(err)}`, streamed: false, sessionId: null, usage: null };
+      return { error: `could not start the agent: ${String(err)}`, streamed: false, sessionId: null, usage: null, couldNotRun: true };
     }
     this.handle.attachPid(started.meta.pid);
     const parser = new OpencodeParser(session, launch.modelSlug === "" ? null : launch.modelSlug);

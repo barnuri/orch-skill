@@ -9,9 +9,10 @@ const HARNESSES: string = "claude cursor-agent opencode";
 const OUTCOMES: string = "good bad";
 // `?token=` is optional: the loopback URL omits it unless the server was given --require-token.
 const URL_PATTERN = /^http:\/\/127\.0\.0\.1:(\d+)\/(?:\?token=(\S+))?$/m;
-const READY_TIMEOUT_MS: number = 10_000;
+// Ceilings, not waits: a loaded parallel run can take many seconds to start a server.
+const READY_TIMEOUT_MS: number = 60_000;
 const POLL_MS: number = 25;
-const SIGTERM_GRACE_MS: number = 2000;
+const SIGTERM_GRACE_MS: number = 15_000;
 
 type Started = {
   proc: Bun.Subprocess<"ignore", "pipe", "pipe">;

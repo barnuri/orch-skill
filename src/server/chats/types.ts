@@ -8,6 +8,8 @@ export interface ProjectRow {
 export interface ChatRow {
   id: string; project_id: string | null; title: string; harness: string; profile: string; model_id: string | null;
   session_id: string | null; status: "idle" | "running"; created_at: string; updated_at: string; archived_at: string | null;
+  /** 1 once a person set the title (rename, or a title given at creation): the first message never replaces it. */
+  title_manual: number;
 }
 
 export interface MessageRow {

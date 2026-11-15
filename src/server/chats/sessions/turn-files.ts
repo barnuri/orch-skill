@@ -117,7 +117,13 @@ export async function killGroup(pid: number): Promise<void> {
   while (Date.now() < deadline && signalGroup(pid, 0)) {
     await new Promise((r) => setTimeout(r, 50));
   }
-  signalGroup(pid, "SIGKILL");
+  if (signalGroup(pid, 0)) {
+    signalGroup(pid, "SIGKILL");
+    const end = Date.now() + 2000;
+    while (Date.now() < end && signalGroup(pid, 0)) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
 }
 
 const WRAPPER = 'out=$1; err=$2; ex=$3; in=$4; shift 4; "$@" <"$in" >>"$out" 2>>"$err"; code=$?; echo "$code" >"$ex.tmp" && mv "$ex.tmp" "$ex"';
@@ -282,6 +288,11 @@ export async function* tailTurn(paths: TurnPaths, meta: TurnMeta, parser: TurnPa
       closeSync(fd);
     }
   }
+}
+
+/** Shell exit codes for "command not found" (127) and "found but not executable" (126): the agent never ran, so its stderr ("No such file or directory") says nothing about the session. */
+export function agentCouldNotRun(code: number): boolean {
+  return code === 126 || code === 127;
 }
 
 export const INTERRUPTED_TEXT = "interrupted: the agent process ended without finishing (the dashboard restarted or the process was killed). The partial answer is kept; send another message to continue the same session.";

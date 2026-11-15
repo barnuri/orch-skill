@@ -6,7 +6,7 @@ export interface UsageTotal {
   tokens: number | null;
 }
 
-type UsageSource = "cost" | "report";
+type UsageSource = "cost" | "report" | "session";
 
 export interface NodeUsageRead extends UsageTotal {
   source: UsageSource | null;
@@ -23,7 +23,8 @@ function sumKnown(values: readonly (number | null | undefined)[]): number | null
 
 /**
  * The node's usage: the harness-reported `cost` when it carries a figure, else what the
- * coordinator reported with `node report`. Zero from a harness is "reported nothing"; zero from
+ * coordinator reported with `node report`, else the bound opencode session's totals
+ * (`session_stats`): one source per node, so a run total never counts the same spend twice. Zero from a harness is "reported nothing"; zero from
  * `node report` is a real figure.
  */
 export function nodeUsage(node: RunNode): NodeUsageRead {
@@ -43,6 +44,15 @@ export function nodeUsage(node: RunNode): NodeUsageRead {
     const tokens = sumKnown([report.input_tokens, report.output_tokens, report.cache_read_tokens]);
     if (usd !== null || tokens !== null) {
       return { usd, tokens, source: "report" };
+    }
+  }
+  const stats = node.session_stats;
+  if (stats !== undefined && stats !== null) {
+    const usd = positive(stats.cost);
+    const t = stats.tokens;
+    const tokens = positive((t?.input ?? 0) + (t?.output ?? 0) + (t?.cache_read ?? 0) + (t?.cache_write ?? 0));
+    if (usd !== null || tokens !== null) {
+      return { usd, tokens, source: "session" };
     }
   }
   return { usd: null, tokens: null, source: null };

@@ -19,6 +19,8 @@ export interface Schedule {
   kind: ScheduleKind;
   enabled: boolean;
   created_at: string;
+  /** When it was last edited; absent until the first edit. */
+  updated_at?: string | null;
   prompt: string | null;
   profile: string | null;
   command: string | null;
@@ -49,3 +51,6 @@ export interface ScheduleInput {
   /** A duration such as 30s, 5m or 1h. */
   timeout?: string;
 }
+
+/** The body of PUT /api/schedules/{id}. Omitted fields stay as they are. */
+export type ScheduleEdit = Partial<ScheduleInput>;

@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
+import { Body, Controller, Get, Param, Post, Put, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
-import type { ScheduleInput } from "../../../shared/types/schedule";
+import type { ScheduleEdit, ScheduleInput } from "../../../shared/types/schedule";
 import {
   createSchedule,
+  editSchedule,
   listSchedulesHandler,
   schedulePreviewHandler,
   scheduleActionHandler,
@@ -14,6 +15,8 @@ import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import {
   ScheduleActionParamsDto,
   ScheduleCreatedDto,
+  ScheduleEditDto,
+  ScheduleIdParamsDto,
   ScheduleInputDto,
   ScheduleLogDto,
   SchedulePreviewDto,
@@ -67,6 +70,19 @@ export class SchedulesController {
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Not a valid cron expression." })
   previewCron(c: ApiContext): Promise<Response> {
     return call(this.preview, c);
+  }
+
+  @Put("/schedules/{id}", {
+    summary: "Change a schedule",
+    description: "Changes the name, timetable, prompt, profile, command, working directory or time limit through `dispatch.sh schedule edit`. Omitted fields stay as they are; the id, creation time, paused state and run history are kept, and the next run is recomputed only when the timetable changes. Answers 400 with the CLI's message for an invalid value and 404 for a schedule that does not exist.",
+  })
+  @Param(ScheduleIdParamsDto.schema)
+  @Body(ScheduleEditDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Changed." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Invalid change." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such schedule." })
+  edit(c: ApiContext): Promise<Response> {
+    return editSchedule(this.ctx, c.req.param("id") ?? "", valid<ScheduleEdit>(c, "json"));
   }
 
   @Get("/schedules/{id}/runs/{index}/log", {

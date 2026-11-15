@@ -156,6 +156,9 @@ export class ChatDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "When it was archived. Chats are never deleted." })
   archived_at!: string | null;
 
+  @ZodField(z.number().int().optional(), { description: "1 once a person set the title. The first message never replaces such a title." })
+  title_manual?: number;
+
   @ZodField(z.boolean().optional(), { description: "In chat lists only: true when the chat has no message and no attachment. Empty chats older than 24 hours are archived at server start." })
   empty?: boolean;
 
@@ -202,9 +205,12 @@ export class ChatConfigDto extends ZodDto {
   model_id!: string | null;
 }
 
+/** Longest chat title; the server enforces the same cap (MAX_TITLE_CHARS). */
+export const CHAT_TITLE_MAX = 200;
+
 @ZodObject({ description: "A new title." })
 export class ChatRenameDto extends ZodDto {
-  @ZodField(z.string().trim().min(1).max(200), { description: "The title." })
+  @ZodField(z.string().trim().min(1).max(CHAT_TITLE_MAX), { description: "The title, trimmed, 1 to 200 characters." })
   title!: string;
 }
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildReplayPrompt } from "./history-replay";
-import { INTERRUPTED_TEXT, startTurn, tailTurn, TurnHandle, type TurnParser, turnsDir } from "./turn-files";
+import { agentCouldNotRun, INTERRUPTED_TEXT, startTurn, tailTurn, TurnHandle, type TurnParser, turnsDir } from "./turn-files";
 import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
 
 const TEMP_PREFIX = "orch-chat-";
@@ -187,7 +187,7 @@ export class TurnSession implements AgentSession {
         return;
       }
       if (result.code !== 0) {
-        if (session !== null && attempt === 0 && !result.streamed && LOST_SESSION.test(result.stderr + result.stdout)) {
+        if (session !== null && attempt === 0 && !result.streamed && !agentCouldNotRun(result.code) && LOST_SESSION.test(result.stderr + result.stdout)) {
           session = null;
           this.sessionId = null;
           yield { type: "warning", message: `The earlier ${harness} session could not be resumed, so this reply started a fresh one. The earlier messages are replayed in the prompt.` };

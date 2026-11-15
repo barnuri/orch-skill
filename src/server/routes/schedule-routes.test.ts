@@ -25,6 +25,10 @@ function post(srv: TestServerHandle, path: string, body?: unknown): Promise<Resp
   });
 }
 
+function put(srv: TestServerHandle, path: string, body: unknown): Promise<Response> {
+  return srv.api(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
 const COMMAND = { name: "echoer", cron: "*/5 * * * *", kind: "command", command: "echo hi" };
 
 describe.concurrent("/api/schedules", () => {
@@ -111,6 +115,35 @@ describe.concurrent("/api/schedules", () => {
       expect((await post(srv, path)).status).toBe(400);
     }
     expect((await srv.api("/api/schedules/x/runs/0/log")).status).toBe(400);
+  });
+
+  test("an edit changes the given fields and keeps the rest", async () => {
+    const srv = server();
+    const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();
+    const res = await put(srv, `/api/schedules/${id}`, { name: "renamed", cron: "30 14 * * *", command: "echo two", timeout: "5m" });
+    expect(res.status).toBe(200);
+    const item = (await (await srv.api("/api/schedules")).json()).schedules[0];
+    expect(item).toMatchObject({ id, name: "renamed", cron: "30 14 * * *", kind: "command", command: "echo two", timeout: 300, enabled: true });
+    expect(typeof item.updated_at).toBe("string");
+  });
+
+  test("an invalid edit answers 400 with the CLI's message and changes nothing", async () => {
+    const srv = server();
+    const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();
+    const res = await put(srv, `/api/schedules/${id}`, { cron: "61 * * * *" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("bad or never-matching cron");
+    expect((await (await srv.api("/api/schedules")).json()).schedules[0].cron).toBe(COMMAND.cron);
+    expect((await put(srv, `/api/schedules/${id}`, { kind: "prompt", prompt: "hi", profile: "no-such-profile" })).status).toBe(400);
+    expect((await put(srv, `/api/schedules/${id}`, { kind: "prompt", prompt: "hi" })).status).toBe(400);
+    expect((await put(srv, `/api/schedules/${id}`, {})).status).toBe(400);
+    expect((await put(srv, `/api/schedules/${id}`, { timeout: "soon" })).status).toBe(400);
+  });
+
+  test("an edit of a missing or malformed id is 404 or 400", async () => {
+    const srv = server();
+    expect((await put(srv, "/api/schedules/sch-20261112-101010-abcd", { name: "x" })).status).toBe(404);
+    expect((await put(srv, "/api/schedules/x", { name: "x" })).status).toBe(400);
   });
 
   test("a well-formed id that does not exist is 404", async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { hostname } from "node:os";
 
 import { orchPaths } from "../files/paths";
@@ -9,6 +9,7 @@ import { digestToken } from "../http/auth";
 import type { ServerContext } from "../types/server-context";
 import { ChatService, type ChatEvent, HttpError } from "./service";
 import { ChatStore } from "./store";
+import { blobPath } from "./uploads";
 
 const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
 const FAKE_DISPATCH = resolve(import.meta.dir, "testing/fake-dispatch.sh");
@@ -130,8 +131,8 @@ describe("detached claude turns", () => {
     const next = await turn(service, chat.id, "after stop");
     expect(service.store.getMessage(next.assistant)?.status).toBe("done");
     const spawns = lines().filter((l) => l.args);
-    expect(spawns).toHaveLength(2);
-    expect(spawns[1]?.args.slice(spawns[1]?.args.indexOf("--resume"), spawns[1]?.args.indexOf("--resume") + 2)).toEqual(["--resume", sessionId]);
+    expect(spawns).toHaveLength(3);
+    expect(spawns[2]?.args.slice(spawns[2]?.args.indexOf("--resume"), spawns[2]?.args.indexOf("--resume") + 2)).toEqual(["--resume", sessionId]);
   });
 
   test("an idle session is disposed and resumed from the stored session id", async () => {
@@ -139,8 +140,7 @@ describe("detached claude turns", () => {
     const chat = service.createChat({ harness: "claude", profile: "main" });
     await turn(service, chat.id, "one");
     expect(service.manager.size()).toBe(1);
-    await Bun.sleep(250);
-    expect(service.manager.size()).toBe(0);
+    await waitFor(() => service.manager.size() === 0);
     await turn(service, chat.id, "two");
     const spawns = lines().filter((l) => l.args);
     expect(spawns).toHaveLength(2);
@@ -169,6 +169,16 @@ describe("detached claude turns", () => {
     expect(() => service.sendMessage(chat.id, { content: "  " })).toThrow(HttpError);
   });
 
+  test("an upload whose stored file is gone is refused with 400 and no message is added", () => {
+    const { service } = setup();
+    const chat = service.createChat({ harness: "claude", profile: "main" });
+    const att = service.store.addAttachment({ chat_id: chat.id, filename: "gone.txt", mime: "text/plain", size: 1, sha256: "cd".repeat(32), rel_path: "x" });
+    expect(() => service.sendMessage(chat.id, { content: "read it", attachment_ids: [att.id] }))
+      .toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining("gone.txt is missing") }));
+    expect(service.store.messagesAfter(chat.id, null)).toHaveLength(0);
+    expect(service.chat(chat.id).status).toBe("idle");
+  });
+
 });
 
 describe("one long chat", () => {
@@ -186,6 +196,9 @@ describe("one long chat", () => {
     const bad = service.store.getMessage(failed.assistant);
     expect([bad?.status, bad?.error]).toEqual(["error", "model exploded"]);
 
+    const blob = blobPath(home.path, "ab".repeat(32));
+    mkdirSync(dirname(blob), { recursive: true });
+    writeFileSync(blob, "x");
     const att = service.store.addAttachment({ chat_id: chat.id, filename: "a.txt", mime: "text/plain", size: 1, sha256: "ab".repeat(32), rel_path: "x" });
     const withFile = await turn(service, chat.id, "look", [att.id]);
     const prompt = lines().filter((l) => l.prompt).at(-1)?.prompt as string;
@@ -254,6 +267,24 @@ describe("rules on create and configure", () => {
     expect(message).toContain("Switch to copilot (profile cp)");
   });
 
+  test("a bad profile or model on a usable harness names the fix on that harness, not another harness", () => {
+    const { service } = setup();
+    const messageOf = (chatId: string): string => {
+      try {
+        service.sendMessage(chatId, { content: "x" });
+      } catch (err) {
+        return (err as Error).message;
+      }
+      return "";
+    };
+    const badProfile = service.createChat({ harness: "claude", profile: "nope" });
+    expect(messageOf(badProfile.id)).toContain("Switch to profile main of claude");
+    const badModel = service.createChat({ harness: "claude", profile: "main", model_id: "nope" });
+    expect(messageOf(badModel.id)).toMatch(/Pick model m-[ab] for profile main/);
+    expect(service.chat(badModel.id).status).toBe("idle");
+    expect(service.store.messagesAfter(badModel.id, null)).toHaveLength(0);
+  });
+
   test("harness, profile and model change between turns; a new harness drops the stored session id", async () => {
     const { service } = setup();
     const chat = service.createChat({ harness: "claude", profile: "main" });
@@ -290,7 +321,7 @@ describe("one-process-per-turn fallback (copilot)", () => {
     const bad = await turn(service, chat.id, "FAIL");
     expect(service.store.getMessage(bad.assistant)?.error).toContain("code 4: boom");
     const r = service.sendMessage(chat.id, { content: "SLOW" });
-    await Bun.sleep(400);
+    await waitFor(() => service.store.getMessage(r.assistant_message_id)?.content.includes("tick") === true);
     await service.stop(chat.id);
     expect(service.store.getMessage(r.assistant_message_id)?.status).toBe("stopped");
   });

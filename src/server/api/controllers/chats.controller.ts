@@ -106,16 +106,16 @@ export class ChatsController {
 
   @Post("/chats/{id}/rename", {
     summary: "Rename a chat",
-    description: "Sets the title.",
+    description: "Sets the title: trimmed, 1 to 200 characters. A renamed chat keeps its title; the first message no longer replaces it.",
   })
   @Param(ChatIdParamsDto.schema)
   @Body(ChatRenameDto.schema)
   @ResponseSchema(ChatEnvelopeDto.schema, { description: "The chat after the change." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Empty or too long." })
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such chat." })
   rename(c: ApiContext): Response {
     try {
-      this.service.chat(idOf(c));
-      return jsonResponse(200, { chat: this.service.store.updateChat(idOf(c), { title: valid<{ title: string }>(c, "json").title }, false) });
+      return jsonResponse(200, { chat: this.service.renameChat(idOf(c), valid<{ title: string }>(c, "json").title) });
     } catch (err) {
       return failure(err);
     }

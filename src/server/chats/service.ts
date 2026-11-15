@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import type { ServerContext } from "../types/server-context";
-import { MAX_CONTENT_CHARS } from "./limits";
+import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
 import { alternativeHint, buildOptions, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
 import { ClaudeSession } from "./sessions/claude-session";
@@ -11,7 +11,7 @@ import { TurnSession } from "./sessions/turn-session";
 import type { AgentEvent, AgentSession, ReplayMessage, SessionFactory, SessionParams } from "./sessions/types";
 import { ChatStore } from "./store";
 import type { AttachmentRow, ChatRow, MessageRow, ProjectRow } from "./types";
-import { agentPathFor, SWEEP_AGE_MS, sweepUnattached } from "./uploads";
+import { agentPathFor, blobPath, SWEEP_AGE_MS, sweepUnattached } from "./uploads";
 import { OpencodeParser } from "./sessions/opencode-session";
 import { ClaudeParser } from "./sessions/claude-session";
 import { killGroup, listTurns, type TurnMeta, type TurnParser, turnEvents, turnPaths, sweepTurnFiles } from "./sessions/turn-files";
@@ -195,7 +195,21 @@ export class ChatService {
   /** Never rejected for a disabled, missing or unconfigured harness: the check happens when a turn is sent. */
   createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null }): ChatRow {
     this.checkProject(input.project_id);
-    return this.store.createChat({ ...input, title: input.title?.trim() || DEFAULT_TITLE });
+    const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
+    return this.store.createChat({ ...input, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+  }
+
+  /** A person's title: trimmed, 1 to MAX_TITLE_CHARS characters, and never replaced by the auto-title afterwards. */
+  renameChat(id: string, title: string): ChatRow {
+    this.chat(id);
+    const clean = title.trim();
+    if (clean === "") {
+      throw new HttpError(400, "title: must not be empty");
+    }
+    if (clean.length > MAX_TITLE_CHARS) {
+      throw new HttpError(400, `title: longer than ${MAX_TITLE_CHARS} characters`);
+    }
+    return this.store.renameChat(id, clean) as ChatRow;
   }
 
   /** Harness, profile and model may change at any time between turns. A new harness cannot resume the old one's session, so its history is replayed. */
@@ -257,7 +271,7 @@ export class ChatService {
       this.checkSelection(chat.harness, chat.profile, chat.model_id);
     } catch (err) {
       if (err instanceof HttpError && err.status === 400) {
-        throw new HttpError(400, `${err.message}${alternativeHint(this.options(), chat.harness)}`);
+        throw new HttpError(400, `${err.message}${alternativeHint(this.options(), chat.harness, chat.profile)}`);
       }
       throw err;
     }
@@ -270,14 +284,22 @@ export class ChatService {
       if (row.message_id !== null) {
         throw new HttpError(400, `attachment_ids: ${id} is already attached to a message`);
       }
+      if (!existsSync(blobPath(this.home, row.sha256))) {
+        // The stored blob is gone (trashed by hand, disk cleanup): refuse here rather than hand the agent a dangling link.
+        throw new HttpError(400, `attachment_ids: the file of ${row.filename} is missing on the server; upload it again`);
+      }
       return row;
     });
     const paths = attachments.map((a) => agentPathFor(this.home, a));
     const userMsg = this.store.addMessage({ chat_id: chatId, role: "user", content, status: "done" });
     this.store.linkAttachments(ids, userMsg.id);
     const assistant = this.store.addMessage({ chat_id: chatId, role: "assistant", status: "streaming" });
-    const title = chat.title === DEFAULT_TITLE ? (content.trim().replace(/\s+/g, " ").slice(0, 60) || attachments[0]?.filename || DEFAULT_TITLE) : chat.title;
-    this.store.updateChat(chatId, { status: "running", title });
+    this.store.updateChat(chatId, { status: "running" });
+    if (chat.title_manual !== 1 && chat.title === DEFAULT_TITLE) {
+      // The auto-title fills in only an untouched "New chat"; the store re-checks title_manual in the same statement.
+      const firstWords = content.trim().replace(/\s+/g, " ");
+      this.store.autoTitle(chatId, (firstWords || attachments[0]?.filename || DEFAULT_TITLE).slice(0, 60));
+    }
     this.emit(chatId, { event: "message", id: `${userMsg.id}.${content.length}`, data: { message: this.withAttachments([userMsg])[0] } });
     this.emit(chatId, { event: "message", id: `${assistant.id}.0`, data: { message: { ...assistant, attachments: [] } } });
     this.emit(chatId, { event: "status", data: { chat_id: chatId, status: "running" } });

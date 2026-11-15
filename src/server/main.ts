@@ -6,6 +6,7 @@ import { SERVE_USAGE, parseServeArgs, urlsFor } from "./cli";
 import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
 import { ensureToken } from "./files/token-file";
+import { startHealthWatcher } from "./health/health-watcher";
 import { digestToken } from "./http/auth";
 import { orchPaths } from "./files/paths";
 import { startReconciler } from "./runs/run-reconciler";
@@ -127,6 +128,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   // `server.port` is undefined only for a unix-socket bind, which this server never does.
   const port = server.port ?? args.port;
+  // Handlers first: a SIGTERM that lands while the background workers start must still stop cleanly.
+  onShutdown(server, args.home);
   // pid lands last: bash treats a pid marker as proof the port is already bound.
   writeServeMarkers(args.home, { host: args.host, port, pid: process.pid });
 
@@ -140,7 +143,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   startTicker(args.home);
   startReconciler(args.home, orchPaths(args.home));
-  onShutdown(server, args.home);
+  startHealthWatcher(args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.
   await new Promise<never>(() => {});
   return EXIT_OK;
