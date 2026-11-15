@@ -9,6 +9,9 @@
 #      bun-types and @types/node, which live in bun's global install cache; they are symlinked
 #      into the gitignored .types/ so `typeRoots` resolves without a node_modules in the repo.
 #
+# tsc is TypeScript 7 (the native compiler, ~3x faster than 6.x) when found: node_modules/.bin, then bun's cache,
+# then PATH. bun-types/@types/node likewise prefer node_modules (devDependencies) over bun's cache.
+#
 # A missing tool is a SKIP (exit 0), never a failure, so this is safe to call from the test suite
 # on a machine that has only bash. Exit 0 = passed or skipped, 1 = a step that could run failed.
 
@@ -49,12 +52,30 @@ bundle_dashboard() {
   [ "$status" -eq 0 ] || return 1
 }
 
+# find_tsc: prints the tsc to run, newest source first; fails when there is none.
+find_tsc() {
+  local cached
+  if [ -x "$REPO_DIR/node_modules/.bin/tsc" ]; then
+    printf '%s\n' "$REPO_DIR/node_modules/.bin/tsc"
+    return 0
+  fi
+  cached=$(newest_dir "$BUN_CACHE"/typescript@7.*) && [ -x "$cached/bin/tsc" ] && {
+    printf '%s\n' "$cached/bin/tsc"
+    return 0
+  }
+  command -v tsc
+}
+
 # bun_types_dir: the bun-types package matching the running bun, honouring an explicit override.
 bun_types_dir() {
   local version
   if [ -n "${ORCH_BUN_TYPES:-}" ]; then
     [ -d "$ORCH_BUN_TYPES" ] || return 1
     printf '%s\n' "$ORCH_BUN_TYPES"
+    return 0
+  fi
+  if [ -d "$REPO_DIR/node_modules/bun-types" ]; then
+    printf '%s\n' "$REPO_DIR/node_modules/bun-types"
     return 0
   fi
   version=$("$BUN" --version) || return 1
@@ -65,11 +86,15 @@ bun_types_dir() {
 server_typecheck() {
   local bun_types node_types
   bun_types=$(bun_types_dir) || return 2
-  node_types=$(newest_dir "$BUN_CACHE"/@types/node@*) || return 2
+  if [ -d "$REPO_DIR/node_modules/@types/node" ]; then
+    node_types="$REPO_DIR/node_modules/@types/node"
+  else
+    node_types=$(newest_dir "$BUN_CACHE"/@types/node@*) || return 2
+  fi
   mkdir -p "$TYPES_DIR" || return 1
   ln -sfn "$bun_types" "$TYPES_DIR/bun-types" || return 1
   ln -sfn "$node_types" "$TYPES_DIR/node" || return 1
-  tsc -p "$REPO_DIR/tsconfig.json" --noEmit || return 1
+  "$TSC" -p "$REPO_DIR/tsconfig.json" --noEmit || return 1
 }
 
 main() {
@@ -82,11 +107,12 @@ main() {
     return 1
   fi
 
-  if ! command -v tsc >/dev/null 2>&1; then
-    printf 'SKIP: tsc not found (brew install typescript)\n'
+  TSC=$(find_tsc) || TSC=""
+  if [ -z "$TSC" ]; then
+    printf 'SKIP: tsc not found (bun install, or brew install typescript)\n'
     return 0
   fi
-  if ! tsc -p "$REPO_DIR/src/snapshot/tsconfig.json" --noEmit; then
+  if ! "$TSC" -p "$REPO_DIR/src/snapshot/tsconfig.json" --noEmit; then
     printf 'typecheck: FAIL dashboard tsc\n' >&2
     return 1
   fi

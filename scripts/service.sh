@@ -146,7 +146,9 @@ unit_installed_for_checkout() {
   [ -f "$unit" ] || return 1
   grep -Fq "$DISPATCH" "$unit" && grep -Fq "$ORCH_HOME" "$unit" || return 1
   # A unit written before restarts spared job processes is out of date and gets rewritten.
-  grep -Eq 'AbandonProcessGroup|KillMode=process' "$unit"
+  grep -Eq 'AbandonProcessGroup|KillMode=process' "$unit" || return 1
+  # So is one whose PATH lacks ~/.opencode/bin, where the opencode installer puts the binary.
+  grep -Fq '.opencode/bin' "$unit"
 }
 
 load_serve_config() {
@@ -228,7 +230,7 @@ launchd_write_plist() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>${HOME}/.local/bin:${HOME}/.opencode/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HARNESS_ORCH_HOME</key>
         <string>$ORCH_HOME</string>
         <key>ORCH_BUN</key>
@@ -339,7 +341,7 @@ Type=simple
 ExecStart=/bin/bash $DISPATCH serve
 Environment=HARNESS_ORCH_HOME=$ORCH_HOME
 Environment=ORCH_BUN=$bun
-Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${HOME}/.local/bin:${HOME}/.opencode/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$SKILL_DIR
 Restart=always
 KillMode=process

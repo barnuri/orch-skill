@@ -92,7 +92,7 @@ The `serve/pid` marker is *truncated*, never removed.
 dashboard server's packages (`hono`, `@hono/zod-openapi`, `zod`, and `@barnuri/hono-decorators` and
 `@barnuri/zod-decorators` from GitHub). The CLI under `skills/orch/` stays dependency-free and must
 keep working with none of them installed. `serve_ensure_deps` in `lib/serve.sh` installs them on first
-use. `typecheck.sh` still borrows `bun-types` and `@types/node` from Bun's global cache.
+use. `typescript` (7.x, the native compiler), `@types/node` and `bun-types` (pinned to the Bun version) are devDependencies; `typecheck.sh` prefers `node_modules` and falls back to Bun's global cache and `PATH`, and SKIPs when none exist.
 
 **Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
 interpolation happens at spawn time. `profile show` prints `env` as written. Keep it that way.
@@ -132,7 +132,9 @@ restart; the next `ui` picks the change up.
 
 ```bash
 bash skills/orch/scripts/dispatch.test.sh   # bash suite: every skills/orch/scripts/*.test.sh, in parallel
-bun test --timeout 300000 --parallel=6 src   # TypeScript suite (also: bun run test)
+bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
+bun run test:changed                         # quick local mode: only tests affected by git changes
+bun run test:random                          # --randomize, to expose test-order dependence
 bun test src/web                             # web alone; passes together with the rest now
 bash scripts/typecheck.sh                    # must print `typecheck: ok`
 bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun)
@@ -141,6 +143,19 @@ bash scripts/test-all.sh                     # all three at once (the full gate;
 `dispatch.test.sh` runs each `*.test.sh` (helpers in `test-lib.sh`) as its own job on its own temp
 homes and merges the tallies. Pass a name fragment to run one file, or `ORCH_TEST_JOBS=1` to go serial.
 A new test file needs only the `.test.sh` suffix and a final `N passed, M failed` line.
+
+**Run only the tests of the files you touched; the full suite runs once, at the final gate.** Use
+`dispatch.test.sh <fragment>` or `bun test <file>`. Many agents share this machine: five full suites at
+once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
+`dispatch.test.sh` with no fragment, `bun run test`) each take a machine-wide heavy-test slot
+(`scripts/heavy-test-lock.sh`: flock on `${TMPDIR}/orch-test-heavy.N`, `ORCH_TEST_SLOTS`, default 2).
+A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fragment runs
+and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
+
+For a home that only needs to be initialised, call `seed_home "$home"` (`test-home.sh`) instead of
+`dispatch.sh init`. It copies one home initialised per suite and skips the 2-4 s first-run migrations.
+Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds
+of the last full run, in `${TMPDIR}/orch-bash-test-timings`), and `ORCH_TEST_JOBS=N` is a real pool.
 
 Process start latency, not CPU, is the cost, so concurrency is the lever. Route and reader tests that
 spawn `dispatch.sh` use `describe.concurrent` with an `afterAll` that stops the servers, and spawn
