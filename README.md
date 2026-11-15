@@ -148,6 +148,11 @@ with the message `cancelled`, orch skips the waiting nodes, and the run status b
 Automatic retries do not touch a cancelled run. Use it also to close a run whose coordinator
 stopped and left it on `running`.
 
+The shell has a left rail (runs, chats, profiles, harnesses, schedules, memory, suggestions).
+When the running server is older than the sources, the header shows a **Server out of
+date** pill; its **Restart and update** button restarts the installed service (it needs the
+service; without it the panel shows the manual start command).
+
 ## Herdr: watch every job in a pane
 
 [Herdr](https://github.com/herdrdev/herdr) is a terminal multiplexer for coding agents. With the setting on,
@@ -239,7 +244,8 @@ bash scripts/service.sh uninstall
 
 Options are baked into the generated unit, so `status`, `logs`, `restart` and `uninstall` read
 them back rather than assuming the defaults. On Linux, `loginctl enable-linger $USER` keeps the
-service alive while you are logged out.
+service alive while you are logged out. A restart does not kill running jobs (launchd
+`AbandonProcessGroup`, systemd `KillMode=process`); `install` rewrites a unit written before that.
 
 With the service installed, `dispatch.sh ui` finds the running server and just opens the URL. One
 caveat: `ui` restarts the server when it notices the skill's sources changed — after editing
@@ -340,6 +346,8 @@ Tests and typechecking, no install step required:
 ```bash
 bash skills/orch/scripts/dispatch.test.sh    # the full suite
 bash scripts/typecheck.sh        # bun bundle + tsc (skips cleanly if either is absent)
+bun test --timeout 300000 --parallel=6 src   # TypeScript suite
+bash scripts/test-all.sh         # all of the above at once
 ```
 
 Repo layout and the invariants to respect when changing things: [CLAUDE.md](CLAUDE.md).

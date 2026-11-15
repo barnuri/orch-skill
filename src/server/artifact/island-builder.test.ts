@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
-import { ApiClient } from "../../dashboard/src/api/api-client";
-import { IslandSource } from "../../dashboard/src/api/island-source";
-import type { IslandHost } from "../../dashboard/src/api/island-host";
+import { ApiClient } from "../../snapshot/src/api/api-client";
+import { IslandSource } from "../../snapshot/src/api/island-source";
+import type { IslandHost } from "../../snapshot/src/api/island-host";
 import { islandElementId } from "../../shared/island-id";
 import type { RunEnvelope } from "../../shared/types/run-envelope";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
@@ -74,11 +74,13 @@ function hostForIslands(islands: IslandSet): IslandHost {
   return { getElementById: (id: string) => (byId.has(id) ? { textContent: byId.get(id) ?? null } : null) };
 }
 
-afterEach(() => {
-  homes.splice(0);
+afterAll(() => {
+  for (const home of homes.splice(0)) {
+    home.dispose();
+  }
 });
 
-describe("IslandBuilder.forRun", () => {
+describe.concurrent("IslandBuilder.forRun", () => {
   test("embeds the run, its job log and every document", async () => {
     const built = await new IslandBuilder(contextFor(homeWithRuns())).forRun(RUN_ID);
     expect(built.kind).toBe("ok");

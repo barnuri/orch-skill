@@ -1,11 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Subprocess } from "bun";
 
 import type { Launch } from "../options";
-import { type AgentEvent, type AgentSession, Channel, drainText, type SessionParams, withAttachments } from "./types";
+import { startTurn, type TurnMeta, type TurnParser, type TurnPaths, TurnHandle, turnEvents } from "./turn-files";
+import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
 
-type Line = Record<string, unknown> | null;
 
 function summarize(input: unknown): string {
   if (typeof input !== "object" || input === null) {
@@ -20,19 +19,94 @@ function summarize(input: unknown): string {
   return "";
 }
 
+/** Maps `claude -p --output-format stream-json` lines to chat events. Shared by the live turn and by boot recovery. */
+export class ClaudeParser implements TurnParser {
+  readonly mode = "lines" as const;
+  done = false;
+  private sawDelta = false;
+  private model: string | null = null;
+  private session: string | null;
+
+  constructor(sessionId: string | null) {
+    this.session = sessionId;
+  }
+
+  sessionId(): string | null {
+    return this.session;
+  }
+
+  feed(piece: string): AgentEvent[] {
+    const out: AgentEvent[] = [];
+    for (const raw of piece.split("\n")) {
+      const text = raw.trim();
+      if (text === "") {
+        continue;
+      }
+      let line: Record<string, unknown>;
+      try {
+        line = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        continue; // not a protocol line (a stray log)
+      }
+      this.line(line, out);
+    }
+    return out;
+  }
+
+  private line(line: Record<string, unknown>, out: AgentEvent[]): void {
+    const type = line.type;
+    if (type === "system" && line.subtype === "init" && typeof line.session_id === "string") {
+      this.session = line.session_id;
+    } else if (type === "stream_event" && line.parent_tool_use_id == null) {
+      const event = line.event as { type?: string; delta?: { type?: string; text?: string } } | undefined;
+      if (event?.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
+        this.sawDelta = true;
+        out.push({ type: "text-delta", text: event.delta.text });
+      }
+    } else if (type === "assistant" && line.parent_tool_use_id == null) {
+      const message = line.message as { model?: string; content?: Array<Record<string, unknown>> } | undefined;
+      this.model = message?.model ?? this.model;
+      for (const block of message?.content ?? []) {
+        if (block.type === "tool_use") {
+          out.push({ type: "tool", name: String(block.name ?? "tool"), summary: summarize(block.input) });
+        } else if (block.type === "text" && !this.sawDelta && typeof block.text === "string") {
+          out.push({ type: "text-delta", text: block.text });
+        }
+      }
+    } else if (type === "result" && !this.done) {
+      const usage = (line.usage ?? {}) as { input_tokens?: number; output_tokens?: number };
+      const used = Object.keys((line.modelUsage ?? {}) as object)[0] ?? this.model;
+      out.push({
+        type: "usage", input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0,
+        cost_usd: typeof line.total_cost_usd === "number" ? line.total_cost_usd : null, model: used ?? null,
+      });
+      if (typeof line.session_id === "string") {
+        this.session = line.session_id;
+      }
+      this.done = true;
+      out.push(line.is_error === true ? { type: "error", message: String(line.result ?? "agent reported an error") } : { type: "done", session_id: this.session });
+    }
+  }
+
+  end(code: number, stderr: string): AgentEvent[] {
+    if (this.done) {
+      return [];
+    }
+    const why = stderr.trim();
+    return [{ type: "error", message: `agent exited (code ${code}) before answering${why === "" ? "" : `: ${why.slice(-500)}`}` }];
+  }
+}
+
 /**
- * One long-lived `claude -p --input-format stream-json` process per chat. Each turn writes one user
- * line to stdin and reads stdout until the `result` line. If the process dies (stop, crash, idle
- * dispose) the next turn starts a new one with `--resume <session id>`.
+ * One `claude -p --input-format stream-json` process per turn, started detached with the prompt line in a file
+ * it owns as stdin (see turn-files.ts), so a dashboard restart does not cut it. Every turn after the first
+ * resumes the stored session with `--resume <session id>`.
  */
 export class ClaudeSession implements AgentSession {
-  readonly persistent = true;
+  readonly persistent = false;
   sessionId: string | null;
-  private proc: Subprocess<"pipe", "pipe", "pipe"> | null = null;
-  private lines = new Channel<Line>();
-  private stderrTail = "";
+  private readonly handle = new TurnHandle();
   private completedTurn: boolean;
-  private stopping = false;
 
   constructor(
     private readonly params: SessionParams,
@@ -43,10 +117,9 @@ export class ClaudeSession implements AgentSession {
     this.completedTurn = params.resumeSessionId !== null;
   }
 
-  async start(): Promise<void> {
-    if (this.proc !== null) {
-      return;
-    }
+  async start(): Promise<void> {}
+
+  private args(): string[] {
     const { params, launch } = this;
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
     if (this.completedTurn && this.sessionId !== null) {
@@ -66,127 +139,42 @@ export class ClaudeSession implements AgentSession {
       }
     }
     args.push(...launch.flags);
-    this.stderrTail = "";
-    this.stopping = false;
-    this.lines = new Channel<Line>();
-    const channel = this.lines;
-    const proc = Bun.spawn([this.bin, ...args], {
-      cwd: params.cwd, env: { ...process.env, ...launch.env }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
-    });
-    this.proc = proc;
-    let buffer = "";
-    void drainText(proc.stdout, (text) => {
-      buffer += text;
-      let at = buffer.indexOf("\n");
-      while (at >= 0) {
-        const raw = buffer.slice(0, at).trim();
-        buffer = buffer.slice(at + 1);
-        if (raw !== "") {
-          try {
-            channel.push(JSON.parse(raw) as Record<string, unknown>);
-          } catch {
-            // not a protocol line (a stray log); ignore
-          }
-        }
-        at = buffer.indexOf("\n");
-      }
-    }).finally(() => channel.close());
-    void drainText(proc.stderr, (text) => {
-      this.stderrTail = (this.stderrTail + text).slice(-2000);
-    });
-    void proc.exited.then(() => {
-      if (this.proc === proc) {
-        this.proc = null;
-      }
-    });
+    return args;
   }
 
-  async *send(prompt: string, attachments: readonly string[]): AsyncIterable<AgentEvent> {
-    await this.start();
-    const proc = this.proc as Subprocess<"pipe", "pipe", "pipe">;
-    const channel = this.lines;
+  async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
+    const signal = this.handle.begin();
+    const line = `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: withAttachments(prompt, attachments) }] } })}\n`;
+    let started: { paths: TurnPaths; meta: TurnMeta };
     try {
-      proc.stdin.write(`${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: withAttachments(prompt, attachments) }] } })}\n`);
-      await proc.stdin.flush();
+      started = startTurn({
+        home: this.params.home, id: turn?.messageId ?? `t-${crypto.randomUUID()}`, cmd: [this.bin, ...this.args()], cwd: this.params.cwd,
+        env: { ...process.env, ...this.launch.env }, stdin: line,
+        meta: { harness: this.params.harness, parser: "claude", session_id: this.sessionId, chat_id: this.params.chatId, message_id: turn?.messageId ?? "", model: this.launch.modelSlug || null },
+      });
     } catch (err) {
-      yield { type: "error", message: `could not write to the agent: ${String(err)}` };
+      this.handle.end();
+      yield { type: "error", message: `could not start the agent: ${String(err)}` };
       return;
     }
-    let sawDelta = false;
-    let model: string | null = null;
-    for (;;) {
-      const line = await channel.next();
-      if (line === null) {
-        if (!this.stopping) {
-          const code = await proc.exited;
-          yield { type: "error", message: `agent exited (code ${code}) before answering${this.stderrTail.trim() === "" ? "" : `: ${this.stderrTail.trim().slice(-500)}`}` };
-        }
-        return;
+    this.handle.attachPid(started.meta.pid);
+    const parser = new ClaudeParser(this.sessionId);
+    try {
+      yield* turnEvents(started.paths, started.meta, parser, { signal });
+    } finally {
+      this.sessionId = parser.sessionId() ?? this.sessionId;
+      if (parser.done) {
+        this.completedTurn = true;
       }
-      const type = line.type;
-      if (type === "system" && line.subtype === "init" && typeof line.session_id === "string") {
-        this.sessionId = line.session_id;
-      } else if (type === "stream_event" && line.parent_tool_use_id == null) {
-        const event = line.event as { type?: string; delta?: { type?: string; text?: string } } | undefined;
-        if (event?.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
-          sawDelta = true;
-          yield { type: "text-delta", text: event.delta.text };
-        }
-      } else if (type === "assistant" && line.parent_tool_use_id == null) {
-        const message = line.message as { model?: string; content?: Array<Record<string, unknown>> } | undefined;
-        model = message?.model ?? model;
-        for (const block of message?.content ?? []) {
-          if (block.type === "tool_use") {
-            yield { type: "tool", name: String(block.name ?? "tool"), summary: summarize(block.input) };
-          } else if (block.type === "text" && !sawDelta && typeof block.text === "string") {
-            yield { type: "text-delta", text: block.text };
-          }
-        }
-      } else if (type === "result") {
-        const usage = (line.usage ?? {}) as { input_tokens?: number; output_tokens?: number };
-        const used = Object.keys((line.modelUsage ?? {}) as object)[0] ?? model;
-        yield {
-          type: "usage", input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0,
-          cost_usd: typeof line.total_cost_usd === "number" ? line.total_cost_usd : null, model: used ?? null,
-        };
-        if (typeof line.session_id === "string") {
-          this.sessionId = line.session_id;
-        }
-        if (line.is_error === true) {
-          yield { type: "error", message: String(line.result ?? "agent reported an error") };
-        } else {
-          this.completedTurn = true;
-          yield { type: "done", session_id: this.sessionId };
-        }
-        return;
-      }
+      this.handle.end();
     }
   }
 
   async stop(): Promise<void> {
-    this.stopping = true;
-    await this.kill();
+    await this.handle.stop();
   }
 
   async dispose(): Promise<void> {
-    this.stopping = true;
-    await this.kill();
-  }
-
-  private async kill(): Promise<void> {
-    const proc = this.proc;
-    if (proc === null) {
-      return;
-    }
-    this.proc = null;
-    try {
-      proc.stdin.end();
-    } catch {
-      // already closed
-    }
-    proc.kill("SIGTERM");
-    const timer = setTimeout(() => proc.kill("SIGKILL"), 3000);
-    await proc.exited;
-    clearTimeout(timer);
+    this.handle.detach();
   }
 }

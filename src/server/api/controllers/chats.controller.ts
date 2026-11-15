@@ -75,7 +75,7 @@ export class ChatsController {
 
   @Post("/chats", {
     summary: "Create a chat",
-    description: "Creates an empty chat on a harness, profile and model. Answers 400 when the harness or profile is disabled, the profile belongs to another harness, the model is not in the profile's allowed list, or the project is unknown or archived.",
+    description: "Creates an empty chat on a harness, profile and model. Never refused for a disabled, missing or unconfigured harness (reported when a message is sent). Answers 400 only when the project is unknown or archived.",
   })
   @Body(ChatInputDto.schema)
   @ResponseSchema(ChatDto.schema, { status: 201, description: "Created." })
@@ -139,7 +139,7 @@ export class ChatsController {
 
   @Post("/chats/{id}/config", {
     summary: "Change a chat's harness, profile or model",
-    description: "Only while the chat has no messages; afterwards it answers 409. The same rules as creating a chat apply (400 for a disabled harness or profile, or a model outside the allowed list).",
+    description: "Allowed between turns (409 while a reply runs). Answers 400 for a disabled harness or profile or a model outside the allowed list. A changed harness drops the stored session id; its history is replayed.",
   })
   @Param(ChatIdParamsDto.schema)
   @Body(ChatConfigDto.schema)

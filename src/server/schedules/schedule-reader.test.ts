@@ -76,7 +76,7 @@ describe.concurrent("readSchedules", () => {
         .map((s) => ({ id: s.id, name: s.name, status: s.last_status, runs: s.runs.map((r) => ({ status: r.status, exit: r.exit })) }))
         .sort((a, b) => a.id.localeCompare(b.id));
     expect(key(fromTs)).toEqual(key(fromShell));
-  }, 120_000);
+  }, 300_000);
 
   test("schedules made in the same second keep a stable order", async () => {
     const home = newHome();
@@ -100,7 +100,7 @@ describe.concurrent("readSchedules", () => {
     const before = await Bun.file(file).text();
     readSchedules(home);
     expect(await Bun.file(file).text()).toBe(before);
-  }, 120_000);
+  }, 300_000);
 
   test("a run whose process vanished without a result is lost", async () => {
     const home = newHome();

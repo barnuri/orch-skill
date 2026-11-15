@@ -15,6 +15,7 @@ learning_get() {
 
 suggest_ensure() {
   suggestions_seed || return 1
+  jq -e '.suggestions and ([.suggestions[].id] | length == (unique | length))' "$SUGGESTIONS_FILE" >/dev/null 2>&1 && return 0
   jq -e '.suggestions' "$SUGGESTIONS_FILE" >/dev/null 2>&1 || {
     printf '{"generated_at":"%s","suggestions":[]}\n' "$(now_iso)" > "$SUGGESTIONS_FILE"
   }
@@ -93,43 +94,6 @@ suggest_expire_stale() {
   rm -f "$tmp.ids"
 }
 
-suggest_scan_memory_gaps() {
-  local run_id="$1" file outcome profile model_id kind note
-  file=$(run_state_file "$run_id" 2>/dev/null) || return 0
-  [ -f "$file" ] || return 0
-  while IFS=$'\t' read -r node_id label status profile model_id; do
-    [ -n "$node_id" ] || continue
-    case "$status" in
-      done) outcome="success" ;;
-      error) outcome="failure" ;;
-      *) continue ;;
-    esac
-    [ -n "$profile" ] || continue
-    kind=$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]' | cut -c1-32)
-    if jq -e --arg p "$profile" --arg k "$kind" '
-      any(.[]; .profile == $p and (.task_kind // "") == $k and .outcome == "success")
-    ' "$MEMORY_FILE" >/dev/null 2>&1; then
-      continue
-    fi
-    note="from run $run_id node $node_id"
-    model_id=$(model_id_resolve "$profile")
-    suggest_upsert "$(jq -nc \
-      --arg id "$(suggest_new_id)" --arg ts "$(now_iso)" --arg profile "$profile" \
-      --arg outcome "$outcome" --arg kind "$kind" --arg note "$note" --arg model_id "$model_id" \
-      --arg run_id "$run_id" --arg node "$node_id" \
-      '{
-        id: $id, status: "pending", created: $ts, confidence: "medium",
-        kind: "memory_record", title: ("Record memory: " + $profile + " / " + $kind),
-        reason: ("Finished node has no matching memory row for this kind."),
-        evidence: [{type: "run", id: $run_id, node: $node}],
-        action: {type: "memory_record", memory: {profile: $profile, outcome: $outcome, task_kind: $kind, note: $note, model_id: $model_id}},
-        fingerprint: ("memory_record:" + $profile + ":" + $kind)
-      }')"
-  done <<EOF
-$(jq -r '.nodes[] | [.id, .label, .status, (.profile // ""), ""] | @tsv' "$file")
-EOF
-}
-
 suggest_generate_profile_description() {
   local name="$1"
   jq -r --arg n "$name" '
@@ -163,65 +127,107 @@ suggest_generate_model_description() {
   ' "$PROFILES_FILE"
 }
 
-suggest_scan_descriptions() {
-  local name desc mid text
-  while IFS=$'\t' read -r name desc; do
-    [ -n "$name" ] || continue
-    [ -n "$desc" ] && continue
-    text=$(suggest_generate_profile_description "$name")
-    [ -n "$text" ] || continue
-    suggest_upsert "$(jq -nc --arg id "$(suggest_new_id)" --arg ts "$(now_iso)" --arg profile "$name" --arg text "$text" \
-      '{
-        id: $id, status: "pending", created: $ts, confidence: "low",
-        kind: "profile_description", title: ("Auto description for " + $profile),
+# One jq pass: profile/model description candidates, memory-gap candidates from finished runs, and
+# the fingerprint upsert of all of them into suggestions.json (same rules as suggest_upsert).
+SUGGEST_SCAN_JQ='
+def pdesc($p):
+  [ ($p.harness // "agent") + " profile",
+    (if ($p.model // "") != "" then "model " + $p.model else empty end),
+    (if ($p.cost // "") != "" then $p.cost + " tier" else empty end),
+    (if ($p.quality // "") != "" then $p.quality + " quality" else empty end),
+    (if (($p.strengths // []) | length) > 0 then "strengths: " + ($p.strengths | join(", ")) else empty end)
+  ] | map(select(. != "" and . != null)) | join("; ");
+def mdesc($m; $mod):
+  [ ($mod.slug // $m) + " on " + (($mod.harnesses // []) | join("/")),
+    (if ($mod.cost // "") != "" then $mod.cost + " cost" else empty end),
+    (if ($mod.quality // "") != "" then $mod.quality + " quality" else empty end),
+    (if ($mod.speed // "") != "" then $mod.speed + " speed" else empty end)
+  ] | map(select(. != "" and . != null)) | join("; ");
+def resolve($pr; $name):
+  ($pr.profiles[$name]) as $prof
+  | if $prof == null or ($prof.model // "") == "" then ""
+    elif ($pr.models // {})[$prof.model]? then $prof.model
+    else (first(($pr.models // {}) | to_entries[]
+          | select(.value.slug == $prof.model and (.value.harnesses | index($prof.harness)))
+          | .key) // "")
+    end;
+($pr[0]) as $pr
+| (($mem[0] // [])) as $mem
+| ($ids | split(" ") | map(select(. != "")) | map("sug-" + .)) as $pool
+| input as $sug
+| [inputs | {rid: (input_filename | split("/")[-2]), s: .}
+   | select((.s.status == "done" or .s.status == "error") and ((.s.finished // "") != ""))] as $runs
+| ([ ($pr.profiles // {}) | to_entries[]
+     | select((.value.description // "") == "")
+     | . as $e | pdesc($e.value) as $text | select($text != "")
+     | {status: "pending", created: $ts, confidence: "low",
+        kind: "profile_description", title: ("Auto description for " + $e.key),
         reason: "Empty profile description — apply to seed routing metadata.",
-        evidence: [{type: "profile", id: $profile}],
-        action: {type: "profile_description", profile: $profile, description: $text},
-        fingerprint: ("profile_description:" + $profile)
-      }')"
-  done <<EOF
-$(jq -r '.profiles | to_entries[] | [.key, (.value.description // "")] | @tsv' "$PROFILES_FILE")
-EOF
-
-  while IFS=$'\t' read -r mid desc; do
-    [ -n "$mid" ] || continue
-    [ -n "$desc" ] && continue
-    text=$(suggest_generate_model_description "$mid")
-    [ -n "$text" ] || continue
-    suggest_upsert "$(jq -nc --arg id "$(suggest_new_id)" --arg ts "$(now_iso)" --arg model "$mid" --arg text "$text" \
-      '{
-        id: $id, status: "pending", created: $ts, confidence: "low",
-        kind: "model_description", title: ("Auto description for model " + $model),
+        evidence: [{type: "profile", id: $e.key}],
+        action: {type: "profile_description", profile: $e.key, description: $text},
+        fingerprint: ("profile_description:" + $e.key)}
+   ]
+   + [ ($pr.models // {}) | to_entries[]
+     | select((.value.description // "") == "")
+     | . as $e | mdesc($e.key; $e.value) as $text | select($text != "")
+     | {status: "pending", created: $ts, confidence: "low",
+        kind: "model_description", title: ("Auto description for model " + $e.key),
         reason: "Empty model description — apply to seed the catalog.",
-        evidence: [{type: "model", id: $model}],
-        action: {type: "model_description", model_id: $model, description: $text},
-        fingerprint: ("model_description:" + $model)
-      }')"
-  done <<EOF
-$(jq -r '.models | to_entries[] | [.key, (.value.description // "")] | @tsv' "$PROFILES_FILE")
-EOF
-}
+        evidence: [{type: "model", id: $e.key}],
+        action: {type: "model_description", model_id: $e.key, description: $text},
+        fingerprint: ("model_description:" + $e.key)}
+   ]
+   + [ $runs[] | . as $r | $r.s.nodes[]?
+     | select((.id // "") != "" and (.status == "done" or .status == "error") and ((.profile // "") != ""))
+     | . as $n | (.profile) as $profile | ((.label // "") | ascii_downcase | .[0:32]) as $kind
+     | select(($mem | any(.[]?; .profile == $profile and (.task_kind // "") == $kind and .outcome == "success")) | not)
+     | (if $n.status == "done" then "success" else "failure" end) as $outcome
+     | ("from run " + $r.rid + " node " + $n.id) as $note
+     | {status: "pending", created: $ts, confidence: "medium",
+        kind: "memory_record", title: ("Record memory: " + $profile + " / " + $kind),
+        reason: "Finished node has no matching memory row for this kind.",
+        evidence: [{type: "run", id: $r.rid, node: $n.id}],
+        action: {type: "memory_record", memory: {profile: $profile, outcome: $outcome, task_kind: $kind, note: $note, model_id: resolve($pr; $profile)}},
+        fingerprint: ("memory_record:" + $profile + ":" + $kind)}
+   ]) as $cands
+| reduce range(0; $cands | length) as $i ($sug;
+    $cands[$i] as $c
+    | if any(.suggestions[]?; .fingerprint == $c.fingerprint and .status == "pending") then
+        .suggestions |= map(if .fingerprint == $c.fingerprint and .status == "pending" then $c + {id: .id} else . end)
+      elif any(.suggestions[]?; .fingerprint == $c.fingerprint and (.status == "dismissed" or .status == "expired")) then .
+      else
+        ([.suggestions[]?.id]) as $have
+        | ($pool[$i] // ("sug-" + ($i | tostring))) as $id
+        | .suggestions += [if ($have | index($id)) == null then $c + {id: $id}
+                           else $c + {id: ($id + "-" + ($have | length | tostring))} end]
+      end)
+| .generated_at = $ts
+'
 
 suggest_scan() {
   require_jq "suggest scan"
   ensure_home || return 1
   suggest_ensure || return 1
   suggest_expire_stale
-  suggest_scan_descriptions
-  local f
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    local status finished
-    status=$(jq -r '.status' "$f" 2>/dev/null)
-    finished=$(jq -r '.finished // ""' "$f" 2>/dev/null)
-    [ "$status" = "done" ] || [ "$status" = "error" ] || continue
-    [ -n "$finished" ] || continue
-    suggest_scan_memory_gaps "$(basename "$(dirname "$f")")"
-  done <<EOF
+  local ids tmp="$SUGGESTIONS_FILE.tmp.$$" mem="$MEMORY_FILE" f
+  local -a files=()
+  ids=$(od -An -N8192 -tx4 -v /dev/urandom 2>/dev/null | tr -s ' \n' '  ')
+  [ -f "$mem" ] || mem=/dev/null
+  while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done <<EOF
 $(run_state_files)
 EOF
-  jq --arg ts "$(now_iso)" '.generated_at = $ts' "$SUGGESTIONS_FILE" > "$SUGGESTIONS_FILE.tmp.$$" \
-    && mv -f "$SUGGESTIONS_FILE.tmp.$$" "$SUGGESTIONS_FILE"
+  if ! jq -n --arg ts "$(now_iso)" --arg ids "$ids" --slurpfile pr "$PROFILES_FILE" --slurpfile mem "$mem" \
+    "$SUGGEST_SCAN_JQ" "$SUGGESTIONS_FILE" ${files[@]+"${files[@]}"} > "$tmp" 2>/dev/null; then
+    # A half-written or unreadable run state must not stop the scan: drop those files and try once more.
+    local -a good=()
+    for f in ${files[@]+"${files[@]}"}; do jq -e . "$f" >/dev/null 2>&1 && good+=("$f"); done
+    if ! jq -n --arg ts "$(now_iso)" --arg ids "$ids" --slurpfile pr "$PROFILES_FILE" --slurpfile mem "$mem" \
+      "$SUGGEST_SCAN_JQ" "$SUGGESTIONS_FILE" ${good[@]+"${good[@]}"} > "$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  fi
+  mv -f "$tmp" "$SUGGESTIONS_FILE"
   printf 'scanned\n'
 }
 
@@ -247,9 +253,10 @@ profile_description_apply() {
   [ -n "$desc" ] || { printf 'profile_description apply: could not generate description for %s\n' "$profile" >&2; return 1; }
   tmp="$PROFILES_FILE.tmp.$$"
   if ! jq --arg p "$profile" --arg d "$desc" '.profiles[$p].description = $d' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE"
+  profiles_commit "$tmp"
 }
 
 model_description_apply() {
@@ -267,9 +274,10 @@ model_description_apply() {
   [ -n "$desc" ] || { printf 'model_description apply: could not generate description for %s\n' "$model_id" >&2; return 1; }
   tmp="$PROFILES_FILE.tmp.$$"
   if ! jq --arg m "$model_id" --arg d "$desc" '.models[$m].description = $d' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE"
+  profiles_commit "$tmp"
 }
 
 suggest_is_auto_kind() {

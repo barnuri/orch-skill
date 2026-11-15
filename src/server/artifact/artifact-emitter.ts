@@ -18,7 +18,7 @@ export class ArtifactEmitter {
   private static readonly HEAD_CLOSE: string = "</head>";
   private static readonly DASHBOARD_ENTRY: string = resolve(
     import.meta.dir,
-    "../../dashboard/index.html",
+    "../../snapshot/index.html",
   );
   /**
    * A value anywhere in the data could contain the literal `</script>`, which would end the

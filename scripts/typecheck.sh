@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Typechecks the orch TypeScript tree without installing a single dependency.
 #
-#   1. Bun bundles the dashboard (transpile only — no types, but it is the one gate that needs
+#   1. Bun bundles the dashboard and the React app in src/web (transpile only — no types, but it is the one gate that needs
 #      nothing but bun, and it catches syntax and unresolvable-import errors).
-#   2. tsc against dashboard/tsconfig.json — the zero-dep half of the tree (DOM lib, `types: []`),
+#   2. tsc against snapshot/tsconfig.json — the zero-dep half of the tree (DOM lib, `types: []`),
 #      which also proves shared/types stays Bun-free.
 #   3. tsc against the root tsconfig.json — server + shared + dashboard tests. That one needs
 #      bun-types and @types/node, which live in bun's global install cache; they are symlinked
@@ -38,8 +38,13 @@ newest_dir() {
 bundle_dashboard() {
   local out status
   out=$(mktemp -d) || return 1
-  "$BUN" build "$REPO_DIR/src/dashboard/index.html" --outdir "$out/dashboard" --target=browser >/dev/null
+  "$BUN" build "$REPO_DIR/src/snapshot/index.html" --outdir "$out/snapshot" --target=browser >/dev/null
   status=$?
+  # The React app (src/web) must bundle too: .tsx, the shared DTO schemas and the CSS imports.
+  if [ "$status" -eq 0 ]; then
+    "$BUN" build "$REPO_DIR/src/web/index.html" --outdir "$out/web" --target=browser >/dev/null
+    status=$?
+  fi
   trash "$out" 2>/dev/null || true
   [ "$status" -eq 0 ] || return 1
 }
@@ -81,7 +86,7 @@ main() {
     printf 'SKIP: tsc not found (brew install typescript)\n'
     return 0
   fi
-  if ! tsc -p "$REPO_DIR/src/dashboard/tsconfig.json" --noEmit; then
+  if ! tsc -p "$REPO_DIR/src/snapshot/tsconfig.json" --noEmit; then
     printf 'typecheck: FAIL dashboard tsc\n' >&2
     return 1
   fi

@@ -12,17 +12,31 @@ scripts/service.sh                optional always-on dashboard service (launchd 
 scripts/typecheck.sh              bun bundle + tsc
 package.json / bun.lock           the dashboard server's dependencies (hono, zod, decorators)
 src/                              the dashboard code, kept OUT of the skill so loading the skill never pulls it in
-  server/                         Bun + Hono server; api/ holds the decorated controllers and zod DTOs
-                                  (every /api route, validation and the OpenAPI document); routes/ holds
-                                  the handlers they delegate to
-  dashboard/                      the browser client (no framework, no build step)
-  shared/types/                   types shared by server and dashboard — must stay Bun-free
-tsconfig.json                     type config for src/server, src/shared and the dashboard tests
+  server/                         Bun + Hono server
+    api/                          decorated controllers + zod DTOs: every /api route, validation, OpenAPI; routes/ holds the handlers
+    build/                        GET /api/build (is the running server older than the sources?) and POST /api/build/restart
+                                  (runs `service.sh restart`; cooldown, log cap)
+    chats/                        chat store (bun:sqlite), service, sessions/ (claude, opencode, turn-session, turn-files)
+    schedules/                    ticker (runs `dispatch.sh schedule tick`, claim files) + reader
+    suggest/                      scan-cache for the suggestions page
+    runs/ active/ artifact/ ...   readers and the reconciler; dispatch-path.ts resolves dispatch.sh
+    test-support/                 fake-dispatch.sh, temp-home.ts, test-server.ts (tests never touch real state)
+  web/                            React 19 dashboard served at / (/next answers 301 -> /)
+    shell/                        AppShell, Rail (nav), Header, BuildBanner ("Server out of date"), connection/freshness
+    runs/                         runs list, run inspector (graph, node panel, activity)
+    chats/                        chat pages, composer, pickers, virtualized thread
+    pages/                        profiles, memory, harnesses, schedules, suggestions, settings
+    lib/ api/ forms/ components/  shared logic; imports src/shared DTO schemas and types
+  snapshot/                       vanilla client, ONLY the renderer of `dispatch.sh artifact` snapshots (island mode);
+                                  also owns tokens.css, styles.css, fonts and favicon, which web/ reuses
+  shared/                         dto/ (zod), types/, build-commands.ts — must stay Bun-free
+design-system/                    makeover exploration: tokens.A/B.css, proto/, audit, plans, RESTART_SAFETY.md
+tsconfig.json                     type config for src/server, src/shared and the snapshot tests
 mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.sh)
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
-  scripts/lib/{config,adapters,runs,serve}.sh   sourced by dispatch.sh, never executed
+  scripts/lib/*.sh                sourced by dispatch.sh, never executed (config, adapters, runs, serve, herdr, owners, schedules, ...)
   scripts/dispatch.test.sh        the test suite
   references/                     adapter contract + state/config schemas
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
@@ -45,6 +59,25 @@ files are only ever written through a subcommand. Never hand-edit `runs/<id>/sta
 `jobs/<id>/*`, `profiles.json` or `memory.json` from a script or a test, and never add a code
 path that writes them directly — add or extend a subcommand instead. Callers (including SKILL.md)
 must not re-implement what the script already does.
+
+**Exception: chat history.** Chat history in `<home>/chats.db` (with uploads under `<home>/chats/files/`) is written only by the dashboard server, through `bun:sqlite`. This is an explicit exception to "`dispatch.sh` owns every mutation": no subcommand writes it. It is never pruned, `prune` and the retention settings do not touch it, and nothing deletes a row (archive and hide only).
+
+**Claim files.** The schedule ticker (server) writes `<home>/schedules/<id>/claims/<next_at>` with an
+exclusive create before it fires a schedule (fire id `id@next_at`), so a double tick or a second server
+fires once. Like chat history, these are server-written, not `dispatch.sh`-written.
+
+**Owner registry.** `<home>/owners/<session-id>.json` maps an owner session to its run and node. It is
+written by `owners.sh` (`owner_registry_write`), filled by `dispatch.sh node bind-owners`, and checked by
+`node verify-owners`. Go through those subcommands.
+
+**Restart spares jobs.** A dashboard restart must not kill job processes. The launchd plist sets
+`AbandonProcessGroup`, the systemd unit `KillMode=process`, and `dispatch.sh start` jobs are detached.
+`service.sh install` now rewrites a unit that lacks these (`unit_installed_for_checkout`), so re-run it
+after pulling. Design and audit: `design-system/RESTART_SAFETY.md`. Status of its parts: the dedicated
+herdr instance runner (`lib/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
+is on disk; chat turn files (`chats/sessions/turn-files.ts`, boot re-attach in `chats/service.ts`,
+`interrupted:` rows) are on disk. Both were uncommitted and still in progress when this was written:
+check `git status` and the design doc before relying on them.
 
 **Sourcing is side-effect free.** `dispatch.sh` defines functions when sourced and only runs
 `main` when executed directly (`BASH_SOURCE[0] == $0`). Backgrounded `start` jobs depend on this:
@@ -78,12 +111,11 @@ self-backgrounds via `nohup` and prints a job id (for callers that are not). Don
 
 ## After every change: restart the service
 
-The dashboard server bundles `src/dashboard/` once at startup and keeps it in memory — a running
-server never re-reads `src/server/`, `src/dashboard/` or `src/shared/`. So **any** change under `src/`
-is invisible until the process restarts.
-
-**Once the tests and typecheck pass, restart the service. Treat it as the last step of the task,
-not an optional follow-up:**
+The dashboard server bundles `src/web/` once at startup and never re-reads `src/server/`, `src/web/`
+or `src/shared/`, so any change under `src/` is invisible until the process restarts. The UI now says
+so: a stale server shows a **Server out of date** pill in the header; its panel has a **Restart and
+update** button (POST `/api/build/restart`, which runs `service.sh restart`). You still restart as the
+last step of a task:
 
 ```bash
 bash skills/orch/scripts/dispatch.test.sh   # must be 0 failed
@@ -92,23 +124,43 @@ bash scripts/service.sh restart             # pick up the change
 bash scripts/service.sh status              # confirm: state = running, listener answering
 ```
 
-Do not use `dispatch.sh ui` to do this when the service is installed. `ui` notices the newer
-sources, stops the server and starts its own copy with `nohup` — which the supervisor then races
-by restarting its own. `service.sh restart` keeps one owner of the port.
-
-If `service.sh status` reports the unit is not installed, there is nothing to restart and the
-next `ui` picks the change up on its own.
+Do not use `dispatch.sh ui` for this when the service is installed: it stops the server and starts its
+own `nohup` copy, which the supervisor then races. If the unit is not installed there is nothing to
+restart; the next `ui` picks the change up.
 
 ## Tests
 
 ```bash
-bash skills/orch/scripts/dispatch.test.sh
-bash scripts/typecheck.sh
+bash skills/orch/scripts/dispatch.test.sh   # bash suite: every skills/orch/scripts/*.test.sh, in parallel
+bun test --timeout 300000 --parallel=6 src   # TypeScript suite (also: bun run test)
+bun test src/web                             # web alone; passes together with the rest now
+bash scripts/typecheck.sh                    # must print `typecheck: ok`
+bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun)
 ```
 
-The suite runs against a temporary `HARNESS_ORCH_HOME`, so it never touches your real state.
-`typecheck.sh` exits 0 with a `SKIP:` line when `bun` or `tsc` is absent — a skip is not a pass,
-so read the output rather than only the exit code.
+`dispatch.test.sh` runs each `*.test.sh` (helpers in `test-lib.sh`) as its own job on its own temp
+homes and merges the tallies. Pass a name fragment to run one file, or `ORCH_TEST_JOBS=1` to go serial.
+A new test file needs only the `.test.sh` suffix and a final `N passed, M failed` line.
+
+Process start latency, not CPU, is the cost, so concurrency is the lever. Route and reader tests that
+spawn `dispatch.sh` use `describe.concurrent` with an `afterAll` that stops the servers, and spawn
+asynchronously (never `Bun.spawnSync`). Under heavy machine load, timing-based tests can flake
+(timeouts, SSE waits): rerun the single file before suspecting your change.
+
+Env seams for tests: `ORCH_DISPATCH` (dispatch.sh path, read per call in `src/server/dispatch-path.ts`;
+tests point it at `test-support/fake-dispatch.sh`), `ORCH_SERVICE_SH` (so restart tests never touch the
+real supervisor), `ORCH_CHAT_DISPATCH` (dispatch used by chat turn sessions),
+`ORCH_CHAT_OPENCODE_DISPATCH=1` (opt the opencode chat harness into the dispatch path), and
+`ORCH_HERDR=0|1` (force herdr off/on). Suites use temporary `HARNESS_ORCH_HOME`s, never real state.
+`typecheck.sh` exits 0 with a `SKIP:` line when `bun` or `tsc` is absent: a skip is not a pass.
+
+## UI colour and the makeover
+
+Status colour comes only from the `--status-*` tokens in `src/snapshot/tokens.css` (e.g. `--status-done`,
+`--status-error`, `--status-stale`, with `-bg`/`-bd` variants). No raw hex in `src/web` or component CSS.
+The blue accent means live / primary action and nothing else; do not use it as a status colour.
+Makeover state: direction B "Signal" is applied to the tokens and UI; the commit is pending approval,
+so do not commit or revert it. Sources and prototypes live in `design-system/`.
 
 ## The optional service
 
@@ -120,6 +172,7 @@ foreground server `dispatch.sh ui` starts on demand. Points worth remembering wh
 - Host/port/state-dir are baked into the generated unit, and `adopt_installed_settings` reads
   them back so `status`/`logs`/`restart`/`uninstall` describe the installed service.
 - It binds `127.0.0.1` by default, unlike `ui` (which binds `0.0.0.0` for LAN access).
+- The plist/unit spares job processes on restart (see Invariants); `install` rewrites outdated units.
 - `dispatch.sh ui` will stop and restart a running server when it detects newer sources — with
   the service installed, use `service.sh restart` instead so the supervisor stays in charge.
 

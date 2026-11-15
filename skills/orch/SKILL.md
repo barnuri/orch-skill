@@ -93,9 +93,8 @@ cannot reach a local endpoint. orch derives `LLM_HUB_V1_URL` (the base with exac
 `/v1`) from `LLM_HUB_URL`; the claude profiles use `LLM_HUB_URL`, and every OpenAI-style client
 (`local-llm`, `pi`, `copilot-llm-hub`, `opencode-llm-hub`) uses `LLM_HUB_V1_URL`.
 
-If the choice materially changes cost or risk and none of the three sources settles it, ask —
-`AskUserQuestion` when the options are discrete, plain text otherwise (or where that tool doesn't
-exist). Dispatching to a paid CLI is not free to undo.
+If the choice materially changes cost or risk and none of the three sources settles it, ask the user
+(see "Asking the user" below). Dispatching to a paid CLI is not free to undo.
 
 ### llm-hub native mode (the hub picks every model)
 
@@ -249,6 +248,14 @@ or has no resumable session, orch restarts from the stored original prompt with 
 partial work may already exist in the repo and `$ORCH_NODE_OUT`. The node output directory is
 kept across attempts.
 
+**Carry a run forward** with `orch run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]`.
+It starts a new run and moves every node that is not `done` into it, with the edges between them.
+Skipped nodes stay behind unless `--keep-skipped`. Running nodes move untouched: they keep their
+job id, session and start time, and keep their handoff folder in the old run (`node out` in the new
+run prints the old path). The old run marks moved nodes `skipped` (`moved to run <new>`) and closes
+as `done`, unless `--keep-open`. `--title` sets the new title (default `<old title> (continued)`).
+The new run records `continued_from`, the old run records `continued_to`. Prints the new run id.
+
 **Stop a run** with `orch run stop <run-id>`, or the dashboard's **Stop run** button. Running
 jobs get `SIGTERM`, running nodes become errors with the message `cancelled`, waiting nodes are
 skipped, and the run status becomes `cancelled`. Automatic retries skip a cancelled run. Use it
@@ -270,10 +277,15 @@ Check `msg read <run-id>` whenever `run advance` returns: that is where a node r
 and scope changes. If `herdr` is on `PATH`, each message also triggers a herdr notification
 (best effort; herdr is optional).
 
-**Herdr panes.** With `settings.herdr` on (`orch herdr on|off|status`), `start` runs each job in a
-pane of the main Herdr session: workspace `orch`, one tab per run, one pane per job. Nothing else
-changes: logs, `status`, `wait`, retry and resume work the same. When Herdr is missing or its
-server does not answer, jobs start detached. Do not close those panes while their job runs.
+**Herdr panes (dedicated instance).** When `herdr` is installed, `start` (and so loops, schedule
+runs and `node dispatch`) runs each job in a pane of a second, headless herdr server that only orch
+uses, under `<orch-home>/herdr/`. It is never your live herdr session. One tab per run, one pane
+per job, titled `<run> <node> <job-id>`. A pane closes 60 s after a successful exit; a failed job's
+pane stays open (cap 20 panes). The job wrapper still writes the log and `exit_code`, so `status`,
+`wait`, retry and resume work the same. If herdr is missing, the instance cannot start, or
+`ORCH_HERDR=0` is set, the job starts detached as before. The dashboard never depends on it.
+`orch herdr status` shows the state and the command to look at it (`orch herdr attach`); run it in a
+separate terminal, never inside your own herdr pane. Details: `references/herdr.md`.
 
 ### Passing work between nodes
 
@@ -308,6 +320,56 @@ orch suggest list --pending                 # review before applying profile/met
 `run finish` with default `settings.learning` auto-appends memory rows and scans for gaps.
 Add one memory row per profile actually used, honest about the outcome — this is what Step 1
 reads next time. Check `#/suggestions` for profile/model description and routing hints.
+
+## Keep the graph true
+
+The dashboard shows what the graph says, not what is happening. Keep it honest:
+
+- Start a node when the work starts (`node update ... running --owner <agent id|job id|coordinator>`) and finish it when the work ends, never in a batch afterwards. Use `--at <iso>` for a real time that already passed.
+- During long work, `node ping <run> <node> --note "..." --progress 3/10` at least every 10 minutes. A running node quiet for `settings.stale_minutes` turns `stale`.
+- `node report` records model and tokens.
+- Pass the real session id in `--owner ses_xxx`. If you cannot, `node bind-owners` (run by `run sync`) finds the session; a node it cannot bind shows `unbound` with the reason, and one with no owner for 2 min shows `unowned`.
+- Start every agent with `orch node brief <run> <node>` and paste the output into its prompt: it tells the agent to ping, report, and end with `done` (verified) or `error`. `node verify-owners` (also run by `run status`, `run sync` and the dashboard) closes a node whose owner finished or vanished; such a node is `done` but unreviewed. Hook adapters: `references/harness-adapters.md`.
+- orch announces running work to Herdr and the status line automatically. A background daemon (`announce.sh --daemon`) keeps both fresh every 20 s: no `run sync` watch is needed for freshness (details in `references/status-bridge.md`).
+- After dispatching work, start `run wait <run>` as a background command. When it ends, report in one line and start it again. Reporting then does not depend on being asked. `run status <run>` is the one-liner for a progress update.
+
+Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
+
+- Never mark a node running unless something is doing the work, and name the owner. `run sync` prints `unowned:` otherwise.
+- Never discard a command's output (no `>/dev/null`, no `2>/dev/null`). Read the result of `node add`, `update` and `report`.
+- A carried run's finished nodes live in the origin run: `node add --after X` accepts them.
+- Verify with `run status` after you change the graph.
+- Set a node back to `waiting` only with `node update waiting`: it resets the node. Remove a mistaken node with `node remove`.
+
+## Work like ultracode
+
+Treat every substantive task as a graph, the way Claude Code's ultracode does: plan, fan out, cross-check, watch.
+
+1. **Plan first.** Before any work: `run start`, then `node add` for every step. Give independent steps no `--after` link between them so they run in parallel. Set `--model` when you know it.
+2. **Start and finish live.** `node update <run> <node> running` when work on the node begins, `done` or `error` the moment it ends. Never mark nodes in a batch afterwards: the dashboard duration would read seconds.
+3. **Cross-check.** Add a `verify` node (`--role validation`, `--after` the nodes it checks) that reads their out dirs and tests the result. A failed check is an `error` on that node, then retry.
+4. **Report what ran inline.** Work done in this session or by a subagent has no job to read usage from. Record it: `orch node report <run> <node> --model M [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X]`. Pass only numbers you know.
+5. **Fan out.** Prefer dispatched nodes or subagents over doing parallel steps yourself.
+6. **Stay free to monitor.** Use `run sync` and `node digest` instead of reading logs, and give the user the `#/run/<run-id>` link when the run starts.
+
+## Asking the user
+
+Every question to the user goes through the session's question tool (`AskUserQuestion` in Claude
+Code, the `question` tool in opencode). This is the default, not an option: a question written as plain
+text ends the turn and stalls every parallel node until the user happens to reply.
+
+- Ask the moment a decision is needed, not at the end. Start every node that does not depend on the
+  answer first, so work continues while the user answers.
+- Group related decisions in one call. Put the recommended option first and label it
+  "(Recommended)". Give each option a one-line consequence.
+- Plain text is the fallback only where the harness has no question tool, and then it ends with one
+  concrete question.
+- A question is any ask for an opinion, a choice, a go-ahead or a missing detail, even one you can
+  work around. A "Q1, Q2" list, a "needs you" line or "say yes and I will" at the end of a report
+  all count: each goes through the question tool, in the turn you first need it.
+- Before you send a final message, read its last paragraph. If it asks the user to choose, confirm
+  or reply, call the question tool and remove it from the text.
+- Never end a turn with a question in prose, and never wait on an answer while ready nodes sit idle.
 
 ## Offline mode (dashboard down)
 
@@ -353,7 +415,7 @@ instead of opening a browser (headless or remote shells); `orch ui --stop` shuts
 — set `ORCH_BUN` to point at a specific binary; a missing bun exits 127.
 
 The main view lists every run, active first; `#/run/<run-id>` shows one run's graph — running
-nodes pulse and each box shows status/model, cost or tokens, and attempt count. Click a node for
+nodes pulse and each box always shows status, attempt, model, duration, usage and role/tier; a value nobody reported reads as a muted placeholder (`model not reported`, `no usage reported`) with the reason in its tooltip. Click a node for
 profile, model, job, timings, attempts, error and log tail. `#/profiles` and
 `#/memory` edit the two JSON files in place, with the same validation the CLI applies and an
 ETag check that refuses to overwrite a change made behind your back. The page polls every 2 s and
@@ -420,6 +482,8 @@ regardless. It prints a warning at start, because the prompt lands in a conversa
 
 The loop ends on `--max`, when `--until` exits 0, when the agent writes `STOP` to the file named in
 its prompt, or on `loop stop`. `--until` runs as your shell command, so quote it like a cron entry.
+
+A loop runs a model each tick. For a pure status check, use a watch (`orch watch start --every 30s "<cmd>"`): it costs no tokens. Never word a loop prompt as "do nothing else" or "just reply OK": the agent may take that as permission to write `STOP` and end the loop early, which already happened. Give a loop real work, and check `orch active` rather than assuming it still runs.
 
 **Monitor (watch):** runs a command and keeps only the lines that matter, as events. The agent reads
 events, never the raw log.

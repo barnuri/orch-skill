@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dispatchPath } from "../dispatch-path";
 
 import type { ProfileSanityEnvelope } from "../../shared/types/profile-sanity";
 import type { ApiError } from "../../shared/types/api-error";
@@ -9,7 +9,6 @@ import type { ServerContext } from "../types/server-context";
 import { MAX_BODY_BYTES } from "./document-routes";
 import { parseJsonStrict } from "../validation/strict-json";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 /** Bounds a sweep so one wedged CLI cannot hold the request past the server's idle timeout. */
 const SANITY_TIMEOUT_MS: number = 210_000;
 
@@ -19,7 +18,7 @@ const SANITY_TIMEOUT_MS: number = 210_000;
  * the 2 s poll and every other request until the last probe returned.
  */
 async function dispatchSanity(args: readonly string[]): Promise<Response> {
-  const proc = Bun.spawn(["bash", DISPATCH, ...args], {
+  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",

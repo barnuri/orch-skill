@@ -5,6 +5,7 @@ import {
   listRunsHandler,
   readJobChatHandler,
   readJobLogHandler,
+  readNodeActivityHandler,
   readRunEventsHandler,
   readRunHandler,
   retryNodeHandler,
@@ -13,7 +14,7 @@ import {
 } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 
@@ -27,6 +28,7 @@ export class RunsController {
   private readonly jobLog: RouteHandler;
   private readonly jobChat: RouteHandler;
   private readonly events: RouteHandler;
+  private readonly activity: RouteHandler;
 
   constructor(ctx: ServerContext) {
     this.list = listRunsHandler(ctx);
@@ -37,6 +39,7 @@ export class RunsController {
     this.jobLog = readJobLogHandler(ctx);
     this.jobChat = readJobChatHandler(ctx);
     this.events = readRunEventsHandler(ctx);
+    this.activity = readNodeActivityHandler(ctx);
   }
 
   @Get("/runs", {
@@ -69,6 +72,18 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   events_(c: ApiContext): Promise<Response> {
     return call(this.events, c);
+  }
+
+  @Get("/runs/{id}/nodes/{node}/activity", {
+    summary: "A node owner's live activity",
+    description: "For a node owned by an opencode session: its last 20 messages as a bounded summary (text, tool, reasoning; at most 8 KB). `after=<message id>` returns only newer messages. `state` is `unknown` when opencode is unreachable. Answers 404 when the node has no checkable owner.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @Query(NodeActivityQueryDto.schema)
+  @ResponseSchema(NodeActivityEnvelopeDto.schema, { description: "The activity." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node, or no checkable owner." })
+  activity_(c: ApiContext): Promise<Response> {
+    return call(this.activity, c);
   }
 
   @Post("/runs/{id}/retry", {

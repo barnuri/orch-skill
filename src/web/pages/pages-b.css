@@ -1,0 +1,42 @@
+/* Memory and Suggestions in the B "Signal" look: a compact ledger, status word plus token colour, 44px touch targets on coarse pointers. */
+
+.suggestion-list {
+  gap: 0; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel); overflow: hidden;
+}
+.suggestion-card {
+  border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent;
+  padding: var(--s3) var(--s4); gap: var(--s2); min-width: 0; position: relative;
+}
+.suggestion-card:first-child { border-top: 0; }
+.suggestion-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--sc, transparent); }
+.suggestion-card.status-pending { --sc: var(--status-stale); }
+.suggestion-card.status-applied { --sc: var(--status-done); }
+.suggestion-card.status-dismissed, .suggestion-card.status-expired { --sc: var(--status-skipped); }
+.suggestion-card.status-dismissed .suggestion-title, .suggestion-card.status-expired .suggestion-title { color: var(--tx2); }
+.suggestion-title, .suggestion-reason, .suggestion-preview { overflow-wrap: anywhere; min-width: 0; }
+.suggestion-preview { max-height: 6em; overflow: auto; }
+.suggestion-card .actions { gap: var(--s2); }
+.suggestion-card .actions button { min-height: var(--touch); }
+
+.chip.pending { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
+.chip.applied { --c: var(--status-done); --bg-c: var(--status-done-bg); --bd-c: var(--status-done-bd); }
+.chip.dismissed, .chip.expired { --c: var(--status-skipped); --bg-c: var(--status-skipped-bg); --bd-c: var(--status-skipped-bd); }
+
+.suggestion-filters { gap: var(--s2); }
+.suggestion-list ~ *, .suggestion-filters { min-width: 0; }
+.suggestion-card .text-link { overflow-wrap: anywhere; }
+
+.memory-skeleton { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.memory-row { min-width: 0; }
+.memory-row > * { min-width: 0; overflow-wrap: anywhere; }
+.memory-row:focus-visible, .suggestion-card a:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.suggestion-list:focus-within, .runs:focus-within { scrollbar-color: var(--border-strong) transparent; }
+
+.suggestion-list, .suggestion-preview, .runs { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+
+@media (pointer: coarse), (max-width: 600px) {
+  .suggestion-card .actions button, .suggestion-toolbar button, .suggestion-filters button { min-height: var(--touch-coarse); }
+  .suggestion-card .actions { width: 100%; }
+  .suggestion-card .actions button { flex: 1 1 0; }
+  .suggestion-card { padding: var(--s3); }
+}

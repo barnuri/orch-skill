@@ -1,0 +1,103 @@
+import { IslandSource } from "./api/island-source";
+import { adoptTokenFromUrl } from "./api/token-store";
+import { FRESH_TICK_MS, POLL_MS } from "./constants";
+import { poll, refreshPage } from "./poll";
+import { render, renderFresh } from "./render";
+import { parseRoute, routeKey } from "./router";
+import type { Route } from "./router";
+import { cancelEdit } from "./forms/document-editor";
+import { resetDocState, resetRunState, state } from "./state/state";
+import { applyStoredTheme, toggleTheme } from "./theme";
+
+function enterRoute(route: Route): void {
+  state.route = route;
+  resetRunState();
+  resetDocState();
+  render();
+  void poll();
+}
+
+// `#` → `#/` and friends fire hashchange without changing the route; keep the slices then.
+function onHashChange(): void {
+  const next = parseRoute(location.hash);
+  if (routeKey(next) === routeKey(state.route)) {
+    return;
+  }
+  enterRoute(next);
+}
+
+function wireTheme(): void {
+  const button = document.getElementById("theme");
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+  applyStoredTheme(button);
+  button.addEventListener("click", () => {
+    toggleTheme(button);
+  });
+}
+
+function wireRefresh(): void {
+  const button = document.getElementById("refresh");
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+  // A published snapshot has no server behind it, so there is nothing to refetch.
+  if (state.snapshot) {
+    button.hidden = true;
+    return;
+  }
+  button.addEventListener("click", () => {
+    if (button.disabled) {
+      return;
+    }
+    button.disabled = true;
+    button.classList.add("is-spinning");
+    button.setAttribute("aria-busy", "true");
+    void refreshPage().finally(() => {
+      button.disabled = false;
+      button.classList.remove("is-spinning");
+      button.removeAttribute("aria-busy");
+    });
+  });
+}
+
+/**
+ * Escape closes an open document editor. A dirty draft is left alone — discarding typed changes
+ * on a stray keypress is not recoverable; the form's Cancel button is the explicit discard.
+ */
+function onKeyDown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || state.editing === null || state.dirty) {
+    return;
+  }
+  cancelEdit();
+}
+
+function boot(): void {
+  wireTheme();
+  adoptTokenFromUrl();
+  state.snapshot = IslandSource.fromDocument().active;
+  wireRefresh();
+  window.addEventListener("hashchange", onHashChange);
+  window.addEventListener("keydown", onKeyDown);
+  enterRoute(parseRoute(location.hash));
+  // A snapshot's data is in the page, so both timers would only burn cycles: polling would
+  // re-read the same islands, and the freshness tick has nothing to age.
+  if (state.snapshot) {
+    return;
+  }
+  // A hidden tab has nobody looking at it: polling then only spends the server's time.
+  setInterval(() => {
+    if (!document.hidden) {
+      void poll();
+    }
+  }, POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      void poll();
+    }
+  });
+  setInterval(renderFresh, FRESH_TICK_MS);
+}
+
+boot();

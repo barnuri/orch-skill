@@ -1,0 +1,41 @@
+light text on bg    : tx 16.6 | tx1 11.6 | tx2 6.3 | tx3 5.7 | acct 6.8
+light text on panel : tx 18.1 | tx1 12.7 | tx2 6.9 | tx3 6.2 | acct 7.5
+light text on panel2: tx 17.0 | tx1 12.0 | tx2 6.5 | tx3 5.8 | acct 7.0
+light text on inset : tx 15.8 | tx1 11.1 | tx2 6.0 | tx3 5.4 | acct 6.5
+light text on hover : tx 14.6 | tx1 10.2 | tx2 5.5 | tx3 5.0 | acct 6.0
+light ok   text on its tint over panel: 5.3
+light ok   text on its tint over bg   : 4.9
+light wa   text on its tint over panel: 5.1
+light wa   text on its tint over bg   : 4.7
+light er   text on its tint over panel: 5.4
+light er   text on its tint over bg   : 4.9
+light pu   text on its tint over panel: 6.2
+light pu   text on its tint over bg   : 5.7
+light mute text on its tint over panel: 5.3
+light mute text on its tint over bg   : 4.9
+light acc  text on its tint over panel: 5.4
+light acc  text on its tint over bg   : 5.0
+light onacc on acc (primary button): 6.5
+light focus ring on bg (needs 3): 8.7
+light edge on panel (control edge, needs 3): 3.5
+dark  text on bg    : tx 16.5 | tx1 12.3 | tx2 8.2 | tx3 6.6 | acct 9.4
+dark  text on panel : tx 15.6 | tx1 11.5 | tx2 7.7 | tx3 6.3 | acct 8.8
+dark  text on panel2: tx 16.0 | tx1 11.8 | tx2 7.9 | tx3 6.4 | acct 9.1
+dark  text on inset : tx 14.4 | tx1 10.7 | tx2 7.1 | tx3 5.8 | acct 8.2
+dark  text on hover : tx 12.5 | tx1 9.3 | tx2 6.2 | tx3 5.0 | acct 7.1
+dark  ok   text on its tint over panel: 8.3
+dark  ok   text on its tint over bg   : 9.1
+dark  wa   text on its tint over panel: 8.1
+dark  wa   text on its tint over bg   : 8.8
+dark  er   text on its tint over panel: 6.2
+dark  er   text on its tint over bg   : 6.7
+dark  pu   text on its tint over panel: 7.0
+dark  pu   text on its tint over bg   : 7.6
+dark  mute text on its tint over panel: 5.3
+dark  mute text on its tint over bg   : 5.8
+dark  acc  text on its tint over panel: 5.3
+dark  acc  text on its tint over bg   : 5.8
+dark  onacc on acc (primary button): 6.4
+dark  focus ring on bg (needs 3): 12.7
+dark  edge on panel (control edge, needs 3): 3.2
+WORST text/status ratio: 4.72 (need 4.5)

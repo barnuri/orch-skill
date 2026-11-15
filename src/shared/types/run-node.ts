@@ -82,6 +82,20 @@ export interface RunNode {
   selection_history?: SelectionEvent[];
   /** Who is doing the work: an agent id, a job id or "coordinator". Null/absent = unowned. */
   owner?: string | null;
+  /** Parsed from `owner`: session | process | job | none | unknown. */
+  owner_kind?: string | null;
+  owner_id?: string | null;
+  /** From owner verification: alive | finished | gone | unknown. */
+  owner_state?: "alive" | "finished" | "gone" | "unknown" | "unbound" | null;
+  /** Why the owner is unbound or the node unowned, from the owner binder. */
+  owner_reason?: string | null;
+  /** How the owner session was found: literal | title | time | listing-*. */
+  owner_bind?: string | null;
+  /** Set by the binder: running a while with no owner at all. */
+  unowned?: boolean | null;
+  owner_checked?: string | null;
+  /** The owner said it finished; nobody reviewed the result yet. */
+  unverified?: boolean | null;
   /** When the node was added. Optional for older runs. */
   created?: string | null;
   /** Last heartbeat: any status change, ping, report or usage write. Optional for older runs. */

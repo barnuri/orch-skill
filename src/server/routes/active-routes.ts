@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dispatchPath } from "../dispatch-path";
 
 import type { ActiveEnvelope } from "../../shared/types/active-envelope";
 import type { ApiError } from "../../shared/types/api-error";
@@ -8,7 +8,6 @@ import { jsonResponse, notModified } from "../http/responses";
 import type { RouteHandler } from "../http/route";
 import type { ServerContext } from "../types/server-context";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 const IF_NONE_MATCH: string = "if-none-match";
 // Ids are minted by dispatch.sh as <kind>-<date>-<time>-<hex>; anything else never reaches the shell.
 const ACTIVE_ID: RegExp = /^(loop|watch)-\d{8}-\d{6}-[0-9a-f]{4}$/;
@@ -35,7 +34,7 @@ export function stopActiveHandler(ctx: ServerContext): RouteHandler {
       const error: ApiError = { error: "invalid loop or watch id" };
       return jsonResponse(400, error);
     }
-    const proc = Bun.spawn(["bash", DISPATCH, match[1] as string, "stop", id], {
+    const proc = Bun.spawn(["bash", dispatchPath(), match[1] as string, "stop", id], {
       env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
       stdout: "pipe",
       stderr: "pipe",

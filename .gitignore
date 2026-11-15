@@ -11,6 +11,7 @@ dist/
 
 # Browser-automation artifacts
 .playwright-mcp/
+.playwright-cli/
 
 # Agent session scratch
 **/agent-spec
@@ -21,3 +22,5 @@ dist/
 /config
 mods/*/.claude-plugin/types/
 mods/*/tsconfig.json
+__pycache__/
+*.pyc

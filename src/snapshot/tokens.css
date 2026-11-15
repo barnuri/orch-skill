@@ -1,0 +1,116 @@
+/* Direction B "Signal": drop-in for src/dashboard/tokens.css. Same token names, every value
+   light-dark(). Blue-slate surfaces and the blue accent of the original palette (restored at the user's request),
+   status colours as --status-* tokens, Geist + Geist Mono, 6px base radius, left-rail shell. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#f4f5f7, #0b0d10);
+  --panel: light-dark(#ffffff, #12151a);
+  --panel2: light-dark(#f8f9fb, #0f1216);
+  --inset: light-dark(#eef0f3, #1a1e25);
+  --hover: light-dark(#e6e9ee, #232833);
+  --raised: light-dark(#ffffff, #171b22);
+  --border: light-dark(#dfe3e9, #232833);
+  --border-strong: light-dark(#b9c2d0, #354055);
+  --edge: light-dark(#7d8798, #66738a);
+  --line: light-dark(#eceef2, #1a1e25);
+
+  --tx: light-dark(#14171c, #e8eaee);
+  --tx1: light-dark(#323843, #c5cad3);
+  --tx2: light-dark(#5a616d, #9aa2af);
+  --tx3: light-dark(#5d6470, #8a919d);
+
+  --acc: light-dark(#1857c4, #3d8bfd);
+  --acct: light-dark(#195fcd, #7ab0ff);
+  --onacc: light-dark(#ffffff, #0b0d10);
+  --focus: light-dark(#1f3fb0, #b3c7ff);
+
+  /* Status palette (the pre-makeover colours). The accent (--acc, blue) is brand/UI state only and never means a status.
+     running blue, done green, error red, waiting grey, skipped dim grey, stale amber. Text-safe
+     values: each clears 4.5:1 on panel and on its own soft background. */
+  --status-running: light-dark(#1555b8, #7ab0ff);
+  --status-done: light-dark(#0b6540, #3fcf8e);
+  --status-error: light-dark(#aa1f1f, #ff6f6f);
+  --status-waiting: light-dark(#555c68, #8b94a3);
+  --status-skipped: light-dark(#5b626d, #8a919d);
+  --status-stale: light-dark(#7f5000, #f5b545);
+  --pu: light-dark(#7b3fb0, #c792ea);
+
+  --mark-claude: light-dark(#a85434, #d97757);
+  --mark-ink: light-dark(#141414, #e8eaf0);
+  --mark-codex: light-dark(#412991, #9b8cd8);
+  --mark-gemini: #8e75b2;
+
+  --shadow-color: light-dark(rgb(20 23 28 / 0.14), rgb(0 0 0 / 0.45));
+  --shadow: 0 12px 32px var(--shadow-color);
+  --scrim: light-dark(rgb(20 23 28 / 0.4), rgb(0 0 0 / 0.6));
+
+  --tint: 13%;
+  --ring: 40%;
+
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-pill: 999px;
+
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-micro: 11px;
+  --fs-meta: 12px;
+  --fs-ctl: 13px;
+  --fs-body: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 22px;
+  --fs-kpi: 26px;
+  --lh-tight: 1.2;
+  --lh-body: 1.45;
+  --lh-prose: 1.6;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  --touch: 36px;
+  --touch-coarse: 44px;
+  --nav-h: 48px;
+  --rail-w: 232px;
+  --rail-w-collapsed: 56px;
+
+  --t-fast: 110ms cubic-bezier(.3,.7,.4,1);
+  --t-base: 160ms cubic-bezier(.3,.7,.4,1);
+}
+
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+/* Derived from the tokens above, so they follow the theme with no second copy. */
+:root {
+  --accs: color-mix(in srgb, var(--acc) 15%, transparent);
+  --accb: color-mix(in srgb, var(--acc) 45%, transparent);
+  --status-running-bg: color-mix(in srgb, var(--status-running) var(--tint), transparent);
+  --status-running-bd: color-mix(in srgb, var(--status-running) var(--ring), transparent);
+  --status-done-bg: color-mix(in srgb, var(--status-done) var(--tint), transparent);
+  --status-done-bd: color-mix(in srgb, var(--status-done) var(--ring), transparent);
+  --status-error-bg: color-mix(in srgb, var(--status-error) var(--tint), transparent);
+  --status-error-bd: color-mix(in srgb, var(--status-error) var(--ring), transparent);
+  --status-waiting-bg: color-mix(in srgb, var(--status-waiting) var(--tint), transparent);
+  --status-waiting-bd: color-mix(in srgb, var(--status-waiting) var(--ring), transparent);
+  --status-skipped-bg: color-mix(in srgb, var(--status-skipped) var(--tint), transparent);
+  --status-skipped-bd: color-mix(in srgb, var(--status-skipped) var(--ring), transparent);
+  --status-stale-bg: color-mix(in srgb, var(--status-stale) var(--tint), transparent);
+  --status-stale-bd: color-mix(in srgb, var(--status-stale) var(--ring), transparent);
+  --ok: var(--status-done); --wa: var(--status-stale); --er: var(--status-error); --mute: var(--status-waiting);
+  --okbg: var(--status-done-bg); --okbd: var(--status-done-bd);
+  --wabg: var(--status-stale-bg); --wabd: var(--status-stale-bd);
+  --erbg: var(--status-error-bg); --erbd: var(--status-error-bd);
+  --mutebg: var(--status-waiting-bg); --mutebd: var(--status-waiting-bd);
+  --pubg: color-mix(in srgb, var(--pu) var(--tint), transparent);
+  --pubd: color-mix(in srgb, var(--pu) var(--ring), transparent);
+}

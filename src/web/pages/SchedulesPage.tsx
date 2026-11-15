@@ -1,0 +1,510 @@
+import { useEffect, useState } from "react";
+import type { Schedule, ScheduleKind, ScheduleRun } from "../../shared/types/schedule";
+import { api } from "../api/client";
+import { describeFailure } from "../api/result";
+import { invalidateSchedules, useDocument, useSchedules } from "../api/queries";
+import { Button } from "../components/Button";
+import { Chip } from "../components/Chip";
+import { useConfirm } from "../components/ConfirmDialog";
+import { Countdown } from "../components/Countdown";
+import { EmptyState } from "../components/EmptyState";
+import "./pages.css";
+import { PageHead } from "../components/PageHead";
+import { PanelBox } from "../components/Panel";
+import { RunStrip } from "../components/RunStrip";
+import { Labelled, Segmented } from "../components/Segmented";
+import { Select } from "../components/Select";
+import { Skeleton } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
+import { Toggle } from "../components/Toggle";
+import { asProfilesDocument } from "../lib/documents";
+import { fmtDur, rel, until } from "../lib/format";
+import { useSessionState } from "../lib/session-state";
+import {
+  CRON_PRESETS,
+  CUSTOM_CRON,
+  cronLabel,
+  emptyScheduleDraft,
+  FILTERS,
+  healthOf,
+  matchesFilter,
+  schedulePayload,
+  soonestNext,
+  visibleSchedules,
+} from "../lib/schedule-logic";
+import type { ScheduleDraft, ScheduleFilter } from "../lib/schedule-logic";
+
+function StatusChip({ status }: { status: string | null }) {
+  if (status === null) {
+    return <Chip status="waiting">never run</Chip>;
+  }
+  return <Chip status={status === "ok" ? "done" : status}>{status}</Chip>;
+}
+
+function RunRow({
+  schedule,
+  run,
+  index,
+  log,
+  onLoadLog,
+}: {
+  schedule: Schedule;
+  run: ScheduleRun;
+  index: number;
+  log: string | undefined;
+  onLoadLog: (schedule: Schedule, index: number, run: ScheduleRun) => void;
+}) {
+  return (
+    <div className="sched-run-wrap">
+      <div className="sched-run">
+        <StatusChip status={run.status} />
+        <span className="sched-run-time">{rel(run.started_at)}</span>
+        <span className="muted">{run.status === "running" ? "running…" : fmtDur(run.started_at, run.ended_at)}</span>
+        <span className="muted mono">{run.exit === null ? "" : `exit ${run.exit}`}</span>
+        <Button
+          className="sched-view"
+          onClick={() => {
+            onLoadLog(schedule, index, run);
+          }}
+        >
+          {log === undefined ? "Output" : "Reload output"}
+        </Button>
+      </div>
+      {log === undefined ? null : <pre className="sched-log">{log.length > 0 ? log : "(no output)"}</pre>}
+    </div>
+  );
+}
+
+function NextCell({ schedule }: { schedule: Schedule }) {
+  if (!schedule.enabled || schedule.next_at === null) {
+    return (
+      <div className="sched-next">
+        <span className="sched-next-label">next run</span>
+        <span className="sched-next-value muted">{schedule.enabled ? "none" : "paused"}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="sched-next">
+      <span className="sched-next-label">next run in</span>
+      <span className="sched-next-value">
+        <Countdown at={schedule.next_at} />
+      </span>
+    </div>
+  );
+}
+
+function ScheduleRow({
+  schedule,
+  open,
+  busy,
+  logs,
+  onToggleOpen,
+  onAct,
+  onRemove,
+  onLoadLog,
+}: {
+  schedule: Schedule;
+  open: boolean;
+  busy: boolean;
+  logs: ReadonlyMap<string, string>;
+  onToggleOpen: () => void;
+  onAct: (action: "run" | "enable" | "disable") => void;
+  onRemove: () => void;
+  onLoadLog: (schedule: Schedule, index: number, run: ScheduleRun) => void;
+}) {
+  const health = healthOf(schedule);
+  const what =
+    schedule.kind === "prompt"
+      ? `${schedule.profile ?? ""} · ${schedule.prompt ?? ""}`
+      : `${schedule.workdir === null ? "" : `${schedule.workdir} · `}${schedule.command ?? ""}`;
+  return (
+    <article className={`sched-row is-${health}`}>
+      <div className="sched-title">
+        <div className="sched-head">
+          <h3 className="sched-name">{schedule.name}</h3>
+          <span className="sched-kind">{schedule.kind}</span>
+          {health === "paused" ? <Chip status="default">paused</Chip> : <StatusChip status={schedule.last_status} />}
+        </div>
+        <div className="sched-sub">
+          <span className="mono">{schedule.cron}</span>
+          <span className="muted">{cronLabel(schedule.cron)}</span>
+        </div>
+        <div className="sched-what mono" title={what}>
+          {what}
+        </div>
+      </div>
+      <div className="sched-history">
+        <RunStrip runs={schedule.runs} />
+        {schedule.last_run_at === null ? null : <span className="sched-last">{`last run ${rel(schedule.last_run_at)}`}</span>}
+      </div>
+      <NextCell schedule={schedule} />
+      <div className="sched-actions">
+        <Toggle
+          label={schedule.enabled ? `Pause ${schedule.name}` : `Resume ${schedule.name}`}
+          on={schedule.enabled}
+          disabled={busy}
+          onChange={(next) => {
+            onAct(next ? "enable" : "disable");
+          }}
+        />
+        <Button
+          disabled={busy}
+          onClick={() => {
+            onAct("run");
+          }}
+        >
+          Run now
+        </Button>
+        <Button aria-expanded={open} onClick={onToggleOpen}>
+          {open ? "Hide runs" : `Runs (${schedule.runs.length})`}
+        </Button>
+      </div>
+      {open ? (
+        <div className="sched-detail">
+          {schedule.prompt !== null || schedule.command !== null ? <pre className="sched-full">{schedule.prompt ?? schedule.command ?? ""}</pre> : null}
+          {schedule.runs.length === 0 ? <p className="sub">No runs yet. Use Run now to try it.</p> : null}
+          {schedule.runs.map((run, index) => (
+            <RunRow key={`${run.started_at}-${index}`} schedule={schedule} run={run} index={index} log={logs.get(`${schedule.id}:${run.started_at}`)} onLoadLog={onLoadLog} />
+          ))}
+          <div className="sched-detail-foot">
+            <Button variant="danger" onClick={onRemove}>
+              Delete schedule
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function CronField({ cron, onChange }: { cron: string; onChange: (cron: string) => void }) {
+  const known = CRON_PRESETS.some((preset) => preset.cron === cron);
+  const [preview, setPreview] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    const value = cron.trim();
+    let live = true;
+    const timer = setTimeout(() => {
+      void api.previewSchedule(value).then((result) => {
+        if (!live) {
+          return;
+        }
+        if (result.kind === "ok") {
+          setPreview({ ok: true, text: `Next run: ${result.body.next}` });
+        } else if (result.kind === "error") {
+          setPreview({ ok: false, text: result.body?.error ?? "not a valid cron expression" });
+        }
+      });
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [cron]);
+  return (
+    <Labelled label="When">
+      <div className="sched-when-wrap">
+        <div className="sched-when">
+          <Select
+            aria-label="Preset"
+            value={known ? cron : CUSTOM_CRON}
+            options={[...CRON_PRESETS.map((preset) => ({ value: preset.cron, label: preset.label })), { value: CUSTOM_CRON, label: "Custom…" }]}
+            onChange={(value) => {
+              if (value !== CUSTOM_CRON) {
+                onChange(value);
+              }
+            }}
+          />
+          <input
+            type="text"
+            className="mono"
+            aria-label="Cron expression"
+            placeholder="m h dom mon dow"
+            value={cron}
+            onChange={(event) => {
+              onChange(event.target.value);
+            }}
+          />
+        </div>
+        <div className={preview === null ? "sched-preview" : `sched-preview ${preview.ok ? "is-ok" : "is-bad"}`} role="status" aria-live="polite">
+          {preview?.text}
+        </div>
+      </div>
+    </Labelled>
+  );
+}
+
+function TextInput({ label, value, placeholder, mono = false, onChange }: { label: string; value: string; placeholder: string; mono?: boolean; onChange: (value: string) => void }) {
+  return (
+    <Labelled label={label}>
+      <input
+        type="text"
+        className={mono ? "mono" : undefined}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      />
+    </Labelled>
+  );
+}
+
+function ScheduleForm({
+  profileNames,
+  defaultProfile,
+  onCreated,
+  onCancel,
+}: {
+  profileNames: readonly string[];
+  defaultProfile: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const toast = useToast();
+  const [draft, setDraft] = useSessionState<ScheduleDraft>("schedule-draft", emptyScheduleDraft());
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const set = (patch: Partial<ScheduleDraft>): void => {
+    setDraft((current) => ({ ...current, ...patch }));
+  };
+  const profile = draft.profile === "" ? defaultProfile || profileNames[0] || "" : draft.profile;
+  const submit = async (): Promise<void> => {
+    const current = { ...draft, profile };
+    setSaving(true);
+    setError(null);
+    const result = await api.createSchedule(schedulePayload(current));
+    setSaving(false);
+    if (result.kind === "ok") {
+      toast("ok", `Created ${current.name.trim()}`);
+      setDraft(emptyScheduleDraft());
+      onCreated();
+      return;
+    }
+    setError(result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed"));
+  };
+  return (
+    <PanelBox className="sched-form">
+      <div className="sched-form-row">
+        <TextInput label="Name" value={draft.name} placeholder="Morning repo summary" onChange={(name) => { set({ name }); }} />
+        <Labelled label="Runs a">
+          <Segmented
+            label="What to run"
+            value={draft.kind}
+            options={[
+              { value: "prompt", label: "Prompt" },
+              { value: "command", label: "Shell command" },
+            ]}
+            onChange={(next) => {
+              set({ kind: next as ScheduleKind });
+            }}
+          />
+        </Labelled>
+      </div>
+      <CronField cron={draft.cron} onChange={(cron) => { set({ cron }); }} />
+      {draft.kind === "prompt" ? (
+        <>
+          <Labelled label="Profile">
+            <Select aria-label="Profile" value={profile} options={profileNames.map((name) => ({ value: name, label: name }))} onChange={(value) => { set({ profile: value }); }} />
+          </Labelled>
+          <Labelled label="Prompt">
+            <textarea rows={4} placeholder="What should the agent do each time?" value={draft.prompt} onChange={(event) => { set({ prompt: event.target.value }); }} />
+          </Labelled>
+        </>
+      ) : (
+        <>
+          <Labelled label="Command">
+            <textarea rows={3} placeholder="git -C ~/repo pull && ./scripts/report.sh" value={draft.command} onChange={(event) => { set({ command: event.target.value }); }} />
+          </Labelled>
+          <div className="sched-form-row">
+            <TextInput label="Working directory (optional)" value={draft.workdir} placeholder="/Users/you/repo" mono onChange={(workdir) => { set({ workdir }); }} />
+            <TextInput label="Time limit (optional)" value={draft.timeout} placeholder="30m, default 1h" mono onChange={(timeout) => { set({ timeout }); }} />
+          </div>
+        </>
+      )}
+      {error === null ? null : (
+        <div className="notice" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="sched-form-actions">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" disabled={saving} onClick={() => void submit()}>
+          {saving ? "Creating…" : "Create schedule"}
+        </Button>
+      </div>
+    </PanelBox>
+  );
+}
+
+function Summary({ list }: { list: readonly Schedule[] }) {
+  const active = list.filter((s) => s.enabled);
+  const running = list.filter((s) => s.enabled && s.last_status === "running").length;
+  const failing = list.filter((s) => healthOf(s) === "failing").length;
+  const soonest = soonestNext(list);
+  return (
+    <dl className="ledger-summary" aria-label="Schedule summary">
+      <div>
+        <dt>Active</dt>
+        <dd className="mono">{`${active.length}/${list.length}`}</dd>
+      </div>
+      <div>
+        <dt>Next run</dt>
+        <dd className="mono">{soonest === null ? "—" : <Countdown at={soonest} />}</dd>
+      </div>
+      <div>
+        <dt>Running</dt>
+        <dd className={running > 0 ? "mono is-running" : "mono"}>{running > 0 ? `${running} running` : "idle"}</dd>
+      </div>
+      <div>
+        <dt>Attention</dt>
+        <dd className={failing > 0 ? "mono is-error" : "mono is-done"}>{failing > 0 ? `${failing} failing` : "all clear"}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/** The `#/schedules` page: cron schedules that run a prompt or a shell command. */
+export function SchedulesPage() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const query = useSchedules();
+  const profiles = useDocument("profiles", false);
+  const [formOpen, setFormOpen] = useSessionState("schedule-form-open", false);
+  const [filter, setFilter] = useSessionState<ScheduleFilter>("schedule-filter", "all");
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [logs, setLogs] = useState<ReadonlyMap<string, string>>(new Map());
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const profilesDoc = asProfilesDocument(profiles.data?.document);
+  const profileNames = profilesDoc === null ? [] : Object.keys(profilesDoc.profiles);
+  const defaultProfile = profilesDoc?.settings.default_profile ?? "";
+  const list = query.data?.schedules ?? null;
+
+  const setBusyFor = (id: string, on: boolean): void => {
+    setBusy((current) => {
+      const next = new Set(current);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+  const act = async (schedule: Schedule, action: "run" | "enable" | "disable"): Promise<void> => {
+    setBusyFor(schedule.id, true);
+    const result = await api.scheduleAction(schedule.id, action);
+    setBusyFor(schedule.id, false);
+    if (result.kind !== "ok") {
+      toast("error", result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed"));
+      return;
+    }
+    toast("ok", action === "run" ? `Started ${schedule.name}` : `${schedule.name} ${action}d`);
+    void invalidateSchedules();
+  };
+  const remove = async (schedule: Schedule): Promise<void> => {
+    const confirmed = await confirm({
+      title: `Delete schedule ${schedule.name}?`,
+      body: "It stops running and its run history is removed. Runs already in progress keep going.",
+      confirmLabel: "Delete schedule",
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    const result = await api.scheduleAction(schedule.id, "remove");
+    if (result.kind !== "ok") {
+      toast("error", result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed"));
+      return;
+    }
+    setExpanded((current) => new Set([...current].filter((id) => id !== schedule.id)));
+    void invalidateSchedules();
+  };
+  const loadLog = async (schedule: Schedule, index: number, run: ScheduleRun): Promise<void> => {
+    const key = `${schedule.id}:${run.started_at}`;
+    setLogs((current) => new Map(current).set(key, "Loading…"));
+    const result = await api.getScheduleRunLog(schedule.id, index);
+    setLogs((current) => new Map(current).set(key, result.kind === "ok" ? result.body.text : "Could not load the output."));
+  };
+
+  const sub = list === null ? "Loading…" : "Each one runs a prompt or a shell command on a cron timetable. The dashboard server checks them every 30 s.";
+  const add = (
+    <Button
+      variant="primary"
+      onClick={() => {
+        setFormOpen(true);
+      }}
+    >
+      New schedule
+    </Button>
+  );
+  const shown = list === null ? [] : visibleSchedules(list, filter);
+  return (
+    <>
+      <PageHead title="Schedules" subtitle={sub} toolbar={formOpen ? undefined : add} />
+      {formOpen ? (
+        <ScheduleForm
+          profileNames={profileNames}
+          defaultProfile={defaultProfile}
+          onCreated={() => {
+            setFormOpen(false);
+            void invalidateSchedules();
+          }}
+          onCancel={() => {
+            setFormOpen(false);
+          }}
+        />
+      ) : null}
+      {list === null ? (
+        query.error === null ? <Skeleton rows={3} /> : <div className="notice">{query.error.message}</div>
+      ) : list.length === 0 ? (
+        formOpen ? null : (
+          <EmptyState title="No schedules yet">
+            Press New schedule to run a prompt or a shell command on a timetable. It keeps running while the dashboard server is up.
+          </EmptyState>
+        )
+      ) : (
+        <>
+          <Summary list={list} />
+          <Labelled label="Show">
+            <Segmented
+              label="Filter schedules"
+              value={filter}
+              options={FILTERS.map((f) => ({ value: f, label: `${f[0]?.toUpperCase()}${f.slice(1)} ${list.filter((s) => matchesFilter(s, f)).length}` }))}
+              onChange={(next) => {
+                setFilter(next as ScheduleFilter);
+              }}
+            />
+          </Labelled>
+          {shown.length === 0 ? (
+            <EmptyState title={`No ${filter} schedules`}>Pick All to see every schedule.</EmptyState>
+          ) : (
+            <PanelBox className="sched-ledger">
+              {shown.map((schedule) => (
+                <ScheduleRow
+                  key={schedule.id}
+                  schedule={schedule}
+                  open={expanded.has(schedule.id)}
+                  busy={busy.has(schedule.id)}
+                  logs={logs}
+                  onToggleOpen={() => {
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (!next.delete(schedule.id)) {
+                        next.add(schedule.id);
+                      }
+                      return next;
+                    });
+                  }}
+                  onAct={(action) => void act(schedule, action)}
+                  onRemove={() => void remove(schedule)}
+                  onLoadLog={(s, index, run) => void loadLog(s, index, run)}
+                />
+              ))}
+            </PanelBox>
+          )}
+        </>
+      )}
+    </>
+  );
+}

@@ -20,7 +20,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0)) {
     await fn();
   }
-  for (const k of ["ORCH_CHAT_CLAUDE_BIN", "ORCH_CHAT_DISPATCH", "LLM_HUB_URL", "LLM_HUB_KEY"]) {
+  for (const k of ["ORCH_CHAT_CLAUDE_BIN", "ORCH_CHAT_DISPATCH", "ORCH_CHAT_OPENCODE_DISPATCH", "LLM_HUB_URL", "LLM_HUB_KEY"]) {
     delete process.env[k];
   }
 });
@@ -31,6 +31,7 @@ describe("every model chat-options offers is accepted on send", () => {
     home.write("profiles.json", readFileSync(TEMPLATE, "utf8"));
     process.env.ORCH_CHAT_CLAUDE_BIN = FAKE_CLAUDE;
     process.env.ORCH_CHAT_DISPATCH = FAKE_LOAD;
+    process.env.ORCH_CHAT_OPENCODE_DISPATCH = "1";
     process.env.LLM_HUB_URL = "http://127.0.0.1:1";
     process.env.LLM_HUB_KEY = "k";
     const ctx: ServerContext = {
@@ -39,26 +40,33 @@ describe("every model chat-options offers is accepted on send", () => {
     };
     const service = new ChatService(ctx);
     cleanup.push(() => service.dispose());
-    let checked = 0;
+    const jobs: (() => Promise<void>)[] = [];
     for (const harness of buildOptions(home.path, HARNESSES).harnesses) {
       for (const profile of harness.profiles.filter((p) => p.enabled)) {
         expect(profile.models.length, `${profile.name} offers no model`).toBeGreaterThan(0);
         for (const model of profile.models) {
           const launch = resolveLaunch(home.path, harness.id, profile.name, model.id);
           expect(launch.ok, `${profile.name}/${model.id}`).toBe(true);
-          const chat = service.createChat({ harness: harness.id, profile: profile.name, model_id: model.id });
-          service.sendMessage(chat.id, { content: "hi" });
-          await service.settled(chat.id);
-          const reply = service.store.listMessages(chat.id, {}).items.find((m) => m.role === "assistant");
-          expect(reply?.error, `${profile.name}/${model.id}`).toBeNull();
-          expect(reply?.status, `${profile.name}/${model.id}`).toBe("done");
-          if (harness.id !== "claude") {
-            expect(reply?.content).toBe(`slug=${model.slug} id=${model.id}`);
-          }
-          checked++;
+          jobs.push(async () => {
+            const chat = service.createChat({ harness: harness.id, profile: profile.name, model_id: model.id });
+            service.sendMessage(chat.id, { content: "hi" });
+            await service.settled(chat.id);
+            const reply = service.store.listMessages(chat.id, {}).items.find((m) => m.role === "assistant");
+            expect(reply?.error, `${profile.name}/${model.id}`).toBeNull();
+            expect(reply?.status, `${profile.name}/${model.id}`).toBe("done");
+            if (harness.id !== "claude") {
+              expect(reply?.content).toBe(`slug=${model.slug} id=${model.id}`);
+            }
+          });
         }
       }
     }
+    // Each send spawns a process, and start latency dominates, so the sends run in batches.
+    const BATCH = 6;
+    for (let i = 0; i < jobs.length; i += BATCH) {
+      await Promise.all(jobs.slice(i, i + BATCH).map((job) => job()));
+    }
+    const checked = jobs.length;
     expect(checked).toBeGreaterThan(15);
   }, 300000);
 });

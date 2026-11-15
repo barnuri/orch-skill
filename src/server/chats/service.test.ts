@@ -61,22 +61,33 @@ function collect(service: ChatService, chatId: string, last: string | null = nul
   return { events, replay };
 }
 
+async function waitFor(check: () => boolean, ms = 20_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > end) {
+      throw new Error("timed out waiting");
+    }
+    await Bun.sleep(25);
+  }
+}
+
 async function turn(service: ChatService, chatId: string, content: string, attachment_ids?: string[]): Promise<{ user: string; assistant: string }> {
   const r = service.sendMessage(chatId, { content, attachment_ids });
   await service.settled(chatId);
   return { user: r.user_message_id, assistant: r.assistant_message_id };
 }
 
-describe("persistent claude session", () => {
-  test("one process streams every turn; the message is written as it goes with usage and the session id", async () => {
+describe("detached claude turns", () => {
+  test("each turn is one detached process that resumes the stored session; the message is written as it goes with usage and the session id", async () => {
     const { service, lines } = setup();
     const chat = service.createChat({ harness: "claude", profile: "main", model_id: "m-b" });
     const { events } = collect(service, chat.id);
     const { assistant } = await turn(service, chat.id, "hello world");
     const second = await turn(service, chat.id, "two");
-    expect(service.store.getMessage(second.assistant)?.content).toContain("(turn 2,");
+    expect(service.store.getMessage(second.assistant)?.content).toContain("(turn 1,");
     const spawns = lines().filter((l) => l.args);
-    expect(spawns).toHaveLength(1);
+    expect(spawns).toHaveLength(2);
+    expect(spawns[1]?.args).toContain("--resume");
     const args = spawns[0]?.args as string[];
     expect(args).toEqual(expect.arrayContaining(["--include-partial-messages", "--dangerously-skip-permissions", "--settings"]));
     expect(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2)).toEqual(["--model", "beta"]);
@@ -107,9 +118,8 @@ describe("persistent claude session", () => {
     const sessionId = service.chat(chat.id).session_id as string;
     const { events } = collect(service, chat.id);
     const r = service.sendMessage(chat.id, { content: "SLOW please" });
-    await Bun.sleep(300);
+    await waitFor(() => service.store.getMessage(r.assistant_message_id)?.content.includes("tick") === true);
     expect(service.chat(chat.id).status).toBe("running");
-    expect(service.store.getMessage(r.assistant_message_id)?.content).toContain("tick");
     expect(await service.stop(chat.id)).toBe(true);
     const stopped = service.store.getMessage(r.assistant_message_id);
     expect([stopped?.status, stopped?.error]).toEqual(["stopped", null]);
@@ -185,7 +195,7 @@ describe("one long chat", () => {
     expect(() => service.sendMessage(chat.id, { content: "again", attachment_ids: [att.id] })).toThrow(/already attached/);
 
     expect(lines().find((l) => l.cwd)?.cwd).toContain("proj");
-    expect(lines().filter((l) => l.args)).toHaveLength(1);
+    expect(lines().filter((l) => l.args)).toHaveLength(3);
 
     const full = service.store.getMessage(withFile.assistant)?.content as string;
     const { replay } = collect(service, chat.id, `${withFile.assistant}.5`);
@@ -199,7 +209,7 @@ describe("one long chat", () => {
 });
 
 describe("restart recovery", () => {
-  test("a message still streaming when the server started is marked an error", () => {
+  test("a streaming message with no turn file is finalized as interrupted, never as 'server restarted'", () => {
     const home = TempHome.create();
     home.write("profiles.json", JSON.stringify(PROFILES));
     const store = new ChatStore(join(home.path, "chats.db"));
@@ -212,25 +222,44 @@ describe("restart recovery", () => {
     cleanup.push(() => service.dispose());
     expect(service.recovered).toBe(1);
     const row = service.store.getMessage(m.id);
-    expect([row?.status, row?.error, row?.content]).toEqual(["error", "server restarted", "half an ans"]);
+    expect([row?.status, row?.content]).toEqual(["error", "half an ans"]);
+    expect(row?.error).toMatch(/^interrupted:/);
+    expect(row?.error).not.toContain("server restarted");
     expect(service.chat(chat.id).status).toBe("idle");
   });
 });
 
 describe("rules on create and configure", () => {
-  test("a model outside the profile, a foreign profile and an unknown project are 400", () => {
+  test("create never checks the harness; a bad model or foreign profile is refused only when a message is sent; an unknown project is 404", () => {
     const { service } = setup();
-    expect(() => service.createChat({ harness: "claude", profile: "main", model_id: "nope" })).toThrow(expect.objectContaining({ status: 400 }));
-    expect(() => service.createChat({ harness: "copilot", profile: "main" })).toThrow(expect.objectContaining({ status: 400 }));
+    const bad = service.createChat({ harness: "claude", profile: "main", model_id: "nope" });
+    expect(() => service.sendMessage(bad.id, { content: "x" })).toThrow(expect.objectContaining({ status: 400 }));
+    const foreign = service.createChat({ harness: "copilot", profile: "main" });
+    expect(() => service.sendMessage(foreign.id, { content: "x" })).toThrow(expect.objectContaining({ status: 400 }));
+    expect(service.createChat({ harness: "", profile: "" }).harness).toBe("");
     expect(() => service.createChat({ harness: "claude", profile: "main", project_id: "prj-x" })).toThrow(expect.objectContaining({ status: 404 }));
   });
 
-  test("harness, profile and model change only before the first message", async () => {
+  test("a disabled harness is refused at send with a message naming an enabled alternative, not at create", () => {
+    const { service, home } = setup();
+    home.write("profiles.json", JSON.stringify({ ...PROFILES, settings: { disabled_harnesses: ["claude"] } }));
+    const chat = service.createChat({ harness: "claude", profile: "main" });
+    let message = "";
+    try {
+      service.sendMessage(chat.id, { content: "x" });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('harness "claude" is disabled');
+    expect(message).toContain("Switch to copilot (profile cp)");
+  });
+
+  test("harness, profile and model change between turns; a new harness drops the stored session id", async () => {
     const { service } = setup();
     const chat = service.createChat({ harness: "claude", profile: "main" });
     expect(service.configureChat(chat.id, { harness: "copilot", profile: "cp", model_id: "m-a" }).harness).toBe("copilot");
     await turn(service, chat.id, "hi");
-    expect(() => service.configureChat(chat.id, { harness: "claude", profile: "main", model_id: null })).toThrow(expect.objectContaining({ status: 409 }));
+    expect(service.configureChat(chat.id, { harness: "claude", profile: "main", model_id: null }).session_id).toBeNull();
   });
 
   test("a profile disabled after chat creation stops sending with 400", () => {

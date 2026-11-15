@@ -1,0 +1,14 @@
+/* Toast and ConfirmDialog in the B look (styling only). */
+.toast {
+  display: flex; align-items: center; gap: var(--s2); max-width: min(420px, calc(100vw - 2 * var(--s4)));
+  border-left: 3px solid var(--status-done); font-size: var(--fs-sm, 13px); overflow-wrap: anywhere;
+}
+.toast.error { border-left-color: var(--status-error); }
+.toast.ok { color: var(--tx); }
+dialog.confirm { width: min(420px, calc(100vw - 2 * var(--s4))); }
+dialog.confirm:focus-visible, dialog.confirm button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+dialog.confirm h2 { overflow-wrap: anywhere; }
+@media (pointer: coarse), (max-width: 600px) {
+  dialog.confirm .actions button { min-height: var(--touch-coarse); flex: 1 1 0; }
+}
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }

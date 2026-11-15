@@ -222,6 +222,9 @@ adapter_opencode() {
   local arg
   # opencode mints its own "ses…" ids; an orch-minted id from an earlier attempt is not one.
   case "${ORCH_RESUME_SESSION:-}" in ses*) session_args=(--session "$ORCH_RESUME_SESSION") ;; esac
+  # ORCH_SESSION_TITLE (set by the chat server on a chat's first turn) names the new session so the
+  # server can find the id opencode minted: `opencode session list --format json`, match on title.
+  [ -n "${ORCH_SESSION_TITLE:-}" ] && [ ${#session_args[@]} -eq 0 ] && session_args=(--title "$ORCH_SESSION_TITLE")
   # opencode rejects --pure. --standalone starts a private server that reads this process's
   # OPENCODE_CONFIG_CONTENT, where the shared background service would not.
   for arg in "$@"; do
@@ -309,8 +312,8 @@ pi_agent_dir() {
 }
 
 # The model comes from LLM_HUB_MODEL, which dispatch_with_profile sets from the profile — the
-# same channel local-llm uses — and is selected as hub/<model>. --no-session: a headless one-shot
-# has no conversation to come back to, so pi does not resume either.
+# same channel local-llm uses — and is selected as hub/<model>. --no-session unless the chat server
+# asks for a kept session (see ORCH_PI_SESSION_DIR below).
 adapter_pi() {
   local prompt="$1"; shift || true
   local bin dir model rc
@@ -330,8 +333,15 @@ adapter_pi() {
   dir=$(pi_agent_dir "$model") \
     || { printf 'adapter_pi: cannot prepare the pi agent dir\n' >&2; return 1; }
 
+  # ORCH_PI_SESSION_DIR (set by the chat server) keeps the conversation: pi creates or resumes the
+  # session named by ORCH_RESUME_SESSION / ORCH_SESSION_ID in that stable dir, outside the private agent dir.
+  local -a session_args=(--no-session)
+  if [ -n "${ORCH_PI_SESSION_DIR:-}" ] && [ -n "${ORCH_RESUME_SESSION:-${ORCH_SESSION_ID:-}}" ]; then
+    mkdir -p "$ORCH_PI_SESSION_DIR"
+    session_args=(--session-dir "$ORCH_PI_SESSION_DIR" --session-id "${ORCH_RESUME_SESSION:-$ORCH_SESSION_ID}")
+  fi
   PI_CODING_AGENT_DIR="$dir" PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 \
-    "$bin" --model "$PI_HUB_PROVIDER/$model" --approve --no-session -p "$prompt" "$@" </dev/null
+    "$bin" --model "$PI_HUB_PROVIDER/$model" --approve "${session_args[@]}" -p "$prompt" "$@" </dev/null
   rc=$?
   [ -n "${ORCH_JOB_DIR:-}" ] && [ "$dir" = "$ORCH_JOB_DIR/pi-agent" ] || recoverable_remove "$dir"
   return "$rc"

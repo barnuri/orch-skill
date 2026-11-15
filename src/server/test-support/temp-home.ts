@@ -1,3 +1,5 @@
+import { afterAll } from "bun:test";
+
 import {
   copyFileSync,
   mkdirSync,
@@ -8,6 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
+
+// Tests run against temp homes: never start a herdr instance for them (it would leak a server per home).
+process.env.ORCH_HERDR ??= "0";
 
 // Same template the bash `ensure_home` and `server/files/ensure-home.ts` seed from.
 // Resolved via import.meta.dir so the skill works when symlinked into other harnesses.
@@ -70,13 +75,20 @@ export class TempHome {
 
 const pending: string[] = [];
 
+const TRASH_BATCH: number = 50;
+
 function trashPending(): void {
   const paths = pending.splice(0);
   const trashBin = Bun.which("trash");
-  if (trashBin === null || paths.length === 0) {
+  if (trashBin === null) {
     return;
   }
-  Bun.spawnSync([trashBin, ...paths], { stdout: "ignore", stderr: "ignore" });
+  for (let i = 0; i < paths.length; i += TRASH_BATCH) {
+    Bun.spawnSync([trashBin, ...paths.slice(i, i + TRASH_BATCH)], { stdout: "ignore", stderr: "ignore" });
+  }
 }
 
+// `bun test` does not reliably run process "exit" handlers in its workers, so each test file also
+// flushes when it finishes. The exit handler stays as a fallback for non-test callers.
+afterAll(trashPending);
 process.on("exit", trashPending);

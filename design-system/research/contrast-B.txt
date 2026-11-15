@@ -1,0 +1,41 @@
+light text on bg    : tx 15.9 | tx1 11.2 | tx2 6.3 | tx3 5.6 | acct 7.2
+light text on panel : tx 17.3 | tx1 12.2 | tx2 6.9 | tx3 6.1 | acct 7.9
+light text on panel2: tx 16.5 | tx1 11.6 | tx2 6.6 | tx3 5.8 | acct 7.5
+light text on inset : tx 14.8 | tx1 10.5 | tx2 5.9 | tx3 5.3 | acct 6.7
+light text on hover : tx 13.7 | tx1 9.7 | tx2 5.5 | tx3 4.9 | acct 6.2
+light ok   text on its tint over panel: 4.9
+light ok   text on its tint over bg   : 4.5
+light wa   text on its tint over panel: 4.9
+light wa   text on its tint over bg   : 4.6
+light er   text on its tint over panel: 4.9
+light er   text on its tint over bg   : 4.6
+light pu   text on its tint over panel: 6.0
+light pu   text on its tint over bg   : 5.5
+light mute text on its tint over panel: 5.1
+light mute text on its tint over bg   : 4.7
+light acc  text on its tint over panel: 5.2
+light acc  text on its tint over bg   : 4.8
+light onacc on acc (primary button): 6.4
+light focus ring on bg (needs 3): 5.2
+light edge on panel (control edge, needs 3): 3.5
+dark  text on bg    : tx 16.7 | tx1 12.3 | tx2 8.1 | tx3 6.5 | acct 15.5
+dark  text on panel : tx 15.8 | tx1 11.6 | tx2 7.6 | tx3 6.1 | acct 14.6
+dark  text on panel2: tx 16.3 | tx1 12.0 | tx2 7.9 | tx3 6.3 | acct 15.1
+dark  text on inset : tx 14.7 | tx1 10.8 | tx2 7.1 | tx3 5.7 | acct 13.6
+dark  text on hover : tx 12.9 | tx1 9.5 | tx2 6.2 | tx3 5.0 | acct 12.0
+dark  ok   text on its tint over panel: 8.2
+dark  ok   text on its tint over bg   : 9.0
+dark  wa   text on its tint over panel: 8.2
+dark  wa   text on its tint over bg   : 8.9
+dark  er   text on its tint over panel: 6.1
+dark  er   text on its tint over bg   : 6.6
+dark  pu   text on its tint over panel: 6.9
+dark  pu   text on its tint over bg   : 7.6
+dark  mute text on its tint over panel: 5.3
+dark  mute text on its tint over bg   : 5.8
+dark  acc  text on its tint over panel: 10.0
+dark  acc  text on its tint over bg   : 11.0
+dark  onacc on acc (primary button): 13.8
+dark  focus ring on bg (needs 3): 11.7
+dark  edge on panel (control edge, needs 3): 3.2
+WORST text/status ratio: 4.53 (need 4.5)

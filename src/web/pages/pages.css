@@ -1,0 +1,70 @@
+/* Profiles, Harnesses and Schedules: the "Signal" ledger look. Loaded after the shared sheet, so
+   these rules refine it. Status colour always comes with a status word; the accent marks focus only. */
+
+/* ---- Focus ring in the accent ------------------------------------------------------------ */
+.profile-open:focus-visible, .switch:focus-visible, .sanity-run:focus-visible,
+.harness-card button:focus-visible, .sched-row button:focus-visible, .sched-form button:focus-visible,
+.ledger-summary:focus-visible {
+  outline: 2px solid var(--acc); outline-offset: 2px;
+}
+.doc-row:focus-within { box-shadow: inset 2px 0 0 var(--acc); }
+
+/* ---- Profiles ledger --------------------------------------------------------------------- */
+.profile-layout .runs { border-radius: var(--r-lg); }
+.profile-row { padding: var(--s2) var(--s3); min-height: 44px; border-top-color: var(--line); }
+.profile-row .title { font-weight: 600; letter-spacing: -.005em; }
+.profile-row.selected { background: var(--accs); box-shadow: inset 2px 0 0 var(--acc); }
+.profile-row .counts, .profile-row .mono { font-size: var(--fs-meta); }
+
+/* ---- Compact summary strip (replaces KPI tiles) ------------------------------------------ */
+.ledger-summary {
+  display: flex; flex-wrap: wrap; gap: var(--s2) var(--s6); margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel);
+}
+.ledger-summary > div { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.ledger-summary dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .06em; color: var(--tx3); }
+.ledger-summary dd { margin: 0; font-size: var(--fs-ctl); color: var(--tx); font-variant-numeric: tabular-nums; }
+.ledger-summary .is-running { color: var(--status-running); }
+.ledger-summary .is-error { color: var(--status-error); }
+.ledger-summary .is-done { color: var(--status-done); }
+
+/* ---- Schedules --------------------------------------------------------------------------- */
+.sched-ledger { border-radius: var(--r-lg); }
+.sched-row { padding: var(--s3) var(--s4); }
+.sched-row.is-ok { border-left-color: var(--status-done); }
+.sched-row.is-failing { border-left-color: var(--status-error); }
+.sched-row.is-paused { border-left-color: var(--status-waiting); }
+.sched-name { letter-spacing: -.005em; }
+.sched-form { border-radius: var(--r-lg); }
+
+/* ---- Harnesses: one ledger of rows instead of cards -------------------------------------- */
+.harness-grid {
+  display: block; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); overflow: hidden;
+}
+.harness-card {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s1) var(--s4); align-items: center;
+  padding: var(--s3) var(--s4); border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  border-left: 3px solid var(--status-waiting); background: transparent;
+}
+.harness-card:first-child { border-top: 0; }
+.harness-card.is-ready { border-left-color: var(--status-done); }
+.harness-card > * { grid-column: 1; min-width: 0; }
+.harness-card .harness-actions { grid-column: 2; grid-row: 1 / span 3; margin: 0; padding: 0; align-self: center; }
+.harness-desc { color: var(--tx2); font-size: var(--fs-ctl); }
+.harness-reason { color: var(--status-stale); overflow-wrap: anywhere; }
+.harness-card .hint { overflow-wrap: anywhere; font-size: var(--fs-meta); color: var(--tx3); margin: 0; }
+.harness-section > h2 { font-size: var(--fs-meta); text-transform: uppercase; letter-spacing: .06em; color: var(--tx3); font-weight: 600; }
+
+/* ---- Mobile: 44px targets, no sideways scroll -------------------------------------------- */
+@media (max-width: 600px) {
+  .ledger-summary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2) var(--s4); }
+  .harness-card { grid-template-columns: minmax(0, 1fr); }
+  .harness-card .harness-actions { grid-column: 1; grid-row: auto; justify-content: stretch; }
+  .harness-card .harness-actions button, .sched-actions button, .sched-form-actions button, .sched-view { min-height: 44px; }
+  .sched-row { padding: var(--s3); }
+  .profile-row { min-height: 52px; }
+}
+
+/* Form checkboxes: the label sat flush against the box and below its midline. */
+.panel input[type="checkbox"] { vertical-align: middle; margin-right: 8px; }
+.panel input[type="checkbox"] + label { vertical-align: middle; }

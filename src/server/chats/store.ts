@@ -18,6 +18,8 @@ function clamp(limit: number | undefined, fallback: number, max: number): number
  * Chat history in `<home>/chats.db`. Rows are archived, never deleted, except an upload no message owns (dropUnattached). Messages are
  * indexed for search when they are final, not on every streamed delta.
  */
+export const INTERRUPTED_NO_PROCESS = "interrupted: the dashboard restarted before this answer was finished and no agent process was left to continue it. The partial answer is kept; send another message to continue.";
+
 export class ChatStore {
   private readonly db: Database;
 
@@ -236,15 +238,35 @@ export class ChatStore {
     ).all(chatId, afterId, sinceIso) as MessageRow[];
   }
 
-  /** At startup nothing can still be streaming: mark every such message failed, never leave it hanging. */
-  recoverStreaming(): number {
+  /** Replaces a message's content (boot recovery rebuilds it from the turn file). */
+  setContent(id: string, content: string): void {
+    this.db.query("UPDATE messages SET content = ? WHERE id = ?").run(content, id);
+  }
+
+  /**
+   * At startup a streaming message is either still served by a surviving process (`keep`: its turn is re-attached,
+   * the row and its chat stay running) or has lost its process: it ends as `error` marked `interrupted:` with the
+   * partial text kept. Returns how many rows were marked interrupted.
+   */
+  recoverStreaming(keep: ReadonlySet<string> = new Set()): number {
     const stamp = now();
-    const hit = this.db.query("SELECT id, chat_id, content FROM messages WHERE status IN ('streaming','pending')").all() as MessageRow[];
+    const hit = (this.db.query("SELECT id, chat_id, content FROM messages WHERE status IN ('streaming','pending')").all() as MessageRow[]).filter((r) => !keep.has(r.id));
     for (const row of hit) {
-      this.db.query("UPDATE messages SET status = 'error', error = 'server restarted', finished_at = ? WHERE id = ?").run(stamp, row.id);
+      this.db.query("UPDATE messages SET status = 'error', error = ?, finished_at = ? WHERE id = ?").run(INTERRUPTED_NO_PROCESS, stamp, row.id);
       this.index({ ...row, status: "error" });
     }
-    this.db.query("UPDATE chats SET status = 'idle' WHERE status != 'idle'").run();
+    const running = new Set<string>();
+    for (const id of keep) {
+      const row = this.getMessage(id);
+      if (row !== null) {
+        running.add(row.chat_id);
+      }
+    }
+    for (const chat of this.db.query("SELECT id FROM chats WHERE status != 'idle'").all() as Array<{ id: string }>) {
+      if (!running.has(chat.id)) {
+        this.db.query("UPDATE chats SET status = 'idle' WHERE id = ?").run(chat.id);
+      }
+    }
     return hit.length;
   }
 

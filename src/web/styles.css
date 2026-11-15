@@ -1,0 +1,40 @@
+/* The design system is shared with the current dashboard (tokens, components, shell, pages): one
+   source, no copy to drift. Phase 2 moves these files here when the old UI goes. */
+@import "../snapshot/styles.css";
+@import "./shell/shell.css";
+@import "./shell/build-banner.css";
+@import "./chats/chats.css";
+
+/* ---- Mobile shell (a chat composer docks to the bottom next) ----------------------------- */
+
+#root { min-height: 100%; }
+body { overflow-x: hidden; }
+main { padding-bottom: max(var(--s5), calc(var(--s4) + env(safe-area-inset-bottom))); min-width: 0; }
+
+#toasts {
+  position: fixed; z-index: 30; right: max(var(--s5), env(safe-area-inset-right)); bottom: max(var(--s5), env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: var(--s2); align-items: flex-end; pointer-events: none; max-width: calc(100vw - 2 * var(--s4));
+}
+#toasts .toast { position: static; pointer-events: auto; }
+
+@media (max-width: 600px) {
+  .active-pill { min-height: 32px; }
+  #toasts { left: var(--s4); right: var(--s4); align-items: stretch; }
+}
+
+/* ---- Touch targets the shared sheet leaves small (switch, per-row test, profile name) --------- */
+@media (pointer: coarse), (max-width: 600px) {
+  .switch::after { content: ""; position: absolute; inset: -14px -8px; }
+  .sanity-run { min-height: 44px; min-width: 44px; }
+  .profile-open { min-height: 44px; }
+  .switch-cell { min-width: 44px; }
+}
+
+/* A memory entry keeps its outcome, task and note on a phone: the shared sheet hides every column after the second. */
+@media (max-width: 900px) {
+  .doc-row.memory-row { grid-template-columns: 1fr auto; row-gap: var(--s1); text-align: left; min-height: 44px; }
+  .doc-row.memory-row > :nth-child(n+3) { display: block; }
+  .doc-row.memory-row > :nth-child(3) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .doc-row.memory-row > :nth-child(n+4) { grid-column: 1 / -1; overflow-wrap: anywhere; }
+  .doc-row.memory-row > :nth-child(n+4):empty { display: none; }
+}

@@ -180,17 +180,17 @@ export class ChatInputDto extends ZodDto {
   @ZodField(z.string().max(200).optional(), { description: "Title. Default `New chat`." })
   title?: string;
 
-  @ZodField(z.string().min(1).max(100), { description: "Harness id." })
+  @ZodField(z.string().max(100), { description: "Harness id. Not checked here: a disabled or missing harness is reported when a message is sent." })
   harness!: string;
 
-  @ZodField(z.string().min(1).max(200), { description: "Profile name. Must belong to the harness." })
+  @ZodField(z.string().max(200), { description: "Profile name; empty when no profile is usable yet." })
   profile!: string;
 
   @ZodField(z.string().max(200).nullable().optional(), { description: "Catalog model id from the profile's list. Omit for the profile's default." })
   model_id?: string | null;
 }
 
-@ZodObject({ description: "A new harness, profile and model for a chat that has no messages yet." })
+@ZodObject({ description: "A new harness, profile and model for the next turn. Allowed between turns, not while a reply runs." })
 export class ChatConfigDto extends ZodDto {
   @ZodField(z.string().min(1).max(100), { description: "Harness id." })
   harness!: string;
@@ -289,6 +289,12 @@ export class MessageDto extends ZodDto {
 
   @ZodField(z.string(), { description: "ISO 8601 UTC." })
   created_at!: string;
+
+  @ZodField(z.union([z.boolean(), z.number()]).optional(), { description: "Truthy when older history was left out of the prompt to fit the context. Stored rows carry 0 or 1, SSE carries a boolean." })
+  context_truncated?: boolean | number;
+
+  @ZodField(z.string().nullable().optional(), { description: "A visible problem with this reply, e.g. the session could not be resumed." })
+  warning?: string | null;
 
   @ZodField(z.array(AttachmentDto.schema), { description: "Files attached to this message." })
   attachments!: AttachmentDto[];
@@ -431,6 +437,9 @@ export class HarnessOptionDto extends ZodDto {
 
   @ZodField(z.boolean(), { description: "True when one live process serves a whole chat. False when each message starts a process and only resumes the session if the adapter can." })
   persistent!: boolean;
+
+  @ZodField(z.enum(["process", "session", "replay"]).optional(), { description: "How the chat remembers: one live process, the harness's own session resumed per message, or recent history replayed in the prompt." })
+  memory?: "process" | "session" | "replay";
 
   @ZodField(z.array(ProfileOptionDto.schema), { description: "Profiles on this harness." })
   profiles!: ProfileOptionDto[];

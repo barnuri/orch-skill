@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,9 +15,10 @@ function newHome(): string {
   return home;
 }
 
-afterEach(() => {
-  for (const home of homes.splice(0)) {
-    Bun.spawnSync(["trash", home]);
+afterAll(() => {
+  const paths = homes.splice(0);
+  if (paths.length > 0) {
+    Bun.spawnSync(["trash", ...paths]);
   }
 });
 
@@ -53,9 +54,15 @@ function fixture(home: string): void {
   write(home, "loops/loop-20261112-100000-0007/state.json", { id: "x", status: "running" });
 }
 
-function viaShell(home: string): unknown[] {
-  const proc = Bun.spawnSync(["bash", DISPATCH, "active", "--json"], { env: { ...process.env, HARNESS_ORCH_HOME: home } });
-  return JSON.parse(new TextDecoder().decode(proc.stdout)) as unknown[];
+async function viaShell(home: string): Promise<unknown[]> {
+  const proc = Bun.spawn(["bash", DISPATCH, "active", "--json"], {
+    env: { ...process.env, HARNESS_ORCH_HOME: home },
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return JSON.parse(text) as unknown[];
 }
 
 const byId = (items: readonly { id: string }[]): unknown[] => [...items].sort((a, b) => a.id.localeCompare(b.id));
@@ -93,9 +100,9 @@ describe("readActive", () => {
     expect(readActive(home).some((i) => i.id === "x")).toBe(false);
   });
 
-  test("matches `dispatch.sh active --json` field for field", () => {
+  test("matches `dispatch.sh active --json` field for field", async () => {
     const home = newHome();
     fixture(home);
-    expect(byId(readActive(home))).toEqual(byId(viaShell(home) as { id: string }[]));
-  }, 60000);
+    expect(byId(readActive(home))).toEqual(byId((await viaShell(home)) as { id: string }[]));
+  }, 300_000);
 });

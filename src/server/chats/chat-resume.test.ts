@@ -31,7 +31,7 @@ afterEach(async () => {
     await fn();
   }
   process.env.PATH = saved.path;
-  for (const k of ["ORCH_CHAT_DISPATCH", "FAKE_STATE", "FAKE_AGENT_LOG", "FAKE_PROMPT_LOG", "FAKE_NO_CREATE_CHAT", "FAKE_NO_SESSION_LIST"]) {
+  for (const k of ["ORCH_CHAT_DISPATCH", "ORCH_CHAT_OPENCODE_DISPATCH", "FAKE_STATE", "FAKE_AGENT_LOG", "FAKE_PROMPT_LOG", "FAKE_NO_CREATE_CHAT", "FAKE_NO_SESSION_LIST"]) {
     delete process.env[k];
   }
   if (saved.hub === undefined) {
@@ -58,6 +58,7 @@ function setup(dispatch: string): { service: ChatService; home: TempHome; state:
   process.env.FAKE_AGENT_LOG = log;
   process.env.LLM_HUB_URL = "http://127.0.0.1:1";
   process.env.ORCH_CHAT_DISPATCH = dispatch;
+  process.env.ORCH_CHAT_OPENCODE_DISPATCH = "1";
   const ctx: ServerContext = {
     paths: orchPaths(home.path), bindHost: "127.0.0.1", hostname: hostname(), tokenDigest: digestToken("t"), requireToken: true,
     requireRemoteToken: true, harnesses: HARNESSES, outcomes: [],

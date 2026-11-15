@@ -4,14 +4,30 @@
   "type": "module",
   "description": "orch dashboard server and client. The skill itself (skills/orch) needs none of this to run the CLI.",
   "scripts": {
-    "test": "bun test --timeout 30000 src",
+    "test": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 src",
+    "test:bash": "bash skills/orch/scripts/dispatch.test.sh",
+    "test:all": "bash scripts/test-all.sh",
     "typecheck": "bash scripts/typecheck.sh"
   },
   "dependencies": {
     "@barnuri/hono-decorators": "github:barnuri/hono-decorators",
     "@barnuri/zod-decorators": "github:barnuri/zod-decorators",
     "@hono/zod-openapi": "^1.6.3",
+    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-virtual": "^3.14.26",
+    "highlight.js": "^11.12.0",
     "hono": "^4.13.18",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "happy-dom": "^21.0.4"
   }
 }

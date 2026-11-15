@@ -1,9 +1,22 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { sweepPromptDirs, TurnSession } from "./sessions/turn-session";
+
+// A private TMPDIR: the prompt-folder assertions must not see orch-chat-* dirs other workers create.
+const REAL_TMPDIR: string | undefined = process.env.TMPDIR;
+const PRIVATE_TMP: string = mkdtempSync(join(tmpdir(), "turn-session-tmp-"));
+process.env.TMPDIR = PRIVATE_TMP;
+afterAll(() => {
+  if (REAL_TMPDIR === undefined) {
+    delete process.env.TMPDIR;
+  } else {
+    process.env.TMPDIR = REAL_TMPDIR;
+  }
+  Bun.spawnSync(["trash", PRIVATE_TMP], { stdout: "ignore", stderr: "ignore" });
+});
 
 const TREE = resolve(import.meta.dir, "testing/fake-dispatch-tree.sh");
 
@@ -60,20 +73,32 @@ describe("TurnSession.stop (F1)", () => {
   test("a child that ignores SIGTERM is killed after the grace period", async () => {
     const { session, done, child } = await startTurn(true);
     const t0 = Date.now();
-    await session.dispose();
+    await session.stop();
     await done;
     expect(Date.now() - t0).toBeLessThan(6000);
     expect(alive(child)).toBe(false);
   }, 20000);
+
+  test("dispose (server shutdown) ends the tailer but leaves the agent running", async () => {
+    const { session, done, child } = await startTurn(false);
+    await session.dispose();
+    await done;
+    expect(alive(child)).toBe(true);
+    process.kill(-child, "SIGKILL");
+    try {
+      process.kill(child, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }, 20000);
 });
 
 describe("prompt folders (F5)", () => {
-  test("the turn removes its orch-chat folder, also when stopped", async () => {
+  test("the prompt now lives in the turn folder of the home, so no orch-chat temp folder is made", async () => {
     const { session, done, before } = await startTurn(false);
-    expect(promptDirs().filter((n) => !before.has(n)).length).toBeGreaterThan(0);
+    expect(promptDirs().filter((n) => !before.has(n))).toEqual([]);
     await session.stop();
     await done;
-    expect(promptDirs().filter((n) => !before.has(n))).toEqual([]);
   }, 20000);
 
   test("sweepPromptDirs removes only old orch-chat-* folders", () => {

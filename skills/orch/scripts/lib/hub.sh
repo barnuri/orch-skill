@@ -91,11 +91,11 @@ hub_settings_write() {
   local filter="$1" tmp="$PROFILES_FILE.tmp.$$"
   shift
   if ! jq "$@" "$filter" "$PROFILES_FILE" > "$tmp"; then
-    mv -f "$tmp" "$tmp.failed" 2>/dev/null
+    profiles_tmp_discard "$tmp"
     printf 'hub: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE"
+  profiles_commit "$tmp"
 }
 
 # hub setup: checks the hub answers, makes <harness>-smart-auto the default and planner profile,

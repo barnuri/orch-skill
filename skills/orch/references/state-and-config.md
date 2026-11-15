@@ -186,6 +186,19 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   attempt, capped at 5 minutes. Manual `node retry` / `run retry` ignore this delay.
 - `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
   and every incoming edge's source is `done`.
+- Visibility fields on a node: `created`, `updated` (heartbeat), `notes` (last 20 `{at,text}`), `progress`,
+  `owner` (agent id, job id or `coordinator`), `backfilled` (finished without ever running). Every
+  change appends `{at,kind,node,from,to,note,by}` to `runs/<id>/events.jsonl`. Allowed moves:
+  waiting->running|done|error|skipped (done/error from waiting is recorded as backfilled),
+  running->done|error|waiting|skipped, error->waiting|running|skipped, skipped->waiting|running,
+  done->waiting only with `--force`. `waiting` clears started, finished, error, owner and job_id.
+  `settings.stale_minutes` (default 10) marks a quiet running node stale. `run sync` prints `stale:`
+  and `unowned:` lines.
+- `node report` stores `report: {reported_by: "inline", model, input_tokens, output_tokens,
+  cache_read_tokens, usd, note, at}` on the node (and `model`). An omitted flag keeps the earlier
+  value, else `null`; nothing is estimated. `run sync` prints one `reported:` line per such node
+  after `slots:`, and `node digest` prints it too. The dashboard shows it as the node's usage when
+  the harness reported no `cost`.
 - Node options from `node add`: `role` (planning, investigation, implementation, validation,
   conversation), `tier` (efficiency, balance, intelligence, fast), `plan_backed` (boolean) and
   `acceptance` (free text). Each is `null` or `false` when the node was added without it.
@@ -201,6 +214,11 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   blocked by `settings.max_attempts`; automatic retries are. Fallback/different
   harness retries restart from `prompt` with a note about partial work. `run sync`/`run advance`
   do the same automatically while attempts remain and backoff has elapsed.
+- `run carry` moves the non-`done` nodes (and the edges between them) to a new run. Run fields:
+  `continued_from` (on the new run: the old run id) and `continued_to` (on the old run: the new id).
+  Node field `out_dir`: absolute handoff folder, set on a moved node whose folder already exists in
+  the old run; absent otherwise. Moved nodes in the old run become `skipped` with
+  `error: "moved to run <new>"`.
 - Run ids: `YYYYMMDD-HHMMSS-<4 hex>` or `--id` matching `^[A-Za-z0-9._-]+$`.
 - `plan` (planned runs only): `{node, profile, applied, summary, tasks}` — the planner node id,
   its profile, when `plan apply` added the tasks (`null` while the planner works), the plan's
@@ -222,6 +240,40 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 `orch serve config show|get|set` reads and writes this file. `service.sh install` updates it;
 `service.sh restart` (or `orch serve --stop` then `orch serve`) picks up edits. CLI
 `--host`/`--port` on `orch serve` override for one shot only.
+
+## chats.db (chat history)
+
+Projects, chats, messages and attachment rows live in `<home>/chats.db` (SQLite, WAL, foreign keys on),
+written **only by the dashboard server** through `bun:sqlite`, never by `dispatch.sh`. History is kept
+forever: nothing prunes or deletes it; chats and projects are archived (`archived_at`), not removed.
+Schema changes are numbered migrations recorded in `schema_migrations` and run at startup.
+
+| Table | Holds |
+|---|---|
+| `projects` | `id, name, path (nullable), description, created_at, archived_at` |
+| `chats` | `id, project_id, title, harness, profile, model_id (null = the profile's model), session_id, status idle\|running, created_at, updated_at, archived_at` |
+| `messages` | `id, chat_id, role user\|assistant\|system\|tool, content, status pending\|streaming\|done\|error\|stopped, error, model_used, input_tokens, output_tokens, cost_usd, started_at, finished_at, created_at` |
+| `attachments` | `id, chat_id, message_id (null until sent), filename, mime, size, sha256, rel_path, created_at` |
+| `messages_fts` | FTS5 index of finished message text (search) |
+
+- Ids are `<prj\|chat\|msg\|att>-` plus 16 base32 characters: 10 of millisecond time, 2 of a per-ms counter,
+  4 random. They sort in creation order as plain strings, which is what cursor paging uses.
+- An assistant message is written while it streams (`status: streaming`, `content` grows). At server
+  start every message still `streaming` becomes `error: "server restarted"`.
+- Uploaded files are stored content-addressed at `<home>/chats/files/<sha256[0:2]>/<sha256>` (identical
+  content is stored once; the row keeps the original filename). Limits: 25 MB per file, 100 MB per
+  message. The agent reads them through `<home>/chats/links/<att-id>/<filename>` symlinks.
+- Harness, profile and model of a chat are fixed once it has a message. One live agent session per
+  active chat is kept for 30 minutes of idleness; the stored `session_id` resumes it afterwards.
+  Only `claude` is persistent (one `claude -p --input-format stream-json` process per chat); other
+  harnesses run `dispatch.sh run --profile P` per message with `ORCH_RESUME_SESSION`.
+- Test hooks (tests only): `ORCH_CHAT_CLAUDE_BIN` replaces the `claude` binary, `ORCH_CHAT_DISPATCH` the
+  `dispatch.sh` path used by the per-message fallback.
+
+API: `GET /api/chat-options`, `/api/projects*`, `/api/chats*`, `/api/attachments/{id}`. The request and
+response schemas are the zod classes in `src/shared/dto/chats.ts` and the OpenAPI document at
+`/api/openapi.json`. `GET /api/chats/{id}/events` is Server-Sent Events; event ids are
+`<message id>.<text length>`, and `Last-Event-ID` replays what was missed from the database.
 
 ## Serve API
 
@@ -264,16 +316,22 @@ dispatch.sh start (--profile <name> | <adapter>) <prompt|@file> [pass-through ar
 dispatch.sh status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S] [--interval S] | list
 
 dispatch.sh run start "<title>" [--id <run-id>]
-dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--plan-backed] [--acceptance "<checks>"]
+dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]
+dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]
 dispatch.sh node selections <run-id> <node-id>
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
 dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
-dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"]
-dispatch.sh run sync <run-id>
+dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force]
+dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]
+dispatch.sh node remove <run-id> <node-id> [--force]
+dispatch.sh run sync <run-id> [--no-retry]
+dispatch.sh run wait <run-id> [--timeout S] [--include-notes]
+dispatch.sh run status <run-id> [--json]
 dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]
 dispatch.sh plan apply <run-id> [--file plan.json]
 dispatch.sh run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]
 dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]
+dispatch.sh run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]
 dispatch.sh msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
 dispatch.sh msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
 dispatch.sh run finish <run-id> [--status done|error]

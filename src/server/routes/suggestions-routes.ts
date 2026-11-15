@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dispatchPath } from "../dispatch-path";
 
 import type { ApiError } from "../../shared/types/api-error";
 import type { SuggestionApplyEnvelope } from "../../shared/types/suggestion-apply-envelope";
@@ -7,12 +7,12 @@ import { getDocumentHandler, putDocumentHandler, MAX_BODY_BYTES } from "./docume
 import { jsonResponse } from "../http/responses";
 import type { RouteHandler } from "../http/route";
 import type { ServerContext } from "../types/server-context";
+import { scanSuggestions } from "../suggest/scan-cache";
 import { parseJsonStrict } from "../validation/strict-json";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 
 function dispatchSubcommand(args: readonly string[]): Response {
-  const proc = Bun.spawnSync(["bash", DISPATCH, ...args], {
+  const proc = Bun.spawnSync(["bash", dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",
@@ -27,7 +27,7 @@ function dispatchSubcommand(args: readonly string[]): Response {
 }
 
 function dispatchApply(args: readonly string[]): Response {
-  const proc = Bun.spawnSync(["bash", DISPATCH, ...args], {
+  const proc = Bun.spawnSync(["bash", dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",
@@ -55,8 +55,15 @@ export function putSuggestionsHandler(ctx: ServerContext): RouteHandler {
   return putDocumentHandler(ctx, "suggestions");
 }
 
-export function scanSuggestionsHandler(_ctx: ServerContext): RouteHandler {
-  return (): Response => dispatchSubcommand(["suggest", "scan"]);
+export function scanSuggestionsHandler(ctx: ServerContext): RouteHandler {
+  return async (): Promise<Response> => {
+    const r = await scanSuggestions(ctx.paths.home);
+    if (!r.ok) {
+      const error: ApiError = { error: r.error };
+      return jsonResponse(500, error);
+    }
+    return jsonResponse(200, { ok: true, output: r.output });
+  };
 }
 
 export function bulkApplySuggestionsHandler(_ctx: ServerContext): RouteHandler {

@@ -32,6 +32,10 @@ usage() {
 dispatch.sh classify "<task description>" [--complexity trivial|small|medium|large] [--prefer-local]
     -> prints exactly one of: claude-native | local-llm | cursor-agent | opencode | copilot
 
+dispatch.sh announce [--clear|--dry-run|--quiet|--run <id>|--ttl-sec N]
+    -> shows running orch work in Herdr and the status line (see references/status-bridge.md).
+       Mutating run/node commands call it automatically in the background.
+
 dispatch.sh budget-check
     -> exit 0 = safe to route more work to Claude Code; exit 1 = avoid (near limit).
        Reason printed to stderr either way.
@@ -40,8 +44,9 @@ dispatch.sh run   (--profile <name> | <adapter>) <prompt-or-@file> [pass-through
     -> runs synchronously in the foreground. Exits with the harness's own exit code.
 dispatch.sh start (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]
     -> self-backgrounds (nohup), prints a job-id to stdout immediately, exits 0.
-       With settings.herdr on and the main herdr server running, the job runs in a pane of the
-       herdr workspace "orch" instead (one tab per run), and still writes the same log.
+       When herdr is installed (and ORCH_HERDR is not 0) the job runs in a pane of the orch skill's
+       own headless herdr instance (never your live session; one tab per run), same log and exit
+       file. If that instance cannot start, or has 20 panes, the job starts detached as before.
        adapters: claude-native | claude | cursor-agent | opencode | local-llm | copilot | pi
        --profile supplies harness + model + flags + env from profiles.json instead of <adapter>.
 
@@ -88,7 +93,9 @@ EOF
   # summary here and each command's own usage line can't drift apart.
   cat <<EOF
 $HERDR_USAGE
-    -> turns settings.herdr on or off, then prints the setting and whether the herdr server runs.
+    -> on/off/auto set settings.herdr (auto = on when herdr is installed). status and attach print
+       the state of the dedicated orch herdr instance and the command to look at it; ensure/stop
+       start/stop that instance.
 $HUB_USAGE
     -> llm-hub native mode: the hub picks every model by node role and tier; orch runs the graph.
        setup makes <harness>-smart-auto (default opencode) the default and planner profile.
@@ -109,7 +116,15 @@ $NODE_DIGEST_USAGE
 $NODE_SELECTIONS_USAGE
     -> appends the hub's model selections for the node's workers, idempotent by sequence
 $NODE_UPDATE_USAGE
+$NODE_REMOVE_USAGE
+    -> removes a waiting node with no running or done dependents, and its edges
+$NODE_PING_USAGE
+    -> heartbeat: stamps updated, keeps the last 20 notes, records progress
 $NODE_RETRY_USAGE
+$RUN_WAIT_USAGE
+    -> blocks until a node changes status or goes stale; exit 0 = change, 3 = nothing left to run, 124 = timeout
+$RUN_STATUS_USAGE
+    -> compact progress: counts, running nodes with ages, ready nodes, errors, dashboard link
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
                                   then "ready: a,b" (waiting nodes whose deps are all done) and "running: N"
     -> ... then "slots: N" (free places under settings.max_parallel)
@@ -189,7 +204,7 @@ if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/hooks/agent-env.sh" ]; then
   # shellcheck source=/dev/null
   . "$REPO_ROOT/hooks/agent-env.sh"
 else
-  agent_session_id() { printf 'pid-%s\n' "$$"; }
+  agent_session_id() { printf '%s\n' "${CLAUDE_CODE_SESSION_ID:-${OPENCODE_SESSION_ID:-pid-$$}}"; }
   agent_harness() { printf 'unknown\n'; }
 fi
 
@@ -531,24 +546,63 @@ cmd_list() {
   done | sort -r
 }
 
+# announce_hook: after a state mutation, refresh the Herdr label and status line in the background.
+# Debounced (5 s), skipped for the dashboard server (ORCH_NO_ANNOUNCE=1) and outside Herdr/agent sessions.
+announce_hook() {
+  [ "${ORCH_NO_ANNOUNCE:-}" = 1 ] && return 0
+  [ "${HERDR_ENV:-}" = 1 ] || [ -n "${CLAUDE_CODE_SESSION_ID:-}${OPENCODE_SESSION_ID:-}" ] || return 0
+  [ -f "$SCRIPT_DIR/announce.sh" ] || return 0
+  local stamp="$ORCH_HOME/.announce-ts" now last tmp
+  now=$(date +%s); last=$(cat "$stamp" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $((now - last)) -ge 5 ] || return 0
+  tmp="$stamp.$$"
+  { printf '%s\n' "$now" > "$tmp" && mv -f "$tmp" "$stamp"; } 2>/dev/null || return 0
+  ( bash "$SCRIPT_DIR/announce.sh" --quiet >/dev/null 2>&1 </dev/null & ) 2>/dev/null
+  return 0
+}
+
+# harness list is slow (it probes every CLI): one at a time. A caller that arrives meanwhile gets the
+# last finished answer, or exit 75 when there is none.
+harness_list_locked() {
+  local last rc tmp
+  last="$(locks_dir)/harness-list.last"
+  if ! orch_lock_acquire harness-list; then
+    if [ -s "$last" ]; then cat "$last"; return 0; fi
+    printf 'harness list: another probe is running\n' >&2
+    return 75
+  fi
+  tmp="$last.tmp.$$"
+  cmd_harness "$@" > "$tmp"; rc=$?
+  cat "$tmp"
+  [ "$rc" -ne 0 ] || mv -f "$tmp" "$last" 2>/dev/null
+  orch_lock_release harness-list
+  return $rc
+}
+
 main() {
   local sub="${1:-}" verb
   case "$sub" in
     classify) shift; classify_cmd "$@" ;;
     budget-check) budget_check; exit $? ;;
     run)
+      case "${2:-}" in start|finish|sync|carry) trap announce_hook EXIT ;; esac
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
-        start|finish|list|sync|advance|retry|stop) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        start|finish|list|sync|advance|retry|stop|carry|wait|status) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
     node)
+      case "${2:-}" in update|report|ping|dispatch) trap announce_hook EXIT ;; esac
       case "${2:-}" in
-        add|update|dispatch|retry|usage|cost|out|digest|selections) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|dispatch|retry|usage|cost|out|digest|selections ...\n' >&2; exit 2 ;;
+        add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
+        bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
+        *) printf 'usage: dispatch.sh node add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
       esac
       ;;
+    owner) shift; cmd_owner_event "$@" ;;
     plan) shift; cmd_plan "$@" ;;
     msg) shift; cmd_msg "$@" ;;
     start) shift; cmd_start "$@" ;;
@@ -556,7 +610,7 @@ main() {
     tail) shift; cmd_tail "$@" ;;
     wait) shift; cmd_wait "$@" ;;
     list) cmd_list ;;
-    init) cmd_init ;;
+    init) cmd_init; owner_write_dispatch_path ;;
     prune) shift; cmd_prune "$@" ;;
     serve)
       shift
@@ -572,7 +626,9 @@ main() {
     artifact) shift; cmd_artifact "$@" ;;
     profile) shift; cmd_profile "$@" ;;
     model) shift; cmd_model "$@" ;;
-    harness) shift; cmd_harness "$@" ;;
+    harness)
+      shift
+      if [ "${1:-}" = list ]; then harness_list_locked "$@"; else cmd_harness "$@"; fi ;;
     herdr) shift; cmd_herdr "$@" ;;
     hub) shift; cmd_hub "$@" ;;
     memory) shift; cmd_memory "$@" ;;
@@ -581,6 +637,7 @@ main() {
     loop) shift; cmd_loop "$@" ;;
     watch) shift; cmd_watch "$@" ;;
     active) shift; cmd_active "$@" ;;
+    announce) shift; bash "$SCRIPT_DIR/announce.sh" "$@" ;;
     schedule) shift; cmd_schedule "$@" ;;
     ""|-h|--help) usage ;;
     *) printf 'unknown subcommand: %s\n' "$sub" >&2; usage >&2; exit 2 ;;

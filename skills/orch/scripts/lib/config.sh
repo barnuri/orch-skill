@@ -109,13 +109,41 @@ llm_hub_derive_v1_url() {
   export LLM_HUB_V1_URL="$base/v1"
 }
 
+# The temp file of a profiles.json rewrite: renamed over the target on success, trashed on any failure.
+# A scratch file this process made: a plain move into the fallback trash dir (Finder `trash` costs ~1 s a call).
+profiles_tmp_discard() {
+  local dest
+  [ -e "$1" ] || return 0
+  dest="$TRASH_FALLBACK_DIR/$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$dest" 2>/dev/null && mv -f "$1" "$dest/" 2>/dev/null
+  return 0
+}
+
+# Signature of profiles.json plus this file: the migrations re-run only when either changes.
+profiles_migration_sig() {
+  local a b
+  a=$(stat -f '%m:%z' "$PROFILES_FILE" 2>/dev/null || stat -c '%Y:%s' "$PROFILES_FILE" 2>/dev/null)
+  b=$(stat -f '%m:%z' "${BASH_SOURCE[0]}" 2>/dev/null || stat -c '%Y:%s' "${BASH_SOURCE[0]}" 2>/dev/null)
+  printf '%s|%s\n' "$a" "$b"
+}
+profiles_commit() {
+  if cmp -s "$1" "$PROFILES_FILE"; then profiles_tmp_discard "$1"; return 0; fi
+  mv -f "$1" "$PROFILES_FILE" && return 0
+  profiles_tmp_discard "$1"
+  return 1
+}
+
 ensure_home() {
   mkdir -p "$ORCH_HOME" "$JOBS_HOME" "$RUNS_HOME" \
     || { printf 'orch: cannot create %s\n' "$ORCH_HOME" >&2; return 1; }
   [ -f "$PROFILES_FILE" ] || cp "$TEMPLATES_DIR/profiles.json" "$PROFILES_FILE" || return 1
   [ -f "$MEMORY_FILE" ] || printf '[]\n' > "$MEMORY_FILE"
   [ -f "$ORCH_HOME/serve.json" ] || cp "$TEMPLATES_DIR/serve.json" "$ORCH_HOME/serve.json" 2>/dev/null || true
-  profiles_migrate || return 1
+  local marker="$ORCH_HOME/.migrations/profiles-main"
+  if [ "$(cat "$marker" 2>/dev/null)" != "$(profiles_migration_sig)" ]; then
+    profiles_migrate || return 1
+    mkdir -p "$ORCH_HOME/.migrations" 2>/dev/null && profiles_migration_sig > "$marker.tmp.$$" 2>/dev/null && mv -f "$marker.tmp.$$" "$marker" 2>/dev/null
+  fi
   suggestions_seed || return 1
 }
 
@@ -222,10 +250,11 @@ profiles_migrate() {
           end
       )
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
   profiles_migrate_copilot_planner || return $?
   profiles_migrate_claude_planner || return $?
@@ -244,10 +273,11 @@ profiles_migrate_smart_auto() {
     .models["hub-smart-auto-balance"] //= $tpl[0].models["hub-smart-auto-balance"]
     | reduce $names[] as $name (.; .profiles[$name] //= $tpl[0].profiles[$name])
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   : > "$marker"
 }
 
@@ -302,10 +332,11 @@ profiles_migrate_copilot_planner() {
         | .settings.planner_profile //= "copilot-planner"
       else . end
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   [ -e "$marker" ] || { : > "$marker" || return 1; }
 }
 
@@ -348,10 +379,11 @@ profiles_migrate_claude_planner() {
          .profiles["copilot-default"].fallback //= "claude-default" else . end)
     | (if .profiles["copilot-planner"] then .profiles["copilot-planner"].fallback //= "claude-planner" else . end)
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   : > "$marker"
 }
 
@@ -423,10 +455,11 @@ profiles_migrate_bench_local() {
     | .settings.disabled_harnesses = ((.settings.disabled_harnesses // [])
         | map(select(. != "opencode" and . != "local-llm" and . != "pi")))
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   : > "$marker"
 }
 
@@ -454,10 +487,11 @@ profiles_migrate_claude_tiers() {
     | (if .profiles["claude-default"] then .settings.default_profile = "claude-default" else . end)
     | (if .profiles["claude-planner"] then .settings.planner_profile = "claude-planner" else . end)
   ' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
     return 1
   fi
-  mv -f "$tmp" "$PROFILES_FILE" || return 1
+  profiles_commit "$tmp" || return 1
   : > "$marker"
 }
 

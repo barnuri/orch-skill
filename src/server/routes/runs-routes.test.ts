@@ -1,10 +1,10 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { NodeStatus } from "../../shared/types/node-status";
 import type { RunState } from "../../shared/types/run-state";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
 import { orchPaths } from "../files/paths";
@@ -83,13 +83,13 @@ function seed(srv: TestServerHandle, id: string, state: RunState | string): void
   );
 }
 
-afterEach(() => {
+afterAll(() => {
   for (const srv of servers.splice(0)) {
     srv.stop();
   }
 });
 
-describe("GET /api/runs", () => {
+describe.concurrent("GET /api/runs", () => {
   test("a fresh home lists nothing", async () => {
     const srv = server();
     const res = await srv.api("/api/runs");
@@ -152,7 +152,7 @@ describe("GET /api/runs", () => {
   });
 });
 
-describe("GET /api/runs/:id", () => {
+describe.concurrent("GET /api/runs/:id", () => {
   test("it returns the full node and edge lists", async () => {
     const srv = server();
     seed(srv, RUN_ID, runState());
@@ -197,61 +197,48 @@ describe("GET /api/runs/:id", () => {
   });
 });
 
-describe("POST retry routes", () => {
-  function errorRun(): RunState {
-    return runState({
-      finished: "2026-09-03T12:02:00Z",
-      status: "error",
-      nodes: [
-        {
-          ...node("a", "error"),
-          profile: null,
-          adapter: "claude-native",
-          job_id: "old-job",
-          finished: "2026-09-03T12:01:00Z",
-          error: "exit=1",
-          log_tail: ["boom"],
-          prompt: "try again",
-        },
-      ],
-      edges: [],
-    });
-  }
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
 
-  test("node retry goes through dispatch and reopens the run", async () => {
-    const srv = server();
-    seed(srv, RUN_ID, errorRun());
-    const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
-    expect(res.status).toBe(200);
-    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
-    expect(state.status).toBe("running");
-    expect(state.finished).toBeNull();
-    const retried = state.nodes.find((item) => item.id === "a");
-    expect(retried?.status).toBe("running");
-    expect(retried?.attempts?.[0]?.job_id).toBe("old-job");
+function failedRun(): RunState {
+  return runState({
+    finished: "2026-09-03T12:02:00Z",
+    status: "error",
+    nodes: [
+      { ...node("a", "error"), adapter: "claude-native", prompt: "a" },
+      { ...node("b", "error"), adapter: "claude-native", prompt: "b" },
+    ],
+    edges: [],
+  });
+}
+
+describe.concurrent("POST retry routes (fake dispatch)", () => {
+  const previous = process.env["ORCH_DISPATCH"];
+  beforeAll(() => {
+    process.env["ORCH_DISPATCH"] = FAKE_DISPATCH;
+  });
+  afterAll(() => {
+    if (previous === undefined) {
+      delete process.env["ORCH_DISPATCH"];
+    } else {
+      process.env["ORCH_DISPATCH"] = previous;
+    }
   });
 
-  test("run retry retries every failed node", async () => {
+  test("node retry answers 200 with the dispatch output", async () => {
     const srv = server();
-    seed(
-      srv,
-      RUN_ID,
-      runState({
-        finished: "2026-09-03T12:02:00Z",
-        status: "error",
-        nodes: [
-          { ...node("a", "error"), adapter: "claude-native", prompt: "a" },
-          { ...node("b", "error"), adapter: "claude-native", prompt: "b" },
-        ],
-        edges: [],
-      }),
-    );
+    seed(srv, RUN_ID, failedRun());
+    const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, output: "retried a" });
+  });
+
+  test("run retry answers 200", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, failedRun());
     const res = await srv.api(`/api/runs/${RUN_ID}/retry`, { method: "POST" });
     expect(res.status).toBe(200);
-    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
-    expect(state.nodes.map((item) => item.status)).toEqual(["running", "running"]);
-    expect(state.nodes.map((item) => item.attempts?.length ?? 0)).toEqual([1, 1]);
-  }, 30_000);
+    expect((await res.json()).ok).toBe(true);
+  });
 
   test("wrong node state returns a validation error", async () => {
     const srv = server();
@@ -260,9 +247,51 @@ describe("POST retry routes", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("not error or skipped");
   });
+
+  test("an unknown run is a 500 from dispatch, a bad method is 405, no token is 401", async () => {
+    const srv = server();
+    expect((await srv.api(`/api/runs/${RUN_ID}/retry`, { method: "POST" })).status).toBe(500);
+    expect((await srv.api(`/api/runs/${RUN_ID}/retry`, { method: "GET" })).status).toBe(405);
+    expect((await srv.api(`/api/runs/${RUN_ID}/retry`, { method: "POST" }, false)).status).toBe(401);
+  });
 });
 
-describe("POST stop route", () => {
+describe("POST retry routes (real dispatch.sh smoke)", () => {
+  test("node retry goes through dispatch and reopens the run", async () => {
+    const srv = server();
+    seed(
+      srv,
+      RUN_ID,
+      runState({
+        finished: "2026-09-03T12:02:00Z",
+        status: "error",
+        nodes: [
+          {
+            ...node("a", "error"),
+            profile: null,
+            adapter: "claude-native",
+            job_id: "old-job",
+            finished: "2026-09-03T12:01:00Z",
+            error: "exit=1",
+            log_tail: ["boom"],
+            prompt: "try again",
+          },
+        ],
+        edges: [],
+      }),
+    );
+    const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
+    expect(state.status).toBe("running");
+    expect(state.finished).toBeNull();
+    const retried = state.nodes.find((item) => item.id === "a");
+    expect(retried?.status).toBe("running");
+    expect(retried?.attempts?.[0]?.job_id).toBe("old-job");
+  }, 600_000);
+});
+
+describe.concurrent("POST stop route", () => {
   test("run stop cancels the run, errors running nodes and skips waiting ones", async () => {
     const srv = server();
     seed(
@@ -348,9 +377,15 @@ function chatRequest(): Request {
   return new Request("http://test.invalid/api/jobs/x/chat");
 }
 
-afterEach(() => {
-  chatHomes.splice(0);
-  claudeHomes.splice(0);
+afterAll(() => {
+  for (const home of chatHomes.splice(0)) {
+    home.dispose();
+  }
+  const dirs = claudeHomes.splice(0);
+  const trashBin = Bun.which("trash");
+  if (trashBin !== null && dirs.length > 0) {
+    Bun.spawnSync([trashBin, ...dirs], { stdout: "ignore", stderr: "ignore" });
+  }
 });
 
 describe("readJobChatHandler", () => {

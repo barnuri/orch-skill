@@ -169,3 +169,14 @@ export function resolveLaunch(home: string, harness: string, profileName: string
   const behavesAs = chosen === undefined ? "" : (doc.models?.[chosen.id]?.behaves_as ?? "");
   return { ok: true, launch: { harness, modelSlug: slug, behavesAs, flags: profile.flags ?? [], env } };
 }
+
+/** " Switch to <harness> (profile <p>) in the composer." for the first enabled, installed harness with a usable profile, other than `current`. */
+export function alternativeHint(options: ChatOptions, current: string): string {
+  for (const h of options.harnesses) {
+    const profile = h.profiles.find((p) => p.enabled && p.configured);
+    if (h.id !== current && h.enabled && h.available && profile !== undefined) {
+      return `. Switch to ${h.id} (profile ${profile.name}) in the composer and send again.`;
+    }
+  }
+  return ". No other harness is enabled and installed; enable one on the Harnesses page.";
+}

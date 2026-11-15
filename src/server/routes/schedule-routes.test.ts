@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
 import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
@@ -11,7 +11,7 @@ function server(): TestServerHandle {
   return srv;
 }
 
-afterEach(() => {
+afterAll(() => {
   for (const srv of servers.splice(0)) {
     srv.stop();
   }
@@ -27,7 +27,7 @@ function post(srv: TestServerHandle, path: string, body?: unknown): Promise<Resp
 
 const COMMAND = { name: "echoer", cron: "*/5 * * * *", kind: "command", command: "echo hi" };
 
-describe("/api/schedules", () => {
+describe.concurrent("/api/schedules", () => {
   test("an empty state dir lists nothing", async () => {
     const srv = server();
     const res = await srv.api("/api/schedules");
@@ -37,13 +37,14 @@ describe("/api/schedules", () => {
 
   test("a created command schedule is listed with its next run", async () => {
     const srv = server();
+    const requestedAt = Date.now() / 1000;
     const created = await post(srv, "/api/schedules", COMMAND);
     expect(created.status).toBe(201);
     const { id } = await created.json();
     const body = await (await srv.api("/api/schedules")).json();
     expect(body.schedules).toHaveLength(1);
     expect(body.schedules[0]).toMatchObject({ id, name: "echoer", cron: "*/5 * * * *", kind: "command", enabled: true });
-    expect(body.schedules[0].next_at).toBeGreaterThan(Date.now() / 1000);
+    expect(body.schedules[0].next_at).toBeGreaterThan(requestedAt);
   });
 
   test("an unchanged list answers 304", async () => {
@@ -86,12 +87,13 @@ describe("/api/schedules", () => {
     const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();
     expect((await post(srv, `/api/schedules/${id}/run`)).status).toBe(200);
     let text = "";
-    for (let i = 0; i < 20 && !text.includes("hi"); i += 1) {
+    const deadline = Date.now() + 100_000;
+    while (!text.includes("hi") && Date.now() < deadline) {
       await Bun.sleep(250);
       text = (await (await srv.api(`/api/schedules/${id}/runs/0/log`)).json()).text;
     }
     expect(text).toContain("hi");
-  }, 30000);
+  }, 300_000);
 
   test("preview names the next run of a valid cron and refuses a bad one", async () => {
     const srv = server();

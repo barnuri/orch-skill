@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dispatchPath } from "../dispatch-path";
 
 import type { ApiError } from "../../shared/types/api-error";
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
@@ -9,6 +9,7 @@ import { etagOf } from "../documents/document-store";
 import type { RouteHandler } from "../http/route";
 import { jsonResponse, notFound, notModified } from "../http/responses";
 import { readJobLog, readJobSession } from "../runs/job-log-reader";
+import { OwnerActivityReader, homeSpawner } from "../runs/owner-activity";
 import { readEvents } from "../runs/run-events-reader";
 import { readRun, listRuns } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
@@ -17,7 +18,6 @@ import type { ServerContext } from "../types/server-context";
 const IF_NONE_MATCH: string = "if-none-match";
 const ETAG_HEADER: string = "ETag";
 const CORRUPT_STATE: string = "state.json is not valid JSON";
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 
 // The ETag covers the payload only — never `generated_at` — so an unchanged runs/ tree yields a 304.
 function payloadEtag(payload: unknown): string {
@@ -58,7 +58,7 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
 
 // Runs dispatch.sh without blocking the event loop; the handler resolves once the script exits.
 async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {
-  const proc = Bun.spawn(["bash", DISPATCH, ...args], {
+  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",
@@ -168,5 +168,14 @@ export function readRunEventsHandler(ctx: ServerContext): RouteHandler {
     const after = /^\d{1,9}$/.test(raw) ? Number(raw) : 0;
     const body = readEvents(ctx.paths, params.id ?? "", after);
     return body === null ? notFound() : jsonResponse(200, body);
+  };
+}
+
+/** The owner session's recent activity, reduced and bounded; 404 when the node has no checkable owner. */
+export function readNodeActivityHandler(ctx: ServerContext, reader: OwnerActivityReader = new OwnerActivityReader(homeSpawner(ctx.paths.home))): RouteHandler {
+  return async (req: Request, params: Readonly<Record<string, string>>): Promise<Response> => {
+    const after = new URL(req.url).searchParams.get("after");
+    const result = await reader.read(params.id ?? "", params.node ?? "", after !== null && after !== "" ? after : null);
+    return result.kind === "none" ? notFound() : jsonResponse(200, result.body);
   };
 }

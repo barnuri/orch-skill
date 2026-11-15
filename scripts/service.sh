@@ -144,7 +144,9 @@ unit_installed_for_checkout() {
   local unit
   unit=$(unit_path)
   [ -f "$unit" ] || return 1
-  grep -Fq "$DISPATCH" "$unit" && grep -Fq "$ORCH_HOME" "$unit"
+  grep -Fq "$DISPATCH" "$unit" && grep -Fq "$ORCH_HOME" "$unit" || return 1
+  # A unit written before restarts spared job processes is out of date and gets rewritten.
+  grep -Eq 'AbandonProcessGroup|KillMode=process' "$unit"
 }
 
 load_serve_config() {
@@ -237,6 +239,8 @@ launchd_write_plist() {
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
+    <true/>
+    <key>AbandonProcessGroup</key>
     <true/>
     <key>ThrottleInterval</key>
     <integer>$THROTTLE_SECS</integer>
@@ -338,6 +342,7 @@ Environment=ORCH_BUN=$bun
 Environment=PATH=${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/bin:$(dirname "$bun"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$SKILL_DIR
 Restart=always
+KillMode=process
 RestartSec=$THROTTLE_SECS
 StandardOutput=append:$log
 StandardError=append:$log

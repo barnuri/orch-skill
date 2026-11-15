@@ -117,3 +117,21 @@ export class HarnessesEnvelopeDto extends ZodDto {
   @ZodField([HarnessDto], { description: "Every harness." })
   harnesses!: HarnessDto[];
 }
+
+@ZodObject({ description: "Which activity to return." })
+export class NodeActivityQueryDto extends ZodDto {
+  @ZodField(z.string().max(80).optional(), { description: "Only messages after this message id." })
+  after?: string;
+}
+
+@ZodObject({ description: "A node owner's recent activity." })
+export class NodeActivityEnvelopeDto extends ZodDto {
+  @ZodField(z.enum(["ok", "gone", "unknown"]), { description: "`unknown` when opencode is unreachable." })
+  state!: "ok" | "gone" | "unknown";
+
+  @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Messages {id, role, time, parts[{kind, text, tool?}]}, oldest first." })
+  messages!: Record<string, unknown>[];
+
+  @ZodField(z.string().nullable(), { description: "Cursor for `after`: the newest message id." })
+  next!: string | null;
+}

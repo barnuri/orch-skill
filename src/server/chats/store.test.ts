@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { newId } from "./ids";
+import { MIGRATIONS } from "./migrations";
 import { ChatStore, ftsQuery } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "chat-store-"));
@@ -21,11 +22,11 @@ describe("migrations", () => {
   test("run once and reopening keeps the data", () => {
     const path = join(dir, "a.db");
     const first = new ChatStore(path);
-    expect(first.schemaVersion()).toBe(1);
+    expect(first.schemaVersion()).toBe(MIGRATIONS.length);
     const project = first.createProject({ name: "p" });
     first.close();
     const second = new ChatStore(path);
-    expect(second.schemaVersion()).toBe(1);
+    expect(second.schemaVersion()).toBe(MIGRATIONS.length);
     expect(second.getProject(project.id)?.name).toBe("p");
     second.close();
   });
@@ -79,7 +80,7 @@ describe("history", () => {
     expect(s.listChats({ projectId: "none" }).items.map((x) => x.id)).toEqual([out.id]);
   });
 
-  test("streamed content appends; recovery marks a hanging message as an error", () => {
+  test("streamed content appends; recovery marks a hanging message as interrupted and keeps what is in `keep`", () => {
     const s = new ChatStore(":memory:");
     const c = s.createChat({ title: "x", harness: "h", profile: "p" });
     s.updateChat(c.id, { status: "running" });
@@ -88,7 +89,7 @@ describe("history", () => {
     s.appendContent(m.id, "tial");
     expect(s.recoverStreaming()).toBe(1);
     const row = s.getMessage(m.id);
-    expect([row?.content, row?.status, row?.error]).toEqual(["partial", "error", "server restarted"]);
+    expect([row?.content, row?.status, row?.error?.startsWith("interrupted:")]).toEqual(["partial", "error", true]);
     expect(s.getChat(c.id)?.status).toBe("idle");
     expect(s.recoverStreaming()).toBe(0);
   });

@@ -23,7 +23,7 @@ ADAPTER_NAMES="claude-native $VALID_HARNESSES"
 
 RUN_START_USAGE='dispatch.sh run start "<title>" [--id <run-id>]'
 RUN_FINISH_USAGE="dispatch.sh run finish <run-id> [--status $(printf '%s' "$RUN_STATUSES" | tr ' ' '|')]"
-RUN_SYNC_USAGE='dispatch.sh run sync <run-id>'
+RUN_SYNC_USAGE='dispatch.sh run sync <run-id> [--no-retry]'
 RUN_STOP_USAGE='dispatch.sh run stop <run-id>'
 RUN_STOP_ERROR="cancelled"
 RUN_RETRY_USAGE='dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]'
@@ -33,8 +33,9 @@ SELECTION_PAGE_LIMIT=500
 SELECTION_HISTORY_MAX=500
 SELECTION_HTTP_TIMEOUT=5
 NODE_SELECTIONS_USAGE='dispatch.sh node selections <run-id> <node-id>'
-NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--plan-backed] [--acceptance "<checks>"]'
-NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"]"
+NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]'
+NODE_REPORT_USAGE='dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]'
+NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"] [--at <iso>] [--owner <text>] [--force]"
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]'
 NODE_USAGE_USAGE='dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]'
@@ -143,6 +144,7 @@ cmd_run_finish() {
   [ -n "$status" ] || status=$(jq -r 'if any(.nodes[]; .status == "error") then "error" else "done" end' "$file")
   in_list "$status" "$RUN_STATUSES" || { printf 'run finish: status must be one of: %s\n' "$RUN_STATUSES" >&2; return 2; }
   state_write "$run_id" '.status = $s | .finished = $ts' --arg s "$status" --arg ts "$(now_iso)" || return 1
+  run_event "$run_id" run "" "" "$status" ""
   learning_after_finish "$run_id" || true
   printf '%s\n' "$status"
 }
@@ -170,6 +172,7 @@ EOF
       else . end)
     | .status = "cancelled" | .finished = $ts' \
     --arg err "$RUN_STOP_ERROR" --arg ts "$(now_iso)" || return 1
+  run_event "$run_id" run "" "" cancelled ""
   printf 'cancelled (stopped %s job(s))\n' "$stopped"
 }
 
@@ -184,7 +187,7 @@ cmd_run_list() {
 
 cmd_node_add() {
   local run_id="${1:-}" node_id="${2:-}" label="${3:-}" deps="" profile="" file dep
-  local role="" tier="" acceptance="" plan_backed=false
+  local role="" tier="" acceptance="" plan_backed=false model=""
   if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "$label" ]; then
     printf 'usage: %s\n' "$NODE_ADD_USAGE" >&2
     return 2
@@ -196,6 +199,7 @@ cmd_node_add() {
       --profile) shift; profile="${1:-}" ;;
       --role) shift; role="${1:-}" ;;
       --tier) shift; tier="${1:-}" ;;
+      --model) shift; model="${1:-}" ;;
       --plan-backed) plan_backed=true ;;
       --acceptance) shift; acceptance="${1:-}" ;;
       *) printf 'node add: unknown argument %s\n' "$1" >&2; return 2 ;;
@@ -221,21 +225,33 @@ cmd_node_add() {
     printf 'node add: %s already exists\n' "$node_id" >&2
     return 2
   fi
+  local kept="" origin
   for dep in $(printf '%s' "$deps" | tr ',' ' '); do
     [ "$dep" != "$node_id" ] || { printf 'node add: %s cannot depend on itself\n' "$node_id" >&2; return 2; }
-    node_require "$file" "$dep" || return 2
+    if node_require "$file" "$dep" 2>/dev/null; then
+      kept="$kept${kept:+,}$dep"
+    elif origin=$(node_finished_in_origin "$run_id" "$dep"); then
+      printf 'dependency %s is finished in run %s\n' "$dep" "$origin" >&2
+    else
+      printf 'node add: dependency %s is not in run %s or in the runs it continued (searched: %s)\n' \
+        "$dep" "$run_id" "$(run_chain "$run_id" | tr '\n' ' ')" >&2
+      return 2
+    fi
   done
+  deps="$kept"
 
   state_write "$run_id" \
     '($deps | split(",") | map(select(length > 0))) as $d
      | .nodes += [{id: $id, label: $label, status: "waiting", profile: (if $profile == "" then null else $profile end),
-                   adapter: null, model: null, model_id: null, job_id: null, session: null, started: null, finished: null,
-                   error: null, log_tail: [], usage: {}, cost: null, prompt: null, dispatch_args: [], attempts: [],
+                   adapter: null, model: (if $model == "" then null else $model end), model_id: null, job_id: null, session: null, started: null, finished: null,
+                   error: null, log_tail: [], usage: {}, cost: null, created: $ts, updated: $ts, prompt: null, dispatch_args: [], attempts: [],
                    role: (if $role == "" then null else $role end), tier: (if $tier == "" then null else $tier end),
                    plan_backed: $plan_backed, acceptance: (if $acceptance == "" then null else $acceptance end)}]
      | .edges += ($d | map([., $id]))' \
     --arg id "$node_id" --arg label "$label" --arg deps "$deps" --arg profile "$profile" \
-    --arg role "$role" --arg tier "$tier" --argjson plan_backed "$plan_backed" --arg acceptance "$acceptance"
+    --arg role "$role" --arg tier "$tier" --arg model "$model" --argjson plan_backed "$plan_backed" --arg acceptance "$acceptance" \
+    --arg ts "$(now_iso)" || return 1
+  run_event "$run_id" add "$node_id" "" waiting "$label"
 }
 
 # Parses one `<category>.<name>=<count>` term into the globals USAGE_TERM_{CAT,NAME,COUNT}.
@@ -300,7 +316,7 @@ cmd_node_usage() {
 usage_apply() {
   local run_id="$1" node_id="$2" clear="$3" ops="$4"
   node_patch "$run_id" "$node_id" \
-    '(if $clear == 1 then .usage = {} else .usage = (.usage // {}) end)
+    '.updated = $ts | (if $clear == 1 then .usage = {} else .usage = (.usage // {}) end)
      | reduce $ops[] as $o (.;
          ($o.cat) as $c | ($o.name) as $n
          | (if $o.op == "add" then ((.usage[$c][$n] // 0) + $o.count) else $o.count end) as $next
@@ -310,7 +326,7 @@ usage_apply() {
              .usage[$c] = ((.usage[$c] // {}) + {($n): $next})
            end
          | (if (.usage[$c] // null) == {} then del(.usage[$c]) else . end))' \
-    --argjson clear "$clear" --argjson ops "$ops"
+    --argjson clear "$clear" --argjson ops "$ops" --arg ts "$(now_iso)"
 }
 
 # node_patch <run-id> <node-id> '<jq assignments>' [jq --arg …] — the one wrapper that rewrites a
@@ -327,9 +343,21 @@ node_patch() {
 node_set_status() {
   local run_id="$1" node_id="$2" status="$3" job="${4:-}" err="${5:-}" adapter="${6:-}" profile="${7:-}"
   local session="${8:-}" model="${9:-}" model_id="${10:-}" retry_at=""
+  local old at="${NODE_EVENT_AT:-}" owner="${NODE_OWNER:-}" now
+  now=$(now_iso)
+  [ -n "$owner" ] || { [ "$status" != running ] || [ -z "$job" ] || owner="$job"; }
+  [ -n "$at" ] || at="$now"
+  old=$(node_field "$(run_state_file "$run_id")" "$node_id" status)
   [ "$status" = "error" ] && retry_at=$(node_next_retry_at "$run_id" "$node_id")
+  if [ "$status" = waiting ] && [ "$old" = error ]; then
+    node_archive_attempt "$run_id" "$node_id" "reset to waiting" "" "" || return 1
+  fi
   node_patch "$run_id" "$node_id" \
     '.status = $s
+     | .updated = $now
+     | (if ($s == "done" or $s == "error") and .started == null
+        then .started = (.created // $at) | .backfilled = true
+        else . end)
      | (if $job != "" then .job_id = $job else . end)
      | (if $err != "" then .error = $err else . end)
      | (if $adapter != "" then .adapter = $adapter else . end)
@@ -337,15 +365,21 @@ node_set_status() {
      | (if $session != "" then .session = $session else . end)
      | (if $model != "" then .model = $model else . end)
      | (if $model_id != "" then .model_id = $model_id else . end)
-     | (if $s == "running" and .started == null then .started = $ts else . end)
-     | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $ts else . end)
+     | (if $s == "running" and .started == null then .started = $at else . end)
+     | (if $s == "running" then .backfilled = false else . end)
+     | (if $owner != "" then .owner = $owner else . end)
+     | (if $s == "waiting" then .started = null | .finished = null | .error = null | .owner = null | .job_id = null | .owner_kind = null | .owner_id = null | .owner_state = null else . end)
+     | (if $s == "done" and $by != "owner-liveness" then .unverified = null | .auto = null else . end)
+     | (if ($s == "done" or $s == "error" or $s == "skipped") then .finished = $at else . end)
      | (if $s == "error" then .next_retry_at = $retry_at
         elif ($s == "running" or $s == "waiting" or $s == "done" or $s == "skipped") then .next_retry_at = null
         else . end)' \
     --arg s "$status" --arg job "$job" --arg err "$err" \
     --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" \
     --arg model "$model" --arg model_id "$model_id" \
-    --arg retry_at "$retry_at" --arg ts "$(now_iso)"
+    --arg retry_at "$retry_at" --arg at "$at" --arg now "$now" --arg owner "$owner" --arg by "${ORCH_EVENT_BY:-cli}" || return 1
+  owner_register "$run_id" "$node_id" || true
+  run_event "$run_id" status "$node_id" "$old" "$status" "$err"
 }
 
 node_reopen_run() {
@@ -392,7 +426,7 @@ node_next_retry_at() {
 }
 
 cmd_node_update() {
-  local run_id="${1:-}" node_id="${2:-}" status="${3:-}" job="" err="" file
+  local run_id="${1:-}" node_id="${2:-}" status="${3:-}" job="" err="" at="" owner="" force=0 epoch old allowed file
   if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "$status" ]; then
     printf 'usage: %s\n' "$NODE_UPDATE_USAGE" >&2
     return 2
@@ -402,6 +436,9 @@ cmd_node_update() {
     case "$1" in
       --job) shift; job="${1:-}" ;;
       --error) shift; err="${1:-}" ;;
+      --at) shift; at="${1:-}" ;;
+      --owner) shift; owner="${1:-}" ;;
+      --force) force=1 ;;
       *) printf 'node update: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
@@ -410,7 +447,89 @@ cmd_node_update() {
   file=$(run_require "$run_id") || return $?
   node_require "$file" "$node_id" || return 2
   in_list "$status" "$NODE_STATUSES" || { printf 'node update: status must be one of: %s\n' "$NODE_STATUSES" >&2; return 2; }
-  node_set_status "$run_id" "$node_id" "$status" "$job" "$err"
+  old=$(node_field "$file" "$node_id" status)
+  if [ "$old" != "$status" ] && [ "$force" = 0 ]; then
+    case "$old" in
+      waiting) allowed="running done error skipped" ;;
+      running) allowed="done error waiting skipped" ;;
+      error) allowed="waiting running skipped" ;;
+      skipped) allowed="waiting running" ;;
+      done) allowed="" ;;
+      *) allowed="$NODE_STATUSES" ;;
+    esac
+    in_list "$status" "$allowed" || {
+      printf 'node update: %s is %s; it can move to: %s%s\n' "$node_id" "$old" "${allowed:-nothing}" \
+        "$([ "$old" = done ] && printf ' (done -> waiting needs --force)' || printf ' (--force overrides)')" >&2
+      return 2
+    }
+  fi
+  if [ -n "$job" ] && [ "$force" = 0 ] && [ ! -d "$JOBS_HOME/$job" ]; then
+    printf 'node update: job %s not found (--force records it anyway)\n' "$job" >&2
+    return 2
+  fi
+  if [ -n "$at" ]; then
+    case "$at" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+      *) printf 'node update: --at must be an ISO time like 2026-01-02T03:04:05Z\n' >&2; return 2 ;;
+    esac
+    epoch=$(to_epoch_iso "$at") || { printf 'node update: --at is not a valid time\n' >&2; return 2; }
+    [ "$epoch" -le "$(date -u +%s)" ] || { printf 'node update: --at is in the future\n' >&2; return 2; }
+  fi
+  NODE_EVENT_AT="$at" NODE_OWNER="$owner" node_set_status "$run_id" "$node_id" "$status" "$job" "$err"
+}
+
+# node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N]
+#   [--cache-read-tokens N] [--usd X] [--note "text"] — records what a node done inline (claude-native)
+# or by a subagent used. An omitted flag keeps the earlier reported value, else null: nothing is
+# estimated.
+cmd_node_report() {
+  local run_id="${1:-}" node_id="${2:-}" model="" in_tok="" out_tok="" cache_tok="" usd="" note="" file
+  if [ -z "$run_id" ] || [ -z "$node_id" ]; then
+    printf 'usage: %s\n' "$NODE_REPORT_USAGE" >&2
+    return 2
+  fi
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model) shift; model="${1:-}" ;;
+      --input-tokens) shift; in_tok="${1:-}" ;;
+      --output-tokens) shift; out_tok="${1:-}" ;;
+      --cache-read-tokens) shift; cache_tok="${1:-}" ;;
+      --usd) shift; usd="${1:-}" ;;
+      --note) shift; note="${1:-}" ;;
+      *) printf 'node report: unknown argument %s\n  usage: %s\n' "$1" "$NODE_REPORT_USAGE" >&2; return 2 ;;
+    esac
+    shift
+  done
+  local tok
+  for tok in "$in_tok" "$out_tok" "$cache_tok"; do
+    [ -z "$tok" ] || is_uint "$tok" || { printf 'node report: token counts must be whole numbers\n' >&2; return 2; }
+  done
+  case "$usd" in
+    ''|*[!0-9.]*|*.*.*|.) [ -z "$usd" ] || { printf 'node report: --usd must be a non-negative number\n' >&2; return 2; } ;;
+  esac
+  if [ -z "$model$in_tok$out_tok$cache_tok$usd$note" ]; then
+    printf 'node report: nothing to record\n  usage: %s\n' "$NODE_REPORT_USAGE" >&2
+    return 2
+  fi
+  require_jq "node report"
+  file=$(run_require "$run_id") || return $?
+  node_require "$file" "$node_id" || return 2
+  node_patch "$run_id" "$node_id" \
+    '(.report // {}) as $o
+     | .updated = $ts
+     | (if $model != "" then .model = $model else . end)
+     | .report = {reported_by: "inline",
+                  model: (if $model == "" then ($o.model // null) else $model end),
+                  input_tokens: (if $in == "" then ($o.input_tokens // null) else ($in | tonumber) end),
+                  output_tokens: (if $out == "" then ($o.output_tokens // null) else ($out | tonumber) end),
+                  cache_read_tokens: (if $cache == "" then ($o.cache_read_tokens // null) else ($cache | tonumber) end),
+                  usd: (if $usd == "" then ($o.usd // null) else ($usd | tonumber) end),
+                  note: (if $note == "" then ($o.note // null) else $note end),
+                  at: $ts}' \
+    --arg model "$model" --arg in "$in_tok" --arg out "$out_tok" --arg cache "$cache_tok" \
+    --arg usd "$usd" --arg note "$note" --arg ts "$(now_iso)" || return 1
+  [ -z "$note" ] || run_event "$run_id" note "$node_id" "" "" "$note"
 }
 
 # node dispatch <run> <node> (--profile P | <adapter> | <prompt-using-node-profile>) [<prompt>] [args…]
@@ -598,8 +717,10 @@ node_reset_for_retry() {
      | .error = null
      | .log_tail = []
      | .cost = null
+     | .updated = $ts
      | .next_retry_at = null' \
-    --arg profile "$profile" --arg adapter "$adapter"
+    --arg profile "$profile" --arg adapter "$adapter" --arg ts "$(now_iso)" || return 1
+  run_event "$run_id" retry "$node_id" "" waiting ""
 }
 
 node_retry_dispatch() {
@@ -900,7 +1021,13 @@ EOF
   [ -z "$retried" ] || printf 'auto-retried: %s\n' "$retried" >&2
 }
 
-node_out_dir() { printf '%s/%s/out/%s\n' "$RUNS_HOME" "$1" "$2"; }
+# A node moved by `run carry` keeps its handoff folder in the run it came from (a running job already holds
+# that path), recorded as `out_dir`; every other node's folder is under its own run.
+node_out_dir() {
+  local recorded=""
+  [ -f "$(run_state_file "$1")" ] && recorded=$(jq -r --arg n "$2" '.nodes[]? | select(.id == $n) | .out_dir // empty' "$(run_state_file "$1")" 2>/dev/null)
+  if [ -n "$recorded" ]; then printf '%s\n' "$recorded"; else printf '%s/%s/out/%s\n' "$RUNS_HOME" "$1" "$2"; fi
+}
 
 # The handoff channel between nodes: a node writes what the next one must read here, and the
 # orchestrator passes the path rather than the contents.
@@ -951,6 +1078,8 @@ cmd_node_digest() {
   job=$(node_field "$file" "$node_id" job_id)
   printf 'node: %s (%s)\n' "$node_id" "$status"
   printf 'out: %s\n' "$(node_out_dir "$run_id" "$node_id")"
+  jq -r --arg n "$node_id" '.nodes[] | select(.id == $n) | .report // empty
+    | "reported: \(.reported_by) model=\(.model // "-") in=\(.input_tokens // "-") out=\(.output_tokens // "-") usd=\(.usd // "-")"' "$file"
   if [ -z "$job" ]; then
     printf 'log: not dispatched\n'
     return 0
@@ -1036,9 +1165,34 @@ cmd_node_cost() {
 
 # Re-reads each running node's job and flips it to done/error; prints one `id<TAB>status` line per
 # node, then `ready: …` (waiting nodes whose deps are all done) and `running: <count>`.
+# --lock (or ORCH_SYNC_LOCK=1, set by the reconciler and watches): at most one sync per run at a time.
 cmd_run_sync() {
-  local run_id="${1:-}" file node job st tail_json
+  local a lock="${ORCH_SYNC_LOCK:-0}" rc
+  for a in "$@"; do [ "$a" = --lock ] && lock=1; done
+  if [ "$lock" = 1 ] && [ -n "${1:-}" ]; then
+    if ! orch_lock_acquire "sync-$1"; then
+      printf 'run sync: a previous sync of %s is still running, skipped\n' "$1" >&2
+      return 0
+    fi
+    run_sync_body "$@"; rc=$?
+    orch_lock_release "sync-$1"
+    return $rc
+  fi
+  run_sync_body "$@"
+}
+
+run_sync_body() {
+  local run_id="${1:-}" file node job st tail_json retry=1 stale owner_lines=""
   [ -n "$run_id" ] || { printf 'usage: %s\n' "$RUN_SYNC_USAGE" >&2; return 2; }
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-retry) retry=0 ;;
+      --verify-owners|--lock) ;;
+      *) printf 'run sync: unknown argument %s\n' "$1" >&2; return 2 ;;
+    esac
+    shift
+  done
   require_jq "run sync"
   file=$(run_require "$run_id") || return $?
 
@@ -1049,7 +1203,9 @@ cmd_run_sync() {
     case "$st" in
       running) ;;
       "done exit=0") node_set_status "$run_id" "$node" "done"; hub_node_settle "$run_id" "$node" done || true ;;
-      done*) node_set_status "$run_id" "$node" error "" "${st#done }"; hub_node_settle "$run_id" "$node" error || true ;;
+      done*)
+        case "$st" in "done exit=unknown"*) run_event "$run_id" note "$node" "" "" "$(herdr_job_gone_note "$JOBS_HOME/$job")" ;; esac
+        node_set_status "$run_id" "$node" error "" "${st#done }"; hub_node_settle "$run_id" "$node" error || true ;;
     esac
     node_patch "$run_id" "$node" '.log_tail = $t' --argjson t "${tail_json:-[]}"
     # The adapter writes its cost beside the log; this is the only place it reaches the node.
@@ -1058,9 +1214,12 @@ cmd_run_sync() {
 $(jq -r '.nodes[] | select(.status == "running" and .job_id != null) | "\(.id)\t\(.job_id)"' "$file")
 EOF
 
-  run_auto_retry_errors "$run_id" "$file" || return $?
+  owner_lines=$(owners_verify_run "$run_id" 1 | owner_report_lines)
+
+  if [ "$retry" = 1 ]; then run_auto_retry_errors "$run_id" "$file" || return $?; fi
 
   jq -r '.nodes[] | "\(.id)\t\(.status)"' "$file"
+  [ -z "$owner_lines" ] || printf '%s\n' "$owner_lines"
   jq -r '. as $r
     | [ .nodes[] | select(.status == "waiting") | .id as $n
         | select(all($r.edges[] | select(.[1] == $n) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done"))
@@ -1070,6 +1229,12 @@ EOF
   # Free dispatch slots under settings.max_parallel: dispatch at most this many of `ready:`.
   jq -r --argjson max "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" \
     '"slots: " + ([0, $max - ([.nodes[] | select(.status == "running")] | length)] | max | tostring)' "$file"
+  stale=$(run_stale_nodes "$run_id")
+  [ -z "$stale" ] || printf 'stale: %s\n' "$stale"
+  stale=$(run_unowned_nodes "$run_id")
+  [ -z "$stale" ] || printf 'unowned: %s\n' "$stale"
+  jq -r '.nodes[] | select(.report != null) | .report as $p
+    | "reported: \(.id) \($p.reported_by) model=\($p.model // "-") in=\($p.input_tokens // "-") out=\($p.output_tokens // "-") usd=\($p.usd // "-")"' "$file"
 }
 
 # --- retention ---------------------------------------------------------------------------------

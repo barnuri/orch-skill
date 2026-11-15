@@ -29,6 +29,7 @@ describe("OpenAPI document", () => {
     for (const path of [
       "/api/health", "/api/active", "/api/schedules", "/api/schedules/preview", "/api/runs", "/api/runs/{id}",
       "/api/jobs/{id}/log", "/api/profiles", "/api/profiles/sanity", "/api/harnesses", "/api/memory", "/api/suggestions",
+      "/api/projects", "/api/chats", "/api/chats/search", "/api/chats/{id}/messages", "/api/chats/{id}/events", "/api/chat-options", "/api/attachments/{id}",
     ]) {
       expect(paths).toContain(path);
     }

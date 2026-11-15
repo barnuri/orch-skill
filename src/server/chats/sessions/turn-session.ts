@@ -1,13 +1,12 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Subprocess } from "bun";
 
 import { buildReplayPrompt } from "./history-replay";
-import { type AgentEvent, type AgentSession, Channel, drainText, type SessionParams, withAttachments } from "./types";
+import { INTERRUPTED_TEXT, startTurn, tailTurn, TurnHandle, type TurnParser, turnsDir } from "./turn-files";
+import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
 
 const TEMP_PREFIX = "orch-chat-";
-const KILL_GRACE_MS = 1500;
 
 /** Removes `orch-chat-*` prompt folders a crashed server left behind. Returns how many. */
 export function sweepPromptDirs(olderThanMs: number = 60 * 60 * 1000, dir: string = tmpdir(), nowMs: number = Date.now()): number {
@@ -38,6 +37,33 @@ const CAPTURE_TIMEOUT_MS = 15_000;
 
 interface TurnResult { code: number; stdout: string; stderr: string; streamed: boolean }
 
+/** Plain text from `dispatch.sh run`: every piece is a text delta, exit code 0 is `done`. */
+export class PlainParser implements TurnParser {
+  readonly mode = "text" as const;
+  stdout = "";
+  streamed = false;
+
+  constructor(private session: string | null) {}
+
+  sessionId(): string | null {
+    return this.session;
+  }
+
+  feed(piece: string): AgentEvent[] {
+    this.stdout += piece;
+    this.streamed = true;
+    return [{ type: "text-delta", text: piece }];
+  }
+
+  end(code: number, stderr: string): AgentEvent[] {
+    if (code === 0) {
+      return [{ type: "done", session_id: this.session }];
+    }
+    const why = (stderr.trim() || this.stdout.trim()).slice(-500);
+    return [{ type: "error", message: `agent exited with code ${code}${why === "" ? "" : `: ${why}`}` }];
+  }
+}
+
 /**
  * Fallback for harnesses without a persistent protocol: each turn runs `dispatch.sh run --profile P`
  * (so profile env, flags and model resolve exactly as for any orch job). Output arrives as plain
@@ -52,8 +78,8 @@ interface TurnResult { code: number; stdout: string; stderr: string; streamed: b
 export class TurnSession implements AgentSession {
   readonly persistent = false;
   sessionId: string | null;
-  private proc: Subprocess<"ignore", "pipe", "pipe"> | null = null;
-  private stopping = false;
+  private readonly handle = new TurnHandle();
+  private attempt = 0;
 
   constructor(private readonly params: SessionParams, private readonly dispatch: string) {
     this.sessionId = params.resumeSessionId;
@@ -61,13 +87,9 @@ export class TurnSession implements AgentSession {
 
   async start(): Promise<void> {}
 
-  async *send(prompt: string, attachments: readonly string[]): AsyncIterable<AgentEvent> {
-    const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
-    try {
-      yield* this.runTurn(dir, prompt, attachments);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
+    this.attempt = 0;
+    yield* this.runTurn(turn?.messageId ?? `t-${crypto.randomUUID()}`, prompt, attachments);
   }
 
   private baseEnv(): Record<string, string | undefined> {
@@ -121,7 +143,7 @@ export class TurnSession implements AgentSession {
     return null;
   }
 
-  private async *runTurn(dir: string, prompt: string, attachments: readonly string[]): AsyncIterable<AgentEvent> {
+  private async *runTurn(turnId: string, prompt: string, attachments: readonly string[]): AsyncIterable<AgentEvent> {
     const { harness, chatId } = this.params;
     const history = this.params.history?.() ?? [];
     const title = `orch-chat-${chatId}`;
@@ -160,7 +182,7 @@ export class TurnSession implements AgentSession {
         env.ORCH_SESSION_ID = minted;
       }
       const text = built?.prompt ?? withAttachments(prompt, attachments);
-      const result = yield* this.runOnce(dir, text, env);
+      const result = yield* this.runOnce(this.attempt++ === 0 ? turnId : `${turnId}.r${this.attempt - 1}`, turnId, text, env, minted);
       if (result === null) {
         return;
       }
@@ -189,69 +211,44 @@ export class TurnSession implements AgentSession {
     }
   }
 
-  /** One dispatch process. Returns null when the turn was stopped. */
-  private async *runOnce(dir: string, text: string, env: Record<string, string | undefined>): AsyncGenerator<AgentEvent, TurnResult | null> {
-    const file = join(dir, "prompt");
-    writeFileSync(file, text, { mode: 0o600 });
-    this.stopping = false;
-    // detached: the child leads its own process group, so stop() can signal the agent dispatch.sh spawned too.
-    const proc = Bun.spawn(["bash", this.dispatch, "run", "--profile", this.params.profile, `@${file}`], {
-      cwd: this.params.cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true,
-    });
-    this.proc = proc;
-    const channel = new Channel<string>();
-    let stdout = "";
-    let stderr = "";
-    let streamed = false;
-    const out = drainText(proc.stdout, (chunk) => {
-      stdout += chunk;
-      channel.push(chunk);
-    }).finally(() => channel.close());
-    void drainText(proc.stderr, (chunk) => {
-      stderr = (stderr + chunk).slice(-2000);
-    });
-    for (let chunk = await channel.next(); chunk !== null; chunk = await channel.next()) {
-      streamed = true;
-      yield { type: "text-delta", text: chunk };
+  /** One dispatch process, detached. Returns null when the turn was stopped or lost. */
+  private async *runOnce(id: string, messageId: string, text: string, env: Record<string, string | undefined>, session: string | null): AsyncGenerator<AgentEvent, TurnResult | null> {
+    const signal = this.handle.begin();
+    let started: ReturnType<typeof startTurn>;
+    try {
+      const promptFile = join(turnsDir(this.params.home), `${id}.prompt`);
+      mkdirSync(turnsDir(this.params.home), { recursive: true });
+      writeFileSync(promptFile, text, { mode: 0o600 });
+      started = startTurn({
+        home: this.params.home, id, cmd: ["bash", this.dispatch, "run", "--profile", this.params.profile, `@${promptFile}`], cwd: this.params.cwd, env, stdin: null,
+        meta: { harness: this.params.harness, parser: "plain", session_id: session, chat_id: this.params.chatId, message_id: messageId, model: this.params.modelId },
+      });
+    } catch (err) {
+      this.handle.end();
+      return { code: 1, stdout: "", stderr: `could not start the agent: ${String(err)}`, streamed: false };
     }
-    await out;
-    const code = await proc.exited;
-    this.proc = null;
-    return this.stopping ? null : { code, stdout, stderr, streamed };
+    this.handle.attachPid(started.meta.pid);
+    const parser = new PlainParser(session);
+    try {
+      const end = yield* tailTurn(started.paths, started.meta, parser, { signal });
+      if (end.kind === "aborted") {
+        return null;
+      }
+      if (end.kind === "interrupted") {
+        yield { type: "interrupted", message: INTERRUPTED_TEXT };
+        return null;
+      }
+      return { code: end.code, stdout: parser.stdout, stderr: end.stderr, streamed: parser.streamed };
+    } finally {
+      this.handle.end();
+    }
   }
 
   async stop(): Promise<void> {
-    this.stopping = true;
-    await this.kill();
+    await this.handle.stop();
   }
 
   async dispose(): Promise<void> {
-    this.stopping = true;
-    await this.kill();
-  }
-
-  /** Signals the whole process group: dispatch.sh and the agent it started. */
-  private signalGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
-    try {
-      process.kill(-pid, signal);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async kill(): Promise<void> {
-    const proc = this.proc;
-    if (proc === null) {
-      return;
-    }
-    const pid = proc.pid;
-    this.signalGroup(pid, "SIGTERM");
-    await proc.exited;
-    const deadline = Date.now() + KILL_GRACE_MS;
-    while (Date.now() < deadline && this.signalGroup(pid, 0)) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    this.signalGroup(pid, "SIGKILL");
+    this.handle.detach();
   }
 }

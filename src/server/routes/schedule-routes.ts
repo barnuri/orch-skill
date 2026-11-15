@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dispatchPath } from "../dispatch-path";
 
 import type { ApiError } from "../../shared/types/api-error";
 import type { ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
@@ -8,7 +8,6 @@ import type { RouteHandler } from "../http/route";
 import { readSchedules } from "../schedules/schedule-reader";
 import type { ServerContext } from "../types/server-context";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 const IF_NONE_MATCH: string = "if-none-match";
 const SCHEDULE_ID: RegExp = /^sch-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const RUN_INDEX: RegExp = /^\d{1,3}$/;
@@ -24,7 +23,7 @@ interface Spawned {
 }
 
 export async function dispatchSchedule(ctx: ServerContext, args: readonly string[]): Promise<Spawned> {
-  const proc = Bun.spawn(["bash", DISPATCH, "schedule", ...args], {
+  const proc = Bun.spawn(["bash", dispatchPath(), "schedule", ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",

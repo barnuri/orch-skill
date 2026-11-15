@@ -5,7 +5,12 @@ export type AgentEvent =
   | { type: "warning"; message: string }
   | { type: "context-truncated" }
   | { type: "done"; session_id: string | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /** The agent process ended without a result and without being stopped (restart, kill): keep the partial text. */
+  | { type: "interrupted"; message: string };
+
+/** What a session needs to make its turn adoptable after a restart. */
+export interface TurnInfo { messageId: string }
 
 /**
  * One conversation with an agent. `send` runs one turn and yields its events; it always ends with
@@ -17,9 +22,10 @@ export interface AgentSession {
   /** The harness-side session id once known; null before the first turn. */
   readonly sessionId: string | null;
   start(): Promise<void>;
-  send(prompt: string, attachments: readonly string[]): AsyncIterable<AgentEvent>;
-  /** Ends the running turn. A later `send` starts again from the stored session. */
+  send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent>;
+  /** Kills the running turn. A later `send` starts again from the stored session. */
   stop(): Promise<void>;
+  /** Stops following a running turn but leaves its process alone: the server restarts without cutting an answer. */
   dispose(): Promise<void>;
 }
 

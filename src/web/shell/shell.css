@@ -1,0 +1,54 @@
+/* Signal shell: left rail on desktop, bottom tab bar under 720px. Tokens only. */
+
+.shell { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); min-height: 100vh; }
+.shell[data-rail="collapsed"] { grid-template-columns: var(--rail-w-collapsed) minmax(0, 1fr); }
+.shell-main { min-width: 0; display: flex; flex-direction: column; }
+.shell-main > main { width: 100%; flex: 1; }
+
+.rail {
+  position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: var(--s1);
+  background: var(--panel2); border-right: 1px solid var(--border); overflow: hidden;
+}
+.rail-brand { display: flex; align-items: center; height: var(--nav-h); padding: 0 var(--s4); font-weight: 600; font-size: var(--fs-lg); letter-spacing: -.01em; flex: none; }
+.rail-brand a { display: inline-flex; align-items: center; gap: var(--s2); min-height: var(--touch); }
+.rail-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--s2); flex: 1; overflow-y: auto; }
+.rail-nav a, .rail-toggle {
+  display: flex; align-items: center; gap: var(--s3); min-height: var(--touch); padding: 0 var(--s3); border-radius: var(--r-md);
+  color: var(--tx2); font-size: var(--fs-ctl); white-space: nowrap; transition: color var(--t-fast), background var(--t-fast);
+}
+.rail-nav a:hover, .rail-toggle:hover { background: var(--hover); color: var(--tx); }
+.rail-nav a[aria-current="page"], .tabbar a[aria-current="page"] { color: var(--acct); background: var(--accs); box-shadow: inset 0 0 0 1px var(--accb); font-weight: 500; }
+.rail-toggle { margin: var(--s2); border-top: 1px solid transparent; }
+.nav-icon, .rail-toggle svg { width: 18px; height: 18px; flex: none; }
+.shell[data-rail="collapsed"] .rail-label { display: none; }
+.shell[data-rail="collapsed"] .rail-brand, .shell[data-rail="collapsed"] .rail-nav a, .shell[data-rail="collapsed"] .rail-toggle { justify-content: center; padding: 0; }
+.shell[data-rail="collapsed"] .rail-brand { padding: 0; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--s3);
+  height: var(--nav-h); padding: 0 var(--s5); background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.topbar-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; letter-spacing: -.01em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Component bank additions shared by every page. */
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s4); }
+.kbd { font: 500 var(--fs-micro)/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: var(--r-xs); color: var(--tx3); background: var(--inset); }
+
+.tabbar { display: none; }
+
+@media (max-width: 719px) {
+  .shell, .shell[data-rail="collapsed"] { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(var(--touch-coarse) + 14px + env(safe-area-inset-bottom)); }
+  .rail { display: none; }
+  .topbar { padding-left: max(var(--s4), env(safe-area-inset-left)); padding-right: max(var(--s4), env(safe-area-inset-right)); padding-top: env(safe-area-inset-top); height: calc(var(--nav-h) + env(safe-area-inset-top)); }
+  .tabbar {
+    position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+    background: var(--panel2); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: calc(var(--touch-coarse) + 14px);
+    color: var(--tx2); font-size: 10px; letter-spacing: -.02em; border-radius: var(--r-sm); min-width: 0;
+  }
+  .tabbar a span { max-width: 100%; overflow: hidden; text-overflow: clip; white-space: nowrap; }
+  .tabbar a[aria-current="page"] { box-shadow: none; background: transparent; border-top: 2px solid var(--acc); }
+  body #toasts { bottom: calc(var(--touch-coarse) + 24px + env(safe-area-inset-bottom)); }
+}

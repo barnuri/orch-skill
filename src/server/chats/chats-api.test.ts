@@ -93,18 +93,25 @@ describe("projects and chats", () => {
     expect((await srv.api("/api/projects/prj-nope")).status).toBe(404);
   });
 
-  test("creating a chat enforces the rules and answers {error}", async () => {
+  test("creating a chat is never blocked by the harness; the send is, with an alternative named; an unknown project is 404", async () => {
     const srv = server();
     for (const body of [
       { harness: "pi", profile: "off" },
       { harness: "claude", profile: "main", model_id: "zzz" },
       { harness: "claude", profile: "nope" },
-      { harness: "claude", profile: "main", project_id: "prj-nope" },
+      { harness: "", profile: "" },
     ]) {
       const res = await json(srv, "/api/chats", body);
-      expect(res.status).toBeOneOf([400, 404]);
-      expect(Object.keys(await res.json())).toEqual(["error"]);
+      expect(res.status).toBe(201);
+      const sent = await json(srv, `/api/chats/${(await res.json()).id}/messages`, { content: "hi" });
+      expect(sent.status).toBe(400);
+      expect(Object.keys(await sent.json())).toEqual(["error"]);
     }
+    const pi = await (await json(srv, "/api/chats", { harness: "pi", profile: "off" })).json();
+    expect((await (await json(srv, `/api/chats/${pi.id}/messages`, { content: "hi" })).json()).error).toContain("is disabled");
+    const gone = await json(srv, "/api/chats", { harness: "claude", profile: "main", project_id: "prj-nope" });
+    expect(gone.status).toBe(404);
+    expect(Object.keys(await gone.json())).toEqual(["error"]);
     const missing = await json(srv, "/api/chats", { harness: "claude" });
     expect(missing.status).toBe(400);
     expect((await missing.json()).error).toStartWith("profile:");

@@ -1,5 +1,5 @@
+import { dispatchPath } from "../dispatch-path";
 import { statSync } from "node:fs";
-import { resolve } from "node:path";
 
 import type { ApiError } from "../../shared/types/api-error";
 import type { HarnessesEnvelope } from "../../shared/types/harness-status";
@@ -8,7 +8,6 @@ import type { RouteHandler } from "../http/route";
 import type { ServerContext } from "../types/server-context";
 import { parseJsonStrict } from "../validation/strict-json";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 export const HARNESS_CACHE_MS: number = 20_000;
 
 interface Cached {
@@ -27,10 +26,12 @@ function stampOf(path: string): number {
 }
 
 async function probe(ctx: ServerContext): Promise<HarnessesEnvelope | ApiError> {
-  const proc = Bun.spawn(["bash", DISPATCH, "harness", "list", "--json"], {
+  const proc = Bun.spawn(["bash", dispatchPath(), "harness", "list", "--json"], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 120000,
+    killSignal: "SIGKILL",
   });
   const [text, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -44,35 +45,51 @@ async function probe(ctx: ServerContext): Promise<HarnessesEnvelope | ApiError> 
   return parsed.ok ? (parsed.value as HarnessesEnvelope) : { error: `invalid harness output: ${parsed.error}` };
 }
 
+export interface HarnessesHandlerOptions {
+  probe?: (ctx: ServerContext) => Promise<HarnessesEnvelope | ApiError>;
+  ttlMs?: number;
+}
+
 /**
- * The probe starts a `dispatch.sh`, so it is not cheap (up to ~2 s on a loaded machine). It is async,
- * so it never stalls other requests; it is cached for HARNESS_CACHE_MS; and concurrent callers
- * share one probe. `?refresh=1` (the Re-detect button) and a change to profiles.json both skip the cache.
+ * The probe starts a `dispatch.sh`, so it is not cheap: under load it takes longer than the cache TTL, so a
+ * plain TTL cache is expired by the time most callers arrive. The cache is therefore stale-while-revalidate:
+ * an expired entry is served at once and refreshed by one background probe. Concurrent callers share one probe.
+ * Only the first call, `?refresh=1` (the Re-detect button) and a change to profiles.json wait for a probe.
  */
-export function listHarnessesHandler(ctx: ServerContext): RouteHandler {
+export function listHarnessesHandler(ctx: ServerContext, options: HarnessesHandlerOptions = {}): RouteHandler {
+  const probeFn = options.probe ?? probe;
+  const ttlMs = options.ttlMs ?? HARNESS_CACHE_MS;
   let cached: Cached | null = null;
   let inflight: Promise<HarnessesEnvelope | ApiError> | null = null;
 
-  return async (req: Request): Promise<Response> => {
-    const force = new URL(req.url).searchParams.get("refresh") === "1";
-    if (!force && cached !== null && cached.stamp === stampOf(ctx.paths.profiles) && Date.now() - cached.at < HARNESS_CACHE_MS) {
-      return jsonResponse(200, cached.body);
-    }
-    if (inflight === null || force) {
-      const run = probe(ctx).finally(() => {
+  const start = (): Promise<HarnessesEnvelope | ApiError> => {
+    const run = probeFn(ctx)
+      .then((result) => {
+        // Stamped after the probe: `dispatch.sh` may itself touch profiles.json while it runs,
+        // and a stamp taken before would never match again.
+        if (!("error" in result)) {
+          cached = { at: Date.now(), stamp: stampOf(ctx.paths.profiles), body: result };
+        }
+        return result;
+      })
+      .finally(() => {
         if (inflight === run) {
           inflight = null;
         }
       });
-      inflight = run;
+    inflight = run;
+    return run;
+  };
+
+  return async (req: Request): Promise<Response> => {
+    const force = new URL(req.url).searchParams.get("refresh") === "1";
+    if (!force && cached !== null && cached.stamp === stampOf(ctx.paths.profiles)) {
+      if (Date.now() - cached.at >= ttlMs && inflight === null) {
+        start().catch(() => undefined);
+      }
+      return jsonResponse(200, cached.body);
     }
-    const result = await inflight;
-    if ("error" in result) {
-      return jsonResponse(500, result);
-    }
-    // Stamped after the probe: `dispatch.sh` may itself touch profiles.json while it runs (a migration),
-    // and a stamp taken before would never match again.
-    cached = { at: Date.now(), stamp: stampOf(ctx.paths.profiles), body: result };
-    return jsonResponse(200, result);
+    const result = await (force || inflight === null ? start() : inflight);
+    return "error" in result ? jsonResponse(500, result) : jsonResponse(200, result);
   };
 }

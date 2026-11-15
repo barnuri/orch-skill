@@ -4,6 +4,7 @@ import type { MiddlewareHandler } from "hono";
 
 import type { ServerContext } from "../types/server-context";
 import { ActiveController } from "./controllers/active.controller";
+import { BuildController } from "./controllers/build.controller";
 import { ChatsController } from "./controllers/chats.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
@@ -28,6 +29,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
 
   registerController(api, new HealthController(ctx), options);
   registerController(api, new ActiveController(ctx), options);
+  registerController(api, new BuildController(ctx), options);
   registerController(api, new SchedulesController(ctx), options);
   registerController(api, new RunsController(ctx), options);
   registerController(api, new DocumentsController(ctx), options);

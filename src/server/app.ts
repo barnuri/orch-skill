@@ -2,7 +2,6 @@ import type { Server } from "bun";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 
-import index from "../dashboard/index.html";
 import webIndex from "../web/index.html";
 import { buildApi } from "./api/build-api";
 import { orchPaths } from "./files/paths";
@@ -16,7 +15,7 @@ import type { ServerOptions } from "./types/server-options";
 // Declared beside the PUT handler that enforces it; re-exported here as the server's public limit.
 export { MAX_BODY_BYTES };
 
-export const DASHBOARD_DIR: string = resolve(import.meta.dir, "../dashboard");
+export const DASHBOARD_DIR: string = resolve(import.meta.dir, "../web");
 // Headroom over the JSON limit so `readJsonBody` gets to answer a descriptive 413 before Bun's empty one.
 export const BODY_SLACK_BYTES: number = 64 * 1024;
 
@@ -61,9 +60,9 @@ export function startServer(options: ServerOptions): Server<undefined> {
     // JSON routes still enforce their own MAX_BODY_BYTES while reading; uploads stream to disk (upload-stream.ts)
     // and enforce the per-file and per-message limits as bytes arrive, so no request is buffered whole.
     maxRequestBodySize: Math.max(MAX_BODY_BYTES + BODY_SLACK_BYTES, MAX_UPLOAD_REQUEST_BYTES),
-    // Only the dashboard page is a Bun route (it is an HTML import Bun bundles); every /api/* path,
+    // Only the dashboard page (and the retired /next redirect) is a Bun route (it is an HTML import Bun bundles); every /api/* path,
     // and everything unlisted, goes to the Hono app, whose fallback answers 404 or 405.
-    routes: { "/": index, "/next": webIndex },
+    routes: { "/": webIndex, "/next": Response.redirect("/", 301) },
     fetch: (req: Request, server: Server<undefined>): Response | Promise<Response> => api.fetch(req, { server }),
     // Stack goes to stderr only; the client learns nothing beyond "internal".
     error: (err: Error): Response => {
