@@ -9,4 +9,12 @@ export interface RunSummary {
   finished: string | null;
   harness_session: string;
   counts: Record<NodeStatus, number>;
+  /** Summed node cost in USD, null when no node reported dollars. Optional for older servers. */
+  usd?: number | null;
+  /** Summed node tokens, null when no node reported tokens. Optional for older servers. */
+  tokens?: number | null;
+  /** Running nodes with no activity for `settings.stale_minutes`. Omitted when none. */
+  stale?: number;
+  /** ISO time of the newest node activity. Omitted when no node has a time. */
+  updated?: string;
 }

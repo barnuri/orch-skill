@@ -3,7 +3,7 @@ import { Controller, Get, Response as ResponseSchema } from "@barnuri/hono-decor
 import { healthHandler } from "../../routes/health-route";
 import type { RouteHandler } from "../../http/route";
 import type { ServerContext } from "../../types/server-context";
-import { HealthDto } from "../dto/common";
+import { HealthDto } from "../../../shared/dto/common";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 

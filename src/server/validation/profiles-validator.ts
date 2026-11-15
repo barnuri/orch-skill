@@ -201,6 +201,9 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
   ) {
     issues.push({ path: "settings.max_attempts", reason: "must be -1 or an integer >= 1" });
   }
+  if ("stale_minutes" in settings && !isIntegerInRange(settings["stale_minutes"], 1, Number.MAX_SAFE_INTEGER)) {
+    issues.push({ path: "settings.stale_minutes", reason: "must be an integer >= 1" });
+  }
   if ("max_nodes" in settings && !isIntegerInRange(settings["max_nodes"], 1, MAX_NODES_MAX)) {
     issues.push({ path: "settings.max_nodes", reason: `must be an integer 1-${MAX_NODES_MAX}` });
   }

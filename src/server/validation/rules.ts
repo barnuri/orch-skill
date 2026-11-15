@@ -17,6 +17,7 @@ export const SETTINGS_KEYS = [
   "max_parallel",
   "max_attempts",
   "max_nodes",
+  "stale_minutes",
   "planner_profile",
   "learning",
   "disabled_harnesses",

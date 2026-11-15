@@ -6,7 +6,9 @@ import { NODE_STATUSES } from "../../shared/types/node-status";
 import type { NodeStatus } from "../../shared/types/node-status";
 import type { RunState } from "../../shared/types/run-state";
 import type { RunSummary } from "../../shared/types/run-summary";
+import { runUsage } from "../../shared/run-usage";
 import type { OrchPaths } from "../types/orch-paths";
+import { annotateActivity } from "./node-activity";
 import { isRunId } from "./run-id";
 
 const STATE_FILE: string = "state.json";
@@ -85,7 +87,24 @@ function countNodes(run: RunState): Record<NodeStatus, number> {
   return counts;
 }
 
-function summarize(run: RunState): RunSummary {
+function newestActivity(run: RunState): string | null {
+  let best: number | null = null;
+  for (const node of run.nodes) {
+    for (const value of [node?.last_activity, node?.updated, node?.finished, node?.started]) {
+      const t = typeof value === "string" ? Date.parse(value) : Number.NaN;
+      if (!Number.isNaN(t) && (best === null || t > best)) {
+        best = t;
+      }
+    }
+  }
+  return best === null ? null : new Date(best).toISOString();
+}
+
+function summarize(paths: OrchPaths, run: RunState): RunSummary {
+  annotateActivity(paths, run);
+  const usage = runUsage(run.nodes);
+  const stale = run.nodes.filter((node) => node?.status === "running" && node.stale === true).length;
+  const updated = newestActivity(run);
   return {
     run_id: run.run_id,
     title: run.title,
@@ -94,6 +113,11 @@ function summarize(run: RunState): RunSummary {
     finished: run.finished,
     harness_session: run.harness_session,
     counts: countNodes(run),
+    // Left out of the JSON when no node reported it, so a summary without usage stays as it was.
+    ...(usage.usd === null ? {} : { usd: usage.usd }),
+    ...(usage.tokens === null ? {} : { tokens: usage.tokens }),
+    ...(stale === 0 ? {} : { stale }),
+    ...(updated === null ? {} : { updated }),
   };
 }
 
@@ -138,7 +162,7 @@ export function listRuns(paths: OrchPaths): RunSummary[] {
       console.error(`runs: skipping ${entry.name}: ${loaded.reason}`);
       continue;
     }
-    summaries.push(summarize(loaded.state));
+    summaries.push(summarize(paths, loaded.state));
   }
   // Same as the old jq `sort_by(.started) | reverse`: a stable ascending sort, then reversed.
   return summaries.sort((a, b) => compareStrings(a.started, b.started)).reverse();
@@ -155,5 +179,6 @@ export function readRun(paths: OrchPaths, id: string): RunReadResult {
   if (!loaded.ok) {
     return { kind: "corrupt", reason: loaded.reason };
   }
+  annotateActivity(paths, loaded.state);
   return { kind: "ok", run: loaded.state };
 }

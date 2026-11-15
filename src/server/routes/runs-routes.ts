@@ -9,6 +9,7 @@ import { etagOf } from "../documents/document-store";
 import type { RouteHandler } from "../http/route";
 import { jsonResponse, notFound, notModified } from "../http/responses";
 import { readJobLog, readJobSession } from "../runs/job-log-reader";
+import { readEvents } from "../runs/run-events-reader";
 import { readRun, listRuns } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
 import type { ServerContext } from "../types/server-context";
@@ -157,5 +158,15 @@ export function readJobChatHandler(
       return notModified(etag);
     }
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
+  };
+}
+
+/** The run's activity feed; `?after=N` returns only events past that cursor. */
+export function readRunEventsHandler(ctx: ServerContext): RouteHandler {
+  return (req: Request, params: Readonly<Record<string, string>>): Response => {
+    const raw = new URL(req.url).searchParams.get("after") ?? "0";
+    const after = /^\d{1,9}$/.test(raw) ? Number(raw) : 0;
+    const body = readEvents(ctx.paths, params.id ?? "", after);
+    return body === null ? notFound() : jsonResponse(200, body);
   };
 }

@@ -80,8 +80,43 @@ export interface RunNode {
   last_event_sequence?: number | null;
   /** Hub selection events for this node, ordered by sequence and bounded. Optional for older runs. */
   selection_history?: SelectionEvent[];
+  /** Who is doing the work: an agent id, a job id or "coordinator". Null/absent = unowned. */
+  owner?: string | null;
+  /** When the node was added. Optional for older runs. */
+  created?: string | null;
+  /** Last heartbeat: any status change, ping, report or usage write. Optional for older runs. */
+  updated?: string | null;
+  /** Free-text notes from `node ping` / `node report`, newest last, at most 20. */
+  notes?: NodeNote[];
+  /** Progress text from `node ping --progress`, e.g. "3/10". */
+  progress?: string | null;
+  /** True when the node was finished without ever being recorded as running. */
+  backfilled?: boolean;
+  /** Computed by the server for a running node: ISO time of its newest sign of life. */
+  last_activity?: string | null;
+  /** Computed by the server: running with no activity for settings.stale_minutes. */
+  stale?: boolean;
+  /** Model and usage the coordinator reported with `node report`. Optional for older runs. */
+  report?: NodeReport | null;
   /** llm-hub native mode: the model the hub expected before dispatch and the one it used. */
   hub?: NodeHubPick | null;
+}
+
+export interface NodeNote {
+  at: string;
+  text: string;
+}
+
+/** What `node report` recorded for work done inline or by a subagent. Null fields were not reported. */
+export interface NodeReport {
+  reported_by: "inline";
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  usd: number | null;
+  note: string | null;
+  at: string;
 }
 
 /** One hub pick: the qualified model id plus the tier, role and reason the hub reported. */

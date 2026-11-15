@@ -8,6 +8,8 @@ export interface ProfilesSettings {
   max_parallel?: number;
   /** Total tries per node before dependents stay blocked; 1 disables, -1 is unlimited. */
   max_attempts?: number;
+  /** Minutes without activity before a running node is marked stale. Default 10. */
+  stale_minutes?: number;
   /** Most task nodes `plan apply` accepts from one plan. */
   max_nodes?: number;
   /** Profile `orch plan` dispatches the planner node on. */

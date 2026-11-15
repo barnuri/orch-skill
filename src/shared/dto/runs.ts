@@ -46,6 +46,21 @@ export class RunEnvelopeDto extends ZodDto {
   run!: Record<string, unknown>;
 }
 
+@ZodObject({ description: "Which events to return." })
+export class RunEventsQueryDto extends ZodDto {
+  @ZodField(z.string().regex(/^\d{1,9}$/).optional(), { description: "Cursor: only events after this number (the `next` of the previous answer). Default 0." })
+  after?: string;
+}
+
+@ZodObject({ description: "A run's activity feed." })
+export class RunEventsEnvelopeDto extends ZodDto {
+  @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Events {n, at, kind, node, from, to, note, by}, oldest first, at most 200 (the newest)." })
+  events!: Record<string, unknown>[];
+
+  @ZodField(z.number(), { description: "Cursor for the next call: the number of the newest event." })
+  next!: number;
+}
+
 @ZodObject({ description: "A job's log." })
 export class JobLogEnvelopeDto extends ZodDto {
   @ZodField(z.string(), { description: "When this was built, ISO 8601 UTC." })

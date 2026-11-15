@@ -4,6 +4,8 @@ import type { MiddlewareHandler } from "hono";
 
 import type { ServerContext } from "../types/server-context";
 import { ActiveController } from "./controllers/active.controller";
+import { ChatsController } from "./controllers/chats.controller";
+import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
 import { HealthController } from "./controllers/health.controller";
 import { RunsController } from "./controllers/runs.controller";
@@ -31,6 +33,8 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new DocumentsController(ctx), options);
   registerController(api, new HarnessesController(ctx), options);
   registerController(api, new SuggestionsController(ctx), options);
+  registerController(api, new ProjectsController(ctx), options);
+  registerController(api, new ChatsController(ctx), options);
 
   // The document describes the API's surface, so it asks for the same Host check and token as the API.
   api.use(OPENAPI_PATH, guard(ctx));

@@ -1,18 +1,19 @@
-import { Controller, Get, Param, Post, Response as ResponseSchema } from "@barnuri/hono-decorators";
+import { Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
 import type { RouteHandler } from "../../http/route";
 import {
   listRunsHandler,
   readJobChatHandler,
   readJobLogHandler,
+  readRunEventsHandler,
   readRunHandler,
   retryNodeHandler,
   retryRunHandler,
   stopRunHandler,
 } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
-import { ErrorDto, OkDto } from "../dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../dto/runs";
+import { ErrorDto, OkDto } from "../../../shared/dto/common";
+import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 
@@ -25,6 +26,7 @@ export class RunsController {
   private readonly retryNode: RouteHandler;
   private readonly jobLog: RouteHandler;
   private readonly jobChat: RouteHandler;
+  private readonly events: RouteHandler;
 
   constructor(ctx: ServerContext) {
     this.list = listRunsHandler(ctx);
@@ -34,6 +36,7 @@ export class RunsController {
     this.retryNode = retryNodeHandler(ctx);
     this.jobLog = readJobLogHandler(ctx);
     this.jobChat = readJobChatHandler(ctx);
+    this.events = readRunEventsHandler(ctx);
   }
 
   @Get("/runs", {
@@ -54,6 +57,18 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   read_(c: ApiContext): Promise<Response> {
     return call(this.read, c);
+  }
+
+  @Get("/runs/{id}/events", {
+    summary: "A run's activity feed",
+    description: "One event per node or run change, oldest first, at most 200 (the newest). `after=N` returns only events past the cursor `next` of the previous answer.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @Query(RunEventsQueryDto.schema)
+  @ResponseSchema(RunEventsEnvelopeDto.schema, { description: "The events." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
+  events_(c: ApiContext): Promise<Response> {
+    return call(this.events, c);
   }
 
   @Post("/runs/{id}/retry", {

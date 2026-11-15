@@ -10,7 +10,7 @@ import {
 } from "../../routes/schedule-routes";
 import type { RouteHandler } from "../../http/route";
 import type { ServerContext } from "../../types/server-context";
-import { ErrorDto, OkDto } from "../dto/common";
+import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import {
   ScheduleActionParamsDto,
   ScheduleCreatedDto,
@@ -20,7 +20,7 @@ import {
   SchedulePreviewQueryDto,
   ScheduleRunParamsDto,
   SchedulesEnvelopeDto,
-} from "../dto/schedule";
+} from "../../../shared/dto/schedule";
 import type { ApiContext } from "../pipeline";
 import { call, valid } from "./support";
 

@@ -5,9 +5,9 @@ import { getDocumentHandler, putDocumentHandler } from "../../routes/document-ro
 import { listHarnessesHandler } from "../../routes/harnesses-routes";
 import { profileSanityHandler } from "../../routes/profiles-routes";
 import type { ServerContext } from "../../types/server-context";
-import { ErrorDto } from "../dto/common";
-import { OpaqueDocumentDto } from "../dto/common";
-import { HarnessesEnvelopeDto } from "../dto/runs";
+import { ErrorDto } from "../../../shared/dto/common";
+import { OpaqueDocumentDto } from "../../../shared/dto/common";
+import { HarnessesEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 

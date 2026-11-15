@@ -89,8 +89,8 @@ model_id_allowed() {
     | if $prof == null then false
       elif ($prof.allowed_models? | length) == 0 then true
       else
-        (.models[$m] // empty) as $spec
-        | if $spec == empty then false
+        (.models[$m] // null) as $spec
+        | if $spec == null then false
           else model_allowed($m; $spec.slug; $prof.allowed_models)
           end
       end

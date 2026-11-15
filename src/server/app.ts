@@ -3,10 +3,12 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 
 import index from "../dashboard/index.html";
+import webIndex from "../web/index.html";
 import { buildApi } from "./api/build-api";
 import { orchPaths } from "./files/paths";
 import { jsonResponse } from "./http/responses";
 import { logError } from "./http/route";
+import { MAX_UPLOAD_REQUEST_BYTES } from "./chats/limits";
 import { MAX_BODY_BYTES } from "./routes/document-routes";
 import type { ServerContext } from "./types/server-context";
 import type { ServerOptions } from "./types/server-options";
@@ -55,10 +57,13 @@ export function startServer(options: ServerOptions): Server<undefined> {
     // so `main` can exit 1 and bash can reuse the server that is already up.
     reusePort: false,
     idleTimeout: IDLE_TIMEOUT_SECONDS,
-    maxRequestBodySize: MAX_BODY_BYTES + BODY_SLACK_BYTES,
+    // Bun has one body cap per server, no per-route cap, so the upload size is the cap for every /api route.
+    // JSON routes still enforce their own MAX_BODY_BYTES while reading; uploads stream to disk (upload-stream.ts)
+    // and enforce the per-file and per-message limits as bytes arrive, so no request is buffered whole.
+    maxRequestBodySize: Math.max(MAX_BODY_BYTES + BODY_SLACK_BYTES, MAX_UPLOAD_REQUEST_BYTES),
     // Only the dashboard page is a Bun route (it is an HTML import Bun bundles); every /api/* path,
     // and everything unlisted, goes to the Hono app, whose fallback answers 404 or 405.
-    routes: { "/": index },
+    routes: { "/": index, "/next": webIndex },
     fetch: (req: Request, server: Server<undefined>): Response | Promise<Response> => api.fetch(req, { server }),
     // Stack goes to stderr only; the client learns nothing beyond "internal".
     error: (err: Error): Response => {

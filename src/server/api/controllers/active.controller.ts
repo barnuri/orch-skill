@@ -3,8 +3,8 @@ import { Controller, Get, Param, Post, Response as ResponseSchema } from "@barnu
 import { listActiveHandler, stopActiveHandler } from "../../routes/active-routes";
 import type { RouteHandler } from "../../http/route";
 import type { ServerContext } from "../../types/server-context";
-import { ActiveEnvelopeDto, ActiveIdParamsDto } from "../dto/active";
-import { ErrorDto, OkDto } from "../dto/common";
+import { ActiveEnvelopeDto, ActiveIdParamsDto } from "../../../shared/dto/active";
+import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 

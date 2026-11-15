@@ -10,8 +10,8 @@ import {
   scanSuggestionsHandler,
 } from "../../routes/suggestions-routes";
 import type { ServerContext } from "../../types/server-context";
-import { ErrorDto, OkDto, OpaqueDocumentDto } from "../dto/common";
-import { SuggestionIdParamsDto } from "../dto/runs";
+import { ErrorDto, OkDto, OpaqueDocumentDto } from "../../../shared/dto/common";
+import { SuggestionIdParamsDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 

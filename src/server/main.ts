@@ -7,6 +7,8 @@ import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
 import { ensureToken } from "./files/token-file";
 import { digestToken } from "./http/auth";
+import { orchPaths } from "./files/paths";
+import { startReconciler } from "./runs/run-reconciler";
 import { startTicker } from "./schedules/ticker";
 
 export const MIN_BUN: string = ">=1.3.0";
@@ -137,6 +139,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   );
 
   startTicker(args.home);
+  startReconciler(args.home, orchPaths(args.home));
   onShutdown(server, args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.
   await new Promise<never>(() => {});
