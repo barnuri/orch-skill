@@ -57,19 +57,56 @@ node_last_activity() {
   [ -z "$best" ] || printf '%s\n' "$best"
 }
 
-# run_stale_nodes <run> — ids of running nodes with no activity for settings.stale_minutes.
-run_stale_nodes() {
-  local run_id="$1" file minutes now node last out=""
+# newest_mtime <path>... - newest mtime (epoch) of the files under the given paths (files or dirs),
+# one find for all of them; prints nothing when there are none.
+newest_mtime() {
+  local -a have=()
+  local p
+  for p in "$@"; do [ -n "$p" ] && [ -e "$p" ] && have+=("$p"); done
+  [ ${#have[@]} -gt 0 ] || return 0
+  { find "${have[@]}" -type f -exec stat -f %m {} + 2>/dev/null || find "${have[@]}" -type f -exec stat -c %Y {} + 2>/dev/null; } \
+    | sort -n | tail -n 1
+}
+
+# run_activity_rows <run> - one \x1f-separated line per running node (a tab would collapse empty fields): id, last activity epoch (may be empty),
+# started (ISO or -), owner (or job id, or -). One jq for the whole state instead of three per
+# node; the same rules as node_last_activity.
+run_activity_rows() {
+  local run_id="$1" file id upd sta job dir started owner last f
   file=$(run_state_file "$run_id")
+  while IFS=$'\x1f' read -r id upd sta job dir started owner; do
+    [ -n "$id" ] || continue
+    last=""
+    for f in "$upd" "$sta"; do
+      [ -n "$f" ] || continue
+      if [ -z "$last" ] || [ "$f" -gt "$last" ]; then last="$f"; fi
+    done
+    f=$(newest_mtime "$dir" "${job:+$JOBS_HOME/$job/log}")
+    if [ -n "$f" ] && { [ -z "$last" ] || [ "$f" -gt "$last" ]; }; then last="$f"; fi
+    printf '%s\037%s\037%s\037%s\n' "$id" "$last" "$started" "$owner"
+  done <<EOF
+$(jq -r --arg runs "$RUNS_HOME" --arg run "$run_id" '
+  def ep: if (. // "") == "" then "" else ((try fromdateiso8601 catch "") | tostring) end;
+  .nodes[] | select(.status == "running")
+  | [.id, (.updated | ep), (.started | ep), (.job_id // ""),
+     (if (.out_dir // "") != "" then .out_dir else "\($runs)/\($run)/out/\(.id)" end),
+     (.started // "-"), ((.owner // .job_id // "-") | tostring | gsub("[\t\r\n\u001f]"; " "))]
+  | map(tostring) | join("\u001f")' "$file")
+EOF
+}
+
+# run_stale_nodes <run> [rows] - ids of running nodes with no activity for settings.stale_minutes.
+run_stale_nodes() {
+  local run_id="$1" rows="${2-}" minutes now node last rest out=""
+  [ $# -ge 2 ] || rows=$(run_activity_rows "$run_id")
   minutes=$(setting_uint stale_minutes "$STALE_MINUTES_DEFAULT")
   now=$(date -u +%s)
-  while IFS= read -r node; do
-    [ -n "$node" ] || continue
-    last=$(node_last_activity "$run_id" "$node")
-    [ -n "$last" ] || continue
+  while IFS=$'\x1f' read -r node last rest; do
+    [ -n "$node" ] && [ -n "$last" ] || continue
+    case "$last" in *[!0-9]*) continue ;; esac
     [ $((now - last)) -ge $((minutes * 60)) ] && out="$out${out:+,}$node"
   done <<EOF
-$(jq -r '.nodes[] | select(.status == "running") | .id' "$file")
+$rows
 EOF
   printf '%s\n' "$out"
 }
@@ -108,10 +145,10 @@ wait_cursor_file() { printf '%s/%s/wait.cursor\n' "$RUNS_HOME" "$1"; }
 
 # Number of nodes that are running, and waiting with every dependency done.
 run_live_counts() {
-  jq -r '. as $r
+  jq -r "$NODE_READY_JQ_DEF"'. as $r
     | ([.nodes[] | select(.status == "running")] | length) as $run
     | ([.nodes[] | select(.status == "waiting") | .id as $n
-        | select(all($r.edges[] | select(.[1] == $n) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done"))]
+        | select(node_ready($r))]
        | length) as $rdy
     | "\($run) \($rdy)"' "$1"
 }
@@ -197,7 +234,7 @@ run_link() {
 }
 
 cmd_run_status() {
-  local run_id="${1:-}" json=0 owner_lines file now stale node last started owner age la rows="" id is_stale
+  local run_id="${1:-}" json=0 owner_lines file now stale rows=""
   [ -n "$run_id" ] || { printf 'usage: %s\n' "$RUN_STATUS_USAGE" >&2; return 2; }
   shift
   while [ $# -gt 0 ]; do
@@ -211,37 +248,28 @@ cmd_run_status() {
   file=$(run_require "$run_id") || return $?
   owner_lines=$(owners_verify_run "$run_id" 1 | owner_report_lines)
   now=$(date -u +%s)
-  stale=",$(run_stale_nodes "$run_id"),"
-  while IFS=$'\t' read -r id started owner; do
-    [ -n "$id" ] || continue
-    last=$(node_last_activity "$run_id" "$id")
-    age=""; la=""
-    if [ -n "$started" ]; then age=$(to_epoch_iso "$started" 2>/dev/null) && age=$((now - age)); fi
-    [ -z "$last" ] || la=$((now - last))
-    [ "$started" != "-" ] || started=""
-    [ "$owner" != "-" ] || owner=""
-    is_stale=false
-    if [ "${stale#*,"$id",}" != "$stale" ]; then is_stale=true; fi
-    rows="$rows$(jq -nc --arg id "$id" --arg age "$age" --arg la "$la" --argjson stale "$is_stale" --arg owner "$owner" \
-      '{id: $id, owner: (if $owner == "" then null else $owner end), age_s: (if $age == "" then null else ($age | tonumber) end),
-        last_activity_s: (if $la == "" then null else ($la | tonumber) end), stale: $stale}')"$'\n'
-  done <<EOF
-$(jq -r '.nodes[] | select(.status == "running") | "\(.id)\t\(.started // "-")\t\(.owner // (.job_id // "-"))"' "$file")
-EOF
+  rows=$(run_activity_rows "$run_id")
+  stale=$(run_stale_nodes "$run_id" "$rows")
   local summary
-  summary=$(printf '%s' "$rows" | jq -s --slurpfile st "$file" --arg link "$(run_link "$run_id")" '
+  # One jq: the activity rows (id, last epoch, started, owner) become the running entries.
+  summary=$(printf '%s' "$rows" | jq -R -s --slurpfile st "$file" --arg link "$(run_link "$run_id")" \
+    --argjson now "$now" --arg stale ",$stale," --arg o "$owner_lines" "$NODE_READY_JQ_DEF"'
     $st[0] as $r
-    | (.) as $live
+    | [split("\n")[] | select(length > 0) | split("\u001f")
+       | {id: .[0], owner: (if (.[3] // "-") == "-" then null else .[3] end),
+          age_s: (if (.[2] // "-") == "-" then null else ((.[2] | try fromdateiso8601 catch null) | if . == null then null else $now - . end) end),
+          last_activity_s: (if (.[1] // "") == "" then null else $now - (.[1] | tonumber) end),
+          stale: (.[0] as $i | $stale | contains("," + $i + ","))}] as $live
     | {run_id: $r.run_id, title: $r.title, status: $r.status,
        done: ([$r.nodes[] | select(.status == "done")] | length), total: ($r.nodes | length),
        running: [$r.nodes[] | select(.status == "running") | . as $n
          | ($live[] | select(.id == $n.id)) + {note: (($n.notes // [])[-1].text // null), progress: ($n.progress // null)}],
        ready: [$r.nodes[] | select(.status == "waiting") | .id as $id
-         | select(all($r.edges[] | select(.[1] == $id) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done"))
+         | select(node_ready($r))
          | $id],
        errors: [$r.nodes[] | select(.status == "error") | {id, error}],
-       link: $link}')
-  summary=$(printf '%s' "$summary" | jq --arg o "$owner_lines" '. + {owner_events: ($o | split("\n") | map(select(length > 0)))}')
+       link: $link,
+       owner_events: ($o | split("\n") | map(select(length > 0)))}')
   if [ "$json" = 1 ]; then printf '%s\n' "$summary"; return 0; fi
   printf '%s' "$summary" | jq -r '
     def age: if . == null then "?" elif . < 60 then "\(.)s" elif . < 3600 then "\(. / 60 | floor)m" else "\(. / 3600 | floor)h\(. % 3600 / 60 | floor)m" end;

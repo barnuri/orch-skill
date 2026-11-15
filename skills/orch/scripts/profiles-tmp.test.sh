@@ -17,6 +17,16 @@ ok "and move nothing into the trash dir" "$([ "$(trash_n)" = "$t_before" ] && ec
 ok "20 calls finish in under 180 s" "$([ $(( $(date +%s) - t0 )) -lt 180 ] && echo 1 || echo 0)"
 for i in 1 2 3; do bash "$SCRIPT" profile list >/dev/null 2>&1 & p=$!; sleep 0.2; kill -TERM $p 2>/dev/null; wait $p 2>/dev/null; done
 ok "kill -TERM during a run leaves 0 strays" "$([ "$(strays)" = 0 ] && echo 1 || echo 0)"
+# SIGKILL (the server's dispatch timeouts) skips every trap: the next call sweeps the dead writer's file.
+cp "$home/profiles.json" "$home/profiles.json.tmp.999999"
+sleep 30 & live=$!
+cp "$home/profiles.json" "$home/profiles.json.tmp.$live"
+bash "$SCRIPT" profile list >/dev/null 2>&1
+ok "a SIGKILLed writer's temp file is swept" "$([ ! -e "$home/profiles.json.tmp.999999" ] && echo 1 || echo 0)"
+ok "a live writer's temp file is kept" "$([ -e "$home/profiles.json.tmp.$live" ] && echo 1 || echo 0)"
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+bash "$SCRIPT" profile list >/dev/null 2>&1
+ok "and swept once its writer is gone" "$([ "$(strays)" = 0 ] && echo 1 || echo 0)"
 printf '%s\n' "$(jq -c '.settings.x_test = 1' "$home/profiles.json")" > "$home/profiles.json.new" && mv "$home/profiles.json.new" "$home/profiles.json"
 bash "$SCRIPT" profile list >/dev/null 2>&1
 ok "a changed profiles.json re-runs the migrations and re-marks" "$([ "$(cat "$home/.migrations/profiles-main")" != "" ] && [ "$(strays)" = 0 ] && echo 1 || echo 0)"

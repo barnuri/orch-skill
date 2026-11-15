@@ -37,7 +37,7 @@ fake_orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims
 # Same shims, but with the opt-back-in to token auth on loopback.
 fake_orch_token() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims/bun" \
   ORCH_NO_OPEN=1 ORCH_REQUIRE_TOKEN=1 bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 printf 'testtoken' > "$home/serve.token"
 chmod 600 "$home/serve.token"
 

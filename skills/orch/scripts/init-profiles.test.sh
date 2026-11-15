@@ -67,8 +67,8 @@ expect_match "migration seeds Copilot on an existing install" '^copilot$' \
 expect_file "migration records the one-time Copilot backfill" "$mig/.copilot-profile-migrated"
 cleanup_dir "$mig"
 
-# An install from the Copilot-led layout gets Claude back: claude-sub becomes claude-default, a
-# claude-planner is seeded, the harness is re-enabled, and Copilot falls back to its Claude twin.
+# An install from the Copilot-led layout gets the Claude layout: claude-sub becomes claude-default and a
+# claude-planner is seeded, but a disabled harness or profile stays disabled (migrations never re-enable).
 mig=$(new_tmp)
 jq -n '{settings:{default_profile:"claude-sub",retention_days:7,budget_threshold:85,disabled_harnesses:["claude","opencode"]},
         models:{"claude-sonnet":{slug:"sonnet",harnesses:["claude"],description:""}},
@@ -78,11 +78,11 @@ jq -n '{settings:{default_profile:"claude-sub",retention_days:7,budget_threshold
 : > "$mig/.copilot-planner-migrated"
 env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
 expect_match "claude migration renames claude-sub" '^false$' "$(jq '.profiles | has("claude-sub")' "$mig/profiles.json")"
-expect_match "claude-default is enabled and parallel" '^true,true$' \
+expect_match "claude-default keeps the user's enabled=false and is parallel" '^false,true$' \
   "$(jq -r '.profiles["claude-default"] | "\(.enabled),\(.parallel_ok)"' "$mig/profiles.json")"
 expect_match "claude-planner runs Opus 1M at xhigh effort" '^opus\[1m\] --effort xhigh' \
   "$(jq -r '.models[.profiles["claude-planner"].model].slug + " " + (.profiles["claude-planner"].flags | join(" "))' "$mig/profiles.json")"
-expect_match "claude harness is re-enabled" '^\[\]$' "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
+expect_match "a disabled claude harness stays disabled" '^\["claude","opencode"\]$' "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
 expect_match "a claude-llm-hub off llama_swap is not retargeted or pinned" '^claude-sonnet 0$' \
   "$(jq -r '.profiles["claude-llm-hub"] | "\(.model) \(.env | length)"' "$mig/profiles.json")"
 expect_match "references follow the rename" '^claude-default claude-default$' \
@@ -130,7 +130,7 @@ expect_match "local-llm-fast runs the small benchmark winner" '^llama_swap/ornit
   "$(jq -r '.models[.profiles["local-llm-fast"].model].slug' "$mig/profiles.json")"
 expect_match "ornith-1.0-35b is no longer offered to cursor-agent" '^claude$' \
   "$(jq -r '.models["local-ornith-1.0-35b"].harnesses | join(",")' "$mig/profiles.json")"
-expect_match "bench migration re-enables opencode, local-llm and pi" '^\["cursor-agent"\]$' \
+expect_match "bench migration keeps the disabled harnesses" '^\["cursor-agent","local-llm","opencode","pi"\]$' \
   "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
 expect_file "bench migration records its marker" "$mig/.bench-local-migrated"
 edit_json "$mig/profiles.json" '.profiles["claude-llm-hub"].model = "local-ornith-1.0-35b"'
@@ -205,5 +205,26 @@ expect_match "a deleted smart-auto profile is not reseeded" '^false$' \
   "$(jq -r '.profiles | has("pi-smart-auto")' "$mig/profiles.json")"
 cleanup_dir "$mig"
 
+# Regression: a fresh home seeded with a user's opencode-led profiles.json (claude disabled, default
+# on opencode) and no migration markers. No migration may re-enable claude/copilot or move a default
+# the user set, so the first chat still runs on opencode.
+mig=$(new_tmp)
+jq -n '{settings:{default_profile:"opencode-smart-auto",planner_profile:"opencode-smart-auto",retention_days:7,budget_threshold:85,
+                  disabled_harnesses:["claude","copilot","cursor-agent","local-llm","pi"]},
+        models:{"claude-sonnet":{slug:"sonnet",harnesses:["claude"],description:""},
+                "hub-smart-auto-balance":{slug:"hub/smart-auto-balance",harnesses:["opencode"],description:""}},
+        profiles:{"claude-default":{harness:"claude",model:"claude-sonnet",enabled:false,flags:[],env:{},auth:[]},
+                  "claude-planner":{harness:"claude",model:"claude-sonnet",enabled:false,flags:[],env:{},auth:[]},
+                  "copilot-default":{harness:"copilot",model:"",enabled:false,flags:[],env:{},auth:[]},
+                  "opencode-smart-auto":{harness:"opencode",model:"hub-smart-auto-balance",enabled:true,flags:[],env:{},auth:[]}}}' \
+  > "$mig/profiles.json"
+env HARNESS_ORCH_HOME="$mig" bash "$SCRIPT" init >/dev/null 2>&1
+expect_match "first-start migrations keep the user's opencode default and planner" '^opencode-smart-auto opencode-smart-auto$' \
+  "$(jq -r '.settings | "\(.default_profile) \(.planner_profile)"' "$mig/profiles.json")"
+expect_match "first-start migrations keep every disabled harness" '^\["claude","copilot","cursor-agent","local-llm","pi"\]$' \
+  "$(jq -c '.settings.disabled_harnesses' "$mig/profiles.json")"
+expect_match "first-start migrations re-enable no disabled profile" '^false false false$' \
+  "$(jq -r '.profiles | "\(.["claude-default"].enabled) \(.["claude-planner"].enabled) \(.["copilot-default"].enabled)"' "$mig/profiles.json")"
+cleanup_dir "$mig"
 
 finish

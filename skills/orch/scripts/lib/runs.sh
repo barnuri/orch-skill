@@ -35,7 +35,8 @@ SELECTION_HTTP_TIMEOUT=5
 NODE_SELECTIONS_USAGE='dispatch.sh node selections <run-id> <node-id>'
 NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]'
 NODE_REPORT_USAGE='dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]'
-NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> $(printf '%s' "$NODE_STATUSES" | tr ' ' '|') [--job J] [--error \"msg\"] [--at <iso>] [--owner <text>] [--force]"
+NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> [$(printf '%s' "$NODE_STATUSES" | tr ' ' '|')] [--job J] [--error \"msg\"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|\"\"] [--needs-user \"reason\"|--clear-needs-user]"
+
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]'
 NODE_USAGE_USAGE='dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]'
@@ -425,13 +426,63 @@ node_next_retry_at() {
   epoch_to_iso "$(($(date -u +%s) + delay))"
 }
 
+# node_deps_check <run> <file> <node> <list> - validates an `--after` list for an existing node: each
+# id is in the run, not the node itself, and the new edges make no cycle. `*` (alone or in the list)
+# marks a gate node that waits on every other non-gate node. Prints the normalized list.
+node_deps_check() {
+  local run_id="$1" file="$2" node_id="$3" list="$4" dep out="" parts
+  IFS=',' read -r -a parts <<< "$list"
+  for dep in ${parts[@]+"${parts[@]}"}; do
+    dep="${dep// /}"
+    [ -n "$dep" ] || continue
+    if [ "$dep" = '*' ]; then out="$out${out:+,}*"; continue; fi
+    [ "$dep" != "$node_id" ] || { printf 'node update: %s cannot depend on itself\n' "$node_id" >&2; return 2; }
+    node_require "$file" "$dep" 2>/dev/null \
+      || { printf 'node update: dependency %s is not in run %s\n' "$dep" "$run_id" >&2; return 2; }
+    out="$out${out:+,}$dep"
+  done
+  # A cycle: some new dependency already (transitively) depends on this node.
+  local cyc
+  cyc=$(jq -r --arg n "$node_id" --arg d "$out" '
+    (.edges // []) as $e
+    | def reach: . as $seen | ([$seen[] as $s | $e[] | select(.[0] == $s) | .[1]] + $seen | unique) as $next
+        | if $next == $seen then $seen else ($next | reach) end;
+    ([$n] | reach) as $reach
+    | [$d | split(",")[] | select(. != "*" and . != "") | select(. as $x | $reach | index($x))] | join(",")' "$file") || return 2
+  [ -z "$cyc" ] || { printf 'node update: --after %s would make a cycle (%s already waits on %s)\n' "$out" "$cyc" "$node_id" >&2; return 2; }
+  printf '%s\n' "$out"
+}
+
+# node_set_deps_block <run> <node> <deps_set> <deps> <needs_set> <needs> - replaces the node's
+# incoming edges (and its `after_all` gate flag) and/or sets or clears `needs_user`. One state write;
+# one `deps` and/or `needs-user` event.
+node_set_deps_block() {
+  local run_id="$1" node_id="$2" deps_set="$3" deps="$4" needs_set="$5" needs="$6"
+  state_write "$run_id" '
+    ($deps | split(",") | map(select(length > 0))) as $d
+    | (if $ds == 1 then
+         .edges = ([(.edges // [])[] | select(.[1] != $n)] + [$d[] | select(. != "*") | [., $n]])
+         | .nodes |= map(if .id == $n then .after_all = ($d | index("*") != null) | .updated = $ts else . end)
+       else . end)
+    | (if $ns == 1 then
+         .nodes |= map(if .id == $n then .needs_user = (if $needs == "" then null else $needs end) | .updated = $ts else . end)
+       else . end)' \
+    --arg n "$node_id" --arg deps "$deps" --argjson ds "$deps_set" --argjson ns "$needs_set" \
+    --arg needs "$needs" --arg ts "$(now_iso)" || return 1
+  [ "$deps_set" = 0 ] || run_event "$run_id" deps "$node_id" "" "" "after: ${deps:-none}"
+  [ "$needs_set" = 0 ] || run_event "$run_id" needs-user "$node_id" "" "" "${needs:-cleared}"
+  return 0
+}
+
 cmd_node_update() {
   local run_id="${1:-}" node_id="${2:-}" status="${3:-}" job="" err="" at="" owner="" force=0 epoch old allowed file
-  if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "$status" ]; then
+  local deps="" deps_set=0 needs="" needs_set=0
+  if [ -z "$run_id" ] || [ -z "$node_id" ]; then
     printf 'usage: %s\n' "$NODE_UPDATE_USAGE" >&2
     return 2
   fi
-  shift 3
+  # The status is optional when only deps or the user block change.
+  case "$status" in -*|'') status=""; shift 2 ;; *) shift 3 ;; esac
   while [ $# -gt 0 ]; do
     case "$1" in
       --job) shift; job="${1:-}" ;;
@@ -439,14 +490,28 @@ cmd_node_update() {
       --at) shift; at="${1:-}" ;;
       --owner) shift; owner="${1:-}" ;;
       --force) force=1 ;;
+      --after) [ $# -ge 2 ] || { printf 'node update: --after expects a,b or "*" (or "" to clear)\n' >&2; return 2; }
+        shift; deps="$1"; deps_set=1 ;;
+      --needs-user) shift; needs="${1:-}"; needs_set=1
+        [ -n "$needs" ] || { printf 'node update: --needs-user expects a reason (use --clear-needs-user to clear)\n' >&2; return 2; } ;;
+      --clear-needs-user) needs=""; needs_set=1 ;;
       *) printf 'node update: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
   done
+  if [ -z "$status" ] && [ "$deps_set$needs_set" = 00 ]; then
+    printf 'usage: %s\n' "$NODE_UPDATE_USAGE" >&2
+    return 2
+  fi
   require_jq "node update"
   file=$(run_require "$run_id") || return $?
   node_require "$file" "$node_id" || return 2
-  in_list "$status" "$NODE_STATUSES" || { printf 'node update: status must be one of: %s\n' "$NODE_STATUSES" >&2; return 2; }
+  [ -z "$status" ] || in_list "$status" "$NODE_STATUSES" || { printf 'node update: status must be one of: %s\n' "$NODE_STATUSES" >&2; return 2; }
+  if [ "$deps_set" = 1 ]; then deps=$(node_deps_check "$run_id" "$file" "$node_id" "$deps") || return 2; fi
+  if [ -z "$status" ]; then
+    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs"
+    return $?
+  fi
   old=$(node_field "$file" "$node_id" status)
   if [ "$old" != "$status" ] && [ "$force" = 0 ]; then
     case "$old" in
@@ -475,7 +540,15 @@ cmd_node_update() {
     epoch=$(to_epoch_iso "$at") || { printf 'node update: --at is not a valid time\n' >&2; return 2; }
     [ "$epoch" -le "$(date -u +%s)" ] || { printf 'node update: --at is in the future\n' >&2; return 2; }
   fi
-  NODE_EVENT_AT="$at" NODE_OWNER="$owner" node_set_status "$run_id" "$node_id" "$status" "$job" "$err"
+  NODE_EVENT_AT="$at" NODE_OWNER="$owner" node_set_status "$run_id" "$node_id" "$status" "$job" "$err" || return $?
+  if [ "$deps_set" = 1 ] || [ "$needs_set" = 1 ]; then
+    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs" || return 1
+  fi
+  # A session-bound node that just ended takes its final session totals now: the reconciler may
+  # never look at the run again once its last node is done.
+  case "$status" in
+    done|error|skipped) [ "${ORCH_OWNER_FILL:-1}" = 0 ] || [ ! -f "$(opencode_db_path)" ] || owners_fill_index_run "$run_id" >/dev/null 2>&1 || true ;;
+  esac
 }
 
 # node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N]
@@ -526,7 +599,15 @@ cmd_node_report() {
                   cache_read_tokens: (if $cache == "" then ($o.cache_read_tokens // null) else ($cache | tonumber) end),
                   usd: (if $usd == "" then ($o.usd // null) else ($usd | tonumber) end),
                   note: (if $note == "" then ($o.note // null) else $note end),
-                  at: $ts}' \
+                  at: $ts,
+                  # Fields captured from the session (owner-fill), not given here: the filler keeps
+                  # refreshing them, and they never count as figures the coordinator gave.
+                  auto: ((if ($o.reported_by // "") | IN("owner-fill", "owner-liveness")
+                          then ["input_tokens", "output_tokens", "cache_read_tokens", "usd"] | map(select($o[.] != null))
+                          else ($o.auto // []) end)
+                         - [(if $in != "" then "input_tokens" else empty end), (if $out != "" then "output_tokens" else empty end),
+                            (if $cache != "" then "cache_read_tokens" else empty end), (if $usd != "" then "usd" else empty end)]
+                         | if length == 0 then null else . end)}' \
     --arg model "$model" --arg in "$in_tok" --arg out "$out_tok" --arg cache "$cache_tok" \
     --arg usd "$usd" --arg note "$note" --arg ts "$(now_iso)" || return 1
   [ -z "$note" ] || run_event "$run_id" note "$node_id" "" "" "$note"
@@ -1220,21 +1301,22 @@ EOF
 
   jq -r '.nodes[] | "\(.id)\t\(.status)"' "$file"
   [ -z "$owner_lines" ] || printf '%s\n' "$owner_lines"
-  jq -r '. as $r
-    | [ .nodes[] | select(.status == "waiting") | .id as $n
-        | select(all($r.edges[] | select(.[1] == $n) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done"))
-        | .id ]
-    | "ready: " + join(",")' "$file"
-  jq -r '"running: " + ([.nodes[] | select(.status == "running")] | length | tostring)' "$file"
-  # Free dispatch slots under settings.max_parallel: dispatch at most this many of `ready:`.
-  jq -r --argjson max "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" \
-    '"slots: " + ([0, $max - ([.nodes[] | select(.status == "running")] | length)] | max | tostring)' "$file"
-  stale=$(run_stale_nodes "$run_id")
-  [ -z "$stale" ] || printf 'stale: %s\n' "$stale"
-  stale=$(run_unowned_nodes "$run_id")
-  [ -z "$stale" ] || printf 'unowned: %s\n' "$stale"
-  jq -r '.nodes[] | select(.report != null) | .report as $p
-    | "reported: \(.id) \($p.reported_by) model=\($p.model // "-") in=\($p.input_tokens // "-") out=\($p.output_tokens // "-") usd=\($p.usd // "-")"' "$file"
+  stale=$(run_stale_nodes "$run_id" "$(run_activity_rows "$run_id")")
+  # One jq for every summary line after the owner lines (it used to be five plus one per stale check).
+  jq -r --argjson max "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" --arg stale "$stale" "$NODE_READY_JQ_DEF"'. as $r
+    | ([.nodes[] | select(.status == "running")] | length) as $running
+    | "ready: " + ([ .nodes[] | select(.status == "waiting") | .id as $n
+        | select(node_ready($r))
+        | .id ] | join(",")),
+      "running: \($running)",
+      # Free dispatch slots under settings.max_parallel: dispatch at most this many of `ready:`.
+      "slots: \([0, $max - $running] | max)",
+      (if $stale != "" then "stale: " + $stale else empty end),
+      ([.nodes[] | select(.status == "running" and .stalled == true) | .id] | if length > 0 then "stalled: " + join(",") else empty end),
+      ([.nodes[] | select(.status == "running" and ((.owner // "") == "") and ((.job_id // "") == "")) | .id]
+        | if length > 0 then "unowned: " + join(",") else empty end),
+      (.nodes[] | select(.report != null) | .report as $p
+        | "reported: \(.id) \($p.reported_by) model=\($p.model // "-") in=\($p.input_tokens // "-") out=\($p.output_tokens // "-") usd=\($p.usd // "-")")' "$file"
 }
 
 # --- retention ---------------------------------------------------------------------------------

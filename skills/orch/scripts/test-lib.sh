@@ -6,6 +6,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
+. "$SCRIPT_DIR/test-home.sh"
 
 export ORCH_NO_ANNOUNCE=1
 # Never let a test start the orch skill's herdr instance; herdr-runner.test.sh opts back in.

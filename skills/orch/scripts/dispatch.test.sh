@@ -29,21 +29,48 @@ for f in "$SCRIPT_DIR"/*.test.sh; do
 done
 [ ${#files[@]} -gt 0 ] || { printf 'no test files match\n' >&2; exit 1; }
 
+# A full run takes one of the machine-wide heavy-test slots; a fragment run (`dispatch.test.sh record`) does not.
+if [ $# -eq 0 ]; then
+  . "$SCRIPT_DIR/../../../scripts/heavy-test-lock.sh"
+  HEAVY_LOCK_CMD="dispatch.test.sh (full bash suite)" heavy_lock_acquire
+fi
+# One initialised home for the whole suite: each file copies it (test-home.sh seed_home) instead of
+# paying the 2-4 s first-run migrations per temp home.
+. "$SCRIPT_DIR/test-home.sh"
+ORCH_TEST_HOME_TEMPLATE="$out_dir/home-template"
+seed_home_template "$ORCH_TEST_HOME_TEMPLATE" || { printf 'could not build the template home\n' >&2; exit 1; }
+export ORCH_TEST_HOME_TEMPLATE
+
+# Longest first: the per-file seconds of the last full run (kept outside the repo) order this run, so
+# with a job limit the slow files never start last. Files with no record go first (unknown = slow).
+TIMINGS="${ORCH_TEST_TIMINGS:-${TMPDIR:-/tmp}/orch-bash-test-timings}"
+ordered=()
+while IFS= read -r line; do ordered+=("${line#* }"); done < <(
+  for f in "${files[@]}"; do
+    n=$(basename "$f" .test.sh)
+    s=$(awk -v n="$n" '$1 == n {print $2}' "$TIMINGS" 2>/dev/null)
+    printf '%s %s\n' "${s:-99999}" "$f"
+  done | sort -rn
+)
+files=("${ordered[@]}")
+
+# Job pool: at most JOBS files at once (0 = all at once); a finished file frees its slot at once.
 pids=()
 names=()
-running=0
 started=$SECONDS
+running_count() {
+  local p n=0
+  for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done
+  printf '%s' "$n"
+}
 for f in "${files[@]}"; do
   name=$(basename "$f" .test.sh)
-  names+=("$name")
-  ( s=$SECONDS; bash "$f" > "$out_dir/$name.out" 2>&1; rc=$?; printf '%s %s\n' "$rc" "$((SECONDS - s))" > "$out_dir/$name.rc" ) &
-  pids+=($!)
-  running=$((running + 1))
-  if [ "$JOBS" -gt 0 ] && [ "$running" -ge "$JOBS" ]; then
-    wait "${pids[$((${#pids[@]} - 1))]}" 2>/dev/null
-    for p in "${pids[@]}"; do wait "$p" 2>/dev/null; done
-    running=0
+  if [ "$JOBS" -gt 0 ]; then
+    while [ "$(running_count)" -ge "$JOBS" ]; do sleep 0.2; done
   fi
+  names+=("$name")
+  ( s=$SECONDS; bash "$f" > "$out_dir/$name.out" 2>&1 9>&-; rc=$?; printf '%s %s\n' "$rc" "$((SECONDS - s))" > "$out_dir/$name.rc" ) 9>&- &
+  pids+=($!)
 done
 for p in "${pids[@]}"; do wait "$p" 2>/dev/null; done
 
@@ -66,5 +93,11 @@ for name in "${names[@]}"; do
 done
 
 printf '\n%s passed, %s failed (%ss wall)\n' "$total_pass" "$total_fail" "$((SECONDS - started))"
+# Remember each file's seconds for the next run's longest-first order (only from a full run).
+if [ $# -eq 0 ]; then
+  for name in "${names[@]}"; do
+    read -r _ secs < "$out_dir/$name.rc" 2>/dev/null && printf '%s %s\n' "$name" "$secs"
+  done > "$TIMINGS.tmp.$$" && mv -f "$TIMINGS.tmp.$$" "$TIMINGS"
+fi
 trash "$out_dir" 2>/dev/null || true
 [ "$bad" -eq 0 ] && [ "$total_fail" -eq 0 ] || exit 1

@@ -12,15 +12,16 @@ owners_dir() { printf '%s/owners\n' "$ORCH_HOME"; }
 
 # owner_parse <text> - prints "<kind><TAB><id>". kind: session | process | job | none | unknown.
 owner_parse() {
-  local text="${1:-}" t lower
-  t=$(printf '%s' "$text" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  local text="${1:-}" t
+  # Pure bash: called once per running node on every reconcile, so no sed/tr forks.
+  t="${text#"${text%%[![:space:]]*}"}"
+  t="${t%"${t##*[![:space:]]}"}"
   if [ -z "$t" ]; then printf 'none\t\n'; return 0; fi
-  lower=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]')
-  if [ "$lower" = coordinator ]; then printf 'none\tcoordinator\n'; return 0; fi
+  case "$t" in [Cc][Oo][Oo][Rr][Dd][Ii][Nn][Aa][Tt][Oo][Rr]) printf 'none\tcoordinator\n'; return 0 ;; esac
   if [[ "$t" =~ ^(agent[[:space:]:]+)?(ses_[A-Za-z0-9]+)$ ]]; then
     printf 'session\t%s\n' "${BASH_REMATCH[2]}"; return 0
   fi
-  if [[ "$lower" =~ ^pid[:[:space:]]+([0-9]+)$ ]]; then
+  if [[ "$t" =~ ^[Pp][Ii][Dd][:[:space:]]+([0-9]+)$ ]]; then
     printf 'process\t%s\n' "${BASH_REMATCH[1]}"; return 0
   fi
   if [ -d "$JOBS_HOME/$t" ]; then printf 'job\t%s\n' "$t"; return 0; fi
@@ -35,6 +36,12 @@ owner_register() {
   owner=$(node_field "$file" "$node_id" owner)
   status=$(node_field "$file" "$node_id" status)
   [ -n "$owner" ] || return 0
+  # A status change without new owner text keeps a binding the binder made (prefix, title, index):
+  # re-parsing the text would turn a full id back into its prefix, or a bound session into "unknown".
+  if [ -z "${NODE_OWNER:-}" ] && jq -e --arg n "$node_id" '.nodes[] | select(.id == $n)
+       | (.owner_bind // "") != "" and .owner_kind == "session" and ((.owner_id // "") | startswith("ses_"))' "$file" >/dev/null 2>&1; then
+    return 0
+  fi
   IFS=$'\t' read -r kind id <<< "$(owner_parse "$owner")"
   owner_write_dispatch_path
   node_patch "$run_id" "$node_id" '.owner_kind = $k | .owner_id = (if $i == "" then null else $i end)' --arg k "$kind" --arg i "$id" || return 1
@@ -150,7 +157,16 @@ owner_state() {
 owner_apply_state() {
   local run_id="$1" node="$2" state="$3" note="$4" id="$5" by="$6" now="${7:-$(now_iso)}"
   case "$state" in
-    finished)
+    finished|idle)
+      # Only a dispatched job exiting 0 ends the task. A session going idle is not a finished task
+      # (it may wait on a background shell or a follow-up): record it, and let the stall check judge.
+      if [ "$state" = idle ] || [ ! -d "$JOBS_HOME/$id" ]; then
+        node_patch "$run_id" "$node" \
+          '.owner_state = "idle" | .owner_checked = $now | .owner_idle_since = (.owner_idle_since // $now)
+           | (if $note != "" then .owner_note = $note else . end)' \
+          --arg now "$now" --arg note "$note" || true
+        return 0
+      fi
       ORCH_EVENT_BY=$by node_set_status "$run_id" "$node" done || true
       node_patch "$run_id" "$node" \
         '.auto = true | .unverified = true | .owner_state = "finished" | .owner_checked = $now
@@ -160,7 +176,8 @@ owner_apply_state() {
       ORCH_EVENT_BY=$by node_set_status "$run_id" "$node" error "" "${note:-owner $id is gone}" || true
       node_patch "$run_id" "$node" '.owner_state = "gone" | .owner_checked = $now' --arg now "$now" || true ;;
     alive)
-      node_patch "$run_id" "$node" '.updated = $now | .owner_state = "alive" | .owner_checked = $now' --arg now "$now" || true ;;
+      node_patch "$run_id" "$node" '.updated = $now | .owner_state = "alive" | .owner_checked = $now | .owner_idle_since = null
+        | (if .stalled == true then .stalled = null | .stalled_reason = null else . end)' --arg now "$now" || true ;;
     *)
       node_patch "$run_id" "$node" '.owner_state = "unknown" | .owner_checked = $now' --arg now "$now" || true ;;
   esac
@@ -175,17 +192,29 @@ owners_verify_run() {
   if [ "$apply" = 1 ]; then
     owners_bind_run "$run_id" >/dev/null || true
   fi
-  local rows
-  rows=$(jq -r '.nodes[] | select(.status == "running" and ((.owner // "") != "")) | "\(.id)\t\(.owner | gsub("[\t\r\n]"; " "))\t\(if (.owner_state // "") == "" then "-" else .owner_state end)\t\(if (.job_id // "") == "" then "-" else .job_id end)"' "$file")
+  local rows known
+  known=$(jq -r --slurpfile st "$file" '($st[0].nodes | map(select(.status == "running") | .owner_id // empty)) as $w
+    | [.[] | select(.id as $i | $w | index($i)) | "\(.id)=\(if .busy then "alive" else "idle" end)"] | join(" ")' \
+    "$(owner_session_index_file)" 2>/dev/null)
+  # A bound session id (owner_id) wins over the free text: the text may hold only a prefix of it.
+  rows=$(jq -r '.nodes[] | select(.status == "running" and ((.owner // "") != "") and ((.owner_kind // "") | IN("unbound", "umbrella") | not))
+    | "\(.id)\t\(if .owner_kind == "session" and ((.owner_id // "") | startswith("ses_")) then "ses " + .owner_id else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_state // "") == "" then "-" else .owner_state end)\t\(if (.job_id // "") == "" then "-" else .job_id end)"' "$file")
   while IFS=$'\t' read -r node owner prev jobid; do
     [ -n "$node" ] || continue
     [ "$prev" != "-" ] || prev=""
     [ "$jobid" != "-" ] || jobid=""
-    IFS=$'\t' read -r kind id <<< "$(owner_parse "$owner")"
+    case "$owner" in "ses "*) kind=session; id="${owner#ses }" ;; *) IFS=$'\t' read -r kind id <<< "$(owner_parse "$owner")" ;; esac
     case "$kind" in session|process|job) ;; *) continue ;; esac
     # A node's own dispatched job is settled by `run sync` (exit code, cost); the owner check adds nothing.
     [ "$kind" = job ] && [ "$id" = "$jobid" ] && continue
-    IFS=$'\t' read -r state note <<< "$(owner_state "$kind" "$id" "$deadline")"
+    # The session table already says busy or idle: no API call for a session it knows.
+    case " $known " in
+      *" $id=alive "*) state=alive; note="" ;;
+      *" $id=idle "*) state=idle; note="" ;;
+      *) IFS=$'\t' read -r state note <<< "$(owner_state "$kind" "$id" "$deadline")" ;;
+    esac
+    # Only a job's exit 0 means the task ended; an idle session is just idle.
+    [ "$state" != finished ] || [ "$kind" = job ] || state=idle
     now=$(now_iso)
     if [ "$apply" = 1 ]; then
       owner_apply_state "$run_id" "$node" "$state" "$note" "$id" "$OWNER_BY" "$now"
@@ -201,7 +230,8 @@ owners_verify_run() {
 # owner_report_lines - turns verify rows on stdin into "owner finished: a,b" / "owner gone: c".
 owner_report_lines() {
   awk -F'\t' '$2 == "finished" { f = f (f ? "," : "") $1 } $2 == "gone" { g = g (g ? "," : "") $1 }
-    END { if (f) print "owner finished: " f; if (g) print "owner gone: " g }'
+    $2 == "idle" { i = i (i ? "," : "") $1 }
+    END { if (f) print "owner finished: " f; if (i) print "owner idle: " i; if (g) print "owner gone: " g }'
 }
 
 NODE_VERIFY_OWNERS_USAGE='dispatch.sh node verify-owners [<run-id>] [--json] [--no-apply]'
@@ -395,9 +425,10 @@ owner_mark_unbound() {
   ORCH_EVENT_BY=owner-binder run_event "$run_id" owner "$node" "" unbound "$reason"
 }
 
-# owner_bind_match <nodes-json> <node-id> <cands-json> - prints {child,how} or {reason}. Never guesses on a tie.
+# owner_bind_match <nodes-json> <node-id> <cands-json> [need-title 0|1] - prints {child,how} or {reason}.
+# Never guesses on a tie. need-title=1 (the global session index) also refuses a time-only match.
 owner_bind_match() {
-  jq -nc --argjson nodes "$1" --arg id "$2" --argjson cands "$3" \
+  jq -nc --argjson nodes "$1" --arg id "$2" --argjson cands "$3" --argjson needtitle "${4:-0}" \
     --argjson before "${ORCH_BIND_BEFORE_SECS:-$OWNER_BIND_BEFORE_SECS_DEFAULT}" \
     --argjson after "${ORCH_BIND_AFTER_SECS:-$OWNER_BIND_AFTER_SECS_DEFAULT}" --argjson tie "$OWNER_BIND_TIE_SECS" '
     def stop: ["the","and","for","with","from","that","this","node","agent","task","run","spawned","ses"];
@@ -416,6 +447,7 @@ owner_bind_match() {
             ($e | map(select(.s == $top))) as $t
             | if ($t | length) == 1 then {child: $t[0].child, how: "title"}
               else {reason: ("tie on title between " + ($t | map(.child) | join(", ")))} end
+          elif $needtitle == 1 then {reason: "no session title near the node start shares a word with it"}
           else
             ($e | sort_by(.ad)) as $s
             | if ($s | length) > 1 and ($s[1].ad - $s[0].ad) < $tie then
@@ -455,14 +487,121 @@ owner_children_cands() {
     | {child: .id, title: (.title // ""), created: ((.time.created // 0) / 1000)}]' 2>/dev/null
 }
 
+# --- session index: one read of opencode's own session table per pass, children (subagents) included ---
+
+OWNER_STALL_MINUTES_DEFAULT=15
+OWNER_INDEX_DAYS=3
+OWNER_FULL_ID_LEN=30
+OWNER_PREFIX_MIN_LEN=12
+
+opencode_db_path() { printf '%s\n' "${ORCH_OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"; }
+
+# owner_session_index_file - prints the path of a JSON array of recent opencode sessions:
+# {id, parent, title, model, cost, tokens{...}, created, updated (epoch s), busy}. Read-only on the
+# database (mode=ro, never the live file for writing), cached under owners/cache keyed by the
+# db and wal mtimes, so an unchanged database costs no sqlite3 or jq call. `[]` when unavailable.
+owner_session_index_file() {
+  local db dir cache keyf key out
+  dir="$(owners_dir)/cache"
+  mkdir -p "$dir" 2>/dev/null
+  cache="$dir/sessions.json"; keyf="$dir/sessions.key"
+  db=$(opencode_db_path)
+  if [ "${ORCH_OWNER_INDEX:-1}" = 0 ] || [ ! -f "$db" ] || ! command -v sqlite3 >/dev/null 2>&1; then
+    [ -f "$dir/sessions-none.json" ] || printf '[]\n' > "$dir/sessions-none.json" 2>/dev/null
+    printf '%s\n' "$dir/sessions-none.json"
+    return 0
+  fi
+  key="$db $(file_mtime "$db") $(file_mtime "$db-wal" 2>/dev/null)"
+  if [ -f "$cache" ] && [ "$(cat "$keyf" 2>/dev/null)" = "$key" ]; then printf '%s\n' "$cache"; return 0; fi
+  out=$(sqlite3 -json "file:$db?mode=ro" \
+    "select id, parent_id, title, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read,
+            tokens_cache_write, time_created, time_updated, time_busy, time_idle
+       from session_v2 where time_updated > (strftime('%s','now') - $OWNER_INDEX_DAYS * 86400) * 1000" 2>/dev/null \
+    | jq -c 'map({id, parent: .parent_id, title: (.title // ""),
+        model: (try (.model | fromjson | .id) catch null), cost: (.cost // 0),
+        tokens: {input: (.tokens_input // 0), output: (.tokens_output // 0), reasoning: (.tokens_reasoning // 0),
+                 cache_read: (.tokens_cache_read // 0), cache_write: (.tokens_cache_write // 0)},
+        created: ((.time_created // 0) / 1000 | floor), updated: ((.time_updated // 0) / 1000 | floor),
+        busy: (.time_busy != null and (.time_idle == null or .time_busy > .time_idle))})' 2>/dev/null)
+  [ -n "$out" ] || out='[]'
+  printf '%s\n' "$out" > "$cache.tmp.$$" 2>/dev/null && mv -f "$cache.tmp.$$" "$cache"
+  printf '%s\n' "$key" > "$keyf" 2>/dev/null
+  printf '%s\n' "$cache"
+}
+
+# owners_umbrella_run <run> - a running node whose owner text names other nodes of the run is an
+# umbrella: it takes its children's model (one model, or "mixed") and a done count. Writes only on change.
+owners_umbrella_run() {
+  local run_id="$1" file rows node kids model sum
+  file=$(run_state_file "$run_id")
+  rows=$(jq -r '. as $r | ($r.nodes | map(.id)) as $ids
+    | $r.nodes[] | select(.status == "running" and ((.job_id // "") == "") and ((.owner_kind // "") | IN("session", "process", "job") | not)) | . as $n
+    | ([(.owner // "") | splits("[^A-Za-z0-9_.-]+")] | map(select(. as $w | $w != $n.id and ($ids | index($w))))) | unique as $k
+    | select(($k | length) > 0)
+    | [$r.nodes[] | select(.id as $i | $k | index($i))] as $kn
+    | ([$kn[] | (.model // .report.model // empty) | select(. != "")] | unique) as $m
+    | (if ($m | length) == 1 then $m[0] elif ($m | length) > 1 then "mixed" else "" end) as $model
+    | "\([$kn[] | select(.status == "done")] | length)/\($kn | length) done" as $sum
+    | select($n.umbrella != $k or $n.umbrella_status != $sum or $n.owner_kind != "umbrella"
+             or ($model != "" and ($n.model // "") != $model and (($n.model // "") == "" or $n.umbrella_model == true)))
+    | [$n.id, ($k | join(",")), $model, $sum] | join("\u001f")' "$file" 2>/dev/null)
+  # \x1f, not a tab: a tab is IFS whitespace, so an empty model would shift the fields.
+  while IFS=$'\x1f' read -r node kids model sum; do
+    [ -n "$node" ] || continue
+    node_patch "$run_id" "$node" \
+      '(.umbrella == null) as $first
+       | .umbrella = ($k | split(",")) | .umbrella_status = $s | .owner_kind = "umbrella" | .owner_id = null
+       | .owner_state = "umbrella" | .owner_reason = ("umbrella over " + ($k | split(",") | join(", "))) | .unowned = null
+       | (if $m != "" and (((.model // "") == "") or .umbrella_model == true) then .model = $m | .umbrella_model = true else . end)' \
+      --arg k "$kids" --arg m "$model" --arg s "$sum" || continue
+    ORCH_EVENT_BY=owner-binder run_event "$run_id" owner "$node" "" umbrella "umbrella over $kids ($sum)"
+    printf '%s\tumbrella over %s\n' "$node" "$kids"
+  done <<< "$rows"
+}
+
+# owners_prefix_run <run> <index-file> - a session id shorter than a full one is a prefix: bind the one
+# session it names, or leave the node unbound with the candidates when it names several.
+owners_prefix_run() {
+  local run_id="$1" ix="$2" file rows node p matches
+  file=$(run_state_file "$run_id")
+  rows=$(jq -r --slurpfile ix "$ix" --argjson full "$OWNER_FULL_ID_LEN" --argjson min "$OWNER_PREFIX_MIN_LEN" '
+    .nodes[] | select(.status == "running" and ((.job_id // "") == "") and ((.owner_kind // "") != "umbrella"))
+    | ((.owner_id // "") | if test("^ses_[A-Za-z0-9]+$") then . else "" end) as $oid
+    | (if $oid != "" then $oid else ((.owner // "") | (capture("(?<s>ses_[A-Za-z0-9]+)").s // "")) end) as $p
+    | select(($p | length) >= $min and ($p | length) < $full)
+    | [$ix[0][] | .id | select(startswith($p))] as $m
+    | select(($m | length) > 0 and $m != [$p])
+    | select(($m | length) > 1 or (.owner_bind != "prefix") or (.owner_id != $m[0]))
+    | [.id, $p, ($m | join(", "))] | join("\u001f")' "$file" 2>/dev/null)
+  while IFS=$'\x1f' read -r node p matches; do
+    [ -n "$node" ] || continue
+    case "$matches" in
+      *", "*)
+        if [ "$(node_field "$file" "$node" owner_reason)" != "session id prefix $p is ambiguous: $matches" ]; then
+          node_patch "$run_id" "$node" '.owner_kind = "unbound" | .owner_state = "unbound" | .owner_reason = $r | .owner_checked = $now' \
+            --arg r "session id prefix $p is ambiguous: $matches" --arg now "$(now_iso)" || continue
+          ORCH_EVENT_BY=owner-binder run_event "$run_id" owner "$node" "" unbound "session id prefix $p is ambiguous"
+        fi
+        printf '%s\tunbound: prefix %s is ambiguous\n' "$node" "$p" ;;
+      *)
+        owner_bind_apply "$run_id" "$node" session "$matches" prefix || continue
+        printf '%s\tbound %s (prefix)\n' "$node" "$matches" ;;
+    esac
+  done <<< "$rows"
+}
+
+# {child,how,reason} on stdin -> "child<TAB>how<TAB>reason" (one jq instead of three).
+owner_match_fields() { jq -r '[.child // "", .how // "", .reason // ""] | join("\u001f")'; }
+
 # owners_bind_run <run> - prints "<node><TAB><result>" per node it looked at.
 owners_bind_run() {
-  local run_id="$1" file rows node owner jobid kind id nodes_json need=() left=() parent cands res child how why n reason started_epoch age
+  local run_id="$1" file rows node owner jobid kind id nodes_json need=() left=() parent cands res child how why n reason started_epoch age ix
   [ "${ORCH_OWNER_BIND:-1}" != 0 ] || return 0
   file=$(run_state_file "$run_id")
   [ -f "$file" ] || return 0
-  rows=$(jq -r '.nodes[] | select(.status == "running" and ((.job_id // "") == "") and ((.owner // "") != "coordinator"))
-    | "\(.id)\t\(if (.owner // "") == "" then "-" else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_id // "") == "" then "-" else .owner_id end)"' "$file")
+  owners_umbrella_run "$run_id"
+  rows=$(jq -r '.nodes[] | select(.status == "running" and ((.job_id // "") == "") and ((.owner // "") != "coordinator") and .owner_kind != "umbrella")
+    | "\(.id)\t\(if (.owner // "") == "" then "-" else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_id // "") == "" or ((.owner_kind // "") | IN("unbound", "unknown")) then "-" else .owner_id end)"' "$file")
   while IFS=$'\t' read -r node owner id; do
     [ -n "$node" ] || continue
     [ "$owner" != "-" ] || owner=""
@@ -475,21 +614,20 @@ owners_bind_run() {
     fi
     need+=("$node")
   done <<< "$rows"
+  ix=$(owner_session_index_file)
+  owners_prefix_run "$run_id" "$ix"
   [ ${#need[@]} -gt 0 ] || return 0
   parent=$(jq -r '.harness_session // ""' "$file")
   nodes_json=$(jq -c --argjson want "$(printf '%s\n' "${need[@]}" | jq -R . | jq -sc .)" '
     [.nodes[] | select(.id as $i | $want | index($i))
      | {id, text: ([.label, .id, (.owner // ""), (.report.note // ""), ((.notes // []) | map(.text) | join(" "))] | map(. // "") | join(" ")),
         start: (try ((.started // .updated // .created) | fromdateiso8601) catch 0)}]' "$file")
-  local pend="[]" kids="[]" kids_loaded=0 kids_ok=1 pend_n
+  local pend="[]" kids="[]" kids_loaded=0 kids_ok=1 pend_n idx="[]" idx_loaded=0
   [ -z "$parent" ] || pend=$(owner_pending_cands "$parent")
   pend_n=$(printf '%s' "$pend" | jq 'length')
   for node in "${need[@]}"; do
     owner_throttle "bind-$run_id-$node" "${ORCH_OWNER_BIND_SECS:-$OWNER_THROTTLE_SECS_DEFAULT}" || continue
-    res=$(owner_bind_match "$nodes_json" "$node" "$pend")
-    child=$(printf '%s' "$res" | jq -r '.child // empty')
-    how=$(printf '%s' "$res" | jq -r '.how // empty')
-    why=$(printf '%s' "$res" | jq -r '.reason // empty')
+    IFS=$'\x1f' read -r child how why <<< "$(owner_bind_match "$nodes_json" "$node" "$pend" | owner_match_fields)"
     if [ -z "$child" ] && [ "$pend_n" = 0 ] && [[ "$parent" == ses_* ]]; then
       if [ "$kids_loaded" = 0 ]; then
         kids_loaded=1
@@ -497,19 +635,29 @@ owners_bind_run() {
         kids=$(printf '%s' "$kids" | jq -c --argjson taken "$(for f in "$(owners_dir)"/ses_*.json; do [ -f "$f" ] && basename "$f" .json; done | jq -R . | jq -sc .)" \
           'map(select(.child as $c | $taken | index($c) | not))')
       fi
-      res=$(owner_bind_match "$nodes_json" "$node" "$kids")
-      child=$(printf '%s' "$res" | jq -r '.child // empty')
-      how=$(printf '%s' "$res" | jq -r '.how // empty')
+      IFS=$'\x1f' read -r child how why <<< "$(owner_bind_match "$nodes_json" "$node" "$kids" | owner_match_fields)"
       [ -z "$how" ] || how="listing-$how"
-      why=$(printf '%s' "$res" | jq -r '.reason // empty')
       [ "$kids_ok" = 1 ] || why="opencode session listing unavailable"
     elif [ -z "$child" ] && [[ "$parent" != ses_* ]]; then
       why="${why:+$why; }run harness session '${parent:-none}' is not an opencode session"
+    fi
+    # Last resort: opencode's own session table (child sessions of any parent). Title words AND start time.
+    if [ -z "$child" ] && [ "$(wc -c < "$ix" | tr -d ' ')" -gt 3 ]; then
+      if [ "$idx_loaded" = 0 ]; then
+        idx_loaded=1
+        idx=$(jq -c --slurpfile st "$file" --argjson taken "$(for f in "$(owners_dir)"/ses_*.json; do [ -f "$f" ] && basename "$f" .json; done | jq -R . | jq -sc .)" '
+          ([$st[0].nodes[] | .owner_id // empty] + $taken) as $t
+          | [.[] | select(.parent != null and (.id as $c | $t | index($c) | not)) | {child: .id, title, created}]' "$ix")
+      fi
+      local c2 h2 w2
+      IFS=$'\x1f' read -r c2 h2 w2 <<< "$(owner_bind_match "$nodes_json" "$node" "$idx" 1 | owner_match_fields)"
+      if [ -n "$c2" ]; then child="$c2"; how="index-$h2"; else why="${why:+$why; }session table: ${w2:-nothing found}"; fi
     fi
     if [ -n "$child" ]; then
       owner_bind_apply "$run_id" "$node" session "$child" "${how:-time}" || continue
       pend=$(printf '%s' "$pend" | jq -c --arg c "$child" 'map(select(.child != $c))')
       kids=$(printf '%s' "$kids" | jq -c --arg c "$child" 'map(select(.child != $c))')
+      [ "$idx_loaded" = 0 ] || idx=$(printf '%s' "$idx" | jq -c --arg c "$child" 'map(select(.child != $c))')
       nodes_json=$(printf '%s' "$nodes_json" | jq -c --arg n "$node" 'map(select(.id != $n))')
       printf '%s\tbound %s (%s)\n' "$node" "$child" "$how"
       continue
@@ -532,12 +680,126 @@ owners_bind_run() {
 }
 
 # owners_fill_run <run> - fills EMPTY node fields from the bound owner session (opencode); at most 5 nodes.
+# The fill + stall rules over every running node, against the session index ($ix). Fills only empty
+# fields; session_stats (tokens, cost, duration) and a report written by this filler refresh each pass.
+OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
+| .nodes as $all
+| def machine_report: .report == null or ((.report.reported_by // "") | IN("owner-fill", "owner-liveness"))
+    # or no figure the coordinator gave itself: every non-null number was captured from the session
+    or ((.report.auto // []) as $a | [.report | to_entries[]
+        | select((.key | IN("input_tokens", "output_tokens", "cache_read_tokens", "usd")) and .value != null and (.key as $k | $a | index($k) | not))]
+        | length == 0);
+  # What of the session total is already credited elsewhere: earlier nodes of this run bound to the
+  # same session (one session can own several nodes in a row; their final shares) and archived
+  # attempts of this node on it (a resumed retry). The node shows only the rest.
+  def share($s):
+    . as $n
+    | ([$all[] | select(.id != $n.id and (.status | IN("done", "error", "skipped")) and .session_stats.session == $s.id
+          and ((.finished // "") != "") and ((($n.started // "") == "") or .finished <= $n.started)) | .session_stats
+        | {usd: (.cost // 0), input: (.tokens.input // 0), output: (.tokens.output // 0), reasoning: (.tokens.reasoning // 0),
+           cache_read: (.tokens.cache_read // 0), cache_write: (.tokens.cache_write // 0)}]
+       + [(.attempts // [])[] | select(.session == $s.id and .cost.cost_basis == "opencode-session") | .cost
+        | {usd: (.usd // 0), input: (.input_tokens // 0), output: (.output_tokens // 0), reasoning: 0,
+           cache_read: (.cache_read_tokens // 0), cache_write: (.cache_creation_tokens // 0)}]) as $prior
+    | def sum($k): $prior | map(.[$k]) | add // 0;
+      def left($k; $v): [$v - sum($k), 0] | max;
+    {base: {cost: sum("usd"), tokens: {input: sum("input"), output: sum("output"), reasoning: sum("reasoning"),
+                                       cache_read: sum("cache_read"), cache_write: sum("cache_write")}},
+     cost: left("usd"; $s.cost),
+     tokens: {input: left("input"; $s.tokens.input), output: left("output"; $s.tokens.output),
+              reasoning: left("reasoning"; $s.tokens.reasoning), cache_read: left("cache_read"; $s.tokens.cache_read),
+              cache_write: left("cache_write"; $s.tokens.cache_write)}};
+  def session_cost($s; $sh):
+    {usd: $sh.cost, cost_basis: "opencode-session",
+     input_tokens: $sh.tokens.input, output_tokens: $sh.tokens.output,
+     cache_read_tokens: $sh.tokens.cache_read, cache_creation_tokens: $sh.tokens.cache_write,
+     models: (if $s.model == null then [] else [{model: $s.model, usd: $sh.cost,
+       input_tokens: $sh.tokens.input, output_tokens: $sh.tokens.output,
+       cache_read_tokens: $sh.tokens.cache_read, cache_creation_tokens: $sh.tokens.cache_write}] end)};
+  # Session figures onto the node: empty fields only, but session_stats, a session-derived cost and
+  # session-captured report numbers refresh. A job cost (job_id) or an explicit `node report` figure wins.
+  def fill($s; $final):
+    ($s.updated | todate) as $upd
+    | (if (.session // "") == "" then .session = $s.id else . end)
+    | (if (.harness // "") == "" then .harness = "opencode" else . end)
+    | (if ((.model // "") == "") and $s.model != null then .model = $s.model else . end)
+    | (if ((.model_id // "") == "") and $s.model != null then .model_id = $s.model else . end)
+    | (if .started == null then .started = ($s.created | todate) else . end)
+    | share($s) as $sh
+    | .session_stats = ({session: $s.id, cost: $sh.cost, tokens: $sh.tokens, baseline: $sh.base,
+                        session_total: {cost: $s.cost, tokens: $s.tokens}, created: ($s.created | todate), updated: $upd,
+                        duration_s: ($s.updated - $s.created), busy: $s.busy} + (if $final then {final: true} else {} end))
+    | (if ((.job_id // "") == "") and (.cost == null or .cost.cost_basis == "opencode-session") then
+         (if machine_report then .cost = session_cost($s; $sh) elif .cost != null then .cost = null else . end)
+       else . end)
+    | ({input_tokens: $sh.tokens.input, output_tokens: $sh.tokens.output, cache_read_tokens: $sh.tokens.cache_read, usd: $sh.cost}) as $v
+    | (if .report == null or .report.reported_by == "owner-fill" then
+         .report = ({reported_by: "owner-fill", model: $s.model, note: null, at: (.report.at // $nowiso)} + $v)
+       else
+         # An explicit figure stays; an empty one, or one captured from the session before, takes the newer share.
+         reduce ($v | keys[]) as $k (.;
+           if .report[$k] == null or ((.report.auto // []) | index($k)) != null
+           then .report[$k] = $v[$k] | .report.auto = (((.report.auto // []) + [$k]) | unique) else . end)
+       end);
+  def bound_session:
+    if (.owner_id // "" | startswith("ses_")) and ((.owner_kind // "session") == "session") then .owner_id
+    elif (.session // "" | startswith("ses_")) and ((.job_id // "") == "") then .session else null end;
+.nodes |= map(
+  if (.status | IN("done", "error", "skipped")) then
+    # Final totals once: when the node ends, and as a one-off backfill for older terminal nodes.
+    (if (.job_id // "") == "" and (.session_stats.final // false) != true and (bound_session as $b | $b != null and $by[$b] != null)
+     then $by[bound_session] as $s | fill($s; true) | .stalled = null | .stalled_reason = null
+     else . end)
+  elif .status != "running" then .
+  elif .owner_kind == "session" and ((.owner_id // "") != "") and $by[.owner_id] != null then
+    $by[.owner_id] as $s
+    | ($s.updated | todate) as $upd
+    | fill($s; false)
+    | (if $upd > (.last_activity // "") then .last_activity = $upd else . end)
+    | (if ($now - $s.updated) >= $stall and ($s.busy | not) then
+         .stalled = true | .stalled_reason = ("no activity since " + $upd)
+       elif .stalled != null then .stalled = null | .stalled_reason = null else . end)
+  elif .owner_state == "idle" and ((.owner_idle_since // "") != "") then
+    (if ($now - (try (.owner_idle_since | fromdateiso8601) catch $now)) >= $stall then
+       .stalled = true | .stalled_reason = ("idle since " + .owner_idle_since)
+     elif .stalled != null then .stalled = null | .stalled_reason = null else . end)
+  elif .stalled != null and .owner_state == "alive" then .stalled = null | .stalled_reason = null
+  else . end)'
+
+# owners_fill_index_run <run> - applies OWNER_FILL_FILTER (writes only on change), one event per node
+# that newly stalls, and prints "<node><TAB>stalled: <reason>" for every stalled running node.
+owners_fill_index_run() {
+  local run_id="$1" file ix stall out first
+  file=$(run_state_file "$run_id")
+  ix=$(owner_session_index_file)
+  stall="${ORCH_STALL_MINUTES:-$(setting_uint stall_minutes "$OWNER_STALL_MINUTES_DEFAULT")}"
+  local -a args=(--slurpfile ix "$ix" --argjson now "$(date -u +%s)" --arg nowiso "$(now_iso)" --argjson stall "$((stall * 60))")
+  out=$(jq -r "${args[@]}" "(. as \$old | $OWNER_FILL_FILTER) as \$new | . as \$old
+    | (if \$new == \$old then \"same\" else \"changed\" end),
+      (\$new.nodes[] | select(.status == \"running\" and .stalled == true) | .id as \$i
+       | (if ([\$old.nodes[] | select(.id == \$i) | .stalled][0] // false) == true then \"stalled\" else \"new\" end)
+         + \"\t\" + .id + \"\t\" + .stalled_reason)" "$file" 2>/dev/null) || return 0
+  first="${out%%$'\n'*}"
+  [ "$first" != changed ] || state_write_raw "$run_id" "$OWNER_FILL_FILTER" "${args[@]}" || return 0
+  local kind node reason
+  while IFS=$'\t' read -r kind node reason; do
+    case "$kind" in
+      new) ORCH_EVENT_BY=owner-liveness run_event "$run_id" owner "$node" "" stalled "$reason"
+           printf '%s\tstalled: %s\n' "$node" "$reason" ;;
+      stalled) printf '%s\tstalled: %s\n' "$node" "$reason" ;;
+    esac
+  done <<< "$(printf '%s\n' "$out" | tail -n +2)"
+}
+
 owners_fill_run() {
   local run_id="$1" deadline="${2:-}" file rows node id left out n=0 model tokens_in tokens_out usd created updated cur_model have_tok have_usd harness last tmo
   [ "${ORCH_OWNER_FILL:-1}" != 0 ] || return 0
   file=$(run_state_file "$run_id")
   [ -f "$file" ] || return 0
-  rows=$(jq -r '.nodes[] | select(.status == "running" and .owner_kind == "session" and (.owner_id // "") != "")
+  owners_fill_index_run "$run_id"
+  # Nodes the session table already filled need no per-node API call.
+  rows=$(jq -r --slurpfile ix "$(owner_session_index_file)" '($ix[0] | map(.id)) as $known
+    | .nodes[] | select(.status == "running" and .owner_kind == "session" and (.owner_id // "") != "" and (.owner_id as $o | $known | index($o) | not))
     | "\(.id)\t\(.owner_id)\t\((((.model // .report.model) // "") != "") | tostring)\t\(((.report.input_tokens != null) or (.report.output_tokens != null) or ((.usage // {}) | length > 0)) | tostring)\t\(((.report.usd != null) or (.cost != null)) | tostring)\t\((.harness // "") != "" | tostring)\t\(.last_activity // "")"' "$file")
   tmo="${ORCH_OWNER_CALL_TIMEOUT:-$OWNER_CALL_TIMEOUT_DEFAULT}"
   while IFS=$'\t' read -r node id cur_model have_tok have_usd harness last; do
@@ -577,7 +839,7 @@ owner_session_info() {
 NODE_BIND_OWNERS_USAGE='dispatch.sh node bind-owners [--run <run-id>] [--json]'
 
 cmd_node_bind_owners() {
-  local run_id="" json=0 ids id file rows="" out
+  local run_id="" json=0 ids id file rows="" out fill
   while [ $# -gt 0 ]; do
     case "$1" in
       --run) shift; run_id="${1:-}" ;;
@@ -599,7 +861,8 @@ cmd_node_bind_owners() {
   fi
   for id in $ids; do
     out=$(owners_bind_run "$id") || true
-    owners_fill_run "$id" || true
+    fill=$(owners_fill_run "$id") || true
+    [ -z "$fill" ] || out="${out:+$out$'\n'}$fill"
     [ -z "$out" ] || rows="$rows$(printf '%s\n' "$out" | awk -F'\t' -v r="$id" 'BEGIN { OFS = "\t" } { print r, $0 }')"$'\n'
   done
   if [ "$json" = 1 ]; then

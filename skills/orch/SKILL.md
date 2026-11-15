@@ -174,6 +174,13 @@ on the node; `--role` and `--tier` are validated when the node is added. Claude 
 tier and worker identity to llm-hub as headers; other harnesses get only the preset model id (see
 Adapters below).
 
+For more than one node op, prefer one `orch node batch <run-id>` over separate calls: pipe one JSON
+op per line on stdin (or `--file F`) — `{"op":"add","id":"x","goal":"…","after":["a"]}`,
+`{"op":"report","id":"x","note":"…"}`, `{"op":"update","id":"x","status":"done","owner":"…"}` (fields
+mirror the flags) — and they apply in order in one process under one run lock, with the same state
+and events as the single commands. Every op is checked first; one bad op applies none and each
+error names its line. `--dry-run` only validates. Still start and finish nodes live, not afterwards.
+
 To see which model the hub actually picked for a node, run
 `orch node selections <run-id> <node-id>`. It appends the hub's selection events for every attempt
 of the node, skips any it already has, and leaves the node's `main_model` and `active_stages` current.
@@ -340,6 +347,16 @@ Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 - A carried run's finished nodes live in the origin run: `node add --after X` accepts them.
 - Verify with `run status` after you change the graph.
 - Set a node back to `waiting` only with `node update waiting`: it resets the node. Remove a mistaken node with `node remove`.
+
+## Babysitting
+
+Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run health --ensure-monitors` restores lost ones). It runs `run health <run> --json` every 30 s (`settings.health_every_sec`), and records an event only on a change: a node finished, nodes became ready, a node stalled, died, lost its owner or recovered.
+- Start every agent with a node and its FULL session id as owner (`--owner ses_…`), never a prefix.
+- Run every node that can run, in parallel up to `max_parallel`. `run health` lists `ready` nodes and free `slots`.
+- When a node finishes, re-check `ready` at once and start those nodes. React to the monitor's change events (kind `health` in the run's activity feed) instead of polling. Without a monitor, run `run health <run>` every 5–10 min.
+- `stalled` (no session activity for 15 min, `ORCH_STALL_MIN`): the monitor nudges opencode sessions (once per node per 30 min; `settings.auto_nudge: false` turns it off; `run health --nudge` does it by hand). If the session stays stalled, respawn the node. `dead`: respawn it. `unowned`: bind an owner or restart the node. `no-report`: read the session and record the result.
+- A node added before its deps were known: `node update <run> <node> --after a,b` (or `--after '*'` for a gate that waits on every other node). A node that waits on the user: `node update <run> <node> --needs-user "<reason>"` (`--clear-needs-user` when answered). `run health` then never lists it as ready, and shows it as `needs-user`.
+- Never leave a node `running` with no activity. Ask the user only about nodes that truly need them, and keep the rest running meanwhile.
 
 ## Work like ultracode
 
@@ -511,10 +528,15 @@ start of a turn, not by polling. The dashboard shows the same data: a header pil
 "Loops and monitors" strip on the Runs page, from `GET /api/active`, with a Stop button per card
 (`POST /api/active/<id>/stop`, after a confirm dialog).
 
-**Restarts:** a loop or scheduled watch whose process died (reboot, kill) is restarted by `orch sync`.
+**Restarts:** a loop whose process died (reboot, kill) is restarted by `orch sync`.
 Ticks missed while it was down are skipped, and an iteration cut off mid-call is counted and recorded as
-`interrupted`. A streaming watch cannot resume mid-stream and is marked lost. `orch prune` also removes
-ended loops and watches past the retention window.
+`interrupted`. A signal records a watch `stopped`, and one whose process is gone (SIGKILL, reboot, or
+its pid reused by another process) is recorded `dead` with the reason and an event by the next
+`watch list`, `active`, `watch wait` or `orch sync`. `orch sync` then restarts a scheduled watch that is
+still wanted (not stopped by a user, not past `--max-runtime`, and any run named in its command still
+running), with a `restarted` event naming why it died. A streaming watch cannot resume mid-stream and
+stays dead. `run health --ensure-monitors` recreates a dead `health:<run>` monitor. `orch prune` also
+removes ended loops and watches past the retention window.
 
 Without a background shell or a Monitor tool (opencode, pi), the same commands work as written.
 Call `watch wait` once per turn instead of a Monitor.
@@ -530,6 +552,8 @@ orch schedule add --name "morning summary" --cron "0 9 * * 1-5" --profile openco
 orch schedule add --name "pull repo" --cron "*/15 * * * *" --command "git -C ~/repo pull" --workdir ~/repo --timeout 5m
 orch schedule list [--json]     # id, on/off, cron, kind, last status, next run
 orch schedule show <id>         # full record with the last 30 runs
+orch schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR] [--timeout DUR]
+                                # change only the given fields; history, id and on/off state stay
 orch schedule run <id>          # fire now, outside the timetable
 orch schedule log <id> [index]  # output of a run, 0 = newest
 orch schedule disable|enable|remove <id>

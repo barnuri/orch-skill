@@ -21,6 +21,7 @@ WATCH_MAX_BYTES=10485760
 WATCH_EVENT_MAX_CHARS=2000
 WATCH_EVENTS_KEEP=500
 WATCH_READ_TICK_SECS=5
+WATCH_START_GRACE_SECS=30
 LOOP_USAGE='dispatch.sh loop start --every <dur> [--max N] [--until CMD] [--max-runtime <dur>] [--session fresh|resume|<id>] [--when-idle|--no-when-idle] (--profile P | <adapter>) <prompt|@file> [args...] | list | stop <id> | resume <id> | tail <id> [-n N]'
 WATCH_USAGE='dispatch.sh watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE] [--every DUR] [--max-runtime DUR] [--on-match PROMPT --profile P] | wait <id> [--timeout S] [--max-lines N] | events <id> [--since N] | list | stop <id>'
 ACTIVE_USAGE='dispatch.sh active [--json]'
@@ -392,10 +393,11 @@ cmd_loop_resume() {
 }
 
 # Called by `sync`: loops whose process vanished (reboot, kill) restart on the next tick. Ticks
-# missed while down are skipped, not replayed. A streaming watch cannot resume mid-stream, so it
-# is marked lost; a scheduled watch restarts.
+# missed while down are skipped, not replayed. A watch whose process vanished is first reconciled
+# to `dead` (watch_alive_status); a scheduled one that is still wanted then restarts (watch_respawn).
+# A health:<run> monitor is left to `run health --ensure-monitors`, which owns its single-flight start.
 loops_recover() {
-  local dir id pid recovered=0 every
+  local dir id recovered=0
   for dir in "$LOOPS_HOME"/*/; do
     [ -f "$dir/state.json" ] || continue
     id=$(basename "$dir")
@@ -405,16 +407,58 @@ loops_recover() {
   for dir in "$WATCHES_HOME"/*/; do
     [ -f "$dir/state.json" ] || continue
     id=$(basename "$dir")
-    [ "$(watch_alive_status "$id")" = lost ] || continue
-    every=$(jq -r .interval "$dir/spec.json")
-    if [ "$every" -gt 0 ]; then
-      pid=$(spawn_detached "$dir" watch_run "$id") && watch_patch "$id" '.pid = $pid' --argjson pid "$pid" \
-        && recovered=$((recovered + 1))
-    else
-      watch_end "$id" lost "process gone; a streaming watch cannot resume"
-    fi
+    watch_alive_status "$id" >/dev/null
+    watch_restart_wanted "$id" || continue
+    watch_respawn "$id" && recovered=$((recovered + 1))
   done
   [ "$recovered" -eq 0 ] || printf 'recovered %s loop(s)/watch(es)\n' "$recovered" >&2
+}
+
+# The runs a watch belongs to: health:<run> by name, and any run id in its command that exists.
+watch_tied_runs() {
+  local dir="$WATCHES_HOME/$1" name run
+  name=$(jq -r '.name // empty' "$dir/spec.json" 2>/dev/null)
+  case "$name" in health:?*) printf '%s\n' "${name#health:}" ;; esac
+  jq -r '.cmd // empty' "$dir/spec.json" 2>/dev/null | grep -oE '[0-9]{8}-[0-9]{6}-[0-9a-f]{4}' | sort -u \
+    | while IFS= read -r run; do [ -f "$(run_state_file "$run")" ] && printf '%s\n' "$run"; done
+}
+
+# watch_restart_wanted <id>: a scheduled watch that ended without anyone ending it on purpose —
+# `dead` (SIGKILL, crash, host restart) or `stopped` by a signal (a shutdown TERMs every process).
+# Never one a user stopped, one past its --max-runtime, a health monitor, or one whose run is over.
+watch_restart_wanted() {
+  local id="$1" dir="$WATCHES_HOME/$1" status reason run
+  status=$(jq -r .status "$dir/state.json" 2>/dev/null)
+  reason=$(jq -r '.reason // ""' "$dir/state.json" 2>/dev/null)
+  case "$status:$reason" in dead:*|"stopped:signal "*) ;; *) return 1 ;; esac
+  [ "$(jq -r '.interval // 0' "$dir/spec.json" 2>/dev/null)" -gt 0 ] || return 1
+  [ "$(jq -r '.deadline // 0' "$dir/spec.json" 2>/dev/null)" -gt "$(date +%s)" ] || return 1
+  case "$(jq -r '.name // ""' "$dir/spec.json" 2>/dev/null)" in health:*) return 1 ;; esac
+  while IFS= read -r run; do
+    [ -n "$run" ] || continue
+    [ "$(jq -r .status "$(run_state_file "$run")" 2>/dev/null)" = running ] || return 1
+  done <<EOF
+$(watch_tied_runs "$id")
+EOF
+  return 0
+}
+
+# Restarts a watch's process, single-flight per watch, with a `restarted` event naming why it died.
+watch_respawn() {
+  local id="$1" dir="$WATCHES_HOME/$1" lock="watch-respawn-$1" why pid rc=1
+  orch_lock_acquire "$lock" || return 1
+  if watch_restart_wanted "$id"; then
+    why=$(jq -r '"\(.status): \(.reason // "unknown")"' "$dir/state.json")
+    # restart_epoch opens the start grace in watch_dead_reason until the new pid is recorded.
+    # The event goes in before the spawn, so it never races the new process's own events.
+    watch_patch "$id" '.status = "running" | .reason = null | .ended = null | .pid = null | .restart_epoch = $now' \
+      --argjson now "$(date +%s)" \
+      && watch_lifecycle_event "$id" "restarted (was $why)" \
+      && pid=$(spawn_detached "$dir" watch_run "$id") \
+      && watch_patch "$id" '.pid = $pid | .restarts = ((.restarts // 0) + 1)' --argjson pid "$pid" && rc=0
+  fi
+  orch_lock_release "$lock"
+  return $rc
 }
 
 # Recoverably removes ended loops and watches older than the cutoff (epoch seconds).
@@ -511,13 +555,86 @@ watch_active_count() {
   printf '%s\n' "$count"
 }
 
-watch_alive_status() {
-  local id="$1" file="$WATCHES_HOME/$1/state.json" status pid
-  status=$(jq -r .status "$file")
-  pid=$(jq -r '.pid // empty' "$file")
-  if [ "$status" = running ] && ! pid_alive "$pid"; then
-    printf 'lost\n'
+# watch_pid_is <pid> <id>: the pid answers AND its command line names this watch (`watch_run <id>`),
+# so a pid the OS handed to another process after the watch died does not count as the watch.
+watch_pid_is() {
+  local pid="$1" id="$2" cmd
+  pid_alive "$pid" || return 1
+  command -v ps >/dev/null 2>&1 || return 0
+  cmd=$(ps -o command= -p "$pid" 2>/dev/null) || return 1
+  case "$cmd" in *"watch_run $id"*) return 0 ;; esac
+  return 1
+}
+
+# watch_dead_reason <id>: empty while a running watch's process is alive; otherwise why it is not.
+# A record without a pid is "starting" for WATCH_START_GRACE_SECS (watch start patches it in).
+watch_dead_reason() {
+  local id="$1" dir="$WATCHES_HOME/$1" pid started restarted
+  pid=$(jq -r '.pid // empty' "$dir/state.json" 2>/dev/null)
+  if [ -z "$pid" ]; then
+    started=$(to_epoch_iso "$(jq -r '.started // empty' "$dir/spec.json" 2>/dev/null)" 2>/dev/null) || started=0
+    restarted=$(jq -r '.restart_epoch // 0' "$dir/state.json" 2>/dev/null) || restarted=0
+    [ "${restarted:-0}" -le "$started" ] || started=$restarted
+    [ $(( $(date +%s) - started )) -lt "$WATCH_START_GRACE_SECS" ] && return 0
+    printf 'no process recorded\n'
     return 0
+  fi
+  watch_pid_is "$pid" "$id" && return 0
+  if pid_alive "$pid"; then
+    printf 'pid %s now belongs to another process\n' "$pid"
+  else
+    printf 'process %s gone (killed or host restarted)\n' "$pid"
+  fi
+}
+
+# watch_lifecycle_event <id> <text>: an event in the watch's own stream, without the --on-match dispatch.
+watch_lifecycle_event() {
+  local id="$1" text="$2" dir="$WATCHES_HOME/$1" n
+  n=$(( $(jq -r '.events // 0' "$dir/state.json") + 1 ))
+  jq -cn --argjson n "$n" --arg ts "$(now_iso)" --arg text "$text" '{n: $n, ts: $ts, text: $text, kind: "lifecycle"}' >> "$dir/events.jsonl"
+  watch_patch "$id" '.events = $n' --argjson n "$n"
+}
+
+# Persists the end of a watch whose process is gone, so every reader (CLI, dashboard, health) agrees.
+# A dead health:<run> monitor is also a health event on that run.
+watch_mark_dead() {
+  local id="$1" why="$2" name
+  watch_end "$id" dead "$why"
+  watch_lifecycle_event "$id" "dead: $why"
+  name=$(jq -r '.name // empty' "$WATCHES_HOME/$id/spec.json" 2>/dev/null)
+  case "$name" in health:?*) run_event "${name#health:}" health "" "" "" "monitor $id dead: $why" ;; esac
+}
+
+# The watch process's exit trap: a signal or an unexpected exit records `stopped` with the cause,
+# unless the watch already recorded its own end.
+watch_on_exit() {
+  local id="$1" why="$2"
+  [ "$(jq -r .status "$WATCHES_HOME/$id/state.json" 2>/dev/null)" = running ] || return 0
+  watch_end "$id" stopped "$why"
+  watch_lifecycle_event "$id" "stopped: $why"
+}
+
+# watch_on_signal <id> <SIG> <code>: records the end, stops the rest of the watch's process group
+# (the body and its command), then exits.
+watch_on_signal() {
+  trap '' TERM INT HUP
+  watch_on_exit "$1" "signal $2"
+  # Only when the watch leads its own process group (run_detached's setsid), never the caller's.
+  if [ "$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')" = "$$" ]; then kill -TERM -- "-$$" 2>/dev/null || true; fi
+  exit "$3"
+}
+
+# Prints the watch's status. A `running` record whose process is gone (or whose pid now belongs to
+# another process) is reconciled to `dead` with the reason and an event, and reads as dead.
+watch_alive_status() {
+  local id="$1" file="$WATCHES_HOME/$1/state.json" status why
+  status=$(jq -r .status "$file")
+  if [ "$status" = running ]; then
+    why=$(watch_dead_reason "$id")
+    if [ -n "$why" ]; then
+      watch_mark_dead "$id" "$why"
+      status=dead
+    fi
   fi
   printf '%s\n' "$status"
 }
@@ -617,11 +734,21 @@ watch_run() {
   until_re=$(jq -r .until "$dir/spec.json")
   interval=$(jq -r .interval "$dir/spec.json")
   deadline=$(jq -r .deadline "$dir/spec.json")
+  # A signal or an unexpected exit still records an end; only SIGKILL or a host restart skips this,
+  # and watch_alive_status reconciles those. The body runs as a background child so `wait` lets a
+  # trap fire at once (a command substitution would defer it until the body ended).
+  trap "watch_on_signal '$id' TERM 143" TERM
+  trap "watch_on_signal '$id' INT 130" INT
+  trap "watch_on_signal '$id' HUP 129" HUP
+  trap "watch_on_exit '$id' 'exited without recording an end'" EXIT
+  : > "$dir/ended"
   if [ "$interval" -gt 0 ]; then
-    ended=$(watch_scheduled "$id" "$cmd" "$match" "$ignore" "$until_re" "$interval" "$deadline")
+    watch_scheduled "$id" "$cmd" "$match" "$ignore" "$until_re" "$interval" "$deadline" > "$dir/ended" &
   else
-    ended=$(watch_stream "$id" "$cmd" "$match" "$ignore" "$until_re" "$deadline")
+    watch_stream "$id" "$cmd" "$match" "$ignore" "$until_re" "$deadline" > "$dir/ended" &
   fi
+  wait "$!"
+  ended=$(cat "$dir/ended" 2>/dev/null)
   if [ -n "$ended" ]; then
     watch_end "$id" done "$ended"
   else
@@ -630,12 +757,16 @@ watch_run() {
 }
 
 cmd_watch_stop() {
-  local id="${1:-}" pid
+  local id="${1:-}" pid own
   [ -n "$id" ] || { printf 'usage: dispatch.sh watch stop <watch-id>\n' >&2; return 2; }
   [ -f "$WATCHES_HOME/$id/state.json" ] || { printf 'unknown watch: %s\n' "$id" >&2; return 2; }
   pid=$(jq -r '.pid // empty' "$WATCHES_HOME/$id/state.json")
-  stop_group "$pid" >/dev/null 2>&1 || true
+  # The end is recorded first, so the watch's own signal trap sees it ended and keeps this reason.
+  # Only signal the group when the pid is still this watch: a reused pid belongs to someone else.
+  own=0
+  watch_pid_is "$pid" "$id" && own=1
   watch_end "$id" stopped stopped
+  [ "$own" -eq 0 ] || stop_group "$pid" >/dev/null 2>&1 || true
   printf 'stopped: %s\n' "$id"
 }
 

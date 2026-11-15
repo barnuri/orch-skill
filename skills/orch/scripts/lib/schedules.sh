@@ -9,7 +9,7 @@ SCHEDULES_HOME="$ORCH_HOME/schedules"
 SCHED_RUNS_KEEP=30
 SCHED_CMD_TIMEOUT_DEFAULT=3600
 SCHED_NEXT_DAYS=366
-SCHEDULE_USAGE='dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR]) | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"'
+SCHEDULE_USAGE='dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"'
 
 # sched_cron_next <expr> <from-epoch>: the first matching minute after <from>, as epoch seconds
 # (local time). Fields: * , - / lists, plus @hourly @daily @weekly @monthly. Exit 1 on a bad expression
@@ -236,6 +236,105 @@ cmd_schedule_add() {
   printf '%s\n' "$id"
 }
 
+# edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR]
+# [--timeout DUR]: changes the given fields and keeps id, created_at, enabled and the run history.
+# Each value is checked as `add` checks it. --prompt makes it a prompt schedule and --command a
+# command schedule; a kind switch clears the other kind's fields. --workdir "" and --timeout 0 clear
+# those. No lock is needed against a run in progress: a run copies its prompt or command when it
+# starts, and the server's claim files are keyed by next_at, so an edit cannot double-fire a time.
+cmd_schedule_edit() {
+  local id="${1:-}" file kind new_kind secs cur old_cron old_next
+  local name="" cron="" prompt="" profile="" command="" workdir="" timeout=""
+  local has_name=0 has_cron=0 has_prompt=0 has_profile=0 has_command=0 has_workdir=0 has_timeout=0
+  sched_exists "$id" || { printf 'unknown schedule: %s\n' "$id" >&2; return 2; }
+  shift
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || { printf 'schedule edit: %s needs a value\n' "$1" >&2; return 2; }
+    case "$1" in
+      --name) name="$2"; has_name=1 ;;
+      --cron) cron="$2"; has_cron=1 ;;
+      --prompt) prompt="$2"; has_prompt=1 ;;
+      --profile) profile="$2"; has_profile=1 ;;
+      --command) command="$2"; has_command=1 ;;
+      --workdir) workdir="$2"; has_workdir=1 ;;
+      --timeout) timeout="$2"; has_timeout=1 ;;
+      *) printf 'schedule edit: unknown argument: %s\n' "$1" >&2; return 2 ;;
+    esac
+    shift 2
+  done
+  [ $((has_name + has_cron + has_prompt + has_profile + has_command + has_workdir + has_timeout)) -gt 0 ] ||
+    { printf 'schedule edit: nothing to change\n' >&2; return 2; }
+  file=$(sched_file "$id")
+  kind=$(jq -r '.kind' "$file")
+  old_cron=$(jq -r '.cron // ""' "$file")
+  old_next=$(jq -r '.next_at // ""' "$file")
+  if [ "$has_prompt" -eq 1 ] && [ "$has_command" -eq 1 ]; then
+    printf 'schedule edit: give --prompt or --command, not both\n' >&2; return 2
+  fi
+  new_kind="$kind"
+  [ "$has_prompt" -eq 0 ] || new_kind=prompt
+  [ "$has_command" -eq 0 ] || new_kind=command
+  if [ "$has_name" -eq 1 ] && [ -z "$name" ]; then printf 'schedule edit: --name cannot be empty\n' >&2; return 2; fi
+  if [ "$has_cron" -eq 1 ]; then
+    sched_cron_next "$cron" "$(date +%s)" >/dev/null || { printf 'schedule edit: bad or never-matching cron: %s\n' "$cron" >&2; return 2; }
+  fi
+  if [ "$new_kind" = prompt ]; then
+    if [ "$has_workdir" -eq 1 ] || [ "$has_timeout" -eq 1 ]; then
+      printf 'schedule edit: --workdir and --timeout belong to a command schedule\n' >&2; return 2
+    fi
+    if [ "$has_prompt" -eq 1 ]; then
+      case "$prompt" in
+        @*) [ -f "${prompt#@}" ] || { printf 'schedule edit: no such prompt file: %s\n' "${prompt#@}" >&2; return 2; }
+            prompt=$(cat "${prompt#@}") ;;
+      esac
+      [ -n "$prompt" ] || { printf 'schedule edit: --prompt cannot be empty\n' >&2; return 2; }
+    fi
+    if [ "$has_profile" -eq 0 ]; then
+      cur=$(jq -r '.profile // ""' "$file")
+      [ "$kind" = prompt ] && [ -n "$cur" ] || { printf 'schedule edit: --prompt needs --profile\n' >&2; return 2; }
+    else
+      [ -n "$profile" ] || { printf 'schedule edit: --profile cannot be empty\n' >&2; return 2; }
+      profile_load "$profile" || return $?
+    fi
+  else
+    if [ "$has_profile" -eq 1 ]; then
+      printf 'schedule edit: --profile belongs to a prompt schedule\n' >&2; return 2
+    fi
+    if [ "$has_command" -eq 1 ] && [ -z "$command" ]; then printf 'schedule edit: --command cannot be empty\n' >&2; return 2; fi
+    [ "$has_workdir" -eq 0 ] || [ -z "$workdir" ] || [ -d "$workdir" ] || { printf 'schedule edit: no such directory: %s\n' "$workdir" >&2; return 2; }
+  fi
+  secs=""
+  if [ "$has_timeout" -eq 1 ]; then
+    secs=$(parse_duration "$timeout") || { printf 'schedule edit: bad --timeout: %s\n' "$timeout" >&2; return 2; }
+  fi
+  # One jq pass, written through sched_patch's temp-file-and-rename, so a reader never sees half an edit.
+  sched_patch "$id" '
+    (if $hn == 1 then .name = $name else . end)
+    | (if $hc == 1 then .cron = $cron else . end)
+    | (if $kind == "prompt" then
+         (if .kind != "prompt" then .kind = "prompt" | .command = null | .workdir = null | .timeout = 0 else . end)
+         | (if $hp == 1 then .prompt = $prompt else . end)
+         | (if $hpr == 1 then .profile = $profile else . end)
+       else
+         .kind = "command" | .prompt = null | .profile = null
+         | (if $hcm == 1 then .command = $command else . end)
+         | (if $hw == 1 then .workdir = (if $workdir == "" then null else $workdir end) else . end)
+         | (if $ht == 1 then .timeout = ($secs | tonumber) else . end)
+       end)
+    | .updated_at = $t' \
+    --arg kind "$new_kind" --arg name "$name" --arg cron "$cron" --arg prompt "$prompt" --arg profile "$profile" \
+    --arg command "$command" --arg workdir "$workdir" --arg secs "${secs:-0}" --arg t "$(now_iso)" \
+    --argjson hn "$has_name" --argjson hc "$has_cron" --argjson hp "$has_prompt" --argjson hpr "$has_profile" \
+    --argjson hcm "$has_command" --argjson hw "$has_workdir" --argjson ht "$has_timeout" || return 1
+  # Recompute next_at only when the timetable changed (or none is set): recomputing on a name or
+  # prompt edit would move a due-but-not-yet-claimed next_at into the future and skip that run.
+  if [ "$(jq -r '.enabled' "$file")" = true ] &&
+     { { [ "$has_cron" -eq 1 ] && [ "$cron" != "$old_cron" ]; } || [ -z "$old_next" ]; }; then
+    sched_set_next "$id"
+  fi
+  printf 'edited: %s\n' "$id"
+}
+
 sched_load_ids() {
   local d
   [ -d "$SCHEDULES_HOME" ] || return 0
@@ -342,6 +441,7 @@ cmd_schedule_next() {
 cmd_schedule() {
   case "${1:-}" in
     add) shift; cmd_schedule_add "$@" ;;
+    edit) shift; cmd_schedule_edit "$@" ;;
     list) shift; cmd_schedule_list "$@" ;;
     show) shift; cmd_schedule_show "$@" ;;
     enable) shift; cmd_schedule_set_enabled true "$@" ;;

@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
 home=$(new_tmp)
 shims=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 json_shim() {
   cat > "$shims/claude" <<SHIM
@@ -91,7 +91,7 @@ cleanup_dir "$home"
 home=$(new_tmp)
 shims=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 cost_run=$(orch run start "cost run")
 orch node add "$cost_run" n1 "first" >/dev/null
@@ -160,7 +160,7 @@ cleanup_dir "$home"
 home=$(new_tmp)
 shims=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 ho_run=$(orch run start "handoff run")
 orch node add "$ho_run" impl "Implement" >/dev/null
@@ -263,7 +263,7 @@ cleanup_dir "$home"
 # --- artifact: argument validation + a real emit -------------------------------
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 out=$(orch artifact 2>&1); rc=$?
 expect_exit "artifact with no run id exits 2" 2 "$rc"

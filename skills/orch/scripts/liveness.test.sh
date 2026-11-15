@@ -3,6 +3,8 @@
 # caching, `run status`, `node brief`. Self-contained; run with: bash liveness.test.sh
 set -u
 export ORCH_NO_ANNOUNCE=1
+# No opencode session table: these tests drive the fake opencode API only.
+export ORCH_OPENCODE_DB=/nonexistent/opencode.db
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
@@ -47,7 +49,7 @@ export ORCH_OWNER_TOTAL_SECS=120
 
 o() { HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 nf() { jq -r --arg n "$2" ".nodes[] | select(.id==\$n) | $3" "$home/runs/$1/state.json"; }
-o init >/dev/null 2>&1
+. "$SCRIPT_DIR/test-home.sh"; seed_home "$home"
 
 # 1. parsing table
 parse() { ( export HARNESS_ORCH_HOME="$home"; source "$SCRIPT"; owner_parse "$1" | tr '\t' '|' ); }
@@ -83,7 +85,7 @@ expect_eq "registry written" "$R" "$(jq -r .run "$home/owners/ses_idle.json")"
 old_upd=$(nf "$R" busy .updated)
 
 out=$(o node verify-owners "$R" --no-apply --json)
-expect_eq "no-apply reports finished" "finished" "$(printf '%s' "$out" | jq -r '.[] | select(.node=="idle") | .owner_state')"
+expect_eq "no-apply reports idle" "idle" "$(printf '%s' "$out" | jq -r '.[] | select(.node=="idle") | .owner_state')"
 expect_eq "no-apply leaves status" "running" "$(nf "$R" idle .status)"
 expect_eq "coordinator not checked" "0" "$(printf '%s' "$out" | jq '[.[] | select(.node=="coord")] | length')"
 
@@ -92,7 +94,7 @@ start=$(date +%s)
 out=$(o node verify-owners "$R" --json)
 elapsed=$(( $(date +%s) - start ))
 st() { printf '%s' "$out" | jq -r --arg n "$1" '.[] | select(.node==$n) | .owner_state'; }
-expect_eq "idle finished" finished "$(st idle)"
+expect_eq "idle session reports idle" idle "$(st idle)"
 expect_eq "busy alive" alive "$(st busy)"
 expect_eq "404 gone" gone "$(st gone)"
 expect_eq "error unknown" unknown "$(st err)"
@@ -100,11 +102,13 @@ expect_eq "timeout unknown" unknown "$(st slow)"
 expect_eq "live pid alive" alive "$(st pid)"
 expect_eq "dead pid gone" gone "$(st dead)"
 
-expect_eq "finished -> done" done "$(nf "$R" idle .status)"
-expect_eq "finished unverified" true "$(nf "$R" idle .unverified)"
-expect_eq "finished auto" true "$(nf "$R" idle .auto)"
-expect_eq "finished reported_by" owner-liveness "$(nf "$R" idle .report.reported_by)"
-expect_match "finished note" 'all done, tests pass' "$(nf "$R" idle .report.note)"
+# Regression: an idle session never ends its node; only `node update … done`, a report or a job exit does.
+expect_eq "idle session stays running" running "$(nf "$R" idle .status)"
+expect_eq "idle owner_state" idle "$(nf "$R" idle .owner_state)"
+expect_eq "idle since stamped" 1 "$([ -n "$(nf "$R" idle '.owner_idle_since // empty')" ] && echo 1 || echo 0)"
+expect_match "idle note kept" 'all done, tests pass' "$(nf "$R" idle .owner_note)"
+expect_eq "idle not unverified" null "$(nf "$R" idle .unverified)"
+expect_eq "idle no report" null "$(nf "$R" idle .report)"
 expect_eq "gone -> error" error "$(nf "$R" gone .status)"
 expect_eq "gone message" "owner ses_gone is gone" "$(nf "$R" gone .error)"
 expect_eq "dead pid -> error" error "$(nf "$R" dead .status)"
@@ -116,7 +120,8 @@ expect_eq "unknown shown" unknown "$(nf "$R" err .owner_state)"
 expect_eq "coordinator untouched" running "$(nf "$R" coord .status)"
 expect_eq "unowned untouched" running "$(nf "$R" none .status)"
 ev=$(cat "$home/runs/$R/events.jsonl")
-expect_match "event done by owner-liveness" '"to":"done".*"by":"owner-liveness"|"by":"owner-liveness".*"to":"done"' "$ev"
+expect_eq "no done event from owner-liveness" 0 "$(printf '%s\n' "$ev" | grep '"by":"owner-liveness"' | grep -c '"to":"done"')"
+expect_match "idle event by owner-liveness" '"to":"idle".*"by":"owner-liveness"' "$ev"
 expect_match "event error by owner-liveness" '"to":"error".*owner ses_gone is gone' "$ev"
 expect_match "owner event" '"kind":"owner"' "$ev"
 
@@ -127,9 +132,18 @@ for n in s1 s2 s3; do o node add "$RB" $n $n >/dev/null; echo slow > "$fake/mode
 ORCH_OWNER_CALL_TIMEOUT=1 ORCH_OWNER_TOTAL_SECS=2 o node verify-owners "$RB" >/dev/null
 expect_eq "budget caps the number of probes" 1 "$([ "$(wc -l < "$fake/calls" | tr -d ' ')" -le 2 ] && echo 1 || echo 0)"
 
-# coordinator review clears unverified
-o node update "$R" idle done --force >/dev/null 2>&1
-expect_eq "review clears unverified" null "$(nf "$R" idle '.unverified')"
+# only the coordinator ends an idle node
+o node update "$R" idle done >/dev/null 2>&1
+expect_eq "explicit done ends idle node" done "$(nf "$R" idle .status)"
+expect_eq "explicit done is not unverified" null "$(nf "$R" idle '.unverified')"
+
+# a dispatched job owner that exited 0 still ends the node
+mkdir -p "$home/jobs/job-ok"; printf '0\n' > "$home/jobs/job-ok/exit_code"
+RJ=$(o run start "job owner")
+o node add "$RJ" j j >/dev/null
+o node update "$RJ" j running --owner job-ok >/dev/null
+o node verify-owners "$RJ" >/dev/null
+expect_eq "job owner exit 0 -> done" done "$(nf "$RJ" j .status)"
 
 # caching: one call per distinct owner per pass; second pass within ttl makes no call
 export ORCH_OWNER_CACHE_SECS=900
@@ -150,8 +164,8 @@ o node add "$R2" a a >/dev/null
 echo idle > "$fake/modes/ses_st"
 o node update "$R2" a running --owner ses_st >/dev/null
 out=$(o run status "$R2")
-expect_match "status shows finished line" 'owner finished: a' "$out"
-expect_eq "status applied" done "$(nf "$R2" a .status)"
+expect_match "status shows idle line" 'owner idle: a' "$out"
+expect_eq "status leaves idle node running" running "$(nf "$R2" a .status)"
 
 R3=$(o run start "sync apply")
 o node add "$R3" g g >/dev/null
@@ -177,10 +191,9 @@ expect_eq "unknown id writes nothing" running "$(nf "$R4" w .status)"
 o owner event ses_ev alive --harness opencode
 expect_eq "alive stamps owner_state" alive "$(nf "$R4" w .owner_state)"
 o owner event ses_ev finished --harness opencode --note "built it"
-expect_eq "finished -> done" done "$(nf "$R4" w .status)"
-expect_eq "finished unverified" true "$(nf "$R4" w .unverified)"
-expect_eq "finished reported_by" "owner-event:opencode" "$(nf "$R4" w .report.reported_by)"
-expect_eq "finished note" "built it" "$(nf "$R4" w .report.note)"
+expect_eq "session finished event -> still running" running "$(nf "$R4" w .status)"
+expect_eq "session finished event -> idle" idle "$(nf "$R4" w .owner_state)"
+expect_eq "session finished event keeps note" "built it" "$(nf "$R4" w .owner_note)"
 o node add "$R4" x x >/dev/null
 o node update "$R4" x running --owner ses_ex >/dev/null
 o owner event ses_ex failed --harness claude --note "crashed"

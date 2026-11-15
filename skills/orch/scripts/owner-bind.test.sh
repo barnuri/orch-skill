@@ -3,6 +3,8 @@
 # child listing, unbound reason, fill of empty fields only, unowned flag. Run with: bash owner-bind.test.sh
 set -u
 export ORCH_NO_ANNOUNCE=1
+# Sections 0-6 test the API paths only; section 7 points this at a fixture session table.
+export ORCH_OPENCODE_DB=/nonexistent/opencode.db
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
@@ -158,6 +160,168 @@ expect_eq "no overwrite: model" coordinator-model "$(nf "$R" f2 .model)"
 expect_eq "no overwrite: tokens" 7 "$(nf "$R" f2 .report.input_tokens)"
 expect_eq "no overwrite: usd" 0.5 "$(nf "$R" f2 .report.usd)"
 expect_eq "fill: only tokens not set on f2 output" null "$(nf "$R" f2 .report.output_tokens)"
+
+# 7. opencode's session table (session_v2): prefix ids, title+time of child sessions, umbrella, fill, stall
+if command -v sqlite3 >/dev/null 2>&1; then
+  new_home
+  db="$home/fixture-opencode.db"
+  export ORCH_OPENCODE_DB="$db"
+  now_ms=$(( $(date +%s) * 1000 ))
+  old_ms=$(( now_ms - 20 * 60 * 1000 ))
+  row() { # id parent title model cost created updated busy(0|1)
+    local busy="NULL" idle="$7"
+    [ "$8" = 1 ] && { busy="$7"; idle="NULL"; }
+    printf "insert into session_v2 values ('%s', %s, '%s', '{\"id\":\"%s\"}', %s, 100, 20, 0, 5, 0, %s, %s, %s, %s);\n" \
+      "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$busy" "$idle"
+  }
+  {
+    echo "create table session_v2 (id text, parent_id text, title text, model text, cost real, tokens_input int, tokens_output int,
+      tokens_reasoning int, tokens_cache_read int, tokens_cache_write int, time_created int, time_updated int, time_busy int, time_idle int);"
+    row ses_aaaaaaaaaaaa1XXXXXXXXXXXXX "'ses_root'" "prefix work" prov/m1 1.5 "$now_ms" "$now_ms" 1
+    row ses_bbbbbbbbbbbb1XXXXXXXXXXXXX "'ses_root'" "one" prov/m1 0 "$now_ms" "$now_ms" 1
+    row ses_bbbbbbbbbbbb2XXXXXXXXXXXXX "'ses_root'" "two" prov/m1 0 "$now_ms" "$now_ms" 1
+    row ses_chatXXXXXXXXXXXXXXXXXXXXXX "'ses_other'" "Persistent chat turns across restarts" prov/m1 0.75 "$now_ms" "$now_ms" 1
+    row ses_noiseXXXXXXXXXXXXXXXXXXXXX "'ses_other'" "unrelated words entirely" prov/m1 0 "$now_ms" "$now_ms" 1
+    row ses_stallXXXXXXXXXXXXXXXXXXXXX "'ses_root'" "stall" prov/m2 0 "$old_ms" "$old_ms" 0
+    row ses_busyoldXXXXXXXXXXXXXXXXXXX "'ses_root'" "busy old" prov/m2 0 "$old_ms" "$old_ms" 1
+  } | sqlite3 "$db"
+  R=$(o run start "index")
+  o node add "$R" p1 "Prefix node" >/dev/null
+  o node add "$R" amb "Ambiguous node" >/dev/null
+  o node add "$R" chats "Persistent chat turns" >/dev/null
+  o node add "$R" st "Stall node" >/dev/null
+  o node add "$R" bz "Busy node" >/dev/null
+  o node add "$R" x2 "Other model" >/dev/null
+  o node add "$R" um "Umbrella one" >/dev/null
+  o node add "$R" mx "Umbrella mixed" >/dev/null
+  o node update "$R" p1 running --owner "agent ses_aaaaaaaaaaaa1" >/dev/null
+  o node update "$R" amb running --owner "agent ses_bbbbbbbbbbbb" >/dev/null
+  o node update "$R" chats running --owner "agent restart-chats (spawned)" >/dev/null
+  o node update "$R" st running --owner "ses_stallXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  o node update "$R" bz running --owner "ses_busyoldXXXXXXXXXXXXXXXXXXX" >/dev/null
+  o node update "$R" x2 running --owner coordinator >/dev/null
+  o node report "$R" x2 --model prov/other >/dev/null
+  o node update "$R" um running --owner "see p1 and chats" >/dev/null
+  o node update "$R" mx running --owner "see p1 and x2" >/dev/null
+  out=$(o node bind-owners --run "$R")
+  expect_eq "prefix: full id bound" ses_aaaaaaaaaaaa1XXXXXXXXXXXXX "$(nf "$R" p1 .owner_id)"
+  expect_eq "prefix: how" prefix "$(nf "$R" p1 .owner_bind)"
+  expect_eq "ambiguous prefix: unbound" unbound "$(nf "$R" amb .owner_state)"
+  expect_match "ambiguous prefix: candidates" 'ambiguous: ses_bbbbbbbbbbbb1X+, ses_bbbbbbbbbbbb2X+' "$(nf "$R" amb .owner_reason)"
+  expect_eq "index title+time: child bound" ses_chatXXXXXXXXXXXXXXXXXXXXXX "$(nf "$R" chats .owner_id)"
+  expect_eq "index title+time: how" index-title "$(nf "$R" chats .owner_bind)"
+  expect_eq "fill: session" ses_chatXXXXXXXXXXXXXXXXXXXXXX "$(nf "$R" chats .session)"
+  expect_eq "fill: model" prov/m1 "$(nf "$R" chats .model)"
+  expect_eq "fill: model_id" prov/m1 "$(nf "$R" chats .model_id)"
+  expect_eq "fill: cost" 0.75 "$(nf "$R" chats .session_stats.cost)"
+  expect_eq "fill: tokens" 100 "$(nf "$R" chats .session_stats.tokens.input)"
+  expect_eq "fill: report usd" 0.75 "$(nf "$R" chats .report.usd)"
+  expect_eq "fill: node cost from session" 0.75 "$(nf "$R" chats .cost.usd)"
+  expect_eq "fill: node cost basis" opencode-session "$(nf "$R" chats .cost.cost_basis)"
+  expect_eq "fill: node cost tokens" 100 "$(nf "$R" chats .cost.input_tokens)"
+  expect_eq "fill: prefix node model" prov/m1 "$(nf "$R" p1 .model)"
+  expect_eq "stall: flagged" true "$(nf "$R" st .stalled)"
+  expect_match "stall: reason" '^no activity since 20' "$(nf "$R" st .stalled_reason)"
+  expect_match "stall: bind-owners prints it" 'st: stalled: no activity since' "$out"
+  expect_eq "stall: one event" 1 "$(grep -c '"to":"stalled"' "$home/runs/$R/events.jsonl")"
+  expect_eq "stall: node keeps running" running "$(nf "$R" st .status)"
+  expect_eq "busy old session: not stalled" null "$(nf "$R" bz .stalled)"
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "umbrella: kind" umbrella "$(nf "$R" um .owner_kind)"
+  expect_eq "umbrella: one model" prov/m1 "$(nf "$R" um .model)"
+  expect_eq "umbrella: status" "0/2 done" "$(nf "$R" um .umbrella_status)"
+  expect_eq "umbrella: mixed models" mixed "$(nf "$R" mx .model)"
+  expect_eq "stall: still one event" 1 "$(grep -c '"to":"stalled"' "$home/runs/$R/events.jsonl")"
+  # refresh: usage and duration follow the session; a filled model is never overwritten
+  sleep 1
+  later=$(( now_ms + 60000 ))
+  sqlite3 "$db" "update session_v2 set cost = 2.5, model = '{\"id\":\"prov/changed\"}', time_updated = $later, time_busy = $later where id = 'ses_chatXXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "refresh: cost" 2.5 "$(nf "$R" chats .session_stats.cost)"
+  expect_eq "refresh: duration" 60 "$(nf "$R" chats .session_stats.duration_s)"
+  expect_eq "refresh: owner-fill report usd" 2.5 "$(nf "$R" chats .report.usd)"
+  expect_eq "refresh: model kept" prov/m1 "$(nf "$R" chats .model)"
+  expect_eq "refresh: node cost" 2.5 "$(nf "$R" chats .cost.usd)"
+
+  # A coordinator report wins: no session cost on the node, and an earlier one is dropped.
+  o node report "$R" chats --usd 9 --input-tokens 1 >/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "report wins: cost dropped" null "$(nf "$R" chats .cost)"
+  expect_eq "report wins: report kept" 9 "$(nf "$R" chats .report.usd)"
+  expect_eq "report wins: stats still filled" 2.5 "$(nf "$R" chats .session_stats.cost)"
+
+  # A resumed retry keeps the session: the archived attempt's share is not counted twice.
+  ( source "$SCRIPT"; node_patch "$R" p1 '.attempts = [{session: "ses_aaaaaaaaaaaa1XXXXXXXXXXXXX", cost: {usd: 1, cost_basis: "opencode-session", input_tokens: 40}}]' )
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "attempts: only the remainder" 0.5 "$(nf "$R" p1 .cost.usd)"
+  expect_eq "attempts: token remainder" 60 "$(nf "$R" p1 .cost.input_tokens)"
+
+  # Final totals when a session-bound node ends, and a one-off backfill of older terminal nodes.
+  sqlite3 "$db" "update session_v2 set cost = 3.25 where id = 'ses_aaaaaaaaaaaa1XXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node update "$R" p1 done >/dev/null
+  expect_eq "final: done keeps the prefix-bound full id" ses_aaaaaaaaaaaa1XXXXXXXXXXXXX "$(nf "$R" p1 .owner_id)"
+  expect_eq "final: stats on done" true "$(nf "$R" p1 .session_stats.final)"
+  expect_eq "final: session total taken at done" 3.25 "$(nf "$R" p1 .session_stats.session_total.cost)"
+  expect_eq "final: share at done (less the attempt)" 2.25 "$(nf "$R" p1 .session_stats.cost)"
+  expect_eq "final: node cost at done" 2.25 "$(nf "$R" p1 .cost.usd)"
+  o node add "$R" old "Old done node" >/dev/null
+  o node update "$R" old done --force >/dev/null 2>&1
+  ( source "$SCRIPT"; node_patch "$R" old '.status = "done" | .owner_kind = "session" | .owner_id = "ses_stallXXXXXXXXXXXXXXXXXXXXX" | .session_stats = null' )
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "backfill: terminal node filled" true "$(nf "$R" old .session_stats.final)"
+  expect_eq "backfill: no stall on a done node" null "$(nf "$R" old .stalled)"
+  sqlite3 "$db" "update session_v2 set cost = 99 where id = 'ses_stallXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "backfill: only once" true "$(nf "$R" old ".session_stats.cost == 0")"
+
+  # A report figure captured from the session is not the coordinator's: a later `node report` without
+  # --usd keeps it marked auto, and the newer session total replaces it.
+  o node add "$R" rp "Report node" >/dev/null
+  o node update "$R" rp running --owner "ses_noiseXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  sqlite3 "$db" "update session_v2 set cost = 1.25 where id = 'ses_noiseXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  o node report "$R" rp --model prov/m1 --note "progress" >/dev/null
+  expect_eq "stale report: relabelled inline" inline "$(nf "$R" rp .report.reported_by)"
+  expect_match "stale report: usd marked auto" '"usd"' "$(nf "$R" rp '.report.auto | tojson')"
+  sqlite3 "$db" "update session_v2 set cost = 2.75 where id = 'ses_noiseXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "stale report: usd refreshed" 2.75 "$(nf "$R" rp .report.usd)"
+  expect_eq "stale report: node cost from session" 2.75 "$(nf "$R" rp .cost.usd)"
+  o node report "$R" rp --usd 0.4 >/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "explicit --usd wins" 0.4 "$(nf "$R" rp .report.usd)"
+  expect_eq "explicit --usd: no session cost" null "$(nf "$R" rp .cost)"
+  sqlite3 "$db" "update session_v2 set cost = 3 where id = 'ses_noiseXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node update "$R" rp done >/dev/null
+  expect_eq "explicit --usd survives done" 0.4 "$(nf "$R" rp .report.usd)"
+
+  # One session owning two nodes in a row: the second shows only what it added.
+  sqlite3 "$db" "insert into session_v2 values ('ses_seqXXXXXXXXXXXXXXXXXXXXXXX', 'ses_root', 'seq', '{\"id\":\"prov/m1\"}', 4.11, 400, 40, 0, 0, 0, $now_ms, $now_ms, $now_ms, NULL)"
+  trash "$home/owners/cache" 2>/dev/null
+  o node add "$R" seq1 "First in a row" >/dev/null; o node add "$R" seq2 "Second in a row" >/dev/null
+  o node update "$R" seq1 running --owner "ses_seqXXXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  o node update "$R" seq1 done >/dev/null
+  expect_eq "seq: first final share" 4.11 "$(nf "$R" seq1 .session_stats.cost)"
+  sleep 1
+  o node update "$R" seq2 running --owner "ses_seqXXXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  sqlite3 "$db" "update session_v2 set cost = 5.04, tokens_input = 500 where id = 'ses_seqXXXXXXXXXXXXXXXXXXXXXXX'"
+  trash "$home/owners/cache" 2>/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "seq: second shows the delta" 93 "$(nf "$R" seq2 '.cost.usd * 100 | round')"
+  expect_eq "seq: second token delta" 100 "$(nf "$R" seq2 .cost.input_tokens)"
+  expect_eq "seq: baseline recorded" 4.11 "$(nf "$R" seq2 .session_stats.baseline.cost)"
+  expect_eq "seq: first unchanged" 4.11 "$(nf "$R" seq1 .cost.usd)"
+  expect_eq "seq: run total counts the session once" 504 "$(jq '[.nodes[] | select(.id | IN("seq1","seq2")) | .cost.usd] | add * 100 | round' "$home/runs/$R/state.json")"
+  export ORCH_OPENCODE_DB=/nonexistent/opencode.db
+else
+  printf 'owner-bind: SKIP session table tests (no sqlite3)\n'
+fi
 
 printf 'owner-bind: %s passed, %s failed\n' "$pass_count" "$failures"
 [ "$failures" -eq 0 ]

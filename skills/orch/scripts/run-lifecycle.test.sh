@@ -119,7 +119,7 @@ cleanup_dir "$home"
 home=$(new_tmp)
 shims=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 retry_state="$home/runs/retry-1/state.json"
 orch run start "Retry test" --id retry-1 >/dev/null 2>&1
@@ -148,7 +148,7 @@ cleanup_dir "$home"
 
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 orch run start "Old retry" --id retry-old >/dev/null 2>&1
 orch node add retry-old a "a" >/dev/null 2>&1
 edit_json "$home/runs/retry-old/state.json" '.nodes[0] += {status:"error", adapter:"claude-native", job_id:"old", error:"exit=1", finished:"2026-09-01T00:00:00Z"}'
@@ -160,7 +160,7 @@ cleanup_dir "$home"
 
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 edit_json "$home/profiles.json" '.settings.max_parallel = 1'
 orch run start "Run retry" --id retry-2 >/dev/null 2>&1
 orch node add retry-2 a "a" >/dev/null 2>&1
@@ -179,7 +179,7 @@ cleanup_dir "$home"
 
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 edit_json "$home/profiles.json" '.settings.max_attempts = 2'
 orch run start "Auto retry" --id retry-3 >/dev/null 2>&1
 orch node add retry-3 first "first" >/dev/null 2>&1
@@ -196,7 +196,7 @@ cleanup_dir "$home"
 
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 orch run start "Backoff retry" --id retry-backoff >/dev/null 2>&1
 orch node add retry-backoff a "a" >/dev/null 2>&1
 edit_json "$home/runs/retry-backoff/state.json" '
@@ -224,7 +224,7 @@ printf 'copilot fallback ok\n'
 SHIM
 chmod +x "$shims/copilot"
 orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" LLM_HUB_URL=http://127.0.0.1:1 LLM_HUB_KEY=dummy bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 edit_json "$home/profiles.json" '.settings.disabled_harnesses = []'
 orch run start "Fallback retry" --id retry-4 >/dev/null 2>&1
 orch node add retry-4 a "a" --profile claude-llm-hub >/dev/null 2>&1

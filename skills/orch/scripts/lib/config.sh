@@ -63,6 +63,15 @@ new_uuid() {
   python3 -c 'import uuid; print(uuid.uuid4())'
 }
 
+# The one readiness rule (shared by runs, visibility, plan and health; here because config.sh is
+# sourced before them) (jq def; call as `node_ready($r)` on a node, $r = the run state). A node is
+# ready when it is waiting, not blocked on the user (`needs_user`), every incoming edge's source is
+# done, and, for an `after_all` gate node, every other non-gate node is done or skipped.
+NODE_READY_JQ_DEF='def node_ready($r): . as $x
+  | $x.status == "waiting" and (($x.needs_user // "") == "")
+    and all(($r.edges // [])[] | select(.[1] == $x.id) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done")
+    and (if ($x.after_all // false) then all($r.nodes[] | select(.id != $x.id and ((.after_all // false) | not)); .status | IN("done", "skipped")) else true end);'
+
 # Epoch mtime of a file — BSD stat (macOS) first, GNU stat second.
 file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 
@@ -119,6 +128,23 @@ profiles_tmp_discard() {
   return 0
 }
 
+# Moves profiles.json.tmp.<pid> files whose writer is gone into the trash dir. A trap cannot
+# clean up after SIGKILL, and the server's dispatch timeouts (health watcher, reconciler) kill
+# with SIGKILL, so a call killed between a migration's jq and its commit left its temp file
+# behind for good. Glob + `kill -0` are builtins: a pass with no strays forks nothing.
+profiles_tmp_sweep() {
+  local f pid
+  for f in "$PROFILES_FILE".tmp.*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.tmp.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    kill -0 "$pid" 2>/dev/null && continue
+    profiles_tmp_discard "$f"
+  done
+  return 0
+}
+
 # Signature of profiles.json plus this file: the migrations re-run only when either changes.
 profiles_migration_sig() {
   local a b
@@ -140,6 +166,7 @@ ensure_home() {
   [ -f "$MEMORY_FILE" ] || printf '[]\n' > "$MEMORY_FILE"
   [ -f "$ORCH_HOME/serve.json" ] || cp "$TEMPLATES_DIR/serve.json" "$ORCH_HOME/serve.json" 2>/dev/null || true
   local marker="$ORCH_HOME/.migrations/profiles-main"
+  profiles_tmp_sweep
   if [ "$(cat "$marker" 2>/dev/null)" != "$(profiles_migration_sig)" ]; then
     profiles_migrate || return 1
     mkdir -p "$ORCH_HOME/.migrations" 2>/dev/null && profiles_migration_sig > "$marker.tmp.$$" 2>/dev/null && mv -f "$marker.tmp.$$" "$marker" 2>/dev/null
@@ -284,6 +311,13 @@ profiles_migrate_smart_auto() {
 COPILOT_WORKER_FLAGS='["--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
 COPILOT_PLANNER_FLAGS='["--context","long_context","--reasoning-effort","xhigh","--allow-all-tools","--allow-all-paths","--allow-all","--yolo","--no-ask-user","--autopilot"]'
 
+# jq helpers prepended to the migrations. A migration only fills in what is missing: it never
+# re-enables a disabled harness or profile, and moves settings.default_profile/planner_profile only
+# while the setting is unset or names a profile that no longer exists (a choice the user made stays).
+PROFILES_MIGRATE_JQ_DEFS='
+  def setting_dangling($k): (.settings[$k] // "") as $v | $v == "" or (.profiles[$v] | not);
+'
+
 # One-time switch to the Copilot-led layout: copilot-default (Auto) becomes the default profile,
 # a copilot-planner profile (Opus 5.5, 1M context) is seeded, Claude Code is disabled, and the
 # planning limits get their defaults. Marker-guarded so a later user edit is never reverted.
@@ -293,7 +327,7 @@ profiles_migrate_copilot_planner() {
   local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.copilot-planner-migrated" seed=true
   [ -e "$marker" ] && seed=false
   if ! jq --argjson seed "$seed" --argjson worker "$COPILOT_WORKER_FLAGS" \
-      --argjson planner "$COPILOT_PLANNER_FLAGS" '
+      --argjson planner "$COPILOT_PLANNER_FLAGS" "$PROFILES_MIGRATE_JQ_DEFS"'
     def split_joined:
       [ .[] | if type == "string" and test("^-[^\\s\"'"'"']*(\\s+[^\\s\"'"'"']+)+$")
               then (split("\\s+"; null) | .[]) else . end ];
@@ -320,12 +354,10 @@ profiles_migrate_copilot_planner() {
         | if .profiles["copilot-default"]? then
             .profiles["copilot-default"].model = "copilot-auto"
             | .profiles["copilot-default"].allowed_models = ((.profiles["copilot-default"].allowed_models // []) + ["copilot-auto"] | unique)
-            | .profiles["copilot-default"].enabled = true
             | .profiles["copilot-default"].flags = ((.profiles["copilot-default"].flags // []) as $f
                 | $f + [ $worker[] | select(. as $w | $f | index($w) | not) ])
-            | .settings.default_profile = "copilot-default"
+            | (if setting_dangling("default_profile") then .settings.default_profile = "copilot-default" else . end)
           else . end
-        | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) + ["claude"] | unique)
         | .settings.max_parallel //= 4
         | .settings.max_nodes //= 12
         | .settings.max_attempts //= 5
@@ -352,7 +384,7 @@ profiles_migrate_claude_planner() {
     def rename_ref: if . == "claude-sub" then "claude-default" else . end;
     (if .profiles["claude-sub"] and (.profiles["claude-default"] | not) then
        .profiles["claude-default"] = (.profiles["claude-sub"]
-         | .enabled = true | .parallel_ok = true | .priority = 8
+         | .parallel_ok = true | .priority = 8
          | .description = "Claude Code on Anthropic subscription (Sonnet). Default Claude worker, the Claude twin of copilot-default."
          | del(.min_complexity, .max_complexity))
        | del(.profiles["claude-sub"])
@@ -374,7 +406,6 @@ profiles_migrate_claude_planner() {
         min_complexity: "large", parallel_ok: false, priority: 8,
         flags: ["--effort", "xhigh", "--dangerously-skip-permissions"], env: {}, auth: []
       }
-    | .settings.disabled_harnesses = ((.settings.disabled_harnesses // []) | map(select(. != "claude")))
     | (if .profiles["copilot-default"] and .profiles["claude-default"] then
          .profiles["copilot-default"].fallback //= "claude-default" else . end)
     | (if .profiles["copilot-planner"] then .profiles["copilot-planner"].fallback //= "claude-planner" else . end)
@@ -452,8 +483,6 @@ profiles_migrate_bench_local() {
     | (if .models["local-ornith-1.0-35b"] and ($cursor_models | index("local-ornith-1.0-35b") | not) then
          .models["local-ornith-1.0-35b"].harnesses |= map(select(. != "cursor-agent"))
        else . end)
-    | .settings.disabled_harnesses = ((.settings.disabled_harnesses // [])
-        | map(select(. != "opencode" and . != "local-llm" and . != "pi")))
   ' "$PROFILES_FILE" > "$tmp"; then
     profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
@@ -473,7 +502,7 @@ profiles_migrate_bench_local() {
 profiles_migrate_claude_tiers() {
   local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.claude-tiers-migrated"
   [ -e "$marker" ] && return 0
-  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" '
+  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" "$PROFILES_MIGRATE_JQ_DEFS"'
     $tpl[0] as $t
     | (if (.models["claude-haiku"] | not)
           or .models["claude-haiku"].description == "Fast and cheap: typos, formatting, tiny edits, boilerplate." then
@@ -484,8 +513,8 @@ profiles_migrate_claude_tiers() {
          .profiles["claude-planner"].description = $t.profiles["claude-planner"].description else . end)
     | (if .profiles["claude-default"].priority? == 8 then .profiles["claude-default"].priority = 9 else . end)
     | (if .profiles["copilot-default"].priority? == 9 then .profiles["copilot-default"].priority = 8 else . end)
-    | (if .profiles["claude-default"] then .settings.default_profile = "claude-default" else . end)
-    | (if .profiles["claude-planner"] then .settings.planner_profile = "claude-planner" else . end)
+    | (if .profiles["claude-default"] and setting_dangling("default_profile") then .settings.default_profile = "claude-default" else . end)
+    | (if .profiles["claude-planner"] and setting_dangling("planner_profile") then .settings.planner_profile = "claude-planner" else . end)
   ' "$PROFILES_FILE" > "$tmp"; then
     profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2

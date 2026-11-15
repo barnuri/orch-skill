@@ -25,7 +25,7 @@ expect_exit() {
 home=$(mktemp -d)
 o() { HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 st() { jq -r "$2" "$home/runs/$1/state.json"; }
-o init >/dev/null 2>&1
+. "$SCRIPT_DIR/test-home.sh"; seed_home "$home"
 
 R=$(o run start "carry demo")
 o node add "$R" a "Finished" >/dev/null

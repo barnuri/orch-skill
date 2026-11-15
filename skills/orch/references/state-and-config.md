@@ -140,7 +140,10 @@ Flat array, appended by `memory add`, listed newest-first by `memory list`:
 ## schedules/<id>/schedule.json
 
 Written only by `dispatch.sh schedule`. `{id, name, cron, kind: "prompt"|"command", enabled, created_at,
-prompt, profile, command, workdir, timeout, next_at, last_run_at, runs[]}`. `next_at` is epoch seconds
+updated_at, prompt, profile, command, workdir, timeout, next_at, last_run_at, runs[]}`. `updated_at` appears
+after the first `schedule edit`, which changes only the fields it is given (checked as `add` checks them),
+keeps `id`, `created_at`, `enabled` and `runs`, and recomputes `next_at`. Switching kind (`--prompt` on a
+command schedule, `--command` on a prompt one) clears the other kind's fields. `next_at` is epoch seconds
 (null when disabled). Each run is `{started_at, ended_at, kind, ref, status: running|ok|failed|lost, exit}`,
 newest first, 30 kept. `ref` is a job id for a prompt run and a run directory (holding `command`, `out`,
 `pid`, `exit`) for a command run.
@@ -184,8 +187,13 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 - `next_retry_at` is the earliest automatic retry time for an errored node. Backoff starts at the
   `run advance --interval` value (or the default interval for `run sync`) and doubles per archived
   attempt, capped at 5 minutes. Manual `node retry` / `run retry` ignore this delay.
-- `edges` are `[from, to]` pairs from `node add --after`. A node is *ready* when it is `waiting`
-  and every incoming edge's source is `done`.
+- `edges` are `[from, to]` pairs from `node add --after` (or `node update --after`, which replaces
+  the node's incoming edges; a cycle is refused). A node is *ready* when it is `waiting`, has no
+  `needs_user`, every incoming edge's source is `done`, and, when `after_all` is true (`--after '*'`,
+  a gate node), every other non-gate node is `done` or `skipped`.
+- `needs_user`: a reason string while the node waits on the user (`node update --needs-user`), else
+  null/absent. `run health` shows such a node as `needs-user` with the reason; it is never ready.
+  Each change appends a `deps` or `needs-user` event.
 - Visibility fields on a node: `created`, `updated` (heartbeat), `notes` (last 20 `{at,text}`), `progress`,
   `owner` (agent id, job id or `coordinator`), `backfilled` (finished without ever running). Every
   change appends `{at,kind,node,from,to,note,by}` to `runs/<id>/events.jsonl`. Allowed moves:
@@ -321,8 +329,18 @@ dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--out
 dispatch.sh node selections <run-id> <node-id>
 dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
 dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
-dispatch.sh node update <run-id> <node-id> <status> [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force]
+dispatch.sh node update <run-id> <node-id> [<status>] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user]
 dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]
+dispatch.sh node batch <run-id> [--file F] [--dry-run]   # NDJSON ops on stdin or in F, one per line:
+    {"op":"add","id":X,"goal"|"label":T,"after":"a,b"|[..],"profile","role","tier","model","plan_backed":bool,"acceptance"}
+    {"op":"report","id":X,"model","input_tokens","output_tokens","cache_read_tokens","usd","note"}
+    {"op":"update","id":X,"status":S (optional),"job","error","at","owner","force":bool,
+     "after":"a,b"|[..]|"*"|"","needs_user":"reason","clear_needs_user":true}
+    # applied in order in one process under one run lock via the same code as add/report/update
+    # (same state and events.jsonl lines); all ops are validated first, any invalid op applies none
+    # and prints `line N: <error>` (exit 2); one `line N: … ok` summary per op; unknown fields rejected.
+    # Common ops run as one jq program (a few process starts per batch); an op it cannot check
+    # (a dependency finished in a continued-from run) falls back to the per-op path. ORCH_BATCH_FAST=0 forces it.
 dispatch.sh node remove <run-id> <node-id> [--force]
 dispatch.sh run sync <run-id> [--no-retry]
 dispatch.sh run wait <run-id> [--timeout S] [--include-notes]

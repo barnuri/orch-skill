@@ -87,6 +87,8 @@ dispatch.sh active [--json]
 
 Schedules (cron; each fires a prompt through a profile, or a shell command; the dashboard server ticks them):
 dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR])
+dispatch.sh schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR] [--timeout DUR]
+    -> changes only the given fields; keeps id, created_at, enabled and run history; --prompt/--command switch the kind
 dispatch.sh schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
 EOF
   # Unquoted heredoc: these lines expand the per-subcommand usage constants the libs define, so the
@@ -116,6 +118,11 @@ $NODE_DIGEST_USAGE
 $NODE_SELECTIONS_USAGE
     -> appends the hub's model selections for the node's workers, idempotent by sequence
 $NODE_UPDATE_USAGE
+    -> status is optional with --after (replaces the node's deps; '*' = wait on every other node)
+       or --needs-user (a waiting node blocked on the user is never ready; health shows needs-user)
+$NODE_BATCH_USAGE
+    -> applies add/report/update ops ({"op":"add","id":"x","goal":"…"}, one per line) in one process
+       under one run lock. Every op is checked first; one bad op applies none (errors name the line).
 $NODE_REMOVE_USAGE
     -> removes a waiting node with no running or done dependents, and its edges
 $NODE_PING_USAGE
@@ -124,6 +131,10 @@ $NODE_RETRY_USAGE
 $RUN_WAIT_USAGE
     -> blocks until a node changes status or goes stale; exit 0 = change, 3 = nothing left to run, 124 = timeout
 $RUN_STATUS_USAGE
+$RUN_HEALTH_USAGE
+    -> one pass: ok/stalled/unowned/dead/no-report per running node, ready nodes, free slots; records
+       only changes as events. Every running run gets a health:<run-id> monitor that runs it every
+       ORCH_HEALTH_EVERY_SEC (settings.health_every_sec, default 30) with --nudge unless auto_nudge is false.
     -> compact progress: counts, running nodes with ages, ready nodes, errors, dashboard link
 $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status per node,
                                   then "ready: a,b" (waiting nodes whose deps are all done) and "running: N"
@@ -142,7 +153,7 @@ $PLAN_USAGE
     -> adds + dispatches the planner node on settings.planner_profile; it writes plan.json.
 $PLAN_APPLY_USAGE
     -> validates plan.json (ids, deps, cycles, settings.max_nodes, profiles) and adds its tasks as
-       nodes with stored prompts. `run advance` does this on its own once the planner is done.
+       nodes with stored prompts. \`run advance\` does this on its own once the planner is done.
 
 Run mailbox (coordinator <-> nodes; nodes get ORCH_DISPATCH, ORCH_RUN_ID, ORCH_NODE_ID):
 $MSG_SEND_USAGE
@@ -189,15 +200,30 @@ resolve_realpath() {
     target=$(readlink "$path" 2>/dev/null) || break
     case "$target" in
       /*) path="$target" ;;
-      *) path="$(dirname "$path")/$target" ;;
+      *) path="$(path_dirname "$path")/$target" ;;
     esac
   done
-  dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd -P) || return 1
+  dir=$(cd "$(path_dirname "$path")" 2>/dev/null && pwd -P) || return 1
   printf '%s/%s\n' "$dir" "${path##*/}"
 }
 
+# `dirname` without spawning it: every dispatch.sh call resolves its own path, and on a loaded
+# machine each exec costs 20-300 ms. Same results as dirname for the paths used here.
+path_dirname() {
+  local p="$1"
+  while [ "${#p}" -gt 1 ] && [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+  case "$p" in
+    */*) p="${p%/*}"; while [ "${#p}" -gt 1 ] && [ "${p%/}" != "$p" ]; do p="${p%/}"; done; printf '%s\n' "${p:-/}" ;;
+    *) printf '.\n' ;;
+  esac
+}
+
 SELF_REAL=$(resolve_realpath "${BASH_SOURCE[0]:-$0}") || SELF_REAL="${BASH_SOURCE[0]:-$0}"
-SCRIPT_DIR=$(cd "$(dirname "$SELF_REAL")" && pwd -P 2>/dev/null) || SCRIPT_DIR="."
+# resolve_realpath already returns a physical directory, so the parent needs no second cd/pwd.
+case "$SELF_REAL" in
+  /*/*) SCRIPT_DIR="${SELF_REAL%/*}" ;;
+  *) SCRIPT_DIR=$(cd "$(path_dirname "$SELF_REAL")" && pwd -P 2>/dev/null) || SCRIPT_DIR="." ;;
+esac
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd -P) || REPO_ROOT=""
 
 if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/hooks/agent-env.sh" ]; then
@@ -580,6 +606,16 @@ harness_list_locked() {
   return $rc
 }
 
+# run_create_with_monitor <fn> [args] - creates a run (start or carry) and starts its health:<run>
+# monitor (lib/health.sh). The run id is the first line the function prints.
+run_create_with_monitor() {
+  local out rc
+  out=$("$@"); rc=$?
+  [ -z "$out" ] || printf '%s\n' "$out"
+  [ "$rc" -ne 0 ] || health_monitor_autostart "${out%%$'\n'*}"
+  return $rc
+}
+
 main() {
   local sub="${1:-}" verb
   case "$sub" in
@@ -589,17 +625,18 @@ main() {
       case "${2:-}" in start|finish|sync|carry) trap announce_hook EXIT ;; esac
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
-        start|finish|list|sync|advance|retry|stop|carry|wait|status) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        start|carry) verb="$2"; shift 2; run_create_with_monitor "cmd_run_$verb" "$@" ;;
+        finish|list|sync|advance|retry|stop|wait|status|health) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
     node)
-      case "${2:-}" in update|report|ping|dispatch) trap announce_hook EXIT ;; esac
+      case "${2:-}" in update|report|ping|dispatch|batch) trap announce_hook EXIT ;; esac
       case "${2:-}" in
-        add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|batch) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
         verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
         bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
+        *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
       esac
       ;;
     owner) shift; cmd_owner_event "$@" ;;

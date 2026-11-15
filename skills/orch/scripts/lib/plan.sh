@@ -294,9 +294,9 @@ EOF
 
 # Prints waiting nodes whose deps are all done, in input order, one per line.
 run_ready_ids() {
-  jq -r '. as $r
+  jq -r "$NODE_READY_JQ_DEF"'. as $r
     | .nodes[] | select(.status == "waiting") | .id as $n
-    | select(all($r.edges[] | select(.[1] == $n) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done"))
+    | select(node_ready($r))
     | .id' "$1"
 }
 

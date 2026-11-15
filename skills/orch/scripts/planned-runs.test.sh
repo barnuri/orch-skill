@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
 # --- planned runs: plan, plan apply, run advance, max_parallel, mailbox ------------------------
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
-orch init >/dev/null 2>&1
+seed_home "$home"
 
 # With Claude Code disabled, pick never lands on a claude profile.
 edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["claude"]'

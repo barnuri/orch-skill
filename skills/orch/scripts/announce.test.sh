@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Tests for announce.sh. Run with: bash announce.test.sh
 set -u
+# The hook would start an announce daemon that inherits the fake herdr and ticks into the 1.5 s
+# assertion windows below. announce-daemon.test.sh covers the daemon.
+export ANNOUNCE_NO_DAEMON=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANN="$SCRIPT_DIR/announce.sh"; DISP="$SCRIPT_DIR/dispatch.sh"
 failures=0; pass_count=0
