@@ -9,6 +9,8 @@ import {
   NO_USAGE_TEXT,
   durationMetric,
   modelMetric,
+  cardUsageMetric,
+  roleTierMetric,
   roleTierText,
   runTotals,
   summaryUsageMetric,
@@ -184,5 +186,22 @@ describe("fmtTokens", () => {
     expect(fmtTokens(950)).toBe("950 tok");
     expect(fmtTokens(12_400)).toBe("12.4k tok");
     expect(fmtTokens(-1)).toBe("—");
+  });
+});
+
+describe("card rows always drawn", () => {
+  test("role and tier show placeholders when missing, and are muted only when both are", () => {
+    expect(roleTierMetric(node())).toMatchObject({ text: "role — · tier —", present: false });
+    expect(roleTierMetric(node()).title).toContain("no role or tier");
+    expect(roleTierMetric(node({ role: "planning" }))).toMatchObject({ text: "planning · tier —", present: true });
+    expect(roleTierMetric(node({ tier: "balance" }))).toMatchObject({ text: "role — · balance", present: true });
+    expect(roleTierMetric(node({ role: "planning", tier: "balance" }))).toMatchObject({ text: "planning · balance", present: true });
+  });
+
+  test("usage and cost each have a placeholder", () => {
+    expect(cardUsageMetric(node())).toMatchObject({ text: "usage — · cost —", present: false });
+    expect(cardUsageMetric(node({ cost: cost(0, 1234) }))).toMatchObject({ text: "1.2k tok · cost —", present: true });
+    expect(cardUsageMetric(node({ cost: cost(0.42, 1500) }))).toMatchObject({ text: "1.5k tok · $0.42", present: true });
+    expect(cardUsageMetric(node({ report: report({ usd: 0.1 }) })).text).toBe("usage — · $0.10");
   });
 });

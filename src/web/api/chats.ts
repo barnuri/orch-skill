@@ -140,7 +140,14 @@ export function attachmentBlobUrl(id: string): Promise<string | null> {
     hit = fetch(`${API_BASE}/attachments/${q(id)}`, { headers: authHeaders() })
       .then((res) => (res.ok ? res.blob() : null))
       .then((blob) => (blob === null ? null : URL.createObjectURL(blob)))
-      .catch(() => null);
+      .catch(() => null)
+      .then((url) => {
+        // A failure (offline, 401 before the token) is not cached, so the next mount or download tries again.
+        if (url === null) {
+          blobUrls.delete(id);
+        }
+        return url;
+      });
     blobUrls.set(id, hit);
   }
   return hit;

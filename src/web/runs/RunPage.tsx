@@ -17,7 +17,8 @@ import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
 import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
 import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
-import { isNotFound, useProfileFacts, useRun, useRunEvents } from "./queries";
+import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth } from "./queries";
+import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
 import { refetchRun } from "./run-actions";
 import { useNow } from "./use-now";
 
@@ -139,6 +140,7 @@ function RunBody({ run }: { run: RunState }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const events = useRunEvents(run.run_id);
+  const health = useRunHealth(run.run_id, run.status === "running");
   return (
     <div className="run-page">
       <div className="run-page-header">
@@ -152,6 +154,14 @@ function RunBody({ run }: { run: RunState }) {
         </div>
         <RunMeta run={run} events={events} />
         <StaleBanner run={run} />
+        <ReadyNotice health={health} />
+        <NodeHealthStrip
+          health={health}
+          onSelect={(id) => {
+            setSelected(id);
+            setFlash((n) => n + 1);
+          }}
+        />
         {hasUnreviewed(run.nodes) ? (
           <div className="notice warn run-stale-banner" role="status">
             <b>{FINISHED_BY_OWNER}</b>

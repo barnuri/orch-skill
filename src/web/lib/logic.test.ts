@@ -3,7 +3,7 @@ import type { Schedule } from "../../shared/types/schedule";
 import type { Suggestion } from "../../shared/types/suggestion";
 import { allowedByEntries, setAnyModels, toggleAllowedModel } from "./allowed-models";
 import { matchIssues } from "./issue-match";
-import { healthOf, schedulePayload, emptyScheduleDraft, soonestNext, visibleSchedules } from "./schedule-logic";
+import { draftErrors, draftOf, healthOf, scheduleEditPayload, schedulePayload, emptyScheduleDraft, soonestNext, timeoutText, visibleSchedules } from "./schedule-logic";
 import { mergeResults, statusOf, summaryText } from "./sanity-logic";
 import { applyToastFor, filtersActive, isApplicable, matchesFilters, sortSuggestions } from "./suggestion-logic";
 import { parseRoute, routeKey } from "../router/route";
@@ -53,6 +53,13 @@ describe("allowed models", () => {
 });
 
 describe("schedules", () => {
+  test("an edit draft is prefilled from the schedule and sends clears explicitly", () => {
+    const draft = draftOf(schedule({ kind: "command", command: "ls", workdir: "/tmp", timeout: 300, name: "n", cron: "* * * * *" }));
+    expect(draft).toMatchObject({ kind: "command", command: "ls", workdir: "/tmp", timeout: "5m", name: "n" });
+    expect(scheduleEditPayload({ ...draft, workdir: " ", timeout: "" })).toEqual({ name: "n", cron: "* * * * *", kind: "command", command: "ls", workdir: "", timeout: "0" });
+    expect([timeoutText(0), timeoutText(7200), timeoutText(90)]).toEqual(["", "2h", "90s"]);
+    expect(Object.keys(draftErrors({ ...emptyScheduleDraft(), kind: "command", timeout: "soon" })).sort()).toEqual(["command", "name", "timeout"]);
+  });
   test("health, order and soonest", () => {
     const list = [schedule({ id: "p", enabled: false }), schedule({ id: "f", last_status: "failed", next_at: 50 }), schedule({ id: "o", last_status: "ok", next_at: 20 })];
     expect(healthOf(list[0] as Schedule)).toBe("paused");

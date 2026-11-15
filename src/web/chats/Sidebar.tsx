@@ -5,8 +5,9 @@ import { Toggle } from "../components/Toggle";
 import { useToast } from "../components/Toast";
 import { normalizeSelection, visibleChats } from "../lib/chat-logic";
 import type { Chat, ChatOptions, Project } from "../lib/chat-types";
-import { rel } from "../lib/format";
 import { refreshChats, refreshProjects, useChatSearch, useChats, useProjects } from "./queries";
+import { useSingleFlight } from "../lib/use-single-flight";
+import { ChatListRow, chatMeta } from "./ChatListRow";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -33,15 +34,8 @@ function useDebounced(value: string, ms: number): string {
 }
 
 function ChatRow({ chat, active, onNavigate }: { chat: Chat; active: boolean; onNavigate: () => void }) {
-  return (
-    <a className="thread" href={chat.project_id === null ? `#/chats/${encodeURIComponent(chat.id)}` : `#/chats/${encodeURIComponent(chat.project_id)}/${encodeURIComponent(chat.id)}`} aria-current={active ? "page" : undefined} onClick={onNavigate}>
-      <span className="thread-title">{chat.title}</span>
-      <span className="thread-meta">
-        {chat.status === "running" ? <span className="thread-live" aria-label="running" /> : null}
-        {chat.harness} · {rel(chat.updated_at)}
-      </span>
-    </a>
-  );
+  const href = chat.project_id === null ? `#/chats/${encodeURIComponent(chat.id)}` : `#/chats/${encodeURIComponent(chat.project_id)}/${encodeURIComponent(chat.id)}`;
+  return <ChatListRow chat={chat} href={href} active={active} meta={chatMeta(chat)} onNavigate={onNavigate} />;
 }
 
 export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: SidebarProps) {
@@ -72,7 +66,7 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
     return out;
   }, [chats.chats, projects.data, activeChatId, archived]);
 
-  const newChat = async (projectId: string | null): Promise<void> => {
+  const [newChat, creatingChat] = useSingleFlight(async (projectId: string | null): Promise<void> => {
     const sel = options === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options, null);
     const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
     if (res.kind !== "ok") {
@@ -82,9 +76,9 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
     void refreshChats();
     onNavigate();
     location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
-  };
+  });
 
-  const addProject = async (): Promise<void> => {
+  const [addProject, creatingProject] = useSingleFlight(async (): Promise<void> => {
     const res = await chatsApi.createProject({ name: name.trim(), path: path.trim() === "" ? null : path.trim() });
     if (res.kind !== "ok") {
       toast("error", describeFailure(res, "could not create the project"));
@@ -96,13 +90,13 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
     void refreshProjects();
     onNavigate();
     location.hash = `#/projects/${encodeURIComponent(res.body.id)}`;
-  };
+  });
 
   const searching = debounced.trim() !== "";
   return (
     <div className="side">
       <div className="side-actions">
-        <button type="button" className="btn primary" onClick={() => void newChat(activeProjectId)}>
+        <button type="button" className="btn primary" disabled={creatingChat} onClick={() => void newChat(activeProjectId)}>
           New chat
         </button>
         <button
@@ -126,7 +120,7 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
         >
           <input className="input" aria-label="Project name" placeholder="Project name" value={name} onChange={(e) => { setName(e.target.value); }} required autoFocus />
           <input className="input" aria-label="Directory" placeholder="Directory (optional, absolute path)" value={path} onChange={(e) => { setPath(e.target.value); }} />
-          <button type="submit" className="btn primary" disabled={name.trim() === ""}>
+          <button type="submit" className="btn primary" disabled={name.trim() === "" || creatingProject}>
             Create project
           </button>
         </form>

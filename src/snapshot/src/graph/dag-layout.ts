@@ -5,7 +5,8 @@ import type { RunNode } from "../../../shared/types/run-node";
 export const NODE_W: number = 200;
 // 104: six rows (label, status, model, duration, usage) so every field always has a place.
 // Taller instead of wider keeps the card readable at 200px.
-export const NODE_H: number = 120;
+// 135: a seventh row (role and tier) sits under usage, so both are always drawn.
+export const NODE_H: number = 135;
 export const ORCH_NODE_W: number = 132;
 export const ORCH_NODE_H: number = 56;
 export const ORCH_NODE_ID: string = "__orch__";

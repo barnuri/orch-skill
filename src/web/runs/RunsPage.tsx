@@ -26,7 +26,9 @@ import {
 } from "../lib/run-filters";
 import type { RunFilters } from "../lib/run-filters";
 import { ActiveStrip } from "./ActiveStrip";
-import { useRuns } from "./queries";
+import { useRuns, useRunsHealth } from "./queries";
+import { RunHealthSummary } from "./RunHealth";
+import type { RunHealth } from "../../shared/types/run-health";
 import { useNow } from "./use-now";
 
 type Counts = Record<NodeStatus, number>;
@@ -63,7 +65,7 @@ function RunTotals({ run, total }: { run: RunSummary; total: number }) {
   );
 }
 
-export function RunRow({ run }: { run: RunSummary }) {
+export function RunRow({ run, health = null }: { run: RunSummary; health?: RunHealth | null }) {
   const total = totalOf(run.counts);
   const extra = run as RunSummary & { stale?: unknown; updated?: unknown };
   const staleCount = typeof extra.stale === "number" ? extra.stale : 0;
@@ -75,6 +77,7 @@ export function RunRow({ run }: { run: RunSummary }) {
         <div className="title">{run.title || run.run_id}</div>
         <div className="id mono">{run.run_id}</div>
         <RunTotals run={run} total={total} />
+        <RunHealthSummary health={health} />
       </div>
       <Chip status={run.status} />
       <StatusBar counts={run.counts} total={total} />
@@ -113,6 +116,7 @@ function Kpis({ allRuns, active }: { allRuns: readonly RunSummary[]; active: rea
   const runs = allRuns.filter((run) => !isLoopRun(run));
   const running = runs.filter((run) => run.status === "running").length;
   const failedRuns = runs.filter((run) => run.status === "error").length;
+  const failed = failedRuns + active.filter((item) => item.status === "failed").length;
   const attention = failedRuns + active.filter((item) => item.status !== "running").length;
   const loops = active.filter((item) => item.kind === "loop" && item.status === "running");
   const watches = active.filter((item) => item.kind === "watch" && item.status === "running");
@@ -129,7 +133,7 @@ function Kpis({ allRuns, active }: { allRuns: readonly RunSummary[]; active: rea
   return (
     <div className="runs-summary" role="status">
       {stat("running", String(running), running > 0 ? "is-running" : "", `of ${runs.length} in the last window`)}
-      {stat("need attention", String(attention), attention > 0 ? "is-error" : "", "failed runs, loops or monitors")}
+      {stat("need attention", String(attention), failed > 0 ? "is-error" : attention > 0 ? "is-lost" : "", "failed runs, loops or monitors")}
       {stat("loops", String(loops.length), "", soonest === undefined ? "none running" : `next tick in ${until(soonest)}`)}
       {stat("monitors", String(watches.length), "", `${events} ${events === 1 ? "event" : "events"} captured`)}
     </div>
@@ -193,6 +197,7 @@ export function RunsPage() {
   const all = sortedRuns(loaded ?? []);
   const runs = all.filter((run) => matchesRunFilters(run, filters, Date.now()));
   const hidden = all.length - runs.length;
+  const healthByRun = useRunsHealth(all.filter((run) => run.status === "running").map((run) => run.run_id));
   const head = <PageHead title="Runs" subtitle={all.length > 0 ? subtitle(runs, hidden) : "Nothing has been dispatched yet."} />;
   if (loaded === null) {
     return (
@@ -240,7 +245,7 @@ export function RunsPage() {
           ) : (
             <div className="runs" role="list">
               {runs.map((run) => (
-                <RunRow key={run.run_id} run={run} />
+                <RunRow key={run.run_id} run={run} health={healthByRun.get(run.run_id) ?? null} />
               ))}
             </div>
           )}

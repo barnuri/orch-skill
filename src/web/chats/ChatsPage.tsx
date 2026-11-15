@@ -6,11 +6,15 @@ import { ChatView } from "./ChatView";
 import { ProjectView } from "./ProjectView";
 import { Sidebar } from "./Sidebar";
 import { refreshChats, useChatOptions, useChats } from "./queries";
+import { useSingleFlight } from "../lib/use-single-flight";
 
 interface Props {
   chatId: string | null;
   projectId: string | null;
 }
+
+/** When the sidebar is a drawer; mirrors the phone media query in chats.css (a landscape phone is wide but short). */
+export const DRAWER_QUERY: string = "(max-width: 768px), (max-height: 500px) and (pointer: coarse)";
 
 /** Desktop: sidebar + conversation. Phone: the conversation alone, with the sidebar as a slide-over drawer. */
 export function ChatsPage({ chatId, projectId }: Props) {
@@ -85,7 +89,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
         return;
       }
       e.preventDefault();
-      if (window.matchMedia("(max-width: 768px)").matches) {
+      if (window.matchMedia(DRAWER_QUERY).matches) {
         setDrawer(true);
       }
       setTimeout(() => {
@@ -104,7 +108,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
 
   const open = (): void => { setDrawer(true); };
   const close = (): void => { setDrawer(false); };
-  const startChat = async (): Promise<void> => {
+  const [startChat, starting] = useSingleFlight(async (): Promise<void> => {
     // Never blocked: the first enabled harness is the default, and a chat with none is still created (the composer says why).
     const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
     const res = await chatsApi.createChat({ project_id: null, harness: sel.harness, profile: sel.profile, model_id: sel.model });
@@ -114,7 +118,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
     } else {
       toast("error", "could not create the chat");
     }
-  };
+  });
 
   return (
     <div className="chats-layout" data-drawer={drawer || undefined}>
@@ -133,7 +137,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
             <button type="button" className="icon-btn drawer-btn" aria-label="Projects and chats" onClick={open}>☰</button>
             <h1>Chats</h1>
             <p className="muted">{chats.chats.length === 0 ? "No chats yet. Everything you send is saved here." : "Pick a chat on the left, or start a new one."}</p>
-            <button type="button" className="btn primary" onClick={() => void startChat()}>New chat</button>
+            <button type="button" className="btn primary" disabled={starting} onClick={() => void startChat()}>New chat</button>
           </div>
         )}
       </section>

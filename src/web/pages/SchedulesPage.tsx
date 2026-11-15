@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Schedule, ScheduleKind, ScheduleRun } from "../../shared/types/schedule";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
@@ -24,15 +24,18 @@ import {
   CRON_PRESETS,
   CUSTOM_CRON,
   cronLabel,
+  draftErrors,
+  draftOf,
   emptyScheduleDraft,
   FILTERS,
   healthOf,
   matchesFilter,
+  scheduleEditPayload,
   schedulePayload,
   soonestNext,
   visibleSchedules,
 } from "../lib/schedule-logic";
-import type { ScheduleDraft, ScheduleFilter } from "../lib/schedule-logic";
+import type { DraftErrors, ScheduleDraft, ScheduleFilter } from "../lib/schedule-logic";
 
 function StatusChip({ status }: { status: string | null }) {
   if (status === null) {
@@ -99,7 +102,9 @@ function ScheduleRow({
   open,
   busy,
   logs,
+  editor,
   onToggleOpen,
+  onEdit,
   onAct,
   onRemove,
   onLoadLog,
@@ -108,7 +113,10 @@ function ScheduleRow({
   open: boolean;
   busy: boolean;
   logs: ReadonlyMap<string, string>;
+  /** The edit form, when this row is being edited; it takes the row's place. */
+  editor: React.ReactNode;
   onToggleOpen: () => void;
+  onEdit: () => void;
   onAct: (action: "run" | "enable" | "disable") => void;
   onRemove: () => void;
   onLoadLog: (schedule: Schedule, index: number, run: ScheduleRun) => void;
@@ -118,6 +126,9 @@ function ScheduleRow({
     schedule.kind === "prompt"
       ? `${schedule.profile ?? ""} · ${schedule.prompt ?? ""}`
       : `${schedule.workdir === null ? "" : `${schedule.workdir} · `}${schedule.command ?? ""}`;
+  if (editor !== null && editor !== undefined) {
+    return <article className="sched-row is-editing">{editor}</article>;
+  }
   return (
     <article className={`sched-row is-${health}`}>
       <div className="sched-title">
@@ -156,6 +167,9 @@ function ScheduleRow({
         >
           Run now
         </Button>
+        <Button disabled={busy} aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
+          Edit
+        </Button>
         <Button aria-expanded={open} onClick={onToggleOpen}>
           {open ? "Hide runs" : `Runs (${schedule.runs.length})`}
         </Button>
@@ -178,7 +192,7 @@ function ScheduleRow({
   );
 }
 
-function CronField({ cron, onChange }: { cron: string; onChange: (cron: string) => void }) {
+function CronField({ cron, error, onChange }: { cron: string; error?: string | undefined; onChange: (cron: string) => void }) {
   const known = CRON_PRESETS.some((preset) => preset.cron === cron);
   const [preview, setPreview] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
@@ -219,6 +233,7 @@ function CronField({ cron, onChange }: { cron: string; onChange: (cron: string) 
             type="text"
             className="mono"
             aria-label="Cron expression"
+            aria-invalid={error !== undefined || preview?.ok === false || undefined}
             placeholder="m h dom mon dow"
             value={cron}
             onChange={(event) => {
@@ -227,18 +242,41 @@ function CronField({ cron, onChange }: { cron: string; onChange: (cron: string) 
           />
         </div>
         <div className={preview === null ? "sched-preview" : `sched-preview ${preview.ok ? "is-ok" : "is-bad"}`} role="status" aria-live="polite">
-          {preview?.text}
+          {error ?? preview?.text}
         </div>
       </div>
     </Labelled>
   );
 }
 
-function TextInput({ label, value, placeholder, mono = false, onChange }: { label: string; value: string; placeholder: string; mono?: boolean; onChange: (value: string) => void }) {
+function FieldError({ message }: { message: string | undefined }) {
+  return message === undefined ? null : <div className="sched-field-error">{message}</div>;
+}
+
+function TextInput({
+  label,
+  value,
+  placeholder,
+  mono = false,
+  error,
+  inputRef,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  mono?: boolean;
+  error?: string | undefined;
+  inputRef?: React.Ref<HTMLInputElement>;
+  onChange: (value: string) => void;
+}) {
   return (
     <Labelled label={label}>
       <input
+        ref={inputRef}
         type="text"
+        aria-label={label}
+        aria-invalid={error !== undefined || undefined}
         className={mono ? "mono" : undefined}
         value={value}
         placeholder={placeholder}
@@ -246,6 +284,7 @@ function TextInput({ label, value, placeholder, mono = false, onChange }: { labe
           onChange(event.target.value);
         }}
       />
+      <FieldError message={error} />
     </Labelled>
   );
 }
@@ -253,86 +292,139 @@ function TextInput({ label, value, placeholder, mono = false, onChange }: { labe
 function ScheduleForm({
   profileNames,
   defaultProfile,
-  onCreated,
+  editing,
+  onSaved,
   onCancel,
 }: {
   profileNames: readonly string[];
   defaultProfile: string;
-  onCreated: () => void;
+  /** The schedule being edited; absent for a new one. */
+  editing?: Schedule | undefined;
+  onSaved: () => void;
   onCancel: () => void;
 }) {
   const toast = useToast();
-  const [draft, setDraft] = useSessionState<ScheduleDraft>("schedule-draft", emptyScheduleDraft());
+  // A new schedule's draft survives a reload; an edit starts from the schedule every time.
+  const [newDraft, setNewDraft] = useSessionState<ScheduleDraft>("schedule-draft", emptyScheduleDraft());
+  const [editDraft, setEditDraft] = useState<ScheduleDraft>(() => (editing === undefined ? emptyScheduleDraft() : draftOf(editing)));
+  const draft = editing === undefined ? newDraft : editDraft;
+  const setDraft = editing === undefined ? setNewDraft : setEditDraft;
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<DraftErrors>({});
   const [saving, setSaving] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  // Focus the name once per opened edit, not on every list refresh: a run that lands while the form is
+  // open gives `editing` a new object, and re-focusing would pull the cursor out of the field being typed in.
+  const editingId = editing?.id;
+  useEffect(() => {
+    if (editingId !== undefined) {
+      nameRef.current?.focus();
+    }
+  }, [editingId]);
   const set = (patch: Partial<ScheduleDraft>): void => {
     setDraft((current) => ({ ...current, ...patch }));
+    setFieldErrors((current) => {
+      const next = { ...current };
+      for (const key of Object.keys(patch)) {
+        delete next[key as keyof DraftErrors];
+      }
+      return next;
+    });
   };
   const profile = draft.profile === "" ? defaultProfile || profileNames[0] || "" : draft.profile;
   const submit = async (): Promise<void> => {
     const current = { ...draft, profile };
+    const problems = draftErrors(current);
+    setFieldErrors(problems);
+    if (Object.keys(problems).length > 0) {
+      setError(null);
+      return;
+    }
     setSaving(true);
     setError(null);
-    const result = await api.createSchedule(schedulePayload(current));
+    const result = editing === undefined ? await api.createSchedule(schedulePayload(current)) : await api.editSchedule(editing.id, scheduleEditPayload(current));
     setSaving(false);
     if (result.kind === "ok") {
-      toast("ok", `Created ${current.name.trim()}`);
-      setDraft(emptyScheduleDraft());
-      onCreated();
+      toast("ok", editing === undefined ? `Created ${current.name.trim()}` : `Saved ${current.name.trim()}`);
+      if (editing === undefined) {
+        setNewDraft(emptyScheduleDraft());
+      }
+      onSaved();
       return;
     }
     setError(result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed"));
   };
+  const verb = editing === undefined ? (saving ? "Creating…" : "Create schedule") : saving ? "Saving…" : "Save changes";
   return (
-    <PanelBox className="sched-form">
-      <div className="sched-form-row">
-        <TextInput label="Name" value={draft.name} placeholder="Morning repo summary" onChange={(name) => { set({ name }); }} />
-        <Labelled label="Runs a">
-          <Segmented
-            label="What to run"
-            value={draft.kind}
-            options={[
-              { value: "prompt", label: "Prompt" },
-              { value: "command", label: "Shell command" },
-            ]}
-            onChange={(next) => {
-              set({ kind: next as ScheduleKind });
-            }}
-          />
-        </Labelled>
-      </div>
-      <CronField cron={draft.cron} onChange={(cron) => { set({ cron }); }} />
-      {draft.kind === "prompt" ? (
-        <>
-          <Labelled label="Profile">
-            <Select aria-label="Profile" value={profile} options={profileNames.map((name) => ({ value: name, label: name }))} onChange={(value) => { set({ profile: value }); }} />
+    <PanelBox className={editing === undefined ? "sched-form" : "sched-form is-edit"}>
+      <form
+        className="sched-form-body"
+        aria-label={editing === undefined ? "New schedule" : `Edit ${editing.name}`}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+      >
+        {editing === undefined ? null : <h3 className="sched-form-title">{`Edit ${editing.name}`}</h3>}
+        <div className="sched-form-row">
+          <TextInput label="Name" value={draft.name} placeholder="Morning repo summary" error={fieldErrors.name} inputRef={nameRef} onChange={(name) => { set({ name }); }} />
+          <Labelled label="Runs a">
+            <Segmented
+              label="What to run"
+              value={draft.kind}
+              options={[
+                { value: "prompt", label: "Prompt" },
+                { value: "command", label: "Shell command" },
+              ]}
+              onChange={(next) => {
+                set({ kind: next as ScheduleKind });
+              }}
+            />
           </Labelled>
-          <Labelled label="Prompt">
-            <textarea rows={4} placeholder="What should the agent do each time?" value={draft.prompt} onChange={(event) => { set({ prompt: event.target.value }); }} />
-          </Labelled>
-        </>
-      ) : (
-        <>
-          <Labelled label="Command">
-            <textarea rows={3} placeholder="git -C ~/repo pull && ./scripts/report.sh" value={draft.command} onChange={(event) => { set({ command: event.target.value }); }} />
-          </Labelled>
-          <div className="sched-form-row">
-            <TextInput label="Working directory (optional)" value={draft.workdir} placeholder="/Users/you/repo" mono onChange={(workdir) => { set({ workdir }); }} />
-            <TextInput label="Time limit (optional)" value={draft.timeout} placeholder="30m, default 1h" mono onChange={(timeout) => { set({ timeout }); }} />
-          </div>
-        </>
-      )}
-      {error === null ? null : (
-        <div className="notice" role="alert">
-          {error}
         </div>
-      )}
-      <div className="sched-form-actions">
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" disabled={saving} onClick={() => void submit()}>
-          {saving ? "Creating…" : "Create schedule"}
-        </Button>
-      </div>
+        <CronField cron={draft.cron} error={fieldErrors.cron} onChange={(cron) => { set({ cron }); }} />
+        {draft.kind === "prompt" ? (
+          <>
+            <Labelled label="Profile">
+              <Select aria-label="Profile" invalid={fieldErrors.profile !== undefined} value={profile} options={profileNames.map((name) => ({ value: name, label: name }))} onChange={(value) => { set({ profile: value }); }} />
+              <FieldError message={fieldErrors.profile} />
+            </Labelled>
+            <Labelled label="Prompt">
+              <textarea rows={4} aria-label="Prompt" aria-invalid={fieldErrors.prompt !== undefined || undefined} placeholder="What should the agent do each time?" value={draft.prompt} onChange={(event) => { set({ prompt: event.target.value }); }} />
+              <FieldError message={fieldErrors.prompt} />
+            </Labelled>
+          </>
+        ) : (
+          <>
+            <Labelled label="Command">
+              <textarea rows={3} aria-label="Command" aria-invalid={fieldErrors.command !== undefined || undefined} placeholder="git -C ~/repo pull && ./scripts/report.sh" value={draft.command} onChange={(event) => { set({ command: event.target.value }); }} />
+              <FieldError message={fieldErrors.command} />
+            </Labelled>
+            <div className="sched-form-row">
+              <TextInput label="Working directory (optional)" value={draft.workdir} placeholder="/Users/you/repo" mono onChange={(workdir) => { set({ workdir }); }} />
+              <TextInput label="Time limit (optional)" value={draft.timeout} placeholder="30m, default 1h" mono error={fieldErrors.timeout} onChange={(timeout) => { set({ timeout }); }} />
+            </div>
+          </>
+        )}
+        {error === null ? null : (
+          <div className="notice" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="sched-form-actions">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={saving}>
+            {verb}
+          </Button>
+        </div>
+      </form>
     </PanelBox>
   );
 }
@@ -375,6 +467,7 @@ export function SchedulesPage() {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [logs, setLogs] = useState<ReadonlyMap<string, string>>(new Map());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
   const profilesDoc = asProfilesDocument(profiles.data?.document);
   const profileNames = profilesDoc === null ? [] : Object.keys(profilesDoc.profiles);
   const defaultProfile = profilesDoc?.settings.default_profile ?? "";
@@ -446,7 +539,7 @@ export function SchedulesPage() {
         <ScheduleForm
           profileNames={profileNames}
           defaultProfile={defaultProfile}
-          onCreated={() => {
+          onSaved={() => {
             setFormOpen(false);
             void invalidateSchedules();
           }}
@@ -487,6 +580,25 @@ export function SchedulesPage() {
                   open={expanded.has(schedule.id)}
                   busy={busy.has(schedule.id)}
                   logs={logs}
+                  editor={
+                    editingId === schedule.id ? (
+                      <ScheduleForm
+                        profileNames={profileNames}
+                        defaultProfile={defaultProfile}
+                        editing={schedule}
+                        onSaved={() => {
+                          setEditingId(null);
+                          void invalidateSchedules();
+                        }}
+                        onCancel={() => {
+                          setEditingId(null);
+                        }}
+                      />
+                    ) : null
+                  }
+                  onEdit={() => {
+                    setEditingId(schedule.id);
+                  }}
                   onToggleOpen={() => {
                     setExpanded((current) => {
                       const next = new Set(current);

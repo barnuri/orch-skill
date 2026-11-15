@@ -63,6 +63,28 @@ export function ownerChip(node: RunNode): OwnerChip | null {
   return null;
 }
 
+/**
+ * The class of a card's health line. Stale, unowned and after-the-fact are warnings (amber, `flagged`);
+ * an owner chip keeps its own tone, so a healthy "owner alive" is blue and "owner gone" red, never amber.
+ */
+export function healthClass(node: RunNode): string {
+  const flags = nodeFlags(node);
+  if (flags.stale || flags.unowned) {
+    return "health flagged";
+  }
+  const chip = ownerChip(node);
+  if (chip !== null) {
+    return chip.cls === "stale" ? "health flagged" : `health ${chip.cls}`;
+  }
+  return flags.afterTheFact ? "health flagged" : "health";
+}
+
+/** Why a node is blocked on the user (`node update --needs-user`), or null when it is not. */
+export function needsUserReason(node: RunNode): string | null {
+  const reason = node.needs_user;
+  return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : null;
+}
+
 /** True when any node is done only because its owner said so. */
 export function hasUnreviewed(nodes: readonly RunNode[]): boolean {
   return nodes.some((n) => n.status === "done" && n.unverified === true);

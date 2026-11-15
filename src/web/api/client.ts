@@ -15,7 +15,7 @@ import type { DocumentKind } from "../../shared/types/document-kind";
 import type { ActiveEnvelope } from "../../shared/types/active-envelope";
 import type { HarnessesEnvelope } from "../../shared/types/harness-status";
 import { jobChatSchema, jobLogSchema, nodeActivitySchema, runSchema, runsSchema } from "../runs/schemas";
-import type { ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
+import type { ScheduleEdit, ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
 import { API_BASE } from "../lib/constants";
 import type { ApiResult } from "./result";
 import {
@@ -143,6 +143,10 @@ export class ApiClient {
 
   createSchedule(input: ScheduleInput): Promise<ApiResult<ScheduleCreatedDto>> {
     return this.request("POST", `${API_BASE}/schedules`, createdSchema, { body: input });
+  }
+
+  editSchedule(id: string, edit: ScheduleEdit): Promise<ApiResult<OkDto>> {
+    return this.request("PUT", `${API_BASE}/schedules/${encodeURIComponent(id)}`, okSchema, { body: edit });
   }
 
   previewSchedule(cron: string): Promise<ApiResult<SchedulePreviewDto>> {

@@ -33,6 +33,28 @@ body.drawer-open { overflow: hidden; }
 .thread[aria-current="page"] { background: var(--accs); border-color: var(--accb); }
 .thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); }
 .thread-meta { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-meta); color: var(--tx3); }
+.thread-row { position: relative; }
+.thread-row .thread { padding-right: calc(var(--s3) + 28px); }
+.thread-editing { cursor: default; }
+.thread-title-input { width: 100%; min-width: 0; }
+.thread-actions { position: absolute; top: var(--s1); right: var(--s1); }
+.thread-menu-btn { width: 28px; height: 28px; border-color: transparent; opacity: 0; }
+.thread-menu-btn svg { width: 14px; height: 14px; }
+.thread-row:hover .thread-menu-btn, .thread-row:focus-within .thread-menu-btn, .thread-row[data-menu] .thread-menu-btn { opacity: 1; }
+.thread-menu-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.thread-menu {
+  position: absolute; z-index: 20; top: calc(100% + 2px); right: 0; min-width: 132px; padding: 4px;
+  border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+}
+.thread-menu-item {
+  display: flex; align-items: center; width: 100%; min-height: 32px; padding: 0 var(--s3); border-radius: var(--r-sm);
+  font-size: var(--fs-ctl); color: var(--tx1); text-align: left;
+}
+.thread-menu-item:hover, .thread-menu-item:focus-visible { background: var(--hover); color: var(--tx); outline: none; }
+.chat-title-row { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.chat-title-row .chat-title { min-width: 0; }
+.chat-rename-btn { flex: none; width: 28px; height: 28px; border-color: transparent; color: var(--tx3); }
+.chat-rename-btn svg { width: 14px; height: 14px; }
 .thread-live { width: 7px; height: 7px; border-radius: 50%; background: var(--status-running); animation: pulse 1.4s ease-in-out infinite; }
 .side-empty { margin: 0; padding: 0 var(--s3); color: var(--tx3); font-size: var(--fs-meta); }
 .hits { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
@@ -54,9 +76,10 @@ body.drawer-open { overflow: hidden; }
 .chat-head-actions { display: flex; align-items: center; gap: var(--s2); }
 .move-select { width: 170px; }
 .pickers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); align-items: start; }
-.picker { position: relative; display: grid; gap: var(--s1); min-width: 0; }
+.picker { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s1); min-width: 0; }
 .picker-label { font-size: var(--fs-micro); font-weight: 600; color: var(--tx2); }
-.picker-btn { width: 100%; min-height: 36px; }
+.picker-btn { width: 100%; min-width: 0; min-height: 36px; }
+.picker-btn .select-value { min-width: 0; }
 .picker-btn:disabled { opacity: .7; cursor: not-allowed; }
 .picker-note { font-size: var(--fs-micro); color: var(--tx3); }
 .picker-list { max-height: 280px; overflow-y: auto; min-width: 100%; width: max-content; max-width: min(420px, 90vw); }
@@ -115,13 +138,13 @@ body.drawer-open { overflow: hidden; }
 .md p, .md ul, .md ol, .md blockquote, .md table { margin: 0 0 var(--s3); }
 .md h1, .md h2, .md h3, .md h4 { margin: var(--s4) 0 var(--s2); font-size: var(--fs-lg); line-height: 1.3; }
 .md a { color: var(--acct); text-decoration: underline; }
-.md blockquote { padding-left: var(--s3); border-left: 3px solid var(--border-strong); color: var(--tx2); }
+.md blockquote { padding-inline-start: var(--s3); border-inline-start: 3px solid var(--border-strong); color: var(--tx2); }
 .md img { max-width: 100%; }
 .inline-code { padding: 1px 5px; border-radius: var(--r-xs); background: var(--inset); font: .92em var(--font-mono); }
 .md-table { overflow-x: auto; }
 .md table { border-collapse: collapse; font-size: var(--fs-ctl); }
-.md th, .md td { padding: var(--s1) var(--s3); border: 1px solid var(--border); text-align: left; }
-.code-block { margin: 0 0 var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--inset); }
+.md th, .md td { padding: var(--s1) var(--s3); border: 1px solid var(--border); text-align: start; }
+.code-block { direction: ltr; margin: 0 0 var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--inset); }
 .code-head { display: flex; justify-content: space-between; align-items: center; padding: 2px var(--s3); border-bottom: 1px solid var(--border); font-size: var(--fs-micro); color: var(--tx2); }
 .code-copy { all: unset; cursor: pointer; padding: var(--s2); min-height: 28px; box-sizing: border-box; color: var(--acct); }
 .code-copy:focus-visible { outline: 2px solid var(--focus); }
@@ -184,11 +207,11 @@ body.drawer-open { overflow: hidden; }
   .move-select { display: none; }
 }
 
-/* ---- Phone: one column, drawer, docked composer ---- */
-@media (max-width: 768px) {
+/* ---- Phone: one column, drawer, docked composer (also a phone in landscape: wide but short) ---- */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
   .chats-layout { grid-template-columns: minmax(0, 1fr); }
   .chats-side {
-    position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(88vw, 340px);
+    position: fixed; z-index: 20; top: 0; bottom: var(--tabbar-h, 0px); left: 0; width: min(88vw, 340px);
     padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left);
     transform: translateX(-100%); visibility: hidden; transition: transform var(--t-base), visibility 0s linear 150ms;
     box-shadow: var(--shadow); background: var(--panel2);
@@ -199,16 +222,29 @@ body.drawer-open { overflow: hidden; }
   .drawer-btn { display: grid; min-width: 44px; min-height: 44px; flex: none; }
   .icon-btn, .btn, .select-btn { min-height: 44px; }
   .thread, .group-head a, .picker-btn, .att-remove { min-height: 44px; }
+  .thread-row .thread { padding-right: calc(var(--s3) + 44px); }
+  .thread-actions { top: 50%; right: 0; transform: translateY(-50%); }
+  .thread-menu-btn, .chat-rename-btn { width: 44px; height: 44px; min-height: 44px; }
+  .thread-menu-item { min-height: 44px; }
   .att-remove { min-width: 44px; top: -12px; right: -12px; background: transparent; border: 0; }
   .chat-head { padding: var(--s2) var(--s3); }
   .chat-head-actions { display: none; }
   .chat-title { font-size: var(--fs-body); }
   .thread-scroll { padding: var(--s3); }
-  .chats-layout { height: calc(100dvh - var(--hdr, 52px) - var(--touch-coarse, 44px) - 14px - env(safe-area-inset-bottom) - var(--kb, 0px)); }
+  .chats-layout { height: calc(100dvh - var(--hdr, 52px) - var(--tabbar-h, 0px) - var(--kb, 0px)); }
   .composer { position: sticky; bottom: 0; padding: var(--s2) var(--s3); padding-bottom: max(var(--s2), env(safe-area-inset-bottom)); }
   .composer-text { font-size: 16px; }
   .bubble { max-width: 100%; }
   .project-view > :not(.chat-head) { margin-inline: var(--s3); }
+}
+/* Short viewport (keyboard up, or landscape): keep the thread readable; labels stay for screen readers. */
+@media (max-height: 560px) {
+  .picker-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .pickers-meta:not(:has(.picker-problem)), .chat-session-note { display: none; }
+}
+/* Touch screens have no hover: the row's action menu button is always visible there. */
+@media (hover: none), (pointer: coarse), (max-width: 768px) {
+  .thread-menu-btn { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .chats-side, .att-bar, .cursor, .thinking::after, .thread-live { transition: none; animation: none; }

@@ -37,7 +37,7 @@
 .tabbar { display: none; }
 
 @media (max-width: 719px) {
-  .shell, .shell[data-rail="collapsed"] { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(var(--touch-coarse) + 14px + env(safe-area-inset-bottom)); }
+  .shell, .shell[data-rail="collapsed"] { --tabbar-h: calc(var(--touch-coarse) + 14px + env(safe-area-inset-bottom)); grid-template-columns: minmax(0, 1fr); padding-bottom: var(--tabbar-h); }
   .rail { display: none; }
   .topbar { padding-left: max(var(--s4), env(safe-area-inset-left)); padding-right: max(var(--s4), env(safe-area-inset-right)); padding-top: env(safe-area-inset-top); height: calc(var(--nav-h) + env(safe-area-inset-top)); }
   .tabbar {
@@ -51,4 +51,27 @@
   .tabbar a span { max-width: 100%; overflow: hidden; text-overflow: clip; white-space: nowrap; }
   .tabbar a[aria-current="page"] { box-shadow: none; background: transparent; border-top: 2px solid var(--acc); }
   body #toasts { bottom: calc(var(--touch-coarse) + 24px + env(safe-area-inset-bottom)); }
+}
+
+/* Short phone viewport (on-screen keyboard up): the tab bar would eat the space the focused input needs. */
+@media (max-width: 719px) and (max-height: 560px) {
+  .shell, .shell[data-rail="collapsed"] { --tabbar-h: 0px; }
+  .tabbar { display: none; }
+  body #toasts { bottom: max(var(--s3), env(safe-area-inset-bottom)); }
+}
+
+/* Phone in landscape: wide but short, so a full rail would leave the page a sliver. Icons only. */
+@media (min-width: 720px) and (max-height: 500px) and (pointer: coarse) {
+  .shell, .shell[data-rail] { grid-template-columns: var(--rail-w-collapsed) minmax(0, 1fr); }
+  .rail-label { display: none; }
+  .rail-brand, .rail-nav a, .rail-toggle { justify-content: center; padding: 0; }
+  .rail-toggle { display: none; }
+}
+/* The node-health pill keeps only its count on a phone, so the header's buttons still fit. */
+@media (max-width: 600px) {
+  .health-pill .health-pill-words { display: none; }
+  /* The out-of-date pill keeps only its ▲ (its name stays in aria-label and title). */
+  .build-pill .build-pill-words { display: none; }
+  /* The base header rule wraps under 900px; the topbar has a fixed height, so a wrapped row spilled over the page. */
+  .topbar { flex-wrap: nowrap; gap: var(--s2); }
 }

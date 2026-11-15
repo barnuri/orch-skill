@@ -1,4 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { BuildInfo } from "../../shared/types/build-info";
 import { installDom } from "../test/dom";
 
@@ -198,5 +200,18 @@ describe("BuildBanner", () => {
     expect(buildPollMs("")).toBe(30_000);
     expect(buildPollMs("?buildPoll=2000")).toBe(2000);
     expect(buildPollMs("?buildPoll=5")).toBe(30_000);
+  });
+});
+
+describe("build pill on a phone", () => {
+  test("the words can hide but the name stays, and the topbar never wraps over the page", async () => {
+    serve(() => json(200, info()));
+    app();
+    const pill = await screen.findByRole("button", { name: "Server out of date" });
+    expect(pill.querySelector(".build-pill-words")?.textContent).toBe("Server out of date");
+    const css = readFileSync(join(import.meta.dir, "shell.css"), "utf8");
+    const phone = css.slice(css.indexOf("@media (max-width: 600px) {"));
+    expect(phone).toContain(".build-pill .build-pill-words { display: none; }");
+    expect(phone).toContain(".topbar { flex-wrap: nowrap;");
   });
 });

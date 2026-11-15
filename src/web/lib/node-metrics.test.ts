@@ -9,6 +9,8 @@ import {
   NO_USAGE_TEXT,
   durationMetric,
   modelMetric,
+  cardUsageMetric,
+  roleTierMetric,
   roleTierText,
   runTotals,
   summaryUsageMetric,
@@ -184,5 +186,59 @@ describe("fmtTokens", () => {
     expect(fmtTokens(950)).toBe("950 tok");
     expect(fmtTokens(12_400)).toBe("12.4k tok");
     expect(fmtTokens(-1)).toBe("—");
+  });
+});
+
+describe("session_stats fallback", () => {
+  const stats = (cost: number, input = 0): NonNullable<RunNode["session_stats"]> => ({
+    session: "ses_abc",
+    cost,
+    tokens: { input, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+    created: "2026-11-15T10:00:00Z",
+    updated: "2026-11-15T11:30:00Z",
+    duration_s: 5400,
+    busy: false,
+  });
+
+  test("usage reads the bound session when nothing else reported", () => {
+    const metric = usageMetric(node({ session_stats: stats(0.98, 1200) }));
+    expect(metric.present).toBe(true);
+    expect(metric.text).toBe("$0.98");
+    expect(metric.title).toContain("ses_abc");
+  });
+  test("a job cost or a coordinator report wins over the session", () => {
+    expect(nodeUsage(node({ cost: cost(2), session_stats: stats(5) })).usd).toBe(2);
+    expect(nodeUsage(node({ report: report({ usd: 1 }), session_stats: stats(5) })).source).toBe("report");
+  });
+  test("a run total counts each node once", () => {
+    const total = runUsage([node({ cost: cost(2), session_stats: stats(2) }), node({ id: "n2", session_stats: stats(1) })]);
+    expect(total.usd).toBe(3);
+    expect(total.reporting).toBe(2);
+  });
+  test("duration falls back to the session span when the node has no start", () => {
+    const metric = durationMetric(node({ status: "done", started: null, session_stats: stats(1) }));
+    expect(metric.present).toBe(true);
+    expect(metric.text).toBe("1h 30m");
+  });
+  test("placeholders stay when there is truly nothing", () => {
+    expect(usageMetric(node()).text).toBe(NO_USAGE_TEXT);
+    expect(durationMetric(node({ status: "waiting" })).text).toBe(NOT_STARTED_TEXT);
+  });
+});
+
+describe("card rows always drawn", () => {
+  test("role and tier show placeholders when missing, and are muted only when both are", () => {
+    expect(roleTierMetric(node())).toMatchObject({ text: "role — · tier —", present: false });
+    expect(roleTierMetric(node()).title).toContain("no role or tier");
+    expect(roleTierMetric(node({ role: "planning" }))).toMatchObject({ text: "planning · tier —", present: true });
+    expect(roleTierMetric(node({ tier: "balance" }))).toMatchObject({ text: "role — · balance", present: true });
+    expect(roleTierMetric(node({ role: "planning", tier: "balance" }))).toMatchObject({ text: "planning · balance", present: true });
+  });
+
+  test("usage and cost each have a placeholder", () => {
+    expect(cardUsageMetric(node())).toMatchObject({ text: "usage — · cost —", present: false });
+    expect(cardUsageMetric(node({ cost: cost(0, 1234) }))).toMatchObject({ text: "1.2k tok · cost —", present: true });
+    expect(cardUsageMetric(node({ cost: cost(0.42, 1500) }))).toMatchObject({ text: "1.5k tok · $0.42", present: true });
+    expect(cardUsageMetric(node({ report: report({ usd: 0.1 }) })).text).toBe("usage — · $0.10");
   });
 });

@@ -2,7 +2,7 @@ import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { svgEl } from "../dom/el";
 import { markAgo, markLive } from "../dom/live-clock";
-import { AFTER_THE_FACT, UNOWNED_TITLE, nodeFlags, ownerChip } from "../views/node-flags";
+import { AFTER_THE_FACT, UNOWNED_TITLE, healthClass, needsUserReason, nodeFlags, ownerChip } from "../views/node-flags";
 import { truncate } from "../dom/format";
 import {
   NODE_H,
@@ -14,7 +14,7 @@ import {
 import type { DagLayout } from "./dag-layout";
 import { harnessMarkGroup } from "./harness-mark";
 import { modelPick } from "./model-pick";
-import { durationMetric, modelMetric, roleTierText, usageMetric } from "./node-metrics";
+import { cardUsageMetric, durationMetric, modelMetric, roleTierMetric } from "./node-metrics";
 import type { Metric } from "./node-metrics";
 import { profilePalette } from "./profile-color";
 import type { ProfilePalette } from "./profile-color";
@@ -25,24 +25,23 @@ const HARNESS_MARK_SIZE: number = 15;
 // Shorter than the bare node width allows: the harness glyph now sits in the top-right corner.
 const LABEL_MAX: number = 19;
 
-// Every node always carries six rows: label, status and attempt, model, then below a hairline the
-// duration (with role and tier on its right) and the usage. A missing value is drawn as a muted
+// Every node always carries seven rows: label, status and attempt, model, then below a hairline the
+// duration, the usage and cost, role and tier, and the health line. A missing value is drawn as a muted
 // placeholder, never left out, so a card reads the same whatever the node recorded.
 const STATUS_Y: number = 42;
 const MODEL_Y: number = 58;
 const METRICS_RULE_Y: number = 67;
 const DURATION_Y: number = 83;
 const USAGE_Y: number = 98;
+const ROLE_TIER_Y: number = 113;
 const META_LEFT_X: number = 14;
 const META_RIGHT_X: number = NODE_W - 12;
 /** Advance width of the 11px monospace the lower rows use. */
 const META_CHAR_PX: number = 6.6;
 const META_MIN_CHARS: number = 6;
 const META_MAX_CHARS: number = Math.floor((NODE_W - META_LEFT_X - (NODE_W - META_RIGHT_X)) / META_CHAR_PX);
-/** Role and tier share the duration row, so they get the width the duration leaves free. */
-const ROLE_TIER_MAX: number = 19;
 /** Baseline of the stage labels, inside the canvas's top padding. */
-const HEALTH_Y: number = 114;
+const HEALTH_Y: number = 129;
 const STAGE_LABEL_Y: number = 16;
 
 /** The status row: `done · attempt 1/5`. Fits the node's width. */
@@ -176,25 +175,29 @@ function appendMetrics(group: SVGElement, node: RunNode): void {
     markLive(durationText, duration.liveSince);
   }
   group.appendChild(durationText);
-  const roleTier = roleTierText(node);
-  if (roleTier !== null) {
-    group.appendChild(
-      metricText(
-        { text: roleTier, title: `role · tier: ${roleTier}`, present: true },
-        "metric role",
-        META_RIGHT_X,
-        DURATION_Y,
-        ROLE_TIER_MAX,
-        "end",
-      ),
-    );
-  }
-  group.appendChild(metricText(usageMetric(node), "metric cost", META_LEFT_X, USAGE_Y, META_MAX_CHARS));
+  group.appendChild(metricText(cardUsageMetric(node), "metric cost", META_LEFT_X, USAGE_Y, META_MAX_CHARS));
+  group.appendChild(metricText(roleTierMetric(node), "metric role", META_LEFT_X, ROLE_TIER_Y, META_MAX_CHARS));
   appendHealth(group, node);
+}
+
+/** A node blocked on the user carries its own "needs you" chip, the reason in its tooltip. */
+function needsYouChip(reason: string): SVGElement {
+  const chip = svgEl("g", { class: "needs-you-chip", transform: `translate(${META_LEFT_X} ${HEALTH_Y - 11})`, "data-needs-user": "" });
+  const title = svgEl("title", {});
+  title.textContent = `needs you: ${reason}`;
+  chip.appendChild(title);
+  chip.appendChild(svgEl("rect", { width: "62", height: "15", rx: "7.5" }));
+  chip.appendChild(svgText({ x: "31", y: "11", "text-anchor": "middle" }, "needs you"));
+  return chip;
 }
 
 /** Bottom-right of the card: stale/unowned/after-the-fact as words, and the live last-activity age. */
 function appendHealth(group: SVGElement, node: RunNode): void {
+  const reason = needsUserReason(node);
+  if (reason !== null) {
+    group.appendChild(needsYouChip(reason));
+    return;
+  }
   const flags = nodeFlags(node);
   const ownerWord = ownerChip(node);
   const word = flags.stale ? "stale" : flags.unowned ? "unowned" : ownerWord !== null ? ownerWord.text : flags.afterTheFact ? "after the fact" : "";
@@ -203,7 +206,7 @@ function appendHealth(group: SVGElement, node: RunNode): void {
     return;
   }
   const text = svgText(
-    { class: `health${word !== "" ? " flagged" : ""}`, x: String(META_LEFT_X), y: String(HEALTH_Y) },
+    { class: healthClass(node), x: String(META_LEFT_X), y: String(HEALTH_Y) },
     word,
   );
   if (last !== null && last !== undefined) {
@@ -232,7 +235,7 @@ function nodeGroup(
   const harness = harnessOf(node, harnessByProfile);
   const pick = modelPick(node);
   const model = modelMetric(node);
-  const usage = usageMetric(node);
+  const usage = cardUsageMetric(node);
   const duration = durationMetric(node);
   const attempt = attemptLine(node, maxAttempts);
   const accent = profile !== null ? palette.accent(profile) : "";
@@ -247,7 +250,7 @@ function nodeGroup(
       harness !== null ? `, ${harness}` : ""
     }, ${model.present ? `model ${model.text}` : model.text}${
       pick?.tier != null ? `, tier ${pick.tier}` : ""
-    }, ${duration.text}, ${usage.text}, ${attempt}`,
+    }, ${duration.text}, ${usage.text}, ${roleTierMetric(node).text}, ${attempt}${needsUserReason(node) !== null ? ", needs you" : ""}`,
   });
   if (profile !== null) {
     // Through the CSSOM, not a `style` attribute: the shell's CSP has no 'unsafe-inline', so an

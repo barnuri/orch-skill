@@ -1,4 +1,4 @@
-import type { Schedule, ScheduleInput } from "../../shared/types/schedule";
+import type { Schedule, ScheduleEdit, ScheduleInput } from "../../shared/types/schedule";
 
 export type Health = "failing" | "running" | "paused" | "ok" | "new";
 export type ScheduleFilter = "all" | "active" | "paused" | "failing";
@@ -91,6 +91,72 @@ export function schedulePayload(draft: ScheduleDraft): ScheduleInput {
   }
   if (draft.timeout.trim() !== "") {
     out.timeout = draft.timeout.trim();
+  }
+  return out;
+}
+
+/** A stored time limit in seconds as the form shows it: 300 -> "5m", 0 -> "" (the default). */
+export function timeoutText(secs: number): string {
+  if (secs <= 0) {
+    return "";
+  }
+  if (secs % 3600 === 0) {
+    return `${secs / 3600}h`;
+  }
+  return secs % 60 === 0 ? `${secs / 60}m` : `${secs}s`;
+}
+
+/** The form's draft for an existing schedule, so Edit opens the create form prefilled. */
+export function draftOf(schedule: Schedule): ScheduleDraft {
+  return {
+    name: schedule.name,
+    kind: schedule.kind,
+    cron: schedule.cron,
+    profile: schedule.profile ?? "",
+    prompt: schedule.prompt ?? "",
+    command: schedule.command ?? "",
+    workdir: schedule.workdir ?? "",
+    timeout: timeoutText(schedule.timeout),
+  };
+}
+
+/**
+ * The body of PUT /api/schedules/{id}: the whole form, so a cleared working directory or time limit
+ * is cleared on the schedule too (an empty workdir and a 0 timeout mean "none").
+ */
+export function scheduleEditPayload(draft: ScheduleDraft): ScheduleEdit {
+  const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
+  if (draft.kind === "prompt") {
+    return { ...base, prompt: draft.prompt, profile: draft.profile };
+  }
+  return { ...base, command: draft.command, workdir: draft.workdir.trim(), timeout: draft.timeout.trim() === "" ? "0" : draft.timeout.trim() };
+}
+
+export type DraftErrors = Partial<Record<"name" | "cron" | "prompt" | "profile" | "command" | "timeout", string>>;
+
+/** What the form can tell before asking the server; the CLI still checks everything again. */
+export function draftErrors(draft: ScheduleDraft): DraftErrors {
+  const out: DraftErrors = {};
+  if (draft.name.trim() === "") {
+    out.name = "Give it a name.";
+  }
+  if (draft.cron.trim() === "") {
+    out.cron = "Enter a cron expression.";
+  }
+  if (draft.kind === "prompt") {
+    if (draft.prompt.trim() === "") {
+      out.prompt = "Write the prompt.";
+    }
+    if (draft.profile === "") {
+      out.profile = "Pick a profile.";
+    }
+  } else {
+    if (draft.command.trim() === "") {
+      out.command = "Enter a command.";
+    }
+    if (draft.timeout.trim() !== "" && !/^\d+[smhd]?$/.test(draft.timeout.trim())) {
+      out.timeout = "Use a duration such as 30s, 5m or 1h.";
+    }
   }
   return out;
 }

@@ -5,6 +5,8 @@ import { NAV_LINKS, SECTION_HREF } from "../router/route";
 import type { Route } from "../router/route";
 import { BuildBanner } from "./BuildBanner";
 import { ActivePill } from "./ActivePill";
+import { HealthPill } from "../runs/RunHealth";
+import { useHealthSummary } from "../runs/queries";
 import { Freshness } from "./Freshness";
 import { useTheme } from "./theme";
 
@@ -17,6 +19,7 @@ const REFRESH_LABEL = "Refresh this page";
 /** Top bar: section title, active-items pill, freshness, refresh and theme. Navigation lives in the rail and tab bar. */
 export function Header({ route }: { route: Route }) {
   const active = useActive();
+  const healthSummary = useHealthSummary();
   const { theme, toggle } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   return (
@@ -25,6 +28,7 @@ export function Header({ route }: { route: Route }) {
       <div className="spacer" />
       <BuildBanner />
       <ActivePill items={active.data?.items ?? []} />
+      <HealthPill summary={healthSummary} />
       <Freshness />
       <IconButton
         id="refresh"

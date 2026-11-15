@@ -67,6 +67,7 @@ main:has(.run-page) { max-width: none; }
 .runs-stat b { font: 600 var(--fs-body) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--tx); }
 .runs-stat.is-running b { color: var(--status-running); }
 .runs-stat.is-error b { color: var(--status-error); }
+.runs-stat.is-lost b { color: var(--status-stale); }
 
 .inspector, .inspector .panel-details, .inspector .node-session { min-width: 0; }
 .run-page .run-layout .inspector { overflow-x: hidden; }
@@ -86,3 +87,16 @@ main:has(.run-page) { max-width: none; }
 .runs-summary { margin-bottom: 0; }
 .run-page .node.running.is-stale .mark { fill: var(--status-stale); animation: none; }
 .run-page .node.running.is-stale .metric.dur, .run-page .node .health.flagged { fill: var(--status-stale); }
+/* Node health (run health --json): amber for stalled / no-report, grey for unowned, red only for dead. */
+.chip.health-stalled, .chip.health-no-report { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
+.chip.health-unowned, .chip.health-needs-user { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+.chip.health-dead { --c: var(--status-error); --bg-c: var(--status-error-bg); --bd-c: var(--status-error-bd); }
+.chip.health-ready { --c: var(--acct); --bg-c: var(--accs); --bd-c: var(--accb); }
+.node-health { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
+.node-health-item {
+  display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; max-width: 100%;
+  padding: 2px var(--s2) 2px 0; border: 0; background: none; color: var(--tx2); font: inherit; cursor: pointer;
+}
+.node-health-item .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.node-health-id { font-size: var(--fs-meta); }
+.run-health { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }

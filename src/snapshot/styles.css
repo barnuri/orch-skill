@@ -475,6 +475,7 @@ header {
 }
 .active-pill[hidden] { display: none; }
 .active-pill.needs-attention { border-color: var(--erbd); background: var(--erbg); color: var(--er); }
+.active-pill.is-lost { border-color: var(--status-stale-bd); background: var(--status-stale-bg); color: var(--status-stale); }
 .active-pill .dot { background: currentColor; animation: pulse 1.8s ease-in-out infinite; }
 
 main { padding: var(--s5); max-width: 1400px; margin: 0 auto; }
@@ -700,6 +701,10 @@ h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.015em; margin:
 
 .node .health { fill: var(--tx3); font: 11px var(--font-mono); }
 .node .health.flagged { fill: var(--wa); font-weight: 600; }
+.node .health.running { fill: var(--status-running); }
+.node .health.error { fill: var(--status-error); font-weight: 600; }
+.node .needs-you-chip rect { fill: var(--status-waiting-bg); stroke: var(--status-waiting-bd); }
+.node .needs-you-chip text { fill: var(--status-waiting); font: 600 10px var(--font-sans, sans-serif); }
 .run-stale-banner { margin-top: 8px; }
 .run-activity { margin-top: 16px; }
 .activity-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

@@ -36,6 +36,12 @@
 .sched-row.is-paused { border-left-color: var(--status-waiting); }
 .sched-name { letter-spacing: -.005em; }
 .sched-form { border-radius: var(--r-lg); }
+.sched-form-body { display: grid; gap: var(--s4); min-width: 0; }
+.sched-form-title { margin: 0; font-size: var(--fs-ctl); font-weight: 600; letter-spacing: -.005em; }
+.sched-row.is-editing { display: block; border-left-color: var(--acc); }
+.sched-row.is-editing .sched-form { margin: 0; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.sched-field-error { margin-top: var(--s1); font-size: var(--fs-meta); color: var(--status-error); }
+.sched-form [aria-invalid="true"] { border-color: var(--status-error); }
 
 /* ---- Harnesses: one ledger of rows instead of cards -------------------------------------- */
 .harness-grid {

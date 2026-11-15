@@ -93,7 +93,11 @@ export function useChatThread(chatId: string): ChatThread {
     setLoadingOlder(true);
     const page = await chatsApi.messages(chatId, cursor);
     if (page.kind === "ok") {
-      setMessages((list) => prependOlder(list, page.body.items));
+      // Merged into `latest` at once, like the stream does: an SSE chunk that lands before the next
+      // render must build on the older page, or its setMessages would drop that page again.
+      const merged = prependOlder(latest.current, page.body.items);
+      latest.current = merged;
+      setMessages(merged);
       setCursor(page.body.next_cursor);
     }
     setLoadingOlder(false);

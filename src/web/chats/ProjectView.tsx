@@ -7,6 +7,8 @@ import { normalizeSelection } from "../lib/chat-logic";
 import type { Project } from "../lib/chat-types";
 import { rel } from "../lib/format";
 import { refreshChats, refreshProjects, useChatOptions, useChats, useProjects } from "./queries";
+import { useSingleFlight } from "../lib/use-single-flight";
+import { ChatListRow } from "./ChatListRow";
 
 export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; onOpenDrawer: () => void }) {
   const toast = useToast();
@@ -25,6 +27,16 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
       setDescription(project.description);
     }
   }, [project?.id, project?.name, project?.path, project?.description]);
+  const [newChat, creating] = useSingleFlight(async (): Promise<void> => {
+    const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
+    const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
+    if (res.kind !== "ok") {
+      toast("error", describeFailure(res, "could not create the chat"));
+      return;
+    }
+    void refreshChats();
+    location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
+  });
   if (project === undefined) {
     return <div className="chat-empty"><p className="muted">{active.isLoading ? "Loading…" : "Project not found."}</p></div>;
   }
@@ -40,16 +52,6 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
       toast("error", describeFailure(res, "could not archive"));
     }
     void refreshProjects();
-  };
-  const newChat = async (): Promise<void> => {
-    const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
-    const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
-    if (res.kind !== "ok") {
-      toast("error", describeFailure(res, "could not create the chat"));
-      return;
-    }
-    void refreshChats();
-    location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
   };
   return (
     <div className="project-view">
@@ -67,7 +69,7 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
         <div className="project-actions">
           <button type="submit" className="btn primary" disabled={name.trim() === ""}>Save</button>
           <button type="button" className="btn" onClick={() => void archive()}>{project.archived_at === null ? "Archive project" : "Unarchive project"}</button>
-          <button type="button" className="btn" onClick={() => void newChat()} disabled={project.archived_at !== null}>New chat here</button>
+          <button type="button" className="btn" onClick={() => void newChat()} disabled={project.archived_at !== null || creating}>New chat here</button>
         </div>
       </form>
       <h2 className="section-title">Chats</h2>
@@ -76,10 +78,7 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
       ) : (
         <div className="project-chats">
           {mine.map((c) => (
-            <a key={c.id} className="thread" href={`#/chats/${encodeURIComponent(c.id)}`}>
-              <span className="thread-title">{c.title}</span>
-              <span className="thread-meta">{c.harness} · {rel(c.updated_at)}</span>
-            </a>
+            <ChatListRow key={c.id} chat={c} href={`#/chats/${encodeURIComponent(c.id)}`} meta={<>{c.harness} · {rel(c.updated_at)}</>} />
           ))}
         </div>
       )}

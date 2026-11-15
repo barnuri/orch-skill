@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { ElementType, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -58,6 +58,31 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
+/**
+ * Text blocks take their direction from their own first strong letter, so a Hebrew or Arabic reply
+ * reads right to left (bullets and punctuation on the correct side) while an English line next to it stays left to right.
+ */
+const autoDir = <T extends "p" | "li" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote" | "th" | "td">(Tag: T) =>
+  function AutoDir({ children }: { children?: ReactNode }) {
+    const El = Tag as ElementType;
+    return <El dir="auto">{children}</El>;
+  };
+const AUTO_DIR = {
+  p: autoDir("p"),
+  li: autoDir("li"),
+  ul: autoDir("ul"),
+  ol: autoDir("ol"),
+  h1: autoDir("h1"),
+  h2: autoDir("h2"),
+  h3: autoDir("h3"),
+  h4: autoDir("h4"),
+  h5: autoDir("h5"),
+  h6: autoDir("h6"),
+  blockquote: autoDir("blockquote"),
+  th: autoDir("th"),
+  td: autoDir("td"),
+};
+
 export default function Markdown({ text, live = false }: { text: string; live?: boolean }) {
   return (
     <div className={live ? "md is-live" : "md"}>
@@ -65,6 +90,7 @@ export default function Markdown({ text, live = false }: { text: string; live?: 
         remarkPlugins={REMARK}
         rehypePlugins={REHYPE}
         components={{
+          ...AUTO_DIR,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noopener noreferrer nofollow">
               {children}

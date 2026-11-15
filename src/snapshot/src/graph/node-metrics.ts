@@ -81,6 +81,40 @@ export function durationMetric(node: RunNode): DurationMetric {
   return { text: fmtDur(started, finished), present: true, liveSince: null, title: `${started} to ${finished}${inline}` };
 }
 
+export const NO_ROLE_TEXT = "role —";
+export const NO_TIER_TEXT = "tier —";
+
+/**
+ * The card's role and tier row, always drawn: `planning · balance`, with `role —` / `tier —` for a
+ * value the node was not added with. Muted (not present) only when both are missing.
+ */
+export function roleTierMetric(node: RunNode): Metric {
+  const role: string | null = node.role ?? null;
+  const tier: string | null = node.tier ?? null;
+  const text = `${role ?? NO_ROLE_TEXT} · ${tier ?? NO_TIER_TEXT}`;
+  const missing = [role === null ? "role" : null, tier === null ? "tier" : null].filter((part): part is string => part !== null);
+  const title =
+    missing.length === 0
+      ? `role ${role ?? ""} · tier ${tier ?? ""}`
+      : `${role !== null ? `role ${role}; ` : tier !== null ? `tier ${tier}; ` : ""}no ${missing.join(" or ")} was recorded for this node. \`node add --role R --tier T\` sets them.`;
+  return { text, present: role !== null || tier !== null, title };
+}
+
+export const NO_TOKENS_TEXT = "usage —";
+export const NO_COST_TEXT = "cost —";
+
+/**
+ * The card's usage row, always both halves: tokens then dollar cost, `usage —` / `cost —` for the
+ * half the node did not report. Muted only when neither was reported; the tooltip is usageMetric's.
+ */
+export function cardUsageMetric(node: RunNode): Metric {
+  const usage = nodeUsage(node);
+  const title = usageMetric(node).title;
+  const tokens = usage.tokens === null ? NO_TOKENS_TEXT : fmtTokens(usage.tokens);
+  const usd = usage.usd === null ? NO_COST_TEXT : fmtUsd(usage.usd);
+  return { text: `${tokens} · ${usd}`, present: usage.tokens !== null || usage.usd !== null, title };
+}
+
 /** `role · tier`, or null when neither is set. */
 export function roleTierText(node: RunNode): string | null {
   const raw: (string | null)[] = [node.role ?? null, node.tier ?? null];

@@ -57,6 +57,15 @@ export function ownerChip(node: RunNode): OwnerChip | null {
   if (node.status === "error" && node.owner_state === "gone") {
     return { cls: "error", text: "owner gone", title: "The owner no longer exists" };
   }
+  if (node.status === "running" && node.stalled === true) {
+    return { cls: "stale", text: "stalled", title: node.stalled_reason ?? "The owner session shows no activity" };
+  }
+  if (node.status === "running" && node.owner_state === "umbrella") {
+    return { cls: "running", text: `umbrella ${node.umbrella_status ?? ""}`.trim(), title: `Tracks ${(node.umbrella ?? []).join(", ")}` };
+  }
+  if (node.status === "running" && node.owner_state === "idle") {
+    return { cls: "waiting", text: "owner idle", title: node.owner_note ?? "The owner session is idle; the node stays running until it is marked done" };
+  }
   if (node.status === "running" && node.owner_state === "unbound") {
     return { cls: "waiting", text: "owner unbound", title: node.owner_reason ?? "No session was found for this owner" };
   }
@@ -70,6 +79,28 @@ export function ownerChip(node: RunNode): OwnerChip | null {
     return { cls: "waiting", text: "owner unknown", title: "The owner could not be checked" };
   }
   return null;
+}
+
+/**
+ * The class of a card's health line. Stale, unowned and after-the-fact are warnings (amber, `flagged`);
+ * an owner chip keeps its own tone, so a healthy "owner alive" is blue and "owner gone" red, never amber.
+ */
+export function healthClass(node: RunNode): string {
+  const flags = nodeFlags(node);
+  if (flags.stale || flags.unowned) {
+    return "health flagged";
+  }
+  const chip = ownerChip(node);
+  if (chip !== null) {
+    return chip.cls === "stale" ? "health flagged" : `health ${chip.cls}`;
+  }
+  return flags.afterTheFact ? "health flagged" : "health";
+}
+
+/** Why a node is blocked on the user (`node update --needs-user`), or null when it is not. */
+export function needsUserReason(node: RunNode): string | null {
+  const reason = node.needs_user;
+  return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : null;
 }
 
 /** True when any node is done only because its owner said so. */

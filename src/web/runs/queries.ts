@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRef } from "react";
 import type { RunEvent } from "../../shared/types/run-event";
 import { mergeEvents } from "../lib/run-activity";
-import { eventsSchema } from "./schemas";
+import type { HealthSummary, RunHealth } from "../../shared/types/run-health";
+import { eventsSchema, healthSummarySchema, runHealthSchema } from "./schemas";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { api } from "../api/client";
 import { ApiFailure, conditionalGet, queryClient, useDocument } from "../api/queries";
@@ -17,6 +18,8 @@ export const runKeys = {
   jobLog: (id: string): string => `job-log:${id}`,
   jobChat: (id: string): string => `job-chat:${id}`,
   nodeActivity: (run: string, node: string): string => `node-activity:${run}:${node}`,
+  health: (id: string): string => `run-health:${id}`,
+  healthSummary: "health-summary",
 } as const;
 
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -149,4 +152,65 @@ export function useRunEvents(runId: string): RunEvent[] {
     retry: false,
   });
   return query.data ?? [];
+}
+
+async function fetchRunHealth(runId: string): Promise<RunHealth | null> {
+  const result = await api.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/health`, runHealthSchema, { quiet: true });
+  if (result.kind !== "ok") {
+    throw new ApiFailure(result as NonOk);
+  }
+  return result.body.health;
+}
+
+/** A run's latest node-health check (the server keeps it in memory), on the same POLL_MS as the run. */
+export function useRunHealth(runId: string, enabled = true): RunHealth | null {
+  const query = useQuery({
+    queryKey: [runKeys.health(runId)],
+    enabled,
+    queryFn: () => fetchRunHealth(runId),
+    refetchInterval: POLL_MS,
+    retry: false,
+  });
+  return query.data ?? null;
+}
+
+/** The health of several runs at once (the running ones), keyed by run id; same POLL_MS. */
+export function useRunsHealth(runIds: readonly string[]): ReadonlyMap<string, RunHealth> {
+  const results = useQueries({
+    queries: runIds.map((id) => ({
+      queryKey: [runKeys.health(id)],
+      queryFn: () => fetchRunHealth(id),
+      refetchInterval: POLL_MS,
+      retry: false,
+    })),
+  });
+  const out = new Map<string, RunHealth>();
+  runIds.forEach((id, i) => {
+    const data = results[i]?.data;
+    if (data !== undefined && data !== null) {
+      out.set(id, data);
+    }
+  });
+  return out;
+}
+
+/** The header's node-health counts: one small in-memory read every 10 s, paused while the tab is hidden. */
+export const HEALTH_SUMMARY_POLL_MS = 10_000;
+
+export function useHealthSummary(): HealthSummary | null {
+  const query = useQuery({
+    queryKey: [runKeys.healthSummary],
+    queryFn: async () => {
+      const result = await api.request("GET", `${API_BASE}/health/summary`, healthSummarySchema, { quiet: true });
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body;
+    },
+    refetchInterval: HEALTH_SUMMARY_POLL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  return query.data ?? null;
 }

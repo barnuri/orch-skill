@@ -161,11 +161,13 @@ export function BuildBanner({ restartPollMs = RESTART_POLL_MS, restartTimeoutMs 
         id="build-pill"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label="Server out of date"
+        title="Server out of date"
         onClick={() => {
           setOpen((v) => !v);
         }}
       >
-        <span aria-hidden="true">▲</span> Server out of date
+        <span aria-hidden="true">▲</span> <span className="build-pill-words">Server out of date</span>
       </button>
     );
   } else if (build.isError || data?.error != null) {

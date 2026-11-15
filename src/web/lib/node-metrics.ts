@@ -47,7 +47,12 @@ function inlineReason(node: RunNode): string {
 
 export function usageMetric(node: RunNode): Metric {
   const usage = nodeUsage(node);
-  const origin = usage.source === "report" ? "reported by the coordinator" : "reported by the harness";
+  const origin =
+    usage.source === "report"
+      ? "reported by the coordinator"
+      : usage.source === "session"
+        ? `from opencode session ${node.session_stats?.session ?? ""}`.trim()
+        : "reported by the harness";
   if (usage.usd !== null) {
     const tokens = usage.tokens === null ? "" : `, ${fmtTokens(usage.tokens)}`;
     return { text: fmtUsd(usage.usd), present: true, title: `${fmtUsd(usage.usd)}${tokens}: ${origin}` };
@@ -64,10 +69,20 @@ export function usageMetric(node: RunNode): Metric {
  */
 export function durationMetric(node: RunNode): DurationMetric {
   const { status, started, finished } = node;
+  const stats = node.session_stats ?? null;
+  // Fallback when the node's own stamps cannot give a duration: the bound opencode session's span.
+  const sessionDuration = (): DurationMetric | null =>
+    stats === null || !(stats.duration_s > 0)
+      ? null
+      : { text: fmtDur(stats.created, stats.updated), present: true, liveSince: null, title: `${stats.created} to ${stats.updated}: the bound opencode session` };
   if (status === "running" && started !== null) {
     return { text: fmtDur(started), present: true, liveSince: started, title: `running since ${started}` };
   }
   if (started === null) {
+    const fromSession = sessionDuration();
+    if (fromSession !== null) {
+      return fromSession;
+    }
     if (status === "waiting" || status === "skipped" || status === "running") {
       const why = status === "waiting" ? "waiting for its dependencies or dispatch" : status === "skipped" ? "skipped before it started" : "marked running without a start time";
       return { text: status === "running" ? "running" : NOT_STARTED_TEXT, present: false, liveSince: null, title: why };
@@ -75,10 +90,48 @@ export function durationMetric(node: RunNode): DurationMetric {
     return { text: "duration unknown", present: false, liveSince: null, title: "this node was never marked running, so no start time was recorded" };
   }
   if (finished === null) {
+    const fromSession = sessionDuration();
+    if (fromSession !== null) {
+      return fromSession;
+    }
     return { text: "duration unknown", present: false, liveSince: null, title: "this node has a start time but no finish time" };
   }
   const inline = node.job_id === null ? "; ran inline, so this is the time between its node update calls" : "";
   return { text: fmtDur(started, finished), present: true, liveSince: null, title: `${started} to ${finished}${inline}` };
+}
+
+export const NO_ROLE_TEXT = "role —";
+export const NO_TIER_TEXT = "tier —";
+
+/**
+ * The card's role and tier row, always drawn: `planning · balance`, with `role —` / `tier —` for a
+ * value the node was not added with. Muted (not present) only when both are missing.
+ */
+export function roleTierMetric(node: RunNode): Metric {
+  const role: string | null = node.role ?? null;
+  const tier: string | null = node.tier ?? null;
+  const text = `${role ?? NO_ROLE_TEXT} · ${tier ?? NO_TIER_TEXT}`;
+  const missing = [role === null ? "role" : null, tier === null ? "tier" : null].filter((part): part is string => part !== null);
+  const title =
+    missing.length === 0
+      ? `role ${role ?? ""} · tier ${tier ?? ""}`
+      : `${role !== null ? `role ${role}; ` : tier !== null ? `tier ${tier}; ` : ""}no ${missing.join(" or ")} was recorded for this node. \`node add --role R --tier T\` sets them.`;
+  return { text, present: role !== null || tier !== null, title };
+}
+
+export const NO_TOKENS_TEXT = "usage —";
+export const NO_COST_TEXT = "cost —";
+
+/**
+ * The card's usage row, always both halves: tokens then dollar cost, `usage —` / `cost —` for the
+ * half the node did not report. Muted only when neither was reported; the tooltip is usageMetric's.
+ */
+export function cardUsageMetric(node: RunNode): Metric {
+  const usage = nodeUsage(node);
+  const title = usageMetric(node).title;
+  const tokens = usage.tokens === null ? NO_TOKENS_TEXT : fmtTokens(usage.tokens);
+  const usd = usage.usd === null ? NO_COST_TEXT : fmtUsd(usage.usd);
+  return { text: `${tokens} · ${usd}`, present: usage.tokens !== null || usage.usd !== null, title };
 }
 
 /** `role · tier`, or null when neither is set. */

@@ -11,6 +11,8 @@ import { Lightbox } from "./Attachments";
 import { Composer } from "./Composer";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
 import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
+import { repairSelection } from "./repair-selection";
+import { PencilIcon, TitleInput, useRenameChat } from "./rename";
 import { useChatThread, useNow } from "./use-chat-thread";
 import { VirtualMessages } from "./VirtualMessages";
 
@@ -23,7 +25,8 @@ function LastReplyStats({ reply }: { reply: Message | null }) {
   return ms === null ? null : <span className="chat-stats mono" data-testid="chat-duration">{formatDuration(ms)}</span>;
 }
 
-function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer }: {
+/** The chat's title bar: rename (pencil or title click), move to project, archive. Exported for tests. */
+export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer }: {
   chat: Chat;
   options: ChatOptions | undefined;
   modelUsed: string | null;
@@ -33,22 +36,7 @@ function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer }:
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(chat.title);
-  useEffect(() => {
-    setTitle(chat.title);
-  }, [chat.title]);
-  const rename = async (): Promise<void> => {
-    setEditing(false);
-    if (title.trim() === "" || title === chat.title) {
-      setTitle(chat.title);
-      return;
-    }
-    const res = await chatsApi.rename(chat.id, title.trim());
-    if (res.kind !== "ok") {
-      toast("error", describeFailure(res, "could not rename"));
-    }
-    void refreshChats();
-  };
+  const renameChat = useRenameChat();
   const move = async (value: string): Promise<void> => {
     const res = await chatsApi.moveChat(chat.id, value === NO_PROJECT ? null : value);
     if (res.kind !== "ok") {
@@ -70,28 +58,30 @@ function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer }:
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
       </button>
       <div className="chat-head-main">
-        {editing ? (
-          <input
-            className="chat-title-input"
-            aria-label="Chat title"
-            value={title}
-            autoFocus
-            onChange={(e) => { setTitle(e.target.value); }}
-            onBlur={() => void rename()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                void rename();
-              } else if (e.key === "Escape") {
-                setTitle(chat.title);
+        <div className="chat-title-row">
+          {editing ? (
+            <TitleInput
+              initial={chat.title}
+              className="chat-title-input"
+              onSave={(value) => {
                 setEditing(false);
-              }
-            }}
-          />
-        ) : (
-          <button type="button" className="chat-title" title="Rename" onClick={() => { setEditing(true); }}>
-            {chat.title}
-          </button>
-        )}
+                void renameChat(chat, value);
+              }}
+              onCancel={() => {
+                setEditing(false);
+              }}
+            />
+          ) : (
+            <>
+              <button type="button" className="chat-title" title="Rename" onClick={() => { setEditing(true); }}>
+                {chat.title}
+              </button>
+              <button type="button" className="icon-btn chat-rename-btn" aria-label="Rename chat" title="Rename chat" onClick={() => { setEditing(true); }}>
+                <PencilIcon />
+              </button>
+            </>
+          )}
+        </div>
         <span className="chat-summary mono" data-testid="picker-summary">
           {pickerSummary(chat, options, modelUsed)}
         </span>
@@ -125,6 +115,16 @@ function Config({ chat, options, running, modelUsed }: { chat: Chat; options: Ch
     }
     void refreshChats();
   };
+  // Store the pickers' choice when the chat's own profile or model is unusable; otherwise every send fails and the
+  // locked pickers already claim the fixed value, so the user has nothing to switch.
+  const repair = running ? null : repairSelection(options, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
+  const repairKey = repair === null ? "" : `${repair.harness}/${repair.profile}/${repair.model ?? ""}`;
+  useEffect(() => {
+    if (repair !== null) {
+      void change(repair);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the repair itself, so it runs once per bad selection
+  }, [repairKey]);
   return <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} onChange={(n) => void change(n)} />;
 }
 

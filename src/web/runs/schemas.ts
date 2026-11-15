@@ -5,6 +5,7 @@ import type { RunEventsEnvelope } from "../../shared/types/run-event";
 import type { RunEnvelope } from "../../shared/types/run-envelope";
 import type { ActivityEnvelope } from "../lib/owner-activity";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
+import type { HealthSummary, RunHealthEnvelope } from "../../shared/types/run-health";
 
 /**
  * Loose objects: the server answers with more fields than the UI reads (and the server's DTO for
@@ -36,4 +37,23 @@ export const eventsSchema = typed<RunEventsEnvelope>(
 
 export const nodeActivitySchema = typed<ActivityEnvelope>(
   z.looseObject({ state: z.enum(["ok", "gone", "unknown"]), messages: z.array(z.looseObject({ id: z.string() })), next: z.string().nullable() }),
+);
+
+export const runHealthSchema = typed<RunHealthEnvelope>(
+  z.looseObject({
+    generated_at: z.string(),
+    source: z.string(),
+    health: z
+      .looseObject({
+        run: z.string(),
+        slots: z.number(),
+        nodes: z.array(z.looseObject({ id: z.string(), health: z.string() })),
+        ready: z.array(z.string()),
+      })
+      .nullable(),
+  }),
+);
+
+export const healthSummarySchema = typed<HealthSummary>(
+  z.looseObject({ running_runs: z.number(), stalled: z.number(), dead: z.number(), unowned: z.number(), no_report: z.number(), needs_user: z.number().optional(), ready: z.number(), flagged_runs: z.array(z.string()) }),
 );

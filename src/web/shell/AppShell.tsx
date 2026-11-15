@@ -13,7 +13,7 @@ import { SECTION_HREF } from "../router/route";
 import { Header } from "./Header";
 import { Rail, TabBar } from "./Rail";
 import { TokenGate } from "./TokenGate";
-import { useConnection } from "./use-connection";
+import { useAuthRequired } from "./use-connection";
 
 const ChatsPage = lazy(() => import("../chats/ChatsPage").then((m) => ({ default: m.ChatsPage })));
 
@@ -49,7 +49,7 @@ function Page({ route }: { route: Route }): ReactNode {
 
 export function AppShell() {
   const route = useRoute();
-  const { authRequired } = useConnection();
+  const authRequired = useAuthRequired();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(RAIL_KEY) === "collapsed";

@@ -66,6 +66,18 @@ describe("cursor", () => {
   });
 });
 
+describe("right-to-left replies", () => {
+  test("each text block takes its own direction, and code stays left to right", () => {
+    cleanup();
+    const { container } = render(<Markdown text={"## המלצות\n\n- מקרר אחד\n- second\n\nplain line\n\n```sh\necho hi\n```"} />);
+    for (const sel of ["h2", "ul", "li", "p"]) {
+      expect(container.querySelector(`.md ${sel}`)?.getAttribute("dir")).toBe("auto");
+    }
+    expect(container.querySelector(".code-block")?.getAttribute("dir")).toBeNull();
+    cleanup();
+  });
+});
+
 describe("removing an unsent upload", () => {
   test("× calls the delete endpoint for a stored attachment and aborts a running upload", async () => {
     cleanup();

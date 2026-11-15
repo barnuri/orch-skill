@@ -4,11 +4,11 @@ import { markFor, MARKS } from "../lib/harness-marks";
 import { NODE_H, NODE_W, ORCH_NODE_H, ORCH_NODE_W, layoutDag } from "../lib/dag-layout";
 import type { DagLayout } from "../lib/dag-layout";
 import { truncate } from "../lib/format";
-import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip } from "../lib/node-flags";
+import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, needsUserReason, nodeFlags, ownerChip } from "../lib/node-flags";
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
-import { META_MAX_CHARS, attemptLine, durationMetric, modelMetric, roleTierText, statusLine, usageMetric } from "../lib/node-metrics";
+import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
@@ -23,24 +23,41 @@ const MODEL_Y = 58;
 const METRICS_RULE_Y = 67;
 const DURATION_Y = 83;
 const USAGE_Y = 98;
-const HEALTH_Y = 114;
+const ROLE_TIER_Y = 113;
+const HEALTH_Y = 129;
 const META_LEFT_X = 14;
 const META_RIGHT_X = NODE_W - 12;
-const ROLE_TIER_MAX = 19;
 const STAGE_LABEL_Y = 16;
+
+/** A node blocked on the user carries its own "needs you" chip, the reason in its tooltip. */
+function NeedsYouChip({ reason }: { reason: string }) {
+  return (
+    <g className="needs-you-chip" transform={`translate(${META_LEFT_X} ${HEALTH_Y - 11})`} data-needs-user="">
+      <title>{`needs you: ${reason}`}</title>
+      <rect width={62} height={15} rx={7.5} />
+      <text x={31} y={11} textAnchor="middle">
+        needs you
+      </text>
+    </g>
+  );
+}
 
 function Health({ node, runId }: { node: RunNode; runId: string }) {
   const flags = nodeFlags(node);
   const chip = ownerChip(node);
   const cached = useCachedNodeActivity(runId, node.id);
   const latest = latestActivityLine(cached.data as never);
+  const reason = needsUserReason(node);
+  if (reason !== null) {
+    return <NeedsYouChip reason={reason} />;
+  }
   const word = flags.stale ? "stale" : flags.unowned ? "unowned" : chip !== null ? chip.text : flags.afterTheFact ? "after the fact" : "";
   const last = lastActivity(node);
   if (word === "" && last === null) {
     return null;
   }
   return (
-    <text className={`health${word !== "" ? " flagged" : ""}`} x={META_LEFT_X} y={HEALTH_Y}>
+    <text className={healthClass(node)} x={META_LEFT_X} y={HEALTH_Y}>
       {last === null ? word : <Ago iso={last} prefix={word !== "" ? `${word} · ` : ""} />}
       {word === "" && latest === null ? null : (
         <title>{[flags.unowned ? UNOWNED_TITLE : word === "after the fact" ? AFTER_THE_FACT : chip !== null ? chip.title : word !== "" ? STALE_TITLE : "", latest ?? ""].filter((t) => t !== "").join("\n")}</title>
@@ -163,8 +180,8 @@ interface NodeCardProps {
 }
 
 /**
- * One node card. Always six rows (label, status and attempt, model, duration with role and tier,
- * usage): a missing value is drawn as a muted placeholder with the reason in its tooltip.
+ * One node card. Always seven rows (label, status and attempt, model, duration, usage and cost,
+ * role and tier, health): a missing value is drawn as a muted placeholder with the reason in its tooltip.
  */
 export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, runId, waitingOn = [] }: NodeCardProps) {
   const label = node.label || node.id;
@@ -172,14 +189,14 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
   const harness = harnessOf(node, harnessByProfile);
   const pick = modelPick(node);
   const model = modelMetric(node);
-  const usage = usageMetric(node);
+  const usage = cardUsageMetric(node);
   const duration = useNodeDuration(node);
   const attempt = attemptLine(node, maxAttempts);
-  const roleTier = roleTierText(node);
+  const roleTier = roleTierMetric(node);
   const style = profile === null ? undefined : ({ "--profile-accent": palette.accent(profile), "--profile-soft": palette.soft(profile) } as React.CSSProperties);
   const aria = `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${harness !== null ? `, ${harness}` : ""}, ${
     model.present ? `model ${model.text}` : model.text
-  }${pick?.tier != null ? `, tier ${pick.tier}` : ""}, ${duration.text}, ${usage.text}, ${attempt}`;
+  }${pick?.tier != null ? `, tier ${pick.tier}` : ""}, ${duration.text}, ${usage.text}, ${roleTier.text}, ${attempt}${needsUserReason(node) !== null ? ", needs you" : ""}`;
   const autoTitle = pick?.isAuto === true ? `${pick.isExpected ? "expected " : ""}${[pick.model, pick.tier, pick.role, pick.reason].filter((part) => part !== null).join(" · ")}` : null;
   return (
     <g
@@ -215,10 +232,8 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
       {autoTitle === null ? null : <title>{autoTitle}</title>}
       <line className="metrics-rule" x1={META_LEFT_X} y1={METRICS_RULE_Y} x2={META_RIGHT_X} y2={METRICS_RULE_Y} />
       <MetricText metric={duration} base="metric dur" x={META_LEFT_X} y={DURATION_Y} max={META_MAX_CHARS} />
-      {roleTier === null ? null : (
-        <MetricText metric={{ text: roleTier, title: `role · tier: ${roleTier}`, present: true }} base="metric role" x={META_RIGHT_X} y={DURATION_Y} max={ROLE_TIER_MAX} anchor="end" />
-      )}
       <MetricText metric={usage} base="metric cost" x={META_LEFT_X} y={USAGE_Y} max={META_MAX_CHARS} />
+      <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} />
       <Health node={node} runId={runId} />
       {isCyclic ? (
         <text className="cycle" x={NODE_W - 8} y={14} textAnchor="end">
