@@ -33,8 +33,10 @@ you ──▶ your agent ──┬──▶ claude       (subscription, or via a
 | Recoverable deletes | `trash` (optional — falls back to a timestamped move) |
 | Each adapter | that harness's own CLI on `PATH` (`claude`, `cursor-agent`, `opencode`) |
 
-Nothing is installed into your project and there is no `node_modules` — the server and dashboard
-run straight off the TypeScript sources under Bun.
+Nothing is installed into your project. The CLI (`skills/orch/scripts`) needs only bash, `jq` and
+the harness CLIs. The dashboard server in `src/` also needs four npm packages (`hono`,
+`@hono/zod-openapi`, `zod` and two decorator packages from GitHub, see `package.json`), installed
+into this checkout's `node_modules` by `install.sh`, or on first `serve`/`ui` if you skipped it.
 
 ## Install
 
@@ -241,7 +243,7 @@ service alive while you are logged out.
 
 With the service installed, `dispatch.sh ui` finds the running server and just opens the URL. One
 caveat: `ui` restarts the server when it notices the skill's sources changed — after editing
-`server/` or `dashboard/`, prefer `scripts/service.sh restart` so the supervisor stays in charge.
+`src/`, prefer `scripts/service.sh restart` so the supervisor stays in charge.
 
 ## Adapters
 
@@ -337,7 +339,7 @@ Tests and typechecking, no install step required:
 
 ```bash
 bash skills/orch/scripts/dispatch.test.sh    # the full suite
-bash skills/orch/scripts/typecheck.sh        # bun bundle + tsc (skips cleanly if either is absent)
+bash scripts/typecheck.sh        # bun bundle + tsc (skips cleanly if either is absent)
 ```
 
 Repo layout and the invariants to respect when changing things: [CLAUDE.md](CLAUDE.md).

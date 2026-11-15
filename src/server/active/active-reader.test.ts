@@ -1,0 +1,101 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+import { readActive } from "./active-reader";
+
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DEAD_PID: number = 2147483646;
+const homes: string[] = [];
+
+function newHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "orch-active-"));
+  homes.push(home);
+  return home;
+}
+
+afterEach(() => {
+  for (const home of homes.splice(0)) {
+    Bun.spawnSync(["trash", home]);
+  }
+});
+
+function write(home: string, path: string, value: unknown): void {
+  const file = join(home, path);
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, JSON.stringify(value));
+}
+
+function loop(home: string, id: string, state: Record<string, unknown>, spec: Record<string, unknown> = {}): void {
+  write(home, `loops/${id}/spec.json`, {
+    id, kind: "profile", name: "claude-default", interval: 600, max: 5, started: "2026-11-12T10:00:00Z",
+    deadline: 4102444800, session_mode: "fresh", session: "", ...spec,
+  });
+  write(home, `loops/${id}/state.json`, { id, status: "running", iteration: 2, failures: 0, next_tick: 1900000000, last_exit: 0, reason: "", pid: process.pid, ...state });
+}
+
+function watch(home: string, id: string, state: Record<string, unknown>): void {
+  write(home, `watches/${id}/spec.json`, { id, name: "tail errors", cmd: "tail -f x", interval: 0, started: "2026-11-12T10:00:00Z", deadline: 4102444800 });
+  write(home, `watches/${id}/state.json`, { id, status: "running", events: 7, last_event: "2026-11-12T10:05:00Z", reason: "", pid: process.pid, ...state });
+}
+
+function fixture(home: string): void {
+  loop(home, "loop-20261112-100000-0001", {});
+  loop(home, "loop-20261112-100000-0002", { pid: DEAD_PID });
+  loop(home, "loop-20261112-100000-0003", { status: "failed", pid: null, last_exit: 1, reason: "failures" });
+  loop(home, "loop-20261112-100000-0004", { status: "stopped", pid: null });
+  loop(home, "loop-20261112-100000-0005", { pid: DEAD_PID, demo: true });
+  loop(home, "loop-20261112-100000-0006", { skipped: 3 }, { when_idle: true, session_mode: "resume" });
+  watch(home, "watch-20261112-100000-0001", {});
+  watch(home, "watch-20261112-100000-0002", { pid: DEAD_PID });
+  watch(home, "watch-20261112-100000-0003", { status: "stopped", pid: null });
+  write(home, "loops/loop-20261112-100000-0007/state.json", { id: "x", status: "running" });
+}
+
+function viaShell(home: string): unknown[] {
+  const proc = Bun.spawnSync(["bash", DISPATCH, "active", "--json"], { env: { ...process.env, HARNESS_ORCH_HOME: home } });
+  return JSON.parse(new TextDecoder().decode(proc.stdout)) as unknown[];
+}
+
+const byId = (items: readonly { id: string }[]): unknown[] => [...items].sort((a, b) => a.id.localeCompare(b.id));
+
+describe("readActive", () => {
+  test("an empty or missing state dir lists nothing", () => {
+    expect(readActive(newHome())).toEqual([]);
+    expect(readActive("/nonexistent/orch-home")).toEqual([]);
+  });
+
+  test("reports a live loop, a lost one, a failed one and leaves stopped ones out", () => {
+    const home = newHome();
+    fixture(home);
+    const items = readActive(home);
+    const status = (id: string): string | undefined => items.find((i) => i.id === id)?.status;
+    expect(status("loop-20261112-100000-0001")).toBe("running");
+    expect(status("loop-20261112-100000-0002")).toBe("lost");
+    expect(status("loop-20261112-100000-0003")).toBe("failed");
+    expect(status("loop-20261112-100000-0004")).toBeUndefined();
+    expect(status("watch-20261112-100000-0001")).toBe("running");
+    expect(status("watch-20261112-100000-0002")).toBe("lost");
+    expect(status("watch-20261112-100000-0003")).toBeUndefined();
+  });
+
+  test("a demo loop with no live process is not reported lost", () => {
+    const home = newHome();
+    fixture(home);
+    expect(readActive(home).find((i) => i.id === "loop-20261112-100000-0005")?.status).toBe("running");
+  });
+
+  test("a loop with a corrupt or missing spec is skipped, not fatal", () => {
+    const home = newHome();
+    fixture(home);
+    expect(() => readActive(home)).not.toThrow();
+    expect(readActive(home).some((i) => i.id === "x")).toBe(false);
+  });
+
+  test("matches `dispatch.sh active --json` field for field", () => {
+    const home = newHome();
+    fixture(home);
+    expect(byId(readActive(home))).toEqual(byId(viaShell(home) as { id: string }[]));
+  }, 60000);
+});

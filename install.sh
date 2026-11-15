@@ -15,7 +15,7 @@ set -u
 
 REPO_DIR=$(cd "$(dirname "$0")" && pwd -P)
 DISPATCH="$REPO_DIR/skills/orch/scripts/dispatch.sh"
-SKILL_SOURCE_DIRS="$REPO_DIR/skills/orch/server $REPO_DIR/skills/orch/dashboard $REPO_DIR/skills/orch/shared"
+SKILL_SOURCE_DIRS="$REPO_DIR/src/server $REPO_DIR/src/dashboard $REPO_DIR/src/shared"
 MARKETPLACE_NAME=orch-skill
 PLUGIN_NAME=orch
 PLUGIN_ID="$PLUGIN_NAME@$MARKETPLACE_NAME"
@@ -196,6 +196,15 @@ install_plugin() {
   fi
   printf 'plugin %s: installing (scope: %s)\n' "$PLUGIN_ID" "$SCOPE"
   claude plugin install "$PLUGIN_ID" --scope "$SCOPE" --yes
+}
+
+# The dashboard server needs hono, zod and the two decorator packages. `serve` installs them on first
+# use too; doing it here just moves the wait to install time.
+install_dashboard_deps() {
+  command -v bun >/dev/null 2>&1 || { printf 'deps: bun not found, the dashboard installs its dependencies on first use\n'; return 0; }
+  [ -d "$REPO_DIR/node_modules/hono" ] && return 0
+  printf 'deps: installing the dashboard dependencies\n'
+  ( cd "$REPO_DIR" && bun install --frozen-lockfile ) || printf 'deps: bun install failed; the dashboard retries on first use\n'
 }
 
 install_claude_plugin() {
@@ -423,6 +432,7 @@ main() {
   link_config || return 1
   install_cli || return 1
   ensure_local_bin_path
+  install_dashboard_deps
 
   if [ "$CLI_ONLY" -eq 0 ]; then
     install_claude_plugin || return 1

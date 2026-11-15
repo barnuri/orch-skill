@@ -79,6 +79,10 @@ dispatch.sh watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE]
 dispatch.sh watch wait <id> [--timeout S] [--max-lines N] [--since N] | events <id> | list | stop <id>
 dispatch.sh active [--json]
     -> one line per running loop or watch; --json for harnesses and the dashboard
+
+Schedules (cron; each fires a prompt through a profile, or a shell command; the dashboard server ticks them):
+dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR])
+dispatch.sh schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
 EOF
   # Unquoted heredoc: these lines expand the per-subcommand usage constants the libs define, so the
   # summary here and each command's own usage line can't drift apart.
@@ -577,6 +581,7 @@ main() {
     loop) shift; cmd_loop "$@" ;;
     watch) shift; cmd_watch "$@" ;;
     active) shift; cmd_active "$@" ;;
+    schedule) shift; cmd_schedule "$@" ;;
     ""|-h|--help) usage ;;
     *) printf 'unknown subcommand: %s\n' "$sub" >&2; usage >&2; exit 2 ;;
   esac

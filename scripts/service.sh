@@ -250,16 +250,33 @@ PLIST
   printf '%s\n' "$plist"
 }
 
-launchd_load() {
-  local plist="$1"
-  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null && return 0
-  launchctl load -w "$plist"
+launchd_is_loaded() {
+  launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1
 }
 
+# `launchctl load` exits 0 even when it fails, so success is only ever "the label is loaded now".
+# bootstrap can also race a bootout still tearing the unit down, hence the retries.
+launchd_load() {
+  local plist="$1" attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null
+    launchd_is_loaded && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  launchctl load -w "$plist" 2>/dev/null
+  launchd_is_loaded
+}
+
+# bootout returns before the unit is gone; wait for it, so a bootstrap right after cannot collide.
 launchd_unload() {
-  local plist="$1"
-  launchctl bootout "gui/$(id -u)/$SERVICE_LABEL" 2>/dev/null && return 0
-  [ ! -f "$plist" ] || launchctl unload -w "$plist" 2>/dev/null
+  local plist="$1" waited=0
+  launchctl bootout "gui/$(id -u)/$SERVICE_LABEL" 2>/dev/null \
+    || { [ ! -f "$plist" ] || launchctl unload -w "$plist" 2>/dev/null; }
+  while launchd_is_loaded && [ "$waited" -lt 20 ]; do
+    sleep 0.5
+    waited=$((waited + 1))
+  done
   return 0
 }
 
@@ -436,8 +453,13 @@ cmd_restart() {
   [ -f "$(unit_path)" ] || { printf 'service: nothing installed — run `%s install` first\n' "$0" >&2; return 1; }
   case "$backend" in
     launchd)
-      launchd_unload "$(launchd_plist)"
-      launchd_load "$(launchd_plist)" || return 1
+      # A loaded unit is restarted in place: no window where nothing is loaded.
+      if launchd_is_loaded && launchctl kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1; then
+        :
+      else
+        launchd_unload "$(launchd_plist)"
+        launchd_load "$(launchd_plist)" || { printf 'service: launchd could not load %s\n' "$(launchd_plist)" >&2; return 1; }
+      fi
       ;;
     systemd) systemctl --user restart "$SYSTEMD_UNIT_NAME" || return 1 ;;
   esac

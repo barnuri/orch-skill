@@ -13,9 +13,15 @@ how profiles feed into them, and the steps to add a new one.
 | `scripts/lib/config.sh` | Config home (`~/.harness-orch`), `init`, settings, `profile_load`, `profile`/`memory` subcommands |
 | `scripts/lib/runs.sh` | Run/node state, `node dispatch`, `prune` |
 | `scripts/lib/serve.sh` | Dashboard server lifecycle: `serve` (foreground `exec`) and `ui` (start-or-reuse, restart on newer sources, `--stop`) |
-| `scripts/typecheck.sh` | Type gate for the TypeScript half — bundles the dashboard, then `tsc` over browser and server sources. Exits 0 with a SKIP line when bun is absent |
-| `server/` | The Bun HTTP server: `main.ts` entrypoint, `app.ts` routes, plus `routes/`, `validation/`, `documents/`, `runs/`, `files/`, `http/` |
-| `dashboard/` | `index.html` shell and the `src/` browser modules it bundles |
+
+The dashboard server and browser client are not part of the skill: they live in `<repo>/src/` so loading the skill never pulls in their code. `lib/serve.sh` finds them there.
+
+| Path | Role |
+| --- | --- |
+| `<repo>/scripts/typecheck.sh` | Type gate for the TypeScript half: bundles the dashboard, then `tsc` over browser and server sources. Exits 0 with a SKIP line when bun is absent |
+| `<repo>/src/server/` | The Bun HTTP server: `main.ts` entrypoint, `app.ts` routes, plus `routes/`, `validation/`, `documents/`, `runs/`, `files/`, `http/`, `schedules/` |
+| `<repo>/src/dashboard/` | `index.html` shell and the `src/` browser modules it bundles |
+| `<repo>/src/shared/` | Types shared by the server and the dashboard |
 | `shared/types/` | Interfaces used by both halves — types only, no runtime code, no `Bun.` |
 
 Libs are sourced, never executed, and contain no top-level side effects beyond defining functions

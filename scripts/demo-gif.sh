@@ -20,7 +20,7 @@ set -u
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd -P)
 SKILL_DIR="$REPO_DIR/skills/orch"
 DISPATCH="$SKILL_DIR/scripts/dispatch.sh"
-RECORDER="$SKILL_DIR/scripts/lib/demo-record.ts"
+RECORDER="$REPO_DIR/scripts/lib/demo-record.ts"
 
 OUT_FILE="$REPO_DIR/docs/demo.gif"
 SERVE_PORT=6931

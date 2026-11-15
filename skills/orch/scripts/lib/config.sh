@@ -518,6 +518,13 @@ profile_require() {
 # Sets PROFILE_NAME / PROFILE_HARNESS / PROFILE_MODEL / PROFILE_FLAGS[] and exports the profile's
 # env. Exit 2 = bad profile definition, exit 3 ($PROFILE_UNCONFIGURED_RC) = the profile is fine
 # but its declared env/auth is not set, exit 1 = anything else.
+# harness_disabled <id>: 0 when settings.disabled_harnesses lists it. A profile on such a harness
+# cannot run: routing already skips it, and profile_load refuses it, so it is never "active".
+harness_disabled() {
+  [ -f "$PROFILES_FILE" ] || return 1
+  jq -e --arg h "$1" '(.settings.disabled_harnesses // []) | index($h) != null' "$PROFILES_FILE" >/dev/null 2>&1
+}
+
 profile_load() {
   local name="$1" json
   require_jq "profile $name"
@@ -544,6 +551,10 @@ profile_load() {
   fi
   if ! in_list "$PROFILE_HARNESS" "$VALID_HARNESSES"; then
     printf 'profile %s: harness "%s" must be one of: %s\n' "$name" "$PROFILE_HARNESS" "$VALID_HARNESSES" >&2
+    return 2
+  fi
+  if harness_disabled "$PROFILE_HARNESS"; then
+    printf 'profile %s: harness "%s" is disabled (settings.disabled_harnesses); enable it on the Harnesses page first\n' "$name" "$PROFILE_HARNESS" >&2
     return 2
   fi
 

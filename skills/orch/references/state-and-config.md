@@ -137,6 +137,14 @@ Flat array, appended by `memory add`, listed newest-first by `memory list`:
 
 `outcome` ∈ `success | failure | partial`. `harness`/`model`/`model_id` are copied from the profile at add time.
 
+## schedules/<id>/schedule.json
+
+Written only by `dispatch.sh schedule`. `{id, name, cron, kind: "prompt"|"command", enabled, created_at,
+prompt, profile, command, workdir, timeout, next_at, last_run_at, runs[]}`. `next_at` is epoch seconds
+(null when disabled). Each run is `{started_at, ended_at, kind, ref, status: running|ok|failed|lost, exit}`,
+newest first, 30 kept. `ref` is a job id for a prompt run and a run directory (holding `command`, `out`,
+`pid`, `exit`) for a command run.
+
 ## suggestions.json
 
 ```json

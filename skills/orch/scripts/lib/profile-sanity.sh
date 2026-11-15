@@ -28,6 +28,11 @@ profile_sanity_one() {
     return 0
   fi
   harness=$(printf '%s' "$json" | jq -r '.harness // ""')
+  if harness_disabled "$harness"; then
+    jq -nc --arg p "$name" --arg h "$harness" \
+      '{profile: $p, ok: false, status: "disabled", ms: 0, harness: $h, model_id: "", slug: "", exit_code: 0, bytes: 0, error: "harness disabled"}'
+    return 0
+  fi
   model_id=$(model_id_resolve "$name")
   slug=""
   if [ -n "$model_id" ]; then

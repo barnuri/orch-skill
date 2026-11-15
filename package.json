@@ -1,0 +1,17 @@
+{
+  "name": "orch",
+  "private": true,
+  "type": "module",
+  "description": "orch dashboard server and client. The skill itself (skills/orch) needs none of this to run the CLI.",
+  "scripts": {
+    "test": "bun test --timeout 30000 src",
+    "typecheck": "bash scripts/typecheck.sh"
+  },
+  "dependencies": {
+    "@barnuri/hono-decorators": "github:barnuri/hono-decorators",
+    "@barnuri/zod-decorators": "github:barnuri/zod-decorators",
+    "@hono/zod-openapi": "^1.6.3",
+    "hono": "^4.13.18",
+    "zod": "^4.6.7"
+  }
+}

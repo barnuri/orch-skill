@@ -18,9 +18,12 @@ SERVE_LOG_FILE="$SERVE_HOME/log"
 SERVE_TOKEN_FILE="$ORCH_HOME/serve.token"
 SERVE_CONFIG_FILE="$ORCH_HOME/serve.json"
 SERVE_CONFIG_TEMPLATE="$TEMPLATES_DIR/serve.json"
-SERVE_ENTRY="$SCRIPT_DIR/../server/main.ts"
-ARTIFACT_ENTRY="$SCRIPT_DIR/../server/artifact/main.ts"
-SERVE_SOURCE_DIRS="$SCRIPT_DIR/../server $SCRIPT_DIR/../dashboard $SCRIPT_DIR/../shared"
+# The server and dashboard live in <repo>/src, outside the skill folder, so loading the skill never
+# pulls in their code.
+SRC_DIR="$SCRIPT_DIR/../../../src"
+SERVE_ENTRY="$SRC_DIR/server/main.ts"
+ARTIFACT_ENTRY="$SRC_DIR/server/artifact/main.ts"
+SERVE_SOURCE_DIRS="$SRC_DIR/server $SRC_DIR/dashboard $SRC_DIR/shared"
 SERVE_DEFAULT_HOST=0.0.0.0
 SERVE_DEFAULT_PORT=6724
 SERVE_MAX_PORT=65535
@@ -103,7 +106,21 @@ serve_bun() {
     printf 'serve: %s not found on PATH — install Bun 1.3+ (https://bun.sh) or set ORCH_BUN\n' "$bun_bin" >&2
     return 127
   fi
+  serve_ensure_deps "$bun_bin" || return $?
   printf '%s\n' "$bun_bin"
+}
+
+# The server uses hono, zod and two decorator packages (see <repo>/package.json). The CLI itself needs
+# none of them; only `serve` and `ui` do, so they are installed here, on first use, from the lockfile.
+serve_ensure_deps() {
+  local bun_bin="$1" root="$SRC_DIR/.."
+  [ -f "$root/package.json" ] || return 0
+  [ -d "$root/node_modules/hono" ] && return 0
+  printf 'serve: installing the dashboard dependencies (first run only)…\n' >&2
+  ( cd "$root" && "$bun_bin" install --frozen-lockfile >&2 ) || {
+    printf 'serve: `bun install` failed in %s — run it there by hand and check your network\n' "$root" >&2
+    return 1
+  }
 }
 
 # parse_serve_opts <caller> [args…] — sets SERVE_HOST / SERVE_PORT / SERVE_STOP.

@@ -9,16 +9,21 @@ repo root is packaging (install + optional service + docs).
 .claude-plugin/marketplace.json   plugin manifest — marketplace `orch-skill`, plugin `orch`
 install.sh / uninstall.sh         register/unregister this folder with Claude Code
 scripts/service.sh                optional always-on dashboard service (launchd / systemd --user)
+scripts/typecheck.sh              bun bundle + tsc
+package.json / bun.lock           the dashboard server's dependencies (hono, zod, decorators)
+src/                              the dashboard code, kept OUT of the skill so loading the skill never pulls it in
+  server/                         Bun + Hono server; api/ holds the decorated controllers and zod DTOs
+                                  (every /api route, validation and the OpenAPI document); routes/ holds
+                                  the handlers they delegate to
+  dashboard/                      the browser client (no framework, no build step)
+  shared/types/                   types shared by server and dashboard — must stay Bun-free
+tsconfig.json                     type config for src/server, src/shared and the dashboard tests
 mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.sh)
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
   scripts/lib/{config,adapters,runs,serve}.sh   sourced by dispatch.sh, never executed
   scripts/dispatch.test.sh        the test suite
-  scripts/typecheck.sh            bun bundle + tsc, dependency-free
-  server/                         Bun HTTP server for the dashboard
-  dashboard/                      the browser client (no framework, no build step)
-  shared/types/                   types shared by server and dashboard — must stay Bun-free
   references/                     adapter contract + state/config schemas
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
 ```
@@ -50,14 +55,16 @@ file scope that *does* something breaks them.
 through `trash` when available and otherwise move the target under `<state-dir>/.trash/<stamp>/`.
 The `serve/pid` marker is *truncated*, never removed.
 
-**No dependencies.** No `package.json`, no `node_modules`. The server and dashboard run from
-source under Bun; `typecheck.sh` borrows `bun-types` and `@types/node` out of Bun's global
-install cache into a gitignored `.types/` symlink farm. Do not introduce a package manager.
+**Dependencies live at the repo root, never in the skill.** `package.json` and `bun.lock` hold the
+dashboard server's packages (`hono`, `@hono/zod-openapi`, `zod`, and `@barnuri/hono-decorators` and
+`@barnuri/zod-decorators` from GitHub). The CLI under `skills/orch/` stays dependency-free and must
+keep working with none of them installed. `serve_ensure_deps` in `lib/serve.sh` installs them on first
+use. `typecheck.sh` still borrows `bun-types` and `@types/node` from Bun's global cache.
 
 **Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
 interpolation happens at spawn time. `profile show` prints `env` as written. Keep it that way.
 
-**Auth is peer-based, not bind-based.** `route.ts:authorized` lets any loopback peer through
+**Auth is peer-based, not bind-based.** `http/route.ts:authorized` (run by `api/pipeline.ts:guard`) lets any loopback peer through
 without a token (`isLoopbackPeer` reads Bun's `server.requestIP`), and demands the bearer token
 from everyone else. `--require-token` / `ORCH_REQUIRE_TOKEN=1` turns the bypass off. Two things
 follow: the test server sets `requireToken: true` by default, or every auth assertion would pass
@@ -71,8 +78,8 @@ self-backgrounds via `nohup` and prints a job id (for callers that are not). Don
 
 ## After every change: restart the service
 
-The dashboard server bundles `dashboard/` once at startup and keeps it in memory — a running
-server never re-reads `server/`, `dashboard/` or `shared/`. So **any** change under `skills/orch/`
+The dashboard server bundles `src/dashboard/` once at startup and keeps it in memory — a running
+server never re-reads `src/server/`, `src/dashboard/` or `src/shared/`. So **any** change under `src/`
 is invisible until the process restarts.
 
 **Once the tests and typecheck pass, restart the service. Treat it as the last step of the task,
@@ -80,7 +87,7 @@ not an optional follow-up:**
 
 ```bash
 bash skills/orch/scripts/dispatch.test.sh   # must be 0 failed
-bash skills/orch/scripts/typecheck.sh       # must print `typecheck: ok`
+bash scripts/typecheck.sh       # must print `typecheck: ok`
 bash scripts/service.sh restart             # pick up the change
 bash scripts/service.sh status              # confirm: state = running, listener answering
 ```
@@ -96,7 +103,7 @@ next `ui` picks the change up on its own.
 
 ```bash
 bash skills/orch/scripts/dispatch.test.sh
-bash skills/orch/scripts/typecheck.sh
+bash scripts/typecheck.sh
 ```
 
 The suite runs against a temporary `HARNESS_ORCH_HOME`, so it never touches your real state.

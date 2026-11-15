@@ -455,6 +455,35 @@ ended loops and watches past the retention window.
 Without a background shell or a Monitor tool (opencode, pi), the same commands work as written.
 Call `watch wait` once per turn instead of a Monitor.
 
+## Schedules
+
+A schedule runs a prompt (through a profile) or a shell command on a cron timetable. Unlike a loop,
+it needs no open session: the dashboard server (`scripts/service.sh`) calls `schedule tick` every
+30 s and starts whatever is due.
+
+```
+orch schedule add --name "morning summary" --cron "0 9 * * 1-5" --profile opencode-smart-auto --prompt @brief.md
+orch schedule add --name "pull repo" --cron "*/15 * * * *" --command "git -C ~/repo pull" --workdir ~/repo --timeout 5m
+orch schedule list [--json]     # id, on/off, cron, kind, last status, next run
+orch schedule show <id>         # full record with the last 30 runs
+orch schedule run <id>          # fire now, outside the timetable
+orch schedule log <id> [index]  # output of a run, 0 = newest
+orch schedule disable|enable|remove <id>
+orch schedule next "<cron>"     # check an expression before saving it
+```
+
+- Cron: five fields (`m h dom mon dow`) with `*`, lists, ranges and `/step`, or `@hourly @daily @weekly
+  @monthly`. Times are the machine's local time. When both day-of-month and day-of-week are set, either
+  one matches, as in standard cron.
+- A command runs under `bash`, output kept per run, killed at `--timeout` (default 1 h, exit 142).
+  A prompt run is a normal `start` job, so it shows in the run list and honours the profile.
+- One run at a time per schedule: a tick that finds the previous run still going skips it.
+  A time missed while the server was down fires once on the next tick, not once per missed minute.
+- State is `<home>/schedules/<id>/schedule.json`. Only `dispatch.sh schedule …` writes it.
+- Dashboard: the Schedules page (`#/schedules`) lists them with run history and output, and creates,
+  pauses, runs and deletes them (`/api/schedules`). With no server running, nothing fires: use
+  `orch schedule tick` from your own cron, or start the service.
+
 ## Retention
 
 `orch prune [--older-than 7d|12h|3] [--dry-run]` recoverably removes finished runs and their jobs

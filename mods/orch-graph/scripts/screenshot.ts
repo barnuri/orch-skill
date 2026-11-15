@@ -3,7 +3,7 @@
 //
 //   bun screenshot.ts --home=DIR --run=ID --port=P --out=FILE.png [--columns=N]
 
-import { CdpSession } from '../../../skills/orch/scripts/lib/cdp-session'
+import { CdpSession } from '../../../scripts/lib/cdp-session'
 import { drawGraph } from '../hooks/canvas'
 import type { Span } from '../hooks/canvas'
 import { STATUS_STYLE } from '../hooks/canvas'
