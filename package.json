@@ -16,6 +16,7 @@
     "test:orch:changed": "bun skills/orch/tests/run.ts --changed",
     "test:orch:full": "bun skills/orch/tests/run.ts --full",
     "test:all": "bun scripts/test-all.ts",
+    "test:all:changed": "bun scripts/test-all.ts --changed",
     "typecheck": "bun scripts/typecheck.ts",
     "format": "bunx oxfmt src",
     "format:check": "bunx oxfmt --check src",

@@ -2,6 +2,7 @@
 // The full gate: bash suite, TypeScript suite, typecheck and lint, run concurrently.
 //
 //   bun scripts/test-all.ts            run all four; both suites run under their 300 s budget
+//   bun scripts/test-all.ts --changed  bun test --changed + orch run.ts --changed + cached typecheck, no heavy lock
 //   bun scripts/test-all.ts --resume   rerun only the suites that stopped at their budget, with --resume
 //
 // Exit 0 = all passed, 1 = a failure, 75 = a suite stopped at its budget: it prints
@@ -14,11 +15,12 @@ import { REPO_DIR, tmpDir, trashPath } from "./lib/util.ts";
 
 process.chdir(REPO_DIR);
 const arg = process.argv[2] ?? "";
-if (arg !== "" && arg !== "--resume") {
+if (arg !== "" && arg !== "--resume" && arg !== "--changed") {
   console.error(`test-all.ts: unknown argument ${arg} (see the header)`);
   process.exit(2);
 }
 const resume = arg === "--resume";
+const changedMode = arg === "--changed";
 const STATE = (process.env["ORCH_TEST_ALL_PROGRESS"] ?? `${tmpDir()}/orch-test-all-progress`).replace(/\/\/+/g, "/");
 if (resume && !existsSync(STATE)) {
   console.error(`test-all.ts: no partial run recorded in ${STATE}; run without --resume`);
@@ -33,9 +35,10 @@ if (existsSync(STATE)) {
 }
 
 // One machine-wide heavy-test slot covers every job below (they see ORCH_TEST_LOCK_HELD and do not ask again).
-await heavyLockAcquire("test-all.ts (full gate)");
+if (!changedMode) await heavyLockAcquire("test-all.ts (full gate)");
 
 const BUN = process.execPath;
+if (changedMode) process.env["ORCH_HERDR"] = "0";
 async function job(cmd: string[]): Promise<{ code: number; log: string }> {
   const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", stdin: "ignore", env: process.env as Record<string, string> });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -47,7 +50,11 @@ const jobs: Record<string, Promise<Res>> = {};
 const start = (name: string, cmd: string[]): void => {
   jobs[name] = job(cmd);
 };
-if (!resume) {
+if (changedMode) {
+  start("bash", [BUN, "skills/orch/tests/run.ts", "--changed"]);
+  start("bun", [BUN, "test", "--timeout", "300000", "--parallel=6", "--changed", "src"]);
+  start("types", [BUN, "scripts/typecheck.ts"]);
+} else if (!resume) {
   start("bash", [BUN, "skills/orch/tests/run.ts", "--full"]);
   start("bun", [BUN, "scripts/test-budget.ts"]);
   start("types", [BUN, "scripts/typecheck.ts"]);

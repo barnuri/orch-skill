@@ -11,7 +11,8 @@
 //
 // tsc is TypeScript 7 (the native compiler) when found: node_modules/.bin, then bun's cache, then PATH.
 // A missing tool is a SKIP (exit 0), never a failure. Exit 0 = passed or skipped, 1 = a step failed.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOME, REPO_DIR, run, tmpDir, which } from "./lib/util.ts";
 
@@ -35,14 +36,36 @@ function newestDir(parent: string, prefix: string): string | null {
   return best;
 }
 
-function bundleDashboard(): boolean {
+async function sh(cmd: string[]): Promise<{ code: number; out: string }> {
+  const p = Bun.spawn(cmd, { cwd: REPO_DIR, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const [o, e, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  return { code, out: o + e };
+}
+
+const CACHE = join(tmpDir(), "orch-typecheck-cache");
+
+function inputsHash(): string {
+  const r = run(["git", "ls-files", "-c", "-o", "--exclude-standard", "--", "src", "skills/orch/core", "tsconfig.json", "package.json", "bun.lock", "scripts/typecheck.ts"], { cwd: REPO_DIR });
+  const h = createHash("sha1");
+  h.update(`${process.version}|${BUN_VER}\n`);
+  for (const f of r.out.split("\n").filter(Boolean).sort()) {
+    try {
+      const st = statSync(join(REPO_DIR, f));
+      h.update(`${f}:${st.size}:${Math.floor(st.mtimeMs)}\n`);
+    } catch {}
+  }
+  return h.digest("hex");
+}
+
+const BUN_VER = Bun.version;
+
+async function bundleDashboard(): Promise<{ code: number; out: string }> {
   const out = mkdtempSync(join(tmpDir(), "orch-typecheck-"));
   try {
-    for (const [html, dir] of [["src/snapshot/index.html", "snapshot"], ["src/web/index.html", "web"]] as const) {
-      const r = run([BUN, "build", join(REPO_DIR, html), "--outdir", join(out, dir), "--target=browser"]);
-      if (r.code !== 0) return false;
-    }
-    return true;
+    const rs = await Promise.all(
+      (["snapshot", "web"] as const).map((dir) => sh([BUN, "build", join(REPO_DIR, `src/${dir}/index.html`), "--outdir", join(out, dir), "--target=browser"])),
+    );
+    return rs.find((r) => r.code !== 0) ?? rs[0]!;
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
@@ -72,56 +95,65 @@ function link(target: string, name: string): void {
   symlinkSync(target, l);
 }
 
-/** 0 ok, 1 failed, 2 skip. */
-function serverTypecheck(tsc: string): number {
+const tscArgs = (tsc: string, project: string, name: string): string[] => [tsc, "-p", project, "--noEmit", "--incremental", "--tsBuildInfoFile", join(CACHE, `${name}.tsbuildinfo`)];
+
+/** code 2 = skip. */
+async function serverTypecheck(tsc: string): Promise<{ code: number; out: string }> {
   const bt = bunTypesDir();
-  if (!bt) return 2;
+  if (!bt) return { code: 2, out: "" };
   const localNode = join(REPO_DIR, "node_modules/@types/node");
   const nt = existsSync(localNode) ? localNode : newestDir(join(BUN_CACHE, "@types"), "node@");
-  if (!nt) return 2;
+  if (!nt) return { code: 2, out: "" };
   mkdirSync(TYPES_DIR, { recursive: true });
   link(bt, "bun-types");
   link(nt, "node");
-  return run([tsc, "-p", join(REPO_DIR, "tsconfig.json"), "--noEmit"]).code === 0 ? 0 : 1;
+  return sh(tscArgs(tsc, join(REPO_DIR, "tsconfig.json"), "root"));
 }
 
-function tscShow(tsc: string, project: string): boolean {
-  const r = run([tsc, "-p", project, "--noEmit"]);
-  if (r.code !== 0) process.stdout.write(r.out + r.err);
-  return r.code === 0;
-}
-
-function main(): number {
+async function main(): Promise<number> {
   if (!which(BUN)) {
     console.log("SKIP: bun not found");
     return 0;
   }
-  if (!bundleDashboard()) {
-    console.error("typecheck: FAIL dashboard bundle");
-    return 1;
+  mkdirSync(CACHE, { recursive: true });
+  const hash = inputsHash();
+  const stamp = join(CACHE, "ok.hash");
+  if (!process.argv.includes("--no-cache") && existsSync(stamp) && readFileSync(stamp, "utf8") === hash) {
+    console.log("typecheck: ok (cached)");
+    return 0;
   }
   const tsc = findTsc();
   if (!tsc) {
     console.log("SKIP: tsc not found (bun install, or brew install typescript)");
     return 0;
   }
-  if (!tscShow(tsc, join(REPO_DIR, "src/snapshot/tsconfig.json"))) {
+  const [bundle, snap, server] = await Promise.all([
+    bundleDashboard(),
+    sh(tscArgs(tsc, join(REPO_DIR, "src/snapshot/tsconfig.json"), "snapshot")),
+    serverTypecheck(tsc),
+  ]);
+  if (bundle.code !== 0) {
+    process.stdout.write(bundle.out);
+    console.error("typecheck: FAIL dashboard bundle");
+    return 1;
+  }
+  if (snap.code !== 0) {
+    process.stdout.write(snap.out);
     console.error("typecheck: FAIL dashboard tsc");
     return 1;
   }
-  const rc = serverTypecheck(tsc);
-  if (rc === 2) {
+  if (server.code === 2) {
     console.log("SKIP: server typecheck (bun-types/@types/node not in the bun cache; run 'bun add -g @types/bun' once to enable)");
     return 0;
   }
-  if (rc !== 0) {
-    const r = run([tsc, "-p", join(REPO_DIR, "tsconfig.json"), "--noEmit"]);
-    process.stdout.write(r.out + r.err);
+  if (server.code !== 0) {
+    process.stdout.write(server.out);
     console.error("typecheck: FAIL server tsc");
     return 1;
   }
+  writeFileSync(stamp, hash);
   console.log("typecheck: ok");
   return 0;
 }
 
-process.exit(main());
+process.exit(await main());
