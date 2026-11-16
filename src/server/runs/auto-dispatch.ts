@@ -179,6 +179,8 @@ export interface EngineOptions {
   now?: () => Date;
   /** Delay before a failed start is retried (default 20 s). */
   retryMs?: number;
+  /** Called with every state the engine reads (each state.json change and each sweep); the watchdog's hook. */
+  onState?: (runId: string, state: RunState) => void;
 }
 
 const RETRY_LIMIT = 3;
@@ -193,6 +195,7 @@ export class RunEngine {
   private readonly lastSkip = new Map<string, string>();
   private readonly failures = new Map<string, number>();
   private readonly retryMs: number;
+  private readonly onState: ((runId: string, state: RunState) => void) | null;
   private readonly watchers = new Map<string, FSWatcher>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -205,6 +208,7 @@ export class RunEngine {
     this.log = opts.log ?? stderrLog;
     this.now = opts.now ?? ((): Date => new Date());
     this.retryMs = opts.retryMs ?? RETRY_DELAY_MS;
+    this.onState = opts.onState ?? null;
   }
 
   evaluate(runId: string): void {
@@ -213,6 +217,13 @@ export class RunEngine {
       return;
     }
     this.notifyChanges(runId, state);
+    if (this.onState !== null) {
+      try {
+        this.onState(runId, state);
+      } catch (err) {
+        this.log(`onState ${runId} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     for (const d of decide(state, maxParallel(this.home))) {
       const key = `${runId}/${d.node}`;
       if (d.action === "skip") {

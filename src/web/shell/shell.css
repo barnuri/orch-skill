@@ -84,3 +84,14 @@
 @media (max-width: 600px) {
   .herdr-chip .herdr-chip-words { display: none; }
 }
+
+/* The run watchdog pill: green ok, amber when a node is stalled, red when a node is out of retries, muted off. */
+.watchdog-pill .dot { animation: none; }
+.watchdog-pill .watchdog-pill-words { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.watchdog-pill.is-ok { border-color: var(--okbd); background: var(--okbg); color: var(--ok); }
+.watchdog-pill.is-stalled { border-color: var(--status-stale-bd); background: var(--status-stale-bg); color: var(--status-stale); }
+.watchdog-pill.is-error { border-color: var(--erbd); background: var(--erbg); color: var(--er); }
+.watchdog-pill.is-off { border-color: var(--mutebd); background: var(--mutebg); color: var(--mute); }
+@media (max-width: 900px) {
+  .watchdog-pill .watchdog-pill-words { display: none; }
+}

@@ -14,6 +14,7 @@ import { RunsController } from "./controllers/runs.controller";
 import { SchedulesController } from "./controllers/schedules.controller";
 import { SuggestionsController } from "./controllers/suggestions.controller";
 import { VoiceController } from "./controllers/voice.controller";
+import { WatchdogController } from "./controllers/watchdog.controller";
 import { type ApiEnv, guard, installFallbacks, validationHook } from "./pipeline";
 
 export const OPENAPI_PATH: string = "/api/openapi.json";
@@ -35,6 +36,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new SchedulesController(ctx), options);
   registerController(api, new RunsController(ctx), options);
   registerController(api, new RunHealthController(ctx), options);
+  registerController(api, new WatchdogController(ctx), options);
   registerController(api, new DocumentsController(ctx), options);
   registerController(api, new HarnessesController(ctx), options);
   registerController(api, new SuggestionsController(ctx), options);
