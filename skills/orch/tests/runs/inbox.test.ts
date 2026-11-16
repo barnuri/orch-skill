@@ -46,7 +46,7 @@ test("node tell/inbox/ask/answer, rules, broadcast, prompt injection", async () 
   expect(o("node", "answer", "msg-1", "b", "again").rc).toBe(2);
 
   const waiter = Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "node", "ask", "msg-1", "b", "go on?", "--wait", "--timeout", "30"],
-    { env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_HERDR: "0", ORCH_ASK_POLL_SECS: "1", ORCH_NO_ANNOUNCE: "1" }, stdout: "pipe", stderr: "pipe" });
+    { env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_HERDR: "0", ORCH_ASK_POLL_SECS: "0.1", ORCH_NO_ANNOUNCE: "1" }, stdout: "pipe", stderr: "pipe" });
   const wout = new Response(waiter.stdout).text();
   const orchDir = join(home, "runs/msg-1/inbox/orch");
   await waitUntil(() => { try { return readdirSync(orchDir).some((f) => readFileSync(join(orchDir, f), "utf8").includes('"text":"go on?"')); } catch { return false; } }, 15);
@@ -54,7 +54,7 @@ test("node tell/inbox/ask/answer, rules, broadcast, prompt injection", async () 
   expect(await waiter.exited).toBe(0);
   expect((await wout).trim()).toBe("yes");
   expect(o("node", "inbox", "msg-1", "b").all.trim()).toBe("");
-  expect(o.env({ ORCH_ASK_POLL_SECS: "1" }, "node", "ask", "msg-1", "b", "late?", "--wait", "--timeout", "1").rc).toBe(4);
+  expect(o.env({ ORCH_ASK_POLL_SECS: "0.1" }, "node", "ask", "msg-1", "b", "late?", "--wait", "--timeout", "1").rc).toBe(4);
 
   const fake2 = fakeBin({ opencode: `printf 'ARGS %s\\n' "$*"` });
   o("node", "tell", "msg-1", "c", "read this first");
