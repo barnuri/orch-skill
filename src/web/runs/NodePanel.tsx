@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense, lazy } from "react";
 import type { ReactNode } from "react";
 import type { ChatTurn } from "../../shared/types/chat-turn";
 import type { NodeCost } from "../../shared/types/node-cost";
@@ -13,7 +13,7 @@ import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
 import { AFTER_THE_FACT, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip, ownerText } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
 import { modelPick, pickLabel } from "../lib/model-pick";
-import { actualModelMetric, aliasActual, aliasActualText, attemptLine, modelMetric, roleTierText, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
+import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, modelMetric, roleTierText, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { activeStageSummary, formatSelectionLine, timelineEvents } from "../lib/selection-timeline";
 import { Ago } from "./RunActivity";
@@ -23,6 +23,20 @@ import { useNodeDuration } from "./GraphSvg";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
 const ATTEMPT_TAIL_LINES = 8;
+
+/** The chat renderer (Markdown, code blocks, sanitised) used for AI text; loaded on first use. */
+const ChatMarkdown = lazy(() => import("../chats/Markdown"));
+
+/** AI text in the chat renderer; the plain block shows until the renderer has loaded. */
+function AiText({ text, className, plain }: { text: string; className: string; plain: string }) {
+  return (
+    <div className={className}>
+      <Suspense fallback={<pre className="chat-text">{plain}</pre>}>
+        <ChatMarkdown text={text} />
+      </Suspense>
+    </div>
+  );
+}
 
 function Row({ k, value, cls = "", title }: { k: string; value: ReactNode; cls?: string; title?: string }) {
   return (
@@ -114,6 +128,7 @@ function ActivityRows({ node }: { node: RunNode }) {
 function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxAttempts: number; waitingOn?: readonly string[] }) {
   const duration = useNodeDuration(node);
   const roleTier = roleTierText(node);
+  const effort = effortText(node);
   const wait = waitReason(node, waitingOn);
   return (
     <dl>
@@ -127,6 +142,7 @@ function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxA
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />
       <Row k="attempt" value={attemptLine(node, maxAttempts)} />
       <Row k="role · tier" value={roleTier ?? "not set"} cls={roleTier === null ? "missing" : ""} />
+      <Row k="effort" value={effort ?? "not set"} cls={effort === null ? "missing" : ""} title={effort === null ? "No selection event carries an effort for this node." : undefined} />
       <Row k="profile" value={node.profile ?? "—"} />
       <Row k="adapter" value={node.adapter ?? "—"} />
       <Row k="job" value={node.job_id ?? "—"} cls="mono" />
@@ -270,7 +286,7 @@ function ChatTurns({ turns, truncated }: { turns: readonly ChatTurn[]; truncated
             <span className={`chat-role is-${turn.role}`}>{turn.role}</span>
             {turn.timestamp === null ? null : <span className="chat-time">{fmtTime(turn.timestamp)}</span>}
           </div>
-          {turn.text === "" ? null : <pre className="chat-text">{turn.text}</pre>}
+          {turn.text === "" ? null : <AiText className="ai-text" text={turn.text} plain={turn.text} />}
           {turn.tools.length === 0 ? null : (
             <div className="chat-tools">
               {turn.tools.map((tool, index) => (
@@ -340,9 +356,9 @@ function NodeSession({ node }: { node: RunNode }) {
   } else if (jobId !== null && log.isPending) {
     body = <p className="hint">Reading the session…</p>;
   } else if (envelope !== null) {
-    body = <pre className="transcript">{stripAnsi(envelope.text)}</pre>;
+    body = <AiText className="ai-text node-output" text={stripAnsi(envelope.text)} plain={stripAnsi(envelope.text)} />;
   } else if (node.log_tail.length > 0) {
-    body = <pre className="transcript">{stripAnsi(node.log_tail.join("\n"))}</pre>;
+    body = <AiText className="ai-text node-output" text={stripAnsi(node.log_tail.join("\n"))} plain={stripAnsi(node.log_tail.join("\n"))} />;
   } else {
     const hint =
       jobId === null

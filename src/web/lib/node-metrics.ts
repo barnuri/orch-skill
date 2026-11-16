@@ -191,6 +191,19 @@ export function roleTierText(node: RunNode): string | null {
   return parts.length === 0 ? null : parts.join(" · ");
 }
 
+/**
+ * The effort the node ran with, from its newest selection event: confirmed, else sent, else
+ * selected, else requested. Null when no selection event carries an effort.
+ */
+export function effortText(node: RunNode): string | null {
+  const history = node.selection_history ?? [];
+  const latest = history.reduce<(typeof history)[number] | null>((best, event) => (best === null || event.seq > best.seq ? event : best), null);
+  if (latest === null) {
+    return null;
+  }
+  return nonEmpty(latest.confirmed_effort) ?? nonEmpty(latest.sent_effort) ?? nonEmpty(latest.selected_effort) ?? nonEmpty(latest.requested_effort);
+}
+
 export interface RunTotals {
   duration: DurationMetric;
   usage: Metric;

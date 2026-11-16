@@ -76,6 +76,8 @@ main:has(.run-page) { max-width: none; }
 .inspector .panel-details dl { grid-template-columns: 76px minmax(0, 1fr); }
 .inspector .node-session, .inspector .attempts, .inspector .panel-log { grid-template-columns: minmax(0, 1fr); }
 .inspector .copy-cmd-text { max-width: none; min-width: 0; flex: 1; text-align: left; }
+.inspector .ai-text { min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+.inspector .ai-text pre { max-height: 360px; overflow: auto; }
 @media (max-width: 900px) {
   .run-page .run-layout .inspector .node-panel-head {
     position: sticky; top: calc(-1 * var(--s4)); z-index: 1; background: var(--panel);

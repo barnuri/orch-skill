@@ -255,6 +255,27 @@ describe("visibility", () => {
     expect(rows).toEqual(["second", "first"]);
   });
 
+  test("the activity feed shows the last 5 rows until Show more is clicked", () => {
+    const e = (n: number) => ({ n, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note: `item ${n}`, by: null });
+    const events = Array.from({ length: 8 }, (_, i) => e(i + 1));
+    const { container } = render(<ActivityFeed events={events} />);
+    expect(container.querySelectorAll(".activity-row").length).toBe(5);
+    fireEvent.click(screen.getByRole("button", { name: "Show more (3 more)" }));
+    expect(container.querySelectorAll(".activity-row").length).toBe(8);
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(container.querySelectorAll(".activity-row").length).toBe(5);
+  });
+
+  test("the panel shows the node's effort from its newest selection event", () => {
+    const sel = (seq: number, confirmed: string | null, requested: string | null) => ({ seq, ts: iso(1000), workflow_key: null, worker_key: null, attempt_key: null, turn_key: null, requested_selector: null, tier: null, role: null, stage: "solver", model: null, state: "selected", reason_code: null, policy_version: null, requested_effort: requested, selected_effort: null, sent_effort: null, confirmed_effort: confirmed, latency_ms: null, usage: null });
+    const withEffort = node({ status: "done", selection_history: [sel(1, null, "low"), sel(2, "high", "low")] as RunNode["selection_history"] });
+    const { unmount } = render(<NodePanel run={runOf([withEffort])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(screen.getByText("effort").nextElementSibling?.textContent).toBe("high");
+    unmount();
+    render(<NodePanel run={runOf([node({ status: "done" })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(screen.getByText("effort").nextElementSibling?.textContent).toBe("not set");
+  });
+
   test("a run row shows the stale chip and updated, and survives their absence", () => {
     const { container, rerender } = render(<RunRow run={summary({})} />);
     expect(container.textContent).not.toContain("stale");
