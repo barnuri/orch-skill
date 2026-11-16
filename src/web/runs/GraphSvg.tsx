@@ -1,5 +1,7 @@
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
+import { isStarting } from "../../shared/node-timing";
+import type { TimedRun } from "../../shared/node-timing";
 import { markFor, MARKS } from "../lib/harness-marks";
 import { NODE_H, NODE_W, ORCH_NODE_H, ORCH_NODE_W, layoutDag } from "../lib/dag-layout";
 import type { DagLayout } from "../lib/dag-layout";
@@ -8,7 +10,7 @@ import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, 
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
-import { familyOf, iconModelOf, showsRoleTier } from "../lib/model-family";
+import { familyOf, iconModelOf } from "../lib/model-family";
 import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { profilePalette } from "../lib/profile-color";
@@ -92,9 +94,9 @@ export function profileKey(node: RunNode): string | null {
 }
 
 /** The duration of a node; a running one ticks off the shared ticker, every other state is static. */
-export function useNodeDuration(node: RunNode) {
-  useNow(node.status === "running" && node.started !== null);
-  return durationMetric(node);
+export function useNodeDuration(node: RunNode, run?: TimedRun | null) {
+  useNow(node.status === "running" && (node.started !== null || isStarting(node)));
+  return durationMetric(node, run);
 }
 
 function HarnessGlyph({ id, x, y, size }: { id: string; x: number; y: number; size: number }) {
@@ -179,33 +181,35 @@ interface NodeCardProps {
   harnessByProfile: Record<string, string>;
   maxAttempts: number;
   runId: string;
+  /** The run's pause fields, so a duration leaves paused stretches out. */
+  run?: TimedRun | null;
   /** Ids of the unfinished nodes this one waits for. */
   waitingOn?: string[];
 }
 
 /**
- * One node card. Always seven rows (label, status and attempt, model, duration, usage and cost,
- * role and tier, health): a missing value is drawn as a muted placeholder with the reason in its tooltip.
+ * One node card. Up to seven rows (label, status and attempt, model, duration, usage and cost,
+ * role, tier and effort, health): the role row holds only known values and is left out when none is.
  */
-export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, runId, waitingOn = [] }: NodeCardProps) {
+export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, runId, run, waitingOn = [] }: NodeCardProps) {
   const label = node.label || node.id;
   const profile = profileKey(node);
   const harness = harnessOf(node, harnessByProfile);
   const pick = modelPick(node);
   const model = modelMetric(node, META_MAX_CHARS);
   const usage = cardUsageMetric(node);
-  const duration = useNodeDuration(node);
+  const duration = useNodeDuration(node, run);
   const attempt = attemptLine(node, maxAttempts);
   const roleTier = roleTierMetric(node);
   const wait = waitReason(node, waitingOn, META_MAX_CHARS);
   const style = profile === null ? undefined : ({ "--profile-accent": palette.accent(profile), "--profile-soft": palette.soft(profile) } as React.CSSProperties);
   const aria = `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${harness !== null ? `, ${harness}` : ""}, ${
     model.present ? `model ${model.text}` : model.text
-  }${pick?.tier != null ? `, tier ${pick.tier}` : ""}, ${duration.text}, ${usage.text}, ${roleTier.text}, ${attempt}${needsUserReason(node) !== null ? ", needs you" : ""}`;
+  }${pick?.tier != null ? `, tier ${pick.tier}` : ""}, ${duration.text}, ${usage.text}${roleTier.present ? `, ${roleTier.text}` : ""}, ${attempt}${needsUserReason(node) !== null ? ", needs you" : ""}`;
   const autoTitle = pick?.isAuto === true ? `${pick.isExpected ? "expected " : ""}${[pick.model, pick.tier, pick.role, pick.reason].filter((part) => part !== null).join(" · ")}` : null;
   return (
     <g
-      className={`node task-node ${node.status}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}${nodeFlags(node).stale ? " is-stale" : ""}`}
+      className={`node task-node ${node.status}${isStarting(node) ? " is-starting" : ""}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}${nodeFlags(node).stale ? " is-stale" : ""}`}
       transform={`translate(${pos.x} ${pos.y})`}
       tabIndex={0}
       role="button"
@@ -239,7 +243,7 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
       <line className="metrics-rule" x1={META_LEFT_X} y1={METRICS_RULE_Y} x2={META_RIGHT_X} y2={METRICS_RULE_Y} />
       <MetricText metric={duration} base="metric dur" x={META_LEFT_X} y={DURATION_Y} max={META_MAX_CHARS} />
       <MetricText metric={usage} base="metric cost" x={META_LEFT_X} y={USAGE_Y} max={META_MAX_CHARS} />
-      {showsRoleTier(node) ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
+      {roleTier.present ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
       <Health node={node} runId={runId} />
       {isCyclic ? (
         <text className="cycle" x={NODE_W - 8} y={14} textAnchor="end">
@@ -301,6 +305,7 @@ export function GraphSvg({ run, layout, selectedId, onSelect, harnessByProfile, 
             harnessByProfile={harnessByProfile}
             maxAttempts={maxAttempts}
             runId={run.run_id}
+            run={run}
             waitingOn={waitingOnDeps(run, node.id)}
           />
         );

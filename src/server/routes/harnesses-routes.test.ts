@@ -1,3 +1,4 @@
+// test-tier: slow (real dispatch.sh harness probes)
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { resolve } from "node:path";

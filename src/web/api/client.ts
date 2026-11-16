@@ -14,7 +14,7 @@ import type { ApiError } from "../../shared/types/api-error";
 import type { DocumentKind } from "../../shared/types/document-kind";
 import type { ActiveEnvelope } from "../../shared/types/active-envelope";
 import type { HarnessesEnvelope } from "../../shared/types/harness-status";
-import { jobChatSchema, jobLogSchema, nodeActivitySchema, runSchema, runsSchema } from "../runs/schemas";
+import { jobChatSchema, jobLogSchema, nodeActivitySchema, runMessagesSchema, runSchema, runsSchema } from "../runs/schemas";
 import type { ScheduleEdit, ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
 import { API_BASE } from "../lib/constants";
 import type { ApiResult } from "./result";
@@ -122,6 +122,21 @@ export class ApiClient {
 
   retryNode(runId: string, nodeId: string): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/retry`, okSchema);
+  }
+
+  /** `node tell` from the user: herdr pane push, else the node's inbox. */
+  tellNode(runId: string, nodeId: string, text: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/tell`, okSchema, { body: { text } });
+  }
+
+  /** `node answer` from the user; without `ask`, the node's oldest open ask. */
+  answerNode(runId: string, nodeId: string, text: string, ask?: string): Promise<ApiResult<OkDto>> {
+    const body = ask === undefined ? { text } : { text, ask };
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/answer`, okSchema, { body });
+  }
+
+  getRunMessages(runId: string) {
+    return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/messages`, runMessagesSchema, { quiet: true });
   }
 
   stopActive(id: string): Promise<ApiResult<OkDto>> {

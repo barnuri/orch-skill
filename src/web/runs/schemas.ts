@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
 import type { JobLogEnvelope } from "../../shared/types/job-log-envelope";
 import type { RunEventsEnvelope } from "../../shared/types/run-event";
+import type { RunMessagesEnvelope } from "../../shared/types/run-message";
 import type { RunEnvelope } from "../../shared/types/run-envelope";
 import type { ActivityEnvelope } from "../lib/owner-activity";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
@@ -34,6 +35,10 @@ export const jobChatSchema = typed<ChatEnvelope>(z.looseObject({ turns: z.array(
 
 export const eventsSchema = typed<RunEventsEnvelope>(
   z.looseObject({ events: z.array(z.looseObject({ n: z.number(), at: z.string(), kind: z.string() })), next: z.number() }),
+);
+
+export const runMessagesSchema = typed<RunMessagesEnvelope>(
+  z.looseObject({ messages: z.array(z.looseObject({ id: z.string(), seq: z.number(), from: z.string(), to: z.string(), kind: z.string(), text: z.string() })) }),
 );
 
 export const nodeActivitySchema = typed<ActivityEnvelope>(

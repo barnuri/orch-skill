@@ -4,6 +4,7 @@ import type { ChatTurn } from "../../shared/types/chat-turn";
 import type { NodeCost } from "../../shared/types/node-cost";
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
+import type { TimedRun } from "../../shared/node-timing";
 import { Chip } from "../components/Chip";
 import { useToast } from "../components/Toast";
 import { api } from "../api/client";
@@ -13,7 +14,7 @@ import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
 import { AFTER_THE_FACT, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip, ownerText } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
 import { modelPick, pickLabel } from "../lib/model-pick";
-import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, modelMetric, roleTierText, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
+import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, effortTitle, modelMetric, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { activeStageSummary, formatSelectionLine, timelineEvents } from "../lib/selection-timeline";
 import { Ago } from "./RunActivity";
@@ -21,7 +22,8 @@ import { useJobChat, useJobLog, useNodeActivity } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
 import { ModelIcon } from "./ModelIcon";
-import { familyOf, iconModelOf, showsRoleTier } from "../lib/model-family";
+import { NodeMessages } from "./NodeMessages";
+import { familyOf, iconModelOf } from "../lib/model-family";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
 const ATTEMPT_TAIL_LINES = 8;
@@ -127,9 +129,8 @@ function ActivityRows({ node }: { node: RunNode }) {
   );
 }
 
-function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxAttempts: number; waitingOn?: readonly string[] }) {
-  const duration = useNodeDuration(node);
-  const roleTier = roleTierText(node);
+function DetailList({ node, run, maxAttempts, waitingOn = [] }: { node: RunNode; run?: TimedRun | null; maxAttempts: number; waitingOn?: readonly string[] }) {
+  const duration = useNodeDuration(node, run);
   const effort = effortText(node);
   const wait = waitReason(node, waitingOn);
   return (
@@ -139,12 +140,13 @@ function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxA
       {wait === null ? null : <Row k="why" value={wait.text} cls={`wait-reason wait-${wait.kind}`} title={wait.title} />}
       <ActivityRows node={node} />
       <Row k="model" value={<><ModelIcon family={familyOf(iconModelOf(node))} />{modelMetric(node).text}</>} cls={`mono${modelMetric(node).present ? "" : " missing"}`} title={modelMetric(node).title} />
-      <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" />
+      {actualModelMetric(node).present ? <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" /> : null}
       <MetricRow k="duration" metric={duration} />
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />
       <Row k="attempt" value={attemptLine(node, maxAttempts)} />
-      {showsRoleTier(node) ? <Row k="role · tier" value={roleTier ?? "not set"} cls={roleTier === null ? "missing" : ""} /> : null}
-      <Row k="effort" value={effort ?? "not set"} cls={effort === null ? "missing" : ""} title={effort === null ? "No selection event carries an effort for this node." : undefined} />
+      {node.role ? <Row k="role" value={node.role} /> : null}
+      {node.tier ? <Row k="tier" value={node.tier} /> : null}
+      {effort === null ? null : <Row k="effort" value={effort} title={effortTitle(node)} />}
       <Row k="profile" value={node.profile ?? "—"} />
       <Row k="adapter" value={node.adapter ?? "—"} />
       <Row k="job" value={node.job_id ?? "—"} cls="mono" />
@@ -565,9 +567,10 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
       <div className="panel-grid">
         <div className="panel-details">
           <ModelBlock node={node} />
-          <DetailList node={node} maxAttempts={maxAttempts} waitingOn={waitingOnDeps(run, node.id)} />
+          <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOnDeps(run, node.id)} />
           <Attempts node={node} />
           <Selections node={node} />
+          <NodeMessages key={node.id} runId={run.run_id} node={node} />
         </div>
         <NodeBody runId={run.run_id} node={node} />
       </div>

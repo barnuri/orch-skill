@@ -39,5 +39,10 @@ if [ "${1:-}" = "node" ] && [ "${2:-}" = "dispatch" ]; then
   echo "job-fake-${4:-}"
   exit 0
 fi
+if [ "${1:-}" = "node" ] && [ "${2:-}" = "bind-owners" ]; then
+  # Watchdog owner sync: recorded apart from the actions, so action assertions stay unchanged.
+  printf '%s\n' "$*" >> "${HARNESS_ORCH_HOME:-}/fake-dispatch.owners"
+  exit 0
+fi
 echo "fake-dispatch: unsupported: $*" >&2
 exit 2

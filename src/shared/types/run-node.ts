@@ -1,3 +1,4 @@
+import type { NodeTimingSummary, TimingSegment } from "../node-timing";
 import type { NodeCost } from "./node-cost";
 import type { NodeStatus } from "./node-status";
 import type { NodeUsage } from "./node-usage";
@@ -46,8 +47,21 @@ export interface RunNode {
    * existed has no `session` key at all.
    */
   session?: string | null;
+  /** Legacy: the dispatch time (written by `node dispatch`). Read `started_at` for the real start. */
   started: string | null;
   finished: string | null;
+  /** When the current attempt was triggered (`node dispatch`). Optional for older runs. */
+  dispatched_at?: string | null;
+  /** First real activity of the current attempt; null while `starting`. Optional for older runs. */
+  started_at?: string | null;
+  /** When the current attempt ended. Optional for older runs. */
+  finished_at?: string | null;
+  /** True while the current attempt is open (dispatched, not yet ended). */
+  seg_open?: boolean | null;
+  /** One closed {dispatched, start, end} per earlier attempt or stop. */
+  run_segments?: TimingSegment[] | null;
+  /** Computed by the server (lib/node-timing): run and wait time of the node. */
+  timing?: NodeTimingSummary | null;
   error: string | null;
   log_tail: string[];
   /** Prompt reference or inline text passed to the last dispatch. Optional for older runs. */
@@ -90,6 +104,10 @@ export interface RunNode {
   last_event_sequence?: number | null;
   /** Hub selection events for this node, ordered by sequence and bounded. Optional for older runs. */
   selection_history?: SelectionEvent[];
+  /** The latest effort the hub picked (selected, else sent), from `node selections`. Optional for older runs. */
+  effort?: string | null;
+  /** Effort changes over the node's life (`at` is ms since epoch), bounded. Optional for older runs. */
+  effort_history?: { seq: number; at: number | null; effort: string }[];
   /** Who is doing the work: an agent id, a job id or "coordinator". Null/absent = unowned. */
   owner?: string | null;
   /** Parsed from `owner`: session | process | job | none | unknown. */

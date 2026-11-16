@@ -1,3 +1,4 @@
+// test-tier: slow (detached fake-dispatch turn processes)
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";

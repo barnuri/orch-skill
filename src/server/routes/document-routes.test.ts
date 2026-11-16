@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+// test-tier: slow (real dispatch.sh profile and memory writes)
+import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -7,6 +8,11 @@ import type { TestServerHandle } from "../types/test-server-handle";
 import { MAX_BODY_BYTES } from "./document-routes";
 
 const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+// The server's own background calls (harness list) go to the fake, so they never migrate a home
+// while a test inspects it. Only runCli below uses the real CLI.
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const previousDispatch: string | undefined = process.env["ORCH_DISPATCH"];
+process.env["ORCH_DISPATCH"] = FAKE_DISPATCH;
 const ETAG_PATTERN = /^"[0-9a-f]{64}"$/;
 const JSON_HEADERS: Record<string, string> = { "Content-Type": "application/json" };
 const UTF8_NOTE: string = "résumé ✓ — 日本語";
@@ -32,20 +38,31 @@ function tmpLeftovers(srv: TestServerHandle): string[] {
 }
 
 // The CLI is the other writer of these files; running it for real is the only way to prove the
-// compare-and-write actually notices an out-of-band change.
-function runCli(srv: TestServerHandle, args: readonly string[]) {
-  return Bun.spawnSync(["bash", DISPATCH, ...args], {
+// compare-and-write actually notices an out-of-band change. Spawned asynchronously so the
+// concurrent tests overlap their CLI calls instead of blocking the event loop.
+async function runCli(srv: TestServerHandle, args: readonly string[]): Promise<{ exitCode: number; stdout: string }> {
+  const proc = Bun.spawn(["bash", DISPATCH, ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: srv.home.path },
+    stdout: "pipe",
+    stderr: "ignore",
   });
+  const stdout = await new Response(proc.stdout).text();
+  return { exitCode: await proc.exited, stdout };
 }
 
-afterEach(() => {
+// Every test owns its server and home, so the describes run concurrently and stop them all at the end.
+afterAll(() => {
   for (const srv of servers.splice(0)) {
     srv.stop();
   }
+  if (previousDispatch === undefined) {
+    delete process.env["ORCH_DISPATCH"];
+  } else {
+    process.env["ORCH_DISPATCH"] = previousDispatch;
+  }
 });
 
-describe("GET /api/profiles", () => {
+describe.concurrent("GET /api/profiles", () => {
   test("the envelope carries the harness enum, the limits and a strong ETag", async () => {
     const srv = server();
     const res = await srv.api("/api/profiles");
@@ -77,7 +94,7 @@ describe("GET /api/profiles", () => {
   });
 });
 
-describe("GET /api/memory", () => {
+describe.concurrent("GET /api/memory", () => {
   test("an empty memory validates clean and exposes the outcome enum", async () => {
     const srv = server();
     const body = await (await srv.api("/api/memory")).json();
@@ -87,10 +104,10 @@ describe("GET /api/memory", () => {
   });
 });
 
-describe("PUT happy path", () => {
+describe.concurrent("PUT happy path", () => {
   test("deleting the default Copilot profile survives subsequent CLI commands", async () => {
     const srv = server();
-    expect(runCli(srv, ["init"]).exitCode).toBe(0);
+    expect((await runCli(srv, ["init"])).exitCode).toBe(0);
     const get = await srv.api("/api/profiles");
     const doc = (await get.json()).document;
     delete doc.profiles["copilot-default"];
@@ -100,7 +117,7 @@ describe("PUT happy path", () => {
       "If-Match": get.headers.get("etag") ?? "",
     });
     expect(saved.status).toBe(200);
-    expect(runCli(srv, ["profile", "list"]).exitCode).toBe(0);
+    expect((await runCli(srv, ["profile", "list"])).exitCode).toBe(0);
     expect(JSON.parse(srv.home.read("profiles.json")).profiles["copilot-default"]).toBeUndefined();
   });
 
@@ -141,7 +158,7 @@ describe("PUT happy path", () => {
   });
 });
 
-describe("optimistic concurrency", () => {
+describe.concurrent("optimistic concurrency", () => {
   test("a stale If-Match is 412 and leaves the file untouched", async () => {
     const srv = server();
     const before = sha(srv, "profiles.json");
@@ -160,7 +177,7 @@ describe("optimistic concurrency", () => {
     const get = await srv.api("/api/memory");
     const staleEtag = get.headers.get("etag") ?? "";
 
-    const added = runCli(srv, ["memory", "add", "--profile", "claude-default", "--outcome", "success"]);
+    const added = await runCli(srv, ["memory", "add", "--profile", "claude-default", "--outcome", "success"]);
     expect(added.exitCode).toBe(0);
 
     const res = await put(srv, "/api/memory", "[]", { "If-Match": staleEtag });
@@ -168,11 +185,11 @@ describe("optimistic concurrency", () => {
 
     // The CLI's row survived the rejected overwrite.
     expect(JSON.parse(srv.home.read("memory.json"))).toHaveLength(1);
-    expect(runCli(srv, ["memory", "list"]).stdout.toString()).toContain("claude-default");
+    expect((await runCli(srv, ["memory", "list"])).stdout).toContain("claude-default");
   });
 });
 
-describe("PUT rejections", () => {
+describe.concurrent("PUT rejections", () => {
   test("a validation failure is 400 with every issue and no write", async () => {
     const srv = server();
     const before = sha(srv, "profiles.json");
@@ -237,7 +254,7 @@ describe("PUT rejections", () => {
   });
 });
 
-describe("repair", () => {
+describe.concurrent("repair", () => {
   test("a corrupt file can be fixed by a PUT", async () => {
     const srv = server();
     srv.home.write("memory.json", "{ not json");

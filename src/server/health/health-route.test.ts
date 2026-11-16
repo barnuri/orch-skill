@@ -1,3 +1,4 @@
+// test-tier: slow (stand-in dispatch.sh processes)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

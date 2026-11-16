@@ -1,3 +1,4 @@
+// test-tier: slow (real opencode CLI and server processes)
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";

@@ -1,117 +1,17 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { copyFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { orchPaths } from "../files/paths";
-import { digestToken } from "../http/auth";
 import { TempHome } from "../test-support/temp-home";
-import type { ServerContext } from "../types/server-context";
-import { ChatService } from "./service";
 import { buildOptions } from "./options";
 import { buildReplayPrompt } from "./sessions/history-replay";
-import type { ChatStore } from "./store";
-import type { MessageRow } from "./types";
+import { HARNESSES, installChatResumeCleanup, PROFILES, PROMPT_DISPATCH, say, setup, TESTING } from "./testing/chat-resume-support";
 
-const TESTING = resolve(import.meta.dir, "testing");
-const REAL_DISPATCH = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
-const PROMPT_DISPATCH = join(TESTING, "fake-dispatch-prompt.sh");
-const HARNESSES = ["opencode", "cursor-agent", "pi", "copilot", "local-llm"];
-
-const PROFILES = {
-  models: { m: { slug: "m", harnesses: HARNESSES } },
-  profiles: Object.fromEntries(HARNESSES.map((h) => [h, { harness: h, model: "m" }])),
-};
-
-const cleanup: Array<() => Promise<void>> = [];
-const saved = { path: process.env.PATH, hub: process.env.LLM_HUB_URL };
-afterEach(async () => {
-  for (const fn of cleanup.splice(0)) {
-    await fn();
-  }
-  process.env.PATH = saved.path;
-  for (const k of ["ORCH_CHAT_DISPATCH", "ORCH_CHAT_OPENCODE_DISPATCH", "FAKE_STATE", "FAKE_AGENT_LOG", "FAKE_PROMPT_LOG", "FAKE_NO_CREATE_CHAT", "FAKE_NO_SESSION_LIST"]) {
-    delete process.env[k];
-  }
-  if (saved.hub === undefined) {
-    delete process.env.LLM_HUB_URL;
-  } else {
-    process.env.LLM_HUB_URL = saved.hub;
-  }
-});
-
-function setup(dispatch: string): { service: ChatService; home: TempHome; state: string; log: string } {
-  const home = TempHome.create();
-  home.write("profiles.json", JSON.stringify(PROFILES));
-  const bin = home.resolve("bin");
-  mkdirSync(bin, { recursive: true });
-  for (const name of ["opencode", "cursor-agent", "pi"]) {
-    copyFileSync(join(TESTING, "fake-harness.sh"), join(bin, name));
-    chmodSync(join(bin, name), 0o755);
-  }
-  const state = home.resolve("fake-state");
-  const log = home.resolve("agent.log");
-  writeFileSync(log, "");
-  process.env.PATH = `${bin}:${saved.path}`;
-  process.env.FAKE_STATE = state;
-  process.env.FAKE_AGENT_LOG = log;
-  process.env.LLM_HUB_URL = "http://127.0.0.1:1";
-  process.env.ORCH_CHAT_DISPATCH = dispatch;
-  process.env.ORCH_CHAT_OPENCODE_DISPATCH = "1";
-  const ctx: ServerContext = {
-    paths: orchPaths(home.path), bindHost: "127.0.0.1", hostname: hostname(), tokenDigest: digestToken("t"), requireToken: true,
-    requireRemoteToken: true, harnesses: HARNESSES, outcomes: [],
-  };
-  const service = new ChatService(ctx);
-  cleanup.push(() => service.dispose());
-  return { service, home, state, log };
-}
-
-function store(service: ChatService): ChatStore {
-  return (service as unknown as { store: ChatStore }).store;
-}
-
-/** The chat row, failing the test with a clear message when it is missing. */
-function chatRow(service: Parameters<typeof store>[0], id: string) {
-  const row = store(service).getChat(id);
-  if (row === null) {
-    throw new Error(`chat ${id} is missing`);
-  }
-  return row;
-}
-
-function trash(path: string): void {
-  spawnSync("trash", [path]);
-}
-
-async function say(service: ChatService, chatId: string, content: string): Promise<MessageRow> {
-  const r = service.sendMessage(chatId, { content });
-  await service.settled(chatId);
-  return store(service).getMessage(r.assistant_message_id) as MessageRow;
-}
+// The tests that drive the real dispatch.sh live in chat-resume-{opencode,cursor,pi}.test.ts,
+// one file per harness so the parallel runner overlaps them.
+installChatResumeCleanup();
 
 describe("memory across 3 turns, one session per chat", () => {
-  for (const harness of ["opencode", "cursor-agent", "pi"]) {
-    test(`${harness}: the harness session grows each turn and its id is stored`, async () => {
-      const { service } = setup(REAL_DISPATCH);
-      const chat = service.createChat({ title: "t", harness, profile: harness });
-      const replies: string[] = [];
-      for (const text of ["one", "two", "three"]) {
-        const m = await say(service, chat.id, text);
-        expect(m.error).toBeNull();
-        expect(m.warning).toBeNull();
-        replies.push(m.content);
-      }
-      expect(replies).toEqual(["turns=1", "turns=2", "turns=3"]);
-      const stored = chatRow(service, chat.id).session_id;
-      expect(stored).not.toBeNull();
-      if (harness === "opencode") {
-        expect(stored).toMatch(/^ses_/);
-      }
-    });
-  }
-
   test("copilot keeps resuming the minted id through ORCH_RESUME_SESSION", async () => {
     const { service, log } = setup(join(TESTING, "fake-dispatch.sh"));
     const chat = service.createChat({ title: "t", harness: "copilot", profile: "copilot" });
@@ -136,52 +36,6 @@ describe("memory across 3 turns, one session per chat", () => {
     expect(last).toContain("Assistant: chars=");
     expect(last.endsWith("New message from the user:\nwhat is my name?")).toBe(true);
     expect(m.context_truncated).toBe(0);
-  });
-});
-
-describe("a lost session falls back to a fresh one with a visible warning", () => {
-  // pi is absent on purpose: `--session-id` creates a missing session, so an id can never be lost there.
-  for (const harness of ["opencode", "cursor-agent"]) {
-    test(harness, async () => {
-      const { service, state } = setup(REAL_DISPATCH);
-      const chat = service.createChat({ title: "t", harness, profile: harness });
-      await say(service, chat.id, "one");
-      const first = chatRow(service, chat.id).session_id as string;
-      trash(join(state, first));
-      const m = await say(service, chat.id, "two");
-      expect(m.status).toBe("done");
-      expect(m.warning).toContain("could not be resumed");
-      expect(chatRow(service, chat.id).session_id).not.toBe(first);
-      expect(m.content).toBe("turns=1");
-      expect(readFileSync(join(state, chatRow(service, chat.id).session_id as string), "utf8")).toContain("User: one");
-      const next = await say(service, chat.id, "three");
-      expect(next.warning).toBeNull();
-      expect(next.content).toBe("turns=2");
-    });
-  }
-});
-
-describe("failure to learn a session id", () => {
-  test("cursor-agent without create-chat replays history with a warning", async () => {
-    const { service } = setup(REAL_DISPATCH);
-    process.env.FAKE_NO_CREATE_CHAT = "1";
-    const chat = service.createChat({ title: "t", harness: "cursor-agent", profile: "cursor-agent" });
-    await say(service, chat.id, "one");
-    const m = await say(service, chat.id, "two");
-    expect(m.warning).toContain("Could not create a cursor-agent chat");
-    expect(m.error).toBeNull();
-  });
-
-  test("opencode without a readable session list replays history from the second turn", async () => {
-    const { service, log } = setup(REAL_DISPATCH);
-    process.env.FAKE_NO_SESSION_LIST = "1";
-    const chat = service.createChat({ title: "t", harness: "opencode", profile: "opencode" });
-    const first = await say(service, chat.id, "remember 42");
-    expect(first.warning).toContain("did not report its session id");
-    expect(chatRow(service, chat.id).session_id).toBeNull();
-    await say(service, chat.id, "what number?");
-    const prompts = readFileSync(log, "utf8");
-    expect(prompts).toContain("User: remember 42");
   });
 });
 

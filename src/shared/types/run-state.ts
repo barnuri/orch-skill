@@ -1,3 +1,4 @@
+import type { TimingPause } from "../node-timing";
 import type { RunNode } from "./run-node";
 import type { RunPlan } from "./run-plan";
 import type { RunStatus } from "./run-status";
@@ -18,4 +19,7 @@ export interface RunState {
   /** Set by `dispatch.sh run pause`: starts no node until `run resume`. */
   paused?: boolean;
   paused_at?: string | null;
+  stopped_at?: string | null;
+  /** Closed paused or stopped stretches, written by `run resume`; node durations leave them out. */
+  pauses?: TimingPause[] | null;
 }

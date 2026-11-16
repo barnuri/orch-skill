@@ -27,7 +27,7 @@ function card(n: RunNode, waitingOn: string[] = []) {
 }
 
 describe("NodeCard rows", () => {
-  test("model, duration, usage and cost, role and tier always show, as muted placeholders when missing", () => {
+  test("model, duration, usage and cost always show; role, tier and effort only when known", () => {
     const { container } = card(node());
     expect(container.querySelector(".model")?.textContent).toContain("model not reported");
     expect(container.querySelector(".metric.dur")?.textContent).toContain("not started");
@@ -36,7 +36,7 @@ describe("NodeCard rows", () => {
     expect(cost?.getAttribute("class")).toContain("missing");
     const role = container.querySelector(".metric.role");
     expect(role).toBeNull();
-    expect(card(node({ model: "hub/smart-auto-balance" } as Partial<RunNode>)).container.querySelector(".metric.role")?.textContent).toContain("role — · tier —");
+    expect(card(node({ model: "hub/smart-auto-balance" } as Partial<RunNode>)).container.querySelector(".metric.role")).toBeNull();
     expect(container.querySelector(".st")?.textContent).toContain("ready, not started");
     cleanup();
     expect(card(node({ status: "running" })).container.querySelector(".st")?.textContent).toContain("attempt 1/5");
@@ -58,13 +58,19 @@ describe("NodeCard rows", () => {
     expect(st(node({ status: "done", hold: "x" })).text).toBe("done · attempt 1/5");
   });
 
-  test("a set role shows beside the tier placeholder on a smart-auto node only", () => {
-    const { container } = card(node({ model: "hub/smart-auto-balance", role: "planning" } as Partial<RunNode>));
+  test("the card shows the real model, role, tier and effort as values, with no dash", () => {
+    const { container } = card(
+      node({ model: "hub/smart-auto-balance", actual_model: "copilot/claude-opus-5-5", role: "planning", tier: "balance", effort: "medium" } as Partial<RunNode>),
+    );
     const role = container.querySelector(".metric.role");
-    expect(role?.textContent).toContain("planning · tier —");
+    expect(role?.textContent).toContain("medium · planning · balan…");
+    expect(role?.querySelector("title")?.textContent).toBe("role planning · tier balance · effort medium");
+    expect(role?.textContent).not.toContain("—");
     expect(role?.getAttribute("class")).not.toContain("missing");
+    expect(container.querySelector(".model")?.textContent).toContain("claude-opus-5-5");
+    expect(container.querySelector(".model-icon")?.getAttribute("data-family")).toBe("claude");
     cleanup();
-    expect(card(node({ role: "planning" } as Partial<RunNode>)).container.querySelector(".metric.role")).toBeNull();
+    expect(card(node({ role: "planning" } as Partial<RunNode>)).container.querySelector(".metric.role")?.textContent).toContain("planning");
   });
 
   test("the model icon follows the served model on auto nodes and the configured model otherwise", () => {

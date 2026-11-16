@@ -1,3 +1,4 @@
+// test-tier: slow (waits out the restart delay)
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,6 +6,7 @@ import { join } from "node:path";
 
 import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
+import { RESTART_DELAY_MS } from "./restart";
 
 let srv: TestServerHandle;
 let dir: string;
@@ -34,6 +36,17 @@ afterEach(() => {
   }
   Bun.spawnSync(["trash", dir]);
 });
+
+// A restart that must NOT happen can only be proven by outlasting its delay; a restart that must
+// happen is awaited by polling its marker file.
+const PAST_DELAY_MS: number = RESTART_DELAY_MS + 300;
+
+async function waitForCalls(count: number, timeoutMs: number = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (calls() < count && Date.now() < deadline) {
+    await Bun.sleep(20);
+  }
+}
 
 const calls = (): number => (existsSync(join(dir, "calls")) ? readFileSync(join(dir, "calls"), "utf8").split("\n").filter(Boolean).length : 0);
 
@@ -80,7 +93,7 @@ describe("POST /api/build/restart", () => {
     const body = (await res.json()) as { error: string; command: string };
     expect(body.error).toBe("service not installed");
     expect(body.command).toContain("dispatch.sh ui");
-    await Bun.sleep(1500);
+    await Bun.sleep(PAST_DELAY_MS);
     expect(calls()).toBe(0);
   });
 
@@ -93,7 +106,7 @@ describe("POST /api/build/restart", () => {
     const again = await srv.api("/api/build/restart", { method: "POST" });
     expect(again.status).toBe(409);
     expect(((await again.json()) as { error: string }).error).toBe("restart already requested");
-    await Bun.sleep(2000);
+    await waitForCalls(1);
     expect(calls()).toBe(1);
     expect(readFileSync(join(srv.home.path, "restart.log"), "utf8")).toContain("restart requested");
   });
@@ -103,7 +116,7 @@ describe("POST /api/build/restart", () => {
     srv = startTestServer();
     expect((await srv.api("/api/build/restart", { method: "POST" }, false)).status).toBe(401);
     expect((await srv.api("/api/build/restart")).status).toBe(405);
-    await Bun.sleep(1200);
+    await Bun.sleep(PAST_DELAY_MS);
     expect(calls()).toBe(0);
   });
 });

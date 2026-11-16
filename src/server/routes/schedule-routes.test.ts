@@ -1,3 +1,4 @@
+// test-tier: slow (real dispatch.sh schedule commands and runs)
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { startTestServer } from "../test-support/test-server";
@@ -93,7 +94,7 @@ describe.concurrent("/api/schedules", () => {
     let text = "";
     const deadline = Date.now() + 100_000;
     while (!text.includes("hi") && Date.now() < deadline) {
-      await Bun.sleep(250);
+      await Bun.sleep(50);
       text = (await (await srv.api(`/api/schedules/${id}/runs/0/log`)).json()).text;
     }
     expect(text).toContain("hi");

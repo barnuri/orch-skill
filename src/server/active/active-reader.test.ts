@@ -1,3 +1,4 @@
+// test-tier: slow (compares with real dispatch.sh active)
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,28 +1,32 @@
-import { Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
+import { Body, Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
 import { jsonResponse } from "../../http/responses";
 import type { RouteHandler } from "../../http/route";
 import { isRunId } from "../../runs/run-id";
 import { runLiveStream } from "../../runs/run-live-sse";
 import {
+  answerNode,
   cancelNodeHandler,
   listRunsHandler,
   readJobChatHandler,
   readJobLogHandler,
   readNodeActivityHandler,
   readRunEventsHandler,
+  readRunMessagesHandler,
   pauseRunHandler,
   readRunHandler,
   retryNodeHandler,
   resumeRunHandler,
   retryRunHandler,
   stopRunHandler,
+  tellNode,
 } from "../../routes/runs-routes";
+import type { NodeMessageInput } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
-import { call } from "./support";
+import { call, valid } from "./support";
 
 @Controller({ path: "/api", tags: ["runs"] })
 export class RunsController {
@@ -38,6 +42,8 @@ export class RunsController {
   private readonly jobChat: RouteHandler;
   private readonly events: RouteHandler;
   private readonly activity: RouteHandler;
+  private readonly messages: RouteHandler;
+  private readonly ctx: ServerContext;
 
   constructor(ctx: ServerContext) {
     this.list = listRunsHandler(ctx);
@@ -52,6 +58,8 @@ export class RunsController {
     this.jobChat = readJobChatHandler(ctx);
     this.events = readRunEventsHandler(ctx);
     this.activity = readNodeActivityHandler(ctx);
+    this.messages = readRunMessagesHandler(ctx);
+    this.ctx = ctx;
   }
 
   @Get("/runs", {
@@ -162,6 +170,40 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node." })
   cancelNode_(c: ApiContext): Promise<Response> {
     return call(this.cancelNode, c);
+  }
+
+  @Get("/runs/{id}/messages", {
+    summary: "A run's messages",
+    description: "Every inbox message of the run, oldest first: tells and answers to nodes, asks from nodes (with `answer` once answered). An unknown run has none.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @ResponseSchema(RunMessagesEnvelopeDto.schema, { description: "The messages." })
+  messages_(c: ApiContext): Promise<Response> {
+    return call(this.messages, c);
+  }
+
+  @Post("/runs/{id}/nodes/{node}/tell", {
+    summary: "Send a message to a node",
+    description: "Runs `node tell <id> <node> <text> --from user`: pushes the text into the node's herdr pane when it has one, else leaves it in the node's inbox. `output` is `<msg-id> <node> delivered|pending`.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @Body(NodeMessageInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Sent." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No such run or node, or empty text." })
+  tell_(c: ApiContext): Promise<Response> {
+    return tellNode(this.ctx, c.req.param("id") ?? "", c.req.param("node") ?? "", valid<NodeMessageInput>(c, "json"));
+  }
+
+  @Post("/runs/{id}/nodes/{node}/answer", {
+    summary: "Answer a node's question",
+    description: "Runs `node answer <id> <node> <text> --from user [--ask <id>]`: stores the answer on the ask (a `node ask --wait` prints it) and sends the node an `answer` message. Without `ask`, answers the node's oldest open ask.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @Body(NodeMessageInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Answered." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No open ask, already answered, or no such run or node." })
+  answer_(c: ApiContext): Promise<Response> {
+    return answerNode(this.ctx, c.req.param("id") ?? "", c.req.param("node") ?? "", valid<NodeMessageInput>(c, "json"));
   }
 
   @Post("/runs/{id}/nodes/{node}/retry", {

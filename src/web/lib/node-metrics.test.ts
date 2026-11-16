@@ -10,10 +10,14 @@ import {
   META_MAX_CHARS,
   actualModelMetric,
   NO_USAGE_TEXT,
+  STARTING_TEXT,
   durationMetric,
+  statusLine,
   modelMetric,
   cardUsageMetric,
   roleTierMetric,
+  effortText,
+  effortTitle,
   roleTierText,
   runTotals,
   summaryUsageMetric,
@@ -230,12 +234,18 @@ describe("session_stats fallback", () => {
 });
 
 describe("card rows always drawn", () => {
-  test("role and tier show placeholders when missing, and are muted only when both are", () => {
-    expect(roleTierMetric(node())).toMatchObject({ text: "role — · tier —", present: false });
-    expect(roleTierMetric(node()).title).toContain("no role or tier");
-    expect(roleTierMetric(node({ role: "planning" }))).toMatchObject({ text: "planning · tier —", present: true });
-    expect(roleTierMetric(node({ tier: "balance" }))).toMatchObject({ text: "role — · balance", present: true });
-    expect(roleTierMetric(node({ role: "planning", tier: "balance" }))).toMatchObject({ text: "planning · balance", present: true });
+  test("role, tier and effort show only known values, and nothing when none is known", () => {
+    expect(roleTierMetric(node())).toMatchObject({ text: "", present: false });
+    expect(roleTierMetric(node({ role: "planning" }))).toMatchObject({ text: "planning", present: true });
+    expect(roleTierMetric(node({ tier: "balance" }))).toMatchObject({ text: "balance", present: true });
+    expect(roleTierMetric(node({ role: "planning", tier: "balance", effort: "medium" }))).toMatchObject({ text: "medium · planning · balance", present: true });
+    expect(roleTierMetric(node({ role: "planning", tier: "balance", effort: "high" })).text).not.toContain("—");
+  });
+
+  test("effortText prefers the stored effort and effortTitle lists the history", () => {
+    expect(effortText(node({ effort: "high" }))).toBe("high");
+    expect(effortTitle(node())).toBeUndefined();
+    expect(effortTitle(node({ effort_history: [{ seq: 1, at: 1, effort: "low" }, { seq: 2, at: 2, effort: "high" }] }))).toBe("effort over time: low → high");
   });
 
   test("usage and cost each have a placeholder", () => {
@@ -264,5 +274,37 @@ describe("alias → actual model", () => {
     expect(missing.text).toBe(NO_ACTUAL_TEXT);
     expect(missing.present).toBe(false);
     expect(actualModelMetric(node({ actual_model: "copilot/gpt-x" })).text).toBe("copilot/gpt-x");
+  });
+});
+
+describe("real run time", () => {
+  const T0 = Date.parse("2026-11-15T10:00:00Z");
+  const at = (s: number): string => new Date(T0 + s * 1000).toISOString();
+
+  test("a starting node shows the starting text with its wait, ticking from dispatch", () => {
+    const n = node({ status: "running", dispatched_at: at(0), started_at: null, seg_open: true });
+    const metric = durationMetric(n, null, T0 + 12_000);
+    expect(metric.text).toBe(`${STARTING_TEXT} · waited 12s`);
+    expect(metric.present).toBe(false);
+    expect(metric.liveSince).toBe(at(0));
+    expect(statusLine(n, 3)).toStartWith(STARTING_TEXT);
+  });
+  test("a timed node shows run time and queue time", () => {
+    const n = node({ status: "done", dispatched_at: at(0), started_at: at(5), finished_at: at(65), seg_open: false, run_segments: [{ dispatched: at(0), start: at(5), end: at(65) }] });
+    const metric = durationMetric(n, null, T0 + 100_000);
+    expect(metric.text).toBe("1m 0s · waited 5s");
+    expect(metric.present).toBe(true);
+    expect(metric.liveSince).toBeNull();
+  });
+  test("run pauses are left out of a node's run time", () => {
+    const n = node({ status: "running", dispatched_at: at(0), started_at: at(0), seg_open: true });
+    const metric = durationMetric(n, { pauses: [{ from: at(10), to: at(40) }] }, T0 + 60_000);
+    expect(metric.text).toBe("30s");
+    expect(metric.liveSince).toBe(at(0));
+  });
+  test("runTotals leaves pauses out", () => {
+    const totals = runTotals({ started: at(0), finished: at(120), nodes: [node()], pauses: [{ from: at(30), to: at(90) }] });
+    expect(totals.duration.text).toBe("1m 0s");
+    expect(totals.duration.title).toContain("1m 0s paused or stopped, left out");
   });
 });

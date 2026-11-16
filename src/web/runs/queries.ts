@@ -21,6 +21,7 @@ export const runKeys = {
   jobLog: (id: string): string => `job-log:${id}`,
   jobChat: (id: string): string => `job-chat:${id}`,
   nodeActivity: (run: string, node: string): string => `node-activity:${run}:${node}`,
+  messages: (id: string): string => `run-messages:${id}`,
   health: (id: string): string => `run-health:${id}`,
   healthSummary: "health-summary",
   watchdog: "watchdog",
@@ -175,6 +176,24 @@ export function useNodeActivity(runId: string, nodeId: string, enabled: boolean,
       return result.body;
     },
     refetchInterval: live ? 3000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+}
+
+/** The run's inbox messages, polled every 5 s while a node panel is open on a live run. */
+export function useRunMessages(runId: string, live: boolean) {
+  return useQuery({
+    queryKey: [runKeys.messages(runId)],
+    queryFn: async () => {
+      const result = await api.getRunMessages(runId);
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body.messages;
+    },
+    refetchInterval: live ? 5000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: false,

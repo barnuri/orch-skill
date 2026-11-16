@@ -135,3 +135,18 @@ export class NodeActivityEnvelopeDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "Cursor for `after`: the newest message id." })
   next!: string | null;
 }
+
+@ZodObject({ description: "A message from the user to one node." })
+export class NodeMessageInputDto extends ZodDto {
+  @ZodField(z.string().trim().min(1).max(16000), { description: "The message text." })
+  text!: string;
+
+  @ZodField(z.string().regex(/^m\d{1,9}$/).optional(), { description: "Answer only: the ask id (e.g. `m3`). Default: the node's oldest open ask." })
+  ask?: string;
+}
+
+@ZodObject({ description: "A run's messages, oldest first." })
+export class RunMessagesEnvelopeDto extends ZodDto {
+  @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Messages {id, seq, from, to, kind (tell|ask|answer|rule), at, text, status, delivered_at, via, answer?, answered_at?, reply_to?}." })
+  messages!: Record<string, unknown>[];
+}

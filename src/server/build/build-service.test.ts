@@ -1,3 +1,4 @@
+// test-tier: slow (real git repositories)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

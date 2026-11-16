@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 
 import { ApiClient } from "../../snapshot/src/api/api-client";
 import { IslandSource } from "../../snapshot/src/api/island-source";
@@ -15,6 +16,12 @@ import type { IslandSet } from "./island-builder";
 const RUN_ID: string = "20260915-120000-aaaa";
 const OTHER_RUN_ID: string = "20260915-130000-bbbb";
 const JOB_ID: string = "20260915-120001-pid-1-1-1";
+
+// The harnesses island comes from `dispatch.sh harness list`, which probes every real binary
+// (about 10 s per build). The fake answers the same JSON shape without probing.
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const previousDispatch = process.env["ORCH_DISPATCH"];
+process.env["ORCH_DISPATCH"] = FAKE_DISPATCH;
 
 const homes: TempHome[] = [];
 
@@ -75,6 +82,11 @@ function hostForIslands(islands: IslandSet): IslandHost {
 }
 
 afterAll(() => {
+  if (previousDispatch === undefined) {
+    delete process.env["ORCH_DISPATCH"];
+  } else {
+    process.env["ORCH_DISPATCH"] = previousDispatch;
+  }
   for (const home of homes.splice(0)) {
     home.dispose();
   }

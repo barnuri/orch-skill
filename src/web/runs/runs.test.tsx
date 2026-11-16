@@ -272,8 +272,11 @@ describe("visibility", () => {
     const { unmount } = render(<NodePanel run={runOf([withEffort])} selectedId="n1" maxAttempts={5} flash={0} />);
     expect(screen.getByText("effort").nextElementSibling?.textContent).toBe("high");
     unmount();
+    const { unmount: unmount2 } = render(<NodePanel run={runOf([node({ status: "done", effort: "medium" })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(screen.getByText("effort").nextElementSibling?.textContent).toBe("medium");
+    unmount2();
     render(<NodePanel run={runOf([node({ status: "done" })])} selectedId="n1" maxAttempts={5} flash={0} />);
-    expect(screen.getByText("effort").nextElementSibling?.textContent).toBe("not set");
+    expect(screen.queryByText("effort")).toBeNull();
   });
 
   test("a run row shows the stale chip and updated, and survives their absence", () => {

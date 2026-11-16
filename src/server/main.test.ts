@@ -1,3 +1,4 @@
+// test-tier: slow (real server processes)
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

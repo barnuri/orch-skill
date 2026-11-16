@@ -4,6 +4,7 @@ import type { ApiError } from "../../shared/types/api-error";
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
 import type { JobLogEnvelope } from "../../shared/types/job-log-envelope";
 import type { RunEnvelope } from "../../shared/types/run-envelope";
+import type { RunMessagesEnvelope } from "../../shared/types/run-message";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
 import { etagOf } from "../documents/document-store";
 import type { RouteHandler } from "../http/route";
@@ -11,6 +12,7 @@ import { jsonResponse, notFound, notModified } from "../http/responses";
 import { readJobLog, readJobSession } from "../runs/job-log-reader";
 import { OwnerActivityReader, homeSpawner } from "../runs/owner-activity";
 import { readEvents } from "../runs/run-events-reader";
+import { readRunMessages } from "../runs/run-messages-reader";
 import { readRun, listRuns } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
 import type { ServerContext } from "../types/server-context";
@@ -109,6 +111,34 @@ export function cancelNodeHandler(ctx: ServerContext): RouteHandler {
       return jsonResponse(400, { error: "missing run or node id" });
     }
     return dispatchSubcommand(ctx, ["node", "cancel", runId, nodeId]);
+  };
+}
+
+/** A user message for a node, as the controller validated it. */
+export interface NodeMessageInput {
+  text: string;
+  ask?: string;
+}
+
+/** Sends a message to a node: `node tell <id> <node> <text> --from user`. Delivered by herdr pane or inbox. */
+export function tellNode(ctx: ServerContext, runId: string, nodeId: string, input: NodeMessageInput): Promise<Response> {
+  return dispatchSubcommand(ctx, ["node", "tell", runId, nodeId, input.text.trim(), "--from", "user"]);
+}
+
+/** Answers a node's open ask: `node answer <id> <node> <text> --from user [--ask <id>]`. */
+export function answerNode(ctx: ServerContext, runId: string, nodeId: string, input: NodeMessageInput): Promise<Response> {
+  const args = ["node", "answer", runId, nodeId, input.text.trim(), "--from", "user"];
+  if (input.ask !== undefined && input.ask !== "") {
+    args.push("--ask", input.ask);
+  }
+  return dispatchSubcommand(ctx, args);
+}
+
+/** Every message of a run, oldest first (tells, asks with their answers, answers). */
+export function readRunMessagesHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+    const body: RunMessagesEnvelope = { messages: readRunMessages(ctx.paths, params.id ?? "") };
+    return jsonResponse(200, body);
   };
 }
 

@@ -292,7 +292,7 @@ describe("POST retry routes (real dispatch.sh smoke)", () => {
 });
 
 describe.concurrent("POST stop route", () => {
-  test("run stop cancels the run, errors running nodes and skips waiting ones", async () => {
+  test("run stop is resumable: it marks the run and its running nodes stopped and leaves the rest", async () => {
     const srv = server();
     seed(
       srv,
@@ -309,10 +309,9 @@ describe.concurrent("POST stop route", () => {
     const res = await srv.api(`/api/runs/${RUN_ID}/stop`, { method: "POST" });
     expect(res.status).toBe(200);
     const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
-    expect(state.status).toBe("cancelled");
-    expect(state.finished).not.toBeNull();
-    expect(state.nodes.map((item) => item.status)).toEqual(["error", "skipped", "done"]);
-    expect(state.nodes[0]?.error).toBe("cancelled");
+    expect(state.status).not.toBe("cancelled");
+    expect(state.stopped).toBe(true);
+    expect(state.nodes.map((item): string => item.status)).toEqual(["stopped", "waiting", "done"]);
   });
 
   test("an unknown run is a validation error", async () => {

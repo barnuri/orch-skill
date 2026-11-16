@@ -1,6 +1,9 @@
 import { nodeUsage, runUsage } from "../../shared/run-usage";
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
+import { hasTiming, isStarting, nodeTiming, pauseSpans } from "../../shared/node-timing";
+import type { TimedRun } from "../../shared/node-timing";
+import { formatDuration } from "./duration";
 import { fmtDur, fmtTokens, fmtUsd, truncate } from "./format";
 import { modelPick, pickLabel, shortModel } from "./model-pick";
 import { holdReason, needsUserReason } from "./node-flags";
@@ -113,11 +116,22 @@ export function usageMetric(node: RunNode): Metric {
   return { text: NO_USAGE_TEXT, present: false, title: `${inlineReason(node)}: no usage was reported` };
 }
 
+/** Prefix of the duration and status of a node dispatched but not yet running. */
+export const STARTING_TEXT = "◷ starting";
+export const NO_START_TEXT = "—";
+
+/** `waited 12s`, the queue time between dispatch and first real activity. */
+export function waitedText(waitedMs: number): string {
+  return `waited ${formatDuration(waitedMs)}`;
+}
+
 /**
  * Elapsed time. Running nodes carry `liveSince` so the caller can tick them; waiting nodes read
  * "not started"; a finished node with no start stamp says so rather than showing a blank.
+ * A node with timing fields (`dispatched_at`, `started_at`, ...) shows real run time: summed over
+ * attempts, minus the run's paused and stopped stretches, with queue time as `waited Ns`.
  */
-export function durationMetric(node: RunNode): DurationMetric {
+export function durationMetric(node: RunNode, run?: TimedRun | null, nowMs: number = Date.now()): DurationMetric {
   const { status, started, finished } = node;
   const stats = node.session_stats ?? null;
   // Fallback when the node's own stamps cannot give a duration: the bound opencode session's span.
@@ -125,6 +139,9 @@ export function durationMetric(node: RunNode): DurationMetric {
     stats === null || !(stats.duration_s > 0)
       ? null
       : { text: fmtDur(stats.created, stats.updated), present: true, liveSince: null, title: `${stats.created} to ${stats.updated}: the bound opencode session` };
+  if (hasTiming(node)) {
+    return timedDuration(node, run, nowMs, sessionDuration);
+  }
   if (status === "running" && started !== null) {
     return { text: fmtDur(started), present: true, liveSince: started, title: `running since ${started}` };
   }
@@ -150,23 +167,53 @@ export function durationMetric(node: RunNode): DurationMetric {
   return { text: fmtDur(started, finished), present: true, liveSince: null, title: `${started} to ${finished}${inline}` };
 }
 
-export const NO_ROLE_TEXT = "role —";
-export const NO_TIER_TEXT = "tier —";
+function timedDuration(node: RunNode, run: TimedRun | null | undefined, nowMs: number, sessionDuration: () => DurationMetric | null): DurationMetric {
+  const t = nodeTiming(node, run, nowMs);
+  const waited = t.waitedMs >= 1000 ? waitedText(t.waitedMs) : null;
+  const span = `dispatched ${node.dispatched_at ?? "—"}, started ${node.started_at ?? "—"}, finished ${node.finished_at ?? "—"}`;
+  if (t.phase === "starting") {
+    return {
+      text: `${STARTING_TEXT} · ${waitedText(t.waitedMs)}`,
+      present: false,
+      liveSince: t.waitingSince,
+      title: `dispatched ${node.dispatched_at ?? ""}, no real activity yet (no owner event, session or job-log growth, or ping)`,
+    };
+  }
+  if (t.runMs === null) {
+    if (node.status === "waiting" || node.status === "skipped") {
+      return { text: NOT_STARTED_TEXT, present: false, liveSince: null, title: node.status === "waiting" ? "waiting for its dependencies or dispatch" : "skipped before it started" };
+    }
+    const fromSession = sessionDuration();
+    if (fromSession !== null) {
+      return fromSession;
+    }
+    return { text: NO_START_TEXT, present: false, liveSince: null, title: `no real start time was recorded for this node (${span})` };
+  }
+  const text = waited === null ? formatDuration(t.runMs) : `${formatDuration(t.runMs)} · ${waited}`;
+  const attempts = (node.run_segments ?? []).length + (node.seg_open === true ? 1 : 0);
+  const sum = attempts > 1 ? `, summed over ${attempts} attempts` : "";
+  return {
+    text,
+    present: true,
+    liveSince: t.liveSince,
+    title: `ran ${formatDuration(t.runMs)}${sum}, paused and stopped time left out${waited === null ? "" : `; ${waited} before it started`}\n${span}`,
+  };
+}
 
 /**
- * The card's role and tier row, always drawn: `planning · balance`, with `role —` / `tier —` for a
- * value the node was not added with. Muted (not present) only when both are missing.
+ * The card's effort, role and tier row: only the values the node has, as `medium · planning · balance`.
+ * Effort leads so a cut row still shows it.
+ * Empty text and not present when none is known, so the card draws nothing.
  */
 export function roleTierMetric(node: RunNode): Metric {
-  const role: string | null = node.role ?? null;
-  const tier: string | null = node.tier ?? null;
-  const text = `${role ?? NO_ROLE_TEXT} · ${tier ?? NO_TIER_TEXT}`;
-  const missing = [role === null ? "role" : null, tier === null ? "tier" : null].filter((part): part is string => part !== null);
-  const title =
-    missing.length === 0
-      ? `role ${role ?? ""} · tier ${tier ?? ""}`
-      : `${role !== null ? `role ${role}; ` : tier !== null ? `tier ${tier}; ` : ""}no ${missing.join(" or ")} was recorded for this node. \`node add --role R --tier T\` sets them.`;
-  return { text, present: role !== null || tier !== null, title };
+  const role = nonEmpty(node.role ?? null);
+  const tier = nonEmpty(node.tier ?? null);
+  const effort = effortText(node);
+  const parts = [effort, role, tier].filter((part): part is string => part !== null);
+  const title = [role === null ? null : `role ${role}`, tier === null ? null : `tier ${tier}`, effort === null ? null : `effort ${effort}`]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  return { text: parts.join(" · "), present: parts.length > 0, title };
 }
 
 export const NO_TOKENS_TEXT = "usage —";
@@ -192,16 +239,26 @@ export function roleTierText(node: RunNode): string | null {
 }
 
 /**
- * The effort the node ran with, from its newest selection event: confirmed, else sent, else
- * selected, else requested. Null when no selection event carries an effort.
+ * The effort the node ran with: `node.effort` (written by `node selections`), else the newest
+ * selection event's confirmed, sent, selected or requested effort. Null when none is known.
  */
 export function effortText(node: RunNode): string | null {
+  const stored = nonEmpty(node.effort ?? null);
+  if (stored !== null) {
+    return stored;
+  }
   const history = node.selection_history ?? [];
   const latest = history.reduce<(typeof history)[number] | null>((best, event) => (best === null || event.seq > best.seq ? event : best), null);
   if (latest === null) {
     return null;
   }
   return nonEmpty(latest.confirmed_effort) ?? nonEmpty(latest.sent_effort) ?? nonEmpty(latest.selected_effort) ?? nonEmpty(latest.requested_effort);
+}
+
+/** The effort changes as `low → medium → high`, or undefined when the node has no history. */
+export function effortTitle(node: RunNode): string | undefined {
+  const history = (node.effort_history ?? []).map((entry) => entry.effort).filter((effort) => effort !== "");
+  return history.length === 0 ? undefined : `effort over time: ${history.join(ARROW)}`;
 }
 
 export interface RunTotals {
@@ -211,15 +268,26 @@ export interface RunTotals {
   total: number;
 }
 
-export function runTotals(run: Pick<RunState, "started" | "finished" | "nodes">): RunTotals {
+export function runTotals(run: Pick<RunState, "started" | "finished" | "nodes"> & TimedRun, nowMs: number = Date.now()): RunTotals {
   const usage = runUsage(run.nodes);
   const done = run.nodes.filter((node) => node.status === "done").length;
   const live = run.finished === null || run.finished === undefined;
+  const from = Date.parse(run.started);
+  const to = live ? nowMs : Date.parse(run.finished ?? "");
+  let pausedMs = 0;
+  for (const [a, b] of pauseSpans(run, nowMs)) {
+    const lo = Math.max(a, from);
+    const hi = Math.min(b, to);
+    pausedMs += hi > lo ? hi - lo : 0;
+  }
+  const spanMs = to - from;
+  const text = Number.isNaN(spanMs) || spanMs < 0 ? fmtDur(null) : formatDuration(spanMs - pausedMs);
+  const paused = pausedMs >= 1000 ? `; ${formatDuration(pausedMs)} paused or stopped, left out` : "";
   const duration: DurationMetric = {
-    text: fmtDur(run.started, run.finished ?? undefined),
+    text,
     present: true,
     liveSince: live ? run.started : null,
-    title: live ? `running since ${run.started}` : `${run.started} to ${run.finished}`,
+    title: `${live ? `running since ${run.started}` : `${run.started} to ${run.finished}`}${paused}`,
   };
   return { duration, usage: usageTotalMetric(usage), done, total: run.nodes.length };
 }
@@ -265,7 +333,8 @@ export function attemptLine(node: RunNode, maxAttempts: number): string {
 
 /** The status row of a node card: `done · attempt 1/5`. Fits the node's width. */
 export function statusLine(node: RunNode, maxAttempts: number): string {
-  return truncate(`${node.status} · ${attemptLine(node, maxAttempts)}`, Math.max(META_MIN_CHARS, META_MAX_CHARS));
+  const word = isStarting(node) ? STARTING_TEXT : node.status;
+  return truncate(`${word} · ${attemptLine(node, maxAttempts)}`, Math.max(META_MIN_CHARS, META_MAX_CHARS));
 }
 
 export const READY_NOT_STARTED_TEXT = "ready, not started";

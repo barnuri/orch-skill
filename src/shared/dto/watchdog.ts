@@ -1,7 +1,7 @@
 import { ZodDto, ZodField, ZodObject } from "@barnuri/zod-decorators";
 import { z } from "zod";
 
-const RULES = ["lost", "stalled", "unverified", "infra-retry", "finish"] as const;
+const RULES = ["lost", "stalled", "unverified", "infra-retry", "starting", "finish"] as const;
 
 @ZodObject({ description: "One watchdog action, as one line of `<home>/watchdog/actions.log`." })
 export class WatchdogActionDto extends ZodDto {

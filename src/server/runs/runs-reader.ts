@@ -9,7 +9,15 @@ import type { RunSummary } from "../../shared/types/run-summary";
 import { runUsage } from "../../shared/run-usage";
 import type { OrchPaths } from "../types/orch-paths";
 import { annotateActivity } from "./node-activity";
+import { timingSummary } from "../../shared/node-timing";
 import { isRunId } from "./run-id";
+
+/** Adds the computed `timing` (phase, run and wait seconds) to every node, in place. */
+export function annotateTiming(run: RunState, nowMs: number = Date.now()): void {
+  for (const node of run.nodes ?? []) {
+    node.timing = timingSummary(node, run, nowMs);
+  }
+}
 
 const STATE_FILE: string = "state.json";
 const MISSING_FILE_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
@@ -180,5 +188,6 @@ export function readRun(paths: OrchPaths, id: string): RunReadResult {
     return { kind: "corrupt", reason: loaded.reason };
   }
   annotateActivity(paths, loaded.state);
+  annotateTiming(loaded.state);
   return { kind: "ok", run: loaded.state };
 }

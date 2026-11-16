@@ -1,3 +1,4 @@
+// test-tier: slow (real dispatch.sh schedule runs)
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,13 +34,13 @@ async function sh(home: string, ...args: string[]): Promise<string> {
 }
 
 async function settle(home: string, id: string): Promise<void> {
-  for (let i = 0; i < 60; i += 1) {
+  for (let i = 0; i < 300; i += 1) {
     const dir = join(home, "schedules", id, "runs");
     const finished = existsSync(dir) && readdirSync(dir).some((run) => existsSync(join(dir, run, "exit")));
     if (finished) {
       return;
     }
-    await Bun.sleep(250);
+    await Bun.sleep(50);
   }
 }
 

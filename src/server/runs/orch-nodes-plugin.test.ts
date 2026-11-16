@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolve } from "node:path";
 
-const plugin = await import(join(homedir(), ".config/opencode/plugins/orch-nodes.js"));
+import { TempHome } from "../test-support/temp-home.ts";
+
+// The repo copy; install.sh links it into ~/.config/opencode/plugins.
+const plugin = await import(resolve(import.meta.dir, "../../../mods/opencode/orch-nodes.js"));
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 
 describe("orch-nodes opencode plugin", () => {
   test("mapEvent maps idle, error and busy; ignores the rest", () => {
@@ -102,4 +105,111 @@ describe("orch-nodes opencode plugin", () => {
     expect(calls[1]).toEqual(["/d.sh", "owner", "event", "ses_c", "started", "--harness", "opencode"]);
     expect(calls[2]?.[4]).toBe("alive");
   });
+
+  test("nodeOf reads the registry, else the dispatched node from the env", () => {
+    const read = (p: string) => {
+      if (p === "/h/owners/ses_r.json") return JSON.stringify({ run: "r1", node: "a", since: "x" });
+      throw new Error("missing");
+    };
+    expect(plugin.nodeOf("/h", "ses_r", { env: {}, read })).toEqual({ run: "r1", node: "a" });
+    expect(plugin.nodeOf("/h", "ses_x", { env: { ORCH_RUN_ID: "r2", ORCH_NODE_ID: "b" }, read })).toEqual({ run: "r2", node: "b" });
+    expect(plugin.nodeOf("/h", "ses_x", { env: {}, read })).toBeNull();
+  });
+
+  test("formatMessages: one line per message, answers name the ask", () => {
+    expect(plugin.formatMessages([
+      { id: "m1", from: "orch", kind: "tell", text: "stop" },
+      { id: "m2", from: "orch", kind: "answer", reply_to: "a1", text: "yes" },
+    ])).toBe("[orch message m1 from orch] stop\n[orch answer a1 from orch] yes");
+  });
+
+  test("usageTerms: tool, plus skill or subagent names; bad names dropped", () => {
+    expect(plugin.usageTerms("bash", {})).toEqual(["tool.bash"]);
+    expect(plugin.usageTerms("skill", { name: "code-gen" })).toEqual(["tool.skill", "skill.code-gen"]);
+    expect(plugin.usageTerms("task", { subagent_type: "explore" })).toEqual(["tool.task", "subagent.explore"]);
+    expect(plugin.usageTerms("mcp server/tool", {})).toEqual(["tool.mcp_server_tool"]);
+    expect(plugin.usageTerms("", {})).toEqual([]);
+  });
+
+  test("usage: counts batch into one node usage call, flushed after 30 s or on idle", () => {
+    const calls: string[][] = [];
+    let t = 0;
+    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.sh", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" }, now: () => t, run: (_c: string, a: string[]) => calls.push(a) });
+    u.count("ses_a", "bash", {});
+    u.count("ses_a", "bash", {});
+    u.count("ses_a", "read", {});
+    expect(calls.length).toBe(0);
+    t = 31_000;
+    u.count("ses_a", "bash", {});
+    expect(calls).toEqual([["/d.sh", "node", "usage", "r1", "a", "--add", "tool.bash=3", "--add", "tool.read=1"]]);
+    u.count("ses_a", "edit", {});
+    expect(u.flush("ses_a")).toBe(true);
+    expect(calls[1]).toEqual(["/d.sh", "node", "usage", "r1", "a", "--add", "tool.edit=1"]);
+    expect(u.flush("ses_a")).toBe(false);
+  });
+
+  test("usage: a session that is no orch node counts nothing", () => {
+    const calls: string[][] = [];
+    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.sh", HARNESS_ORCH_HOME: "/nonexistent" }, run: (_c: string, a: string[]) => calls.push(a) });
+    expect(u.count("ses_z", "bash", {})).toBe(false);
+    expect(u.flush("ses_z")).toBe(false);
+  });
+
+  test("inbox: no pending file, no CLI call; throttled to one look per 5 s", () => {
+    const calls: string[][] = [];
+    let t = 0;
+    let files: string[] = [];
+    const inbox = plugin.createInbox({
+      env: { ORCH_DISPATCH: "/d.sh", HARNESS_ORCH_HOME: "/h", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" },
+      now: () => t,
+      readdir: () => files,
+      read: (p: string) => {
+        if (p.endsWith("1.json")) return JSON.stringify({ status: "pending" });
+        throw new Error("missing");
+      },
+      runSync: (_c: string, a: string[]) => {
+        calls.push(a);
+        return JSON.stringify([{ id: "m1", from: "orch", kind: "tell", text: "hi" }]);
+      },
+    });
+    expect(inbox("ses_a")).toBeNull();
+    expect(calls.length).toBe(0);
+    files = ["1.json"];
+    t = 1_000;
+    expect(inbox("ses_a")).toBeNull();
+    t = 6_000;
+    expect(inbox("ses_a")).toBe("[orch message m1 from orch] hi");
+    expect(calls).toEqual([["/d.sh", "node", "inbox", "r1", "a", "--json", "--via", "plugin"]]);
+  });
+
+  test("inbox and usage against the real dispatch.sh", () => {
+    const home = TempHome.create();
+    try {
+      const env = { ...process.env, HARNESS_ORCH_HOME: home.path, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0" };
+      const sh = (...args: string[]) => Bun.spawnSync(["bash", DISPATCH, ...args], { env }).stdout.toString().trim();
+      const run = sh("run", "start", "plugin inbox");
+      sh("node", "add", run, "a", "Node a");
+      sh("node", "tell", run, "a", "read the plan first");
+      let t = 0;
+      const penv = { HARNESS_ORCH_HOME: home.path, ORCH_DISPATCH: DISPATCH, ORCH_RUN_ID: run, ORCH_NODE_ID: "a" };
+      const inbox = plugin.createInbox({ env: penv, now: () => t, runSync: (c: string, a: string[]) => {
+        const r = Bun.spawnSync([c, ...a], { env: { ...env } });
+        return r.exitCode === 0 ? r.stdout.toString() : null;
+      } });
+      expect(inbox("ses_a")).toMatch(/^\[orch message \S+ from orch\] read the plan first$/);
+      t = 10_000;
+      expect(inbox("ses_a")).toBeNull();
+      const msgs = JSON.parse(sh("run", "messages", run, "--json"));
+      expect(msgs[0]).toMatchObject({ status: "delivered", via: "plugin" });
+
+      const usage = plugin.createUsage({ env: penv, run: (c: string, a: string[]) => Bun.spawnSync([c, ...a], { env }) });
+      usage.count("ses_a", "bash", {});
+      usage.count("ses_a", "skill", { name: "cr" });
+      usage.flush("ses_a");
+      const state = JSON.parse(home.read(`runs/${run}/state.json`));
+      expect(state.nodes[0].usage).toMatchObject({ tool: { bash: 1, skill: 1 }, skill: { cr: 1 } });
+    } finally {
+      home.dispose();
+    }
+  }, 60_000);
 });

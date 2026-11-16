@@ -23,7 +23,12 @@ import { RunEngine, type Starter } from "../runs/auto-dispatch";
  *    (`node update ... error --force`, then `node retry`), then flagged.
  *  - infra-retry: a node seen turning error with an infrastructure error (dispatch exit, model
  *    unavailable, process died, job vanished) gets one `node retry`. Test failures are never retried.
+ *  - starting: a node dispatched (running, segment open) with no started_at for STARTING_AFTER_MS
+ *    is marked error "stuck starting" (an infrastructure failure) and gets one `node retry`.
  *  - finish: an auto_dispatch run whose nodes are all done gets `run finish`.
+ *  - owners: `node bind-owners --run <run>` at most once per sweep interval while a node runs or
+ *    finished within the last 10 minutes, and once per run as a backfill (claim `owners-backfill`).
+ *    It links each dispatched job to its opencode session and fills model, tier, usage and cost.
  * Every action appends one JSON line to `<home>/watchdog/actions.log`. Once-only markers are
  * exclusive-create claim files under `<home>/watchdog/<run>/claims/`, so a restart or a second
  * server never repeats an action. Run state changes only through `dispatch.sh`.
@@ -31,10 +36,14 @@ import { RunEngine, type Starter } from "../runs/auto-dispatch";
 
 export const LOST_AFTER_MS: number = 120_000;
 export const STALL_MIN_DEFAULT: number = 15;
+/** A node still `starting` (dispatched, no real activity) after this long is retried once. */
+export const STARTING_AFTER_MS: number = 180_000;
+export const OWNERS_EVERY_MS: number = 30_000;
+const OWNERS_RECENT_MS: number = 600_000;
 const LAST_ACTIONS: number = 50;
 const LOG_TAIL_BYTES: number = 512 * 1024;
 
-const INFRA_ERROR: RegExp = /dispatch exit|exit=unknown|model (is )?(unavailable|not available)|process died|job vanished|job (is )?gone/i;
+const INFRA_ERROR: RegExp = /stuck starting|dispatch exit|exit=unknown|model (is )?(unavailable|not available)|process died|job vanished|job (is )?gone/i;
 const TEST_FAILURE: RegExp = /tests? fail|failing tests?|test(s)? did not pass|assertion/i;
 
 interface WatchNode {
@@ -43,6 +52,12 @@ interface WatchNode {
   job_id?: string | null;
   owner_kind?: string | null;
   owner_id?: string | null;
+  /** "job": the session was linked from the node's own job; liveness stays with the job. */
+  owner_bind?: string | null;
+  /** Timing (lib/runs/timing.sh): set at dispatch, at the first real activity, and an open segment. */
+  dispatched_at?: string | null;
+  started_at?: string | null;
+  seg_open?: boolean | null;
   error?: string | null;
   out_dir?: string | null;
   updated?: string | null;
@@ -80,6 +95,10 @@ export interface WatchdogOptions {
   /** Whether a pid answers; default: kill(pid, 0). */
   pidAlive?: (pid: number) => boolean;
   lostAfterMs?: number;
+  /** Time a node may stay `starting` before the watchdog retries it; default STARTING_AFTER_MS. */
+  startingAfterMs?: number;
+  /** Least time between two `node bind-owners` calls for one run; default OWNERS_EVERY_MS. */
+  ownersEveryMs?: number;
 }
 
 /** Infra error, never a test failure: the only errors the watchdog retries by itself. */
@@ -200,6 +219,11 @@ export class WatchdogService {
   private readonly health: (runId: string) => RunHealth | null;
   private readonly pidAlive: (pid: number) => boolean;
   private readonly lostAfterMs: number;
+  private readonly startingAfterMs: number;
+  private readonly ownersEveryMs: number;
+  /** Last `node bind-owners` start per run, and the runs with one in flight. */
+  private readonly ownersAt = new Map<string, number>();
+  private readonly ownersBusy = new Set<string>();
   private readonly deadSince = new Map<string, number>();
   /** Last seen job log size per `<run>/<node>/<job>`, to tell a growing log from a quiet one. */
   private readonly logSize = new Map<string, number>();
@@ -216,6 +240,8 @@ export class WatchdogService {
     this.log = opts.log ?? ((line) => void process.stderr.write(`watchdog: ${line}\n`));
     this.pidAlive = opts.pidAlive ?? defaultPidAlive;
     this.lostAfterMs = opts.lostAfterMs ?? LOST_AFTER_MS;
+    this.startingAfterMs = opts.startingAfterMs ?? STARTING_AFTER_MS;
+    this.ownersEveryMs = opts.ownersEveryMs ?? OWNERS_EVERY_MS;
     const paths = orchPaths(home);
     this.health = opts.health ?? ((runId): RunHealth | null => healthWatcherFor(paths).latest(runId)?.health ?? null);
     this.engine = new RunEngine(home, {
@@ -254,6 +280,9 @@ export class WatchdogService {
       const turned = (to: string): boolean => node.status === to && from !== undefined && from !== to;
       const verdict = healthById.get(node.id)?.health ?? null;
       if (node.status === "running") {
+        if (this.checkStarting(runId, node)) {
+          continue;
+        }
         const ev = this.jobEvidence(runId, node);
         this.checkLiveness(runId, node, verdict, ev);
         this.checkStall(runId, node, verdict, healthById.get(node.id)?.idle_min ?? null, ev);
@@ -267,6 +296,61 @@ export class WatchdogService {
       }
     }
     this.checkFinish(runId, state, nodes);
+    this.syncOwners(runId, nodes);
+  }
+
+  /** Binds jobs to their sessions and fills node figures: `node bind-owners`, throttled per run. */
+  private syncOwners(runId: string, nodes: WatchNode[]): void {
+    const nowMs = this.now().getTime();
+    const last = this.ownersAt.get(runId);
+    if (this.ownersBusy.has(runId) || (last !== undefined && nowMs - last < this.ownersEveryMs)) {
+      return;
+    }
+    const recent = nodes.some((n) => n.status === "running"
+      || ((n.status === "done" || n.status === "error") && nowMs - (Date.parse(n.updated ?? "") || 0) < OWNERS_RECENT_MS));
+    if (!recent && !this.claim(runId, "owners-backfill")) {
+      return;
+    }
+    this.ownersAt.set(runId, nowMs);
+    this.ownersBusy.add(runId);
+    const p = this.runDispatch(["node", "bind-owners", "--run", runId], this.home)
+      .then((rc) => {
+        if (rc !== 0) {
+          this.log(`node bind-owners --run ${runId} rc=${rc}`);
+        }
+      })
+      .catch((err: unknown) => this.log(`node bind-owners --run ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        this.ownersBusy.delete(runId);
+        this.inflight.delete(p);
+      });
+    this.inflight.add(p);
+  }
+
+  /** True when the node is still starting (so the liveness and stall rules do not apply yet). */
+  private checkStarting(runId: string, node: WatchNode): boolean {
+    if (node.seg_open !== true || (node.started_at ?? null) !== null || typeof node.dispatched_at !== "string") {
+      return false;
+    }
+    const waited = this.now().getTime() - (Date.parse(node.dispatched_at) || 0);
+    if (waited < this.startingAfterMs) {
+      return true;
+    }
+    const attempt = (node.attempts ?? []).length;
+    if (!this.claim(runId, `starting-${node.id}@${attempt}`)) {
+      return true;
+    }
+    const detail = `starting for ${Math.round(waited / 1000)}s with no activity`;
+    const retry = this.claim(runId, `retry-${node.id}`);
+    this.chain(runId, node.id, async () => {
+      await this.act(runId, node.id, "starting", ["node", "update", runId, node.id, "error", "--error", "stuck starting"], detail);
+      if (retry) {
+        await this.act(runId, node.id, "starting", ["node", "retry", runId, node.id], "one automatic retry");
+      } else {
+        this.flag(runId, node.id, "starting", `${detail}; retry already used`, "error");
+      }
+    });
+    return true;
   }
 
   private checkLiveness(runId: string, node: WatchNode, verdict: string | null, ev: JobEvidence): void {
@@ -353,7 +437,7 @@ export class WatchdogService {
     if (ev.pidAlive === true || this.logActive(ev, this.lostAfterMs)) {
       return null;
     }
-    if (ev.job !== null && (node.owner_kind ?? "job") === "job") {
+    if (ev.job !== null && ((node.owner_kind ?? "job") === "job" || node.owner_bind === "job")) {
       if (!ev.exists) {
         return `job ${ev.job} vanished`;
       }

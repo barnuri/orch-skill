@@ -27,7 +27,7 @@
   --focus: light-dark(#1f3fb0, #b3c7ff);
 
   /* Status palette (the pre-makeover colours). The accent (--acc, blue) is brand/UI state only and never means a status.
-     running blue, done green, error red, waiting grey, skipped dim grey, stale amber. Text-safe
+     running blue, starting teal, done green, error red, waiting grey, skipped dim grey, stale amber. Text-safe
      values: each clears 4.5:1 on panel and on its own soft background. */
   --status-running: light-dark(#1555b8, #7ab0ff);
   --status-done: light-dark(#0b6540, #3fcf8e);
@@ -35,6 +35,8 @@
   --status-waiting: light-dark(#555c68, #8b94a3);
   --status-skipped: light-dark(#5b626d, #8a919d);
   --status-stale: light-dark(#7f5000, #f5b545);
+  /* starting: dispatched, no real activity yet. Teal, apart from running blue and stale amber. */
+  --status-starting: light-dark(#0b6470, #4fd1de);
   --pu: light-dark(#7b3fb0, #c792ea);
 
   --mark-claude: light-dark(#a85434, #d97757);
@@ -106,6 +108,8 @@
   --status-skipped-bd: color-mix(in srgb, var(--status-skipped) var(--ring), transparent);
   --status-stale-bg: color-mix(in srgb, var(--status-stale) var(--tint), transparent);
   --status-stale-bd: color-mix(in srgb, var(--status-stale) var(--ring), transparent);
+  --status-starting-bg: color-mix(in srgb, var(--status-starting) var(--tint), transparent);
+  --status-starting-bd: color-mix(in srgb, var(--status-starting) var(--ring), transparent);
   --ok: var(--status-done); --wa: var(--status-stale); --er: var(--status-error); --mute: var(--status-waiting);
   --okbg: var(--status-done-bg); --okbd: var(--status-done-bd);
   --wabg: var(--status-stale-bg); --wabd: var(--status-stale-bd);

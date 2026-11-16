@@ -318,6 +318,9 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.error .mark { fill: var(--status-error); }
 .node.error .frame { stroke: var(--status-error); }
 .node.skipped .mark { fill: var(--status-skipped); }
+/* Starting: dispatched, no real activity yet. Same pulse as running, in the starting colour. */
+.node.running.is-starting .mark { fill: var(--status-starting); }
+.node.running.is-starting .metric.dur { fill: var(--status-starting); }
 .node.skipped text { fill: var(--tx3); text-decoration: line-through; }
 /* The mark bar is the status channel — waiting grey, running blue, done green, error red.
    The profile is carried by the frame stroke below, so the profile accent must not tint it. */

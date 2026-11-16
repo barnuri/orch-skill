@@ -67,6 +67,8 @@ describe("every model chat-options offers is accepted on send", () => {
       await Promise.all(jobs.slice(i, i + BATCH).map((job) => job()));
     }
     const checked = jobs.length;
-    expect(checked).toBeGreaterThan(15);
+    // The tracked template holds only the claude, cursor, copilot and opencode profiles; llm-hub and
+    // local profiles live in the gitignored profiles.local.json overlay.
+    expect(checked).toBeGreaterThan(5);
   }, 300000);
 });

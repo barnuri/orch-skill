@@ -1,3 +1,4 @@
+// test-tier: slow (real server processes killed mid-turn)
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";

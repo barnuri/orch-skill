@@ -1,3 +1,4 @@
+// test-tier: slow (real ffmpeg process)
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type { Server } from "bun";
 

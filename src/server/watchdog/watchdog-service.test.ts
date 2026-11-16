@@ -1,3 +1,4 @@
+// test-tier: slow (fake-dispatch processes)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { resolve } from "node:path";
@@ -238,6 +239,35 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
+  test("rule 9: a node starting for over 3 minutes is marked stuck and retried once, then flagged", async () => {
+    const f = fixture({ alive: true });
+    const starting = (attempts: unknown[]): Node => ({
+      id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts,
+      dispatched_at: new Date(f.clock.ms).toISOString(), started_at: null, seg_open: true,
+    });
+    f.home.write("jobs/j1/pid", "1\n");
+    f.set([starting([])]);
+    f.clock.ms += 179_000;
+    await f.tick();
+    expect(f.actions()).toEqual([]);
+    f.clock.ms += 2_000;
+    await f.tick();
+    expect(f.actions()).toEqual(["node update r1 a error --error stuck starting", "node retry r1 a"]);
+    expect(isInfraError("stuck starting")).toBe(true);
+    // Running for real (started_at set): never treated as starting.
+    f.set([{ ...starting([{}]), started_at: new Date(f.clock.ms).toISOString() }]);
+    f.clock.ms += 600_000;
+    await f.tick();
+    expect(f.actions()).toHaveLength(2);
+    // The retried attempt is stuck too: no second retry, a flag instead.
+    f.set([starting([{}])]);
+    f.clock.ms += 181_000;
+    await f.tick();
+    expect(f.actions()).toEqual(["node update r1 a error --error stuck starting", "node retry r1 a", "node update r1 a error --error stuck starting"]);
+    expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:starting"]);
+    f.home.dispose();
+  });
+
   test("rule 4: infra error classification", () => {
     expect(isInfraError("exit=unknown")).toBe(true);
     expect(isInfraError("dispatch exit 2")).toBe(true);
@@ -278,6 +308,49 @@ describe("watchdog", () => {
     expect(status.state).toBe("off");
     expect(status.runs["r1"]?.finished).toBe(1);
     expect(status.last_actions[0]?.rule).toBe("finish");
+    f.home.dispose();
+  });
+
+  test("rule 8: every sweep runs node bind-owners for a run with a running node, at most once per interval", async () => {
+    const f = fixture();
+    const owners = (): string[] => (existsSync(f.home.resolve("fake-dispatch.owners")) ? readFileSync(f.home.resolve("fake-dispatch.owners"), "utf8").split("\n").filter((l) => l !== "") : []);
+    f.set([{ id: "a", status: "running" }]);
+    await f.tick();
+    await f.tick();
+    expect(owners()).toEqual(["node bind-owners --run r1"]);
+    f.clock.ms += 30_000;
+    await f.tick();
+    expect(owners()).toEqual(["node bind-owners --run r1", "node bind-owners --run r1"]);
+    expect(f.actions()).toEqual([]);
+    expect(f.log()).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("rule 8: a run with only old finished nodes is backfilled once, then left alone", async () => {
+    const f = fixture();
+    const owners = (): string[] => (existsSync(f.home.resolve("fake-dispatch.owners")) ? readFileSync(f.home.resolve("fake-dispatch.owners"), "utf8").split("\n").filter((l) => l !== "") : []);
+    f.set([{ id: "a", status: "done", updated: "2026-11-16T08:00:00Z" }, { id: "b", status: "pending" }]);
+    await f.tick();
+    f.clock.ms += 60_000;
+    await f.tick();
+    expect(owners()).toEqual(["node bind-owners --run r1"]);
+    f.set([{ id: "a", status: "done", updated: new Date(f.clock.ms).toISOString() }, { id: "b", status: "pending" }]);
+    f.clock.ms += 60_000;
+    await f.tick();
+    expect(owners()).toEqual(["node bind-owners --run r1", "node bind-owners --run r1"]);
+    f.home.dispose();
+  });
+
+  test("rule 8: a job-bound session node is judged by its job: a dead job pid is lost", async () => {
+    const f = fixture({ alive: false });
+    f.home.write("jobs/j1/pid", "999999\n");
+    f.home.write("jobs/j1/log", "x\n");
+    utimesSync(f.home.resolve("jobs/j1/log"), new Date(T0 - 600_000), new Date(T0 - 600_000));
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "session", owner_id: "ses_x", owner_bind: "job" }]);
+    await f.tick();
+    f.clock.ms += 130_000;
+    await f.tick();
+    expect(f.actions()).toEqual(["node update r1 a error --error process died", "node retry r1 a"]);
     f.home.dispose();
   });
 
