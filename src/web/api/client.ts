@@ -135,6 +135,11 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/answer`, okSchema, { body });
   }
 
+  /** `run repoint`: the user picks one candidate pane as the coordinator. */
+  repointRun(runId: string, socketPath: string, paneId: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/repoint`, okSchema, { body: { socket_path: socketPath, pane_id: paneId } });
+  }
+
   getRunMessages(runId: string) {
     return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/messages`, runMessagesSchema, { quiet: true });
   }

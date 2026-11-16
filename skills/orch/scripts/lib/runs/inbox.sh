@@ -209,6 +209,7 @@ cmd_node_ask() {
   run_event "$IT_RUN" ask "$IT_NODE" "" "" "$id: $IT_TEXT"
   coord_deliver "$IT_RUN" "$path" >/dev/null
   if [ "$wait" = 0 ]; then printf '%s asked\n' "$id"; return 0; fi
+  [ "$timeout" -le 90 ] || timeout=90
   deadline=$(( $(date -u +%s) + timeout ))
   while :; do
     ans=$(jq -r '.answer // empty' "$path" 2>/dev/null)
@@ -447,7 +448,6 @@ inbox_answers_prefix() {
 # HERDR_SOCKET_PATH and HERDR_WORKSPACE_ID by `run set coordinator`, `use`, `run start` and the first `run wait`.
 # A message to the coordinator is a file in inbox/orch with delivered_at null. coord_deliver types one line
 # into the pane when agent_status is not working; the sweep (run wait loop, run messages retry) retries.
-COORD_MAX_TRIES=10
 COORD_SWEEP_SECS=20
 COORD_USAGE='dispatch.sh run set <run-id> coordinator   (run in the coordinator pane: HERDR_PANE_ID, HERDR_SOCKET_PATH set)'
 
@@ -658,18 +658,13 @@ coord_clear_unreachable() {
   run_event "$1" message orch "" delivered "coordinator reachable again"
 }
 
-# coord_count_try <run> <path> <error>: one failed attempt; after COORD_MAX_TRIES the message is failed.
+# coord_count_try <run> <path> <error>: one failed attempt. The ask is never failed: it stays pending and the
+# sweep keeps retrying; only the try count and last_error change.
 coord_count_try() {
-  local run_id="$1" path="$2" tries
+  local path="$2" tries
   tries=$(( $(jq -r '.tries // 0' "$path") + 1 ))
-  if [ "$tries" -ge "$COORD_MAX_TRIES" ]; then
-    inbox_write_file "$path" '.tries = $t | .status = "failed" | .last_error = $e' --argjson t "$tries" --arg e "$3"
-    run_event "$run_id" message orch "" failed "$(jq -r .id "$path") failed after $tries tries: $3"
-    printf 'failed\n'
-  else
-    inbox_write_file "$path" '.tries = $t | .last_error = $e' --argjson t "$tries" --arg e "$3"
-    printf 'pending\n'
-  fi
+  inbox_write_file "$path" '.tries = $t | .last_error = $e' --argjson t "$tries" --arg e "$3"
+  printf 'pending\n'
 }
 
 # coord_deliver <run> <path>: one attempt to type the message into the coordinator pane.

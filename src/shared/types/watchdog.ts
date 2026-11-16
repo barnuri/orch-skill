@@ -1,5 +1,5 @@
 /** Which watchdog rule took an action. */
-export type WatchdogRule = "lost" | "stalled" | "unverified" | "infra-retry" | "starting" | "finish";
+export type WatchdogRule = "lost" | "stalled" | "unverified" | "infra-retry" | "starting" | "finish" | "coordinator";
 
 /** One line of `<home>/watchdog/actions.log`. */
 export interface WatchdogAction {

@@ -21,10 +21,11 @@ import {
   stopRunHandler,
   tellNode,
 } from "../../routes/runs-routes";
+import { repointRun } from "../../routes/runs-routes";
 import type { NodeMessageInput } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call, valid } from "./support";
 
@@ -180,6 +181,18 @@ export class RunsController {
   @ResponseSchema(RunMessagesEnvelopeDto.schema, { description: "The messages." })
   messages_(c: ApiContext): Promise<Response> {
     return call(this.messages, c);
+  }
+
+  @Post("/runs/{id}/repoint", {
+    summary: "Choose the coordinator",
+    description: "Runs `run repoint <id> <socket> <pane>`: points an unreachable coordinator at one of its listed candidates; the pending asks are delivered on the next sweep.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @Body(RepointInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Repointed." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Not a candidate pane, or no such run." })
+  repoint_(c: ApiContext): Promise<Response> {
+    return repointRun(this.ctx, c.req.param("id") ?? "", valid<{ socket_path: string; pane_id: string }>(c, "json"));
   }
 
   @Post("/runs/{id}/nodes/{node}/tell", {

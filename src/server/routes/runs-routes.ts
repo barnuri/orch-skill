@@ -13,6 +13,7 @@ import { readJobLog, readJobSession } from "../runs/job-log-reader";
 import { OwnerActivityReader, homeSpawner } from "../runs/owner-activity";
 import { readEvents } from "../runs/run-events-reader";
 import { readRunMessages } from "../runs/run-messages-reader";
+import { coordinatorState } from "../runs/coordinator-state";
 import { readRun, listRuns } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
 import type { ServerContext } from "../types/server-context";
@@ -49,11 +50,13 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
       const error: ApiError = { error: CORRUPT_STATE };
       return jsonResponse(500, error);
     }
-    const etag = payloadEtag(result.run);
+    const coordinator = coordinatorState(ctx.paths.runs, result.run as unknown as Record<string, unknown>);
+    const run = coordinator === null ? result.run : { ...result.run, coordinator_state: coordinator };
+    const etag = payloadEtag(run);
     if (req.headers.get(IF_NONE_MATCH) === etag) {
       return notModified(etag);
     }
-    const body: RunEnvelope = { generated_at: new Date().toISOString(), run: result.run };
+    const body: RunEnvelope = { generated_at: new Date().toISOString(), run };
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
   };
 }
@@ -112,6 +115,11 @@ export function cancelNodeHandler(ctx: ServerContext): RouteHandler {
     }
     return dispatchSubcommand(ctx, ["node", "cancel", runId, nodeId]);
   };
+}
+
+/** The user picks the coordinator pane: `run repoint <id> <socket> <pane>` (the pane must be a candidate). */
+export function repointRun(ctx: ServerContext, runId: string, input: { socket_path: string; pane_id: string }): Promise<Response> {
+  return dispatchSubcommand(ctx, ["run", "repoint", runId, input.socket_path, input.pane_id]);
 }
 
 /** A user message for a node, as the controller validated it. */

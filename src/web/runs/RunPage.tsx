@@ -19,6 +19,7 @@ import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
 import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
+import { CoordinatorBlock } from "./CoordinatorBlock";
 import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
@@ -224,6 +225,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         <RunMeta run={run} events={events} />
         <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
         <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
+        <CoordinatorBlock runId={run.run_id} state={run.coordinator_state} />
         <RunStateNotice run={run} />
         <FailureBanner run={run} />
         <LongRunningBanner run={run} nowMs={nowMs} />

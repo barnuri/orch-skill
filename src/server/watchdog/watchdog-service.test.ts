@@ -109,6 +109,35 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
+  test("coordinator hook: sweeps an unreachable coordinator, throttled, and skips a healthy one", async () => {
+    const f = fixture();
+    const sweeps = (): string[] => {
+      const file = f.home.resolve("fake-dispatch.sweeps");
+      return existsSync(file) ? readFileSync(file, "utf8").split("\n").filter((l) => l !== "") : [];
+    };
+    f.set([{ id: "a", status: "running" }], { coordinator: { pane_id: "p1", unreachable: null } });
+    await f.tick();
+    expect(sweeps()).toEqual([]);
+    f.set([{ id: "a", status: "running" }], { coordinator: { pane_id: "p1", unreachable: { reason: "gone", at: "t" } } });
+    await f.tick();
+    expect(sweeps()).toEqual(["run messages r1 retry"]);
+    await f.tick();
+    expect(sweeps().length).toBe(1);
+    f.clock.ms += 25_000;
+    await f.tick();
+    expect(sweeps().length).toBe(2);
+    f.home.dispose();
+  });
+
+  test("coordinator hook: a reachable coordinator with a pending ask is swept", async () => {
+    const f = fixture();
+    f.home.write("runs/r1/inbox/orch/m1.json", JSON.stringify({ id: "m1", kind: "ask", delivered_at: null, status: "pending" }));
+    f.set([{ id: "a", status: "running" }], { coordinator: { pane_id: "p1", unreachable: null } });
+    await f.tick();
+    expect(existsSync(f.home.resolve("fake-dispatch.sweeps"))).toBe(true);
+    f.home.dispose();
+  });
+
   test("rule 1: runs the auto-dispatch engine for ready nodes", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "waiting", profile: "p" }], { auto_dispatch: true });
