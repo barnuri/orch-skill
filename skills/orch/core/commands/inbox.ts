@@ -27,7 +27,7 @@ function inboxDir(home: string, run: string, node: string): string {
 }
 
 // Message files of a node in seq order (numeric sort of the basename, as `sort -n`).
-async function inboxFiles(home: string, run: string, node: string): Promise<string[]> {
+export async function inboxFiles(home: string, run: string, node: string): Promise<string[]> {
   const dir = inboxDir(home, run, node);
   const names = await readdir(dir).catch(() => [] as string[]);
   return names
@@ -36,7 +36,7 @@ async function inboxFiles(home: string, run: string, node: string): Promise<stri
     .map((n) => join(dir, n));
 }
 
-async function readMsg(file: string): Promise<Msg> {
+export async function readMsg(file: string): Promise<Msg> {
   return (await Bun.file(file).json()) as Msg;
 }
 
@@ -100,7 +100,7 @@ class LockBusy extends Error {
   }
 }
 
-async function markDelivered(path: string, via: string): Promise<void> {
+export async function markDelivered(path: string, via: string): Promise<void> {
   const m = await readMsg(path);
   m.status = "delivered";
   m.delivered_at = nowIso();

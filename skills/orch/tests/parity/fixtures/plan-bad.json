@@ -1,0 +1,1 @@
+{"tasks":[{"id":"n1","prompt":"p"},{"id":"bad id","prompt":"p"},{"id":"dup","prompt":"p"},{"id":"dup"},{"id":"x","prompt":"p","after":["ghost"]}]}

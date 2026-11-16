@@ -8,6 +8,9 @@ import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
 import { doctor } from "./commands/doctor.ts";
+import { nodeDispatch, nodeRetry, runFinish } from "./commands/dispatch.ts";
+import { planCommand, planApply } from "./commands/plan.ts";
+import { msgSend, msgRead } from "./commands/msg.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 export const VERSION = "0.1.0";
@@ -16,6 +19,12 @@ export type Handler = (args: string[]) => Promise<number> | number;
 
 // Ported `<group> <verb>` commands. Keep in step with PORTED_COMMANDS in scripts/dispatch.sh.
 export const COMMANDS: Record<string, Handler> = {
+  "node dispatch": nodeDispatch,
+  "node retry": nodeRetry,
+  "run finish": runFinish,
+  "plan apply": planApply,
+  "msg send": msgSend,
+  "msg read": msgRead,
   "node tell": cmdNodeTell,
   "node ask": cmdNodeAsk,
   "node inbox": cmdNodeInbox,
@@ -86,6 +95,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     return await dh(drest);
   }
+  // `plan <run> "<goal>"`: the run id is the second word; `plan apply <run>` is a normal pair.
+  if (words[0] === "plan" && words[1] !== "apply") return await planCommand(argv.slice(1));
   const key = `${words[0]} ${words[1] ?? ""}`.trim();
   const handler = COMMANDS[key];
   if (!handler) {

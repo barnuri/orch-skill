@@ -671,6 +671,13 @@ PORTED_COMMANDS=(
   "profile show"
   "profile pick"
   "model list"
+  "node dispatch"
+  "node retry"
+  "run finish"
+  "plan apply"
+  "plan goal"
+  "msg send"
+  "msg read"
   "delegate plan"
   "delegate task"
   "delegate finding"
@@ -699,6 +706,8 @@ main() {
   # delegate takes the run id second, so its verb is the third word.
   local ported_verb="${2:-}"
   [ "$sub" = delegate ] && ported_verb="${3:-}"
+  # plan takes the run id second: `plan apply <run>` or `plan <run> "<goal>"`.
+  [ "$sub" = plan ] && { [ "${2:-}" = apply ] || ported_verb=goal; }
   if [ "${ORCH_BASH:-0}" != 1 ] && is_ported "$sub" "$ported_verb"; then
     export ORCH_DIRECT="${ORCH_DIRECT:-0}"
     exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" "$@"
