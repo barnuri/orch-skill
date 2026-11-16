@@ -319,6 +319,23 @@ if command -v sqlite3 >/dev/null 2>&1; then
   expect_eq "seq: first unchanged" 4.11 "$(nf "$R" seq1 .cost.usd)"
   expect_eq "seq: run total counts the session once" 504 "$(jq '[.nodes[] | select(.id | IN("seq1","seq2")) | .cost.usd] | add * 100 | round' "$home/runs/$R/state.json")"
 
+  # One session bound to two nodes at once: the first node gets the session cost, the other 0.
+  sqlite3 "$db" "insert into session_v2 values ('ses_dupXXXXXXXXXXXXXXXXXXXXXXX', 'ses_root', 'dup', '{\"id\":\"prov/m1\"}', 3, 300, 30, 0, 0, 0, $now_ms, $now_ms, $now_ms, NULL)"
+  trash "$home/owners/cache" 2>/dev/null
+  o node add "$R" dup1 "First co-owner" >/dev/null; o node add "$R" dup2 "Second co-owner" >/dev/null
+  o node update "$R" dup1 running --owner "ses_dupXXXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  o node update "$R" dup2 running --owner "ses_dupXXXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  dup_total() { jq '[.nodes[] | select(.id | IN("dup1","dup2")) | (.cost.usd // 0)] | add * 100 | round' "$home/runs/$R/state.json"; }
+  expect_eq "co-owners: first gets the session cost" 3 "$(nf "$R" dup1 .cost.usd)"
+  expect_eq "co-owners: second gets 0" 0 "$(nf "$R" dup2 .cost.usd)"
+  expect_eq "co-owners: run total counts the session once" 300 "$(dup_total)"
+  o node update "$R" dup1 done >/dev/null
+  o node update "$R" dup2 done >/dev/null
+  o node bind-owners --run "$R" >/dev/null
+  expect_eq "co-owners: run total once after both end" 300 "$(dup_total)"
+
   # actual_model: the session's real model next to the requested alias, which stays in `model`.
   expect_eq "actual: real model recorded" prov/changed "$(nf "$R" chats .actual_model)"
   expect_eq "actual: alias kept" prov/m1 "$(nf "$R" chats .model)"

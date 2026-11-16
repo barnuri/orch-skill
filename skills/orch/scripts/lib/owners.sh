@@ -718,17 +718,29 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
   # What of the session total is already credited elsewhere: earlier nodes of this run bound to the
   # same session (one session can own several nodes in a row; their final shares) and archived
   # attempts of this node on it (a resumed retry). The node shows only the rest.
+  # Nodes bound to the session at the same time: the earliest (started, then node order) takes the
+  # session cost and the others 0 while it is open; once its final share is set they take the rest.
+  def bound_to($id): (((.owner_id // "") == $id) and ((.owner_kind // "session") == "session"))
+    or (((.session // "") == $id) and ((.job_id // "") == "")) or (.session_stats.session == $id);
   def share($s):
     . as $n
-    | ([$all[] | select(.id != $n.id and (.status | IN("done", "error", "skipped")) and .session_stats.session == $s.id
-          and ((.finished // "") != "") and ((($n.started // "") == "") or .finished <= $n.started)) | .session_stats
+    | ($n.started // "") as $ns
+    | ([$all | to_entries[] | select(.value.id == $n.id) | .key][0] // 0) as $ni
+    | [$all | to_entries[] | .key as $i | .value
+        | select(.id != $n.id and (.status | IN("running", "done", "error")) and bound_to($s.id)
+            and ([(.started // ""), $i] < [$ns, $ni])
+            and ((((.finished // "") != "") and $ns != "" and .finished <= $ns) | not))] as $co
+    | ((([$all[] | select(.id != $n.id and (.status | IN("done", "error", "skipped")) and .session_stats.session == $s.id
+          and ((.finished // "") != "") and ((($n.started // "") == "") or .finished <= $n.started))]
+       + [$co[] | select(.session_stats.final == true)]) | map(.session_stats
         | {usd: (.cost // 0), input: (.tokens.input // 0), output: (.tokens.output // 0), reasoning: (.tokens.reasoning // 0),
-           cache_read: (.tokens.cache_read // 0), cache_write: (.tokens.cache_write // 0)}]
-       + [(.attempts // [])[] | select(.session == $s.id and .cost.cost_basis == "opencode-session") | .cost
+           cache_read: (.tokens.cache_read // 0), cache_write: (.tokens.cache_write // 0)}))
+       + [($n.attempts // [])[] | select(.session == $s.id and .cost.cost_basis == "opencode-session") | .cost
         | {usd: (.usd // 0), input: (.input_tokens // 0), output: (.output_tokens // 0), reasoning: 0,
            cache_read: (.cache_read_tokens // 0), cache_write: (.cache_creation_tokens // 0)}]) as $prior
+    | ($co | any(.session_stats.final != true)) as $behind
     | def sum($k): $prior | map(.[$k]) | add // 0;
-      def left($k; $v): [$v - sum($k), 0] | max;
+      def left($k; $v): if $behind then 0 else [$v - sum($k), 0] | max end;
     {base: {cost: sum("usd"), tokens: {input: sum("input"), output: sum("output"), reasoning: sum("reasoning"),
                                        cache_read: sum("cache_read"), cache_write: sum("cache_write")}},
      cost: left("usd"; $s.cost),
