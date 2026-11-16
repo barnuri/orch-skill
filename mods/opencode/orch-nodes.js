@@ -147,7 +147,7 @@ export function createHandler({ exists = existsSync, run, now = Date.now, env = 
     }
     const args = [dispatch, "owner", "event", mapped.id, mapped.kind, "--harness", "opencode"];
     if (mapped.note) args.push("--note", mapped.note);
-    run("bash", args);
+    run("bun", args);
     return true;
   };
 }
@@ -257,7 +257,7 @@ export function createUsage({ env = process.env, now = Date.now, run, read } = {
     for (const [term, n] of c.counts) args.push("--add", `${term}=${n}`);
     counts.delete(sessionID);
     flushedAt.set(sessionID, now());
-    run("bash", args);
+    run("bun", args);
     return true;
   };
   const count = (sessionID, tool, args) => {

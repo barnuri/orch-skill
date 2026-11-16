@@ -122,7 +122,7 @@ export function runSignature(runsDir: string, runId: string): string | null {
 }
 
 export const REAP_AFTER_SECS: number = 600;
-const REAP_PATTERN = /dispatch\.sh\s+(run\s+sync|harness\s+list)\b/;
+const REAP_PATTERN = /dispatch\.ts\s+(run\s+sync|harness\s+list)\b/;
 
 /** `[[dd-]hh:]mm:ss` from ps etime to seconds. */
 export function parseEtime(etime: string): number {

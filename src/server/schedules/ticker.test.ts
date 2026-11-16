@@ -108,7 +108,7 @@ describe("detachedSpawn", () => {
     const home = makeHome();
     const fake = join(home, "fake-dispatch.ts");
     const out = join(home, "out.txt");
-    writeFileSync(fake, `#!/bin/bash\nps -o pid=,pgid=,sess= -p $$ > "${out}"\necho "$$ $PPID $*" >> "${out}"\n`);
+    writeFileSync(fake, `import { spawnSync } from "node:child_process";\nimport { writeFileSync } from "node:fs";\nconst ps = spawnSync("ps", ["-o", "pid=,pgid=,sess=", "-p", String(process.pid)]).stdout.toString();\nwriteFileSync(${JSON.stringify(out)}, ps + process.pid + " " + process.ppid + " " + process.argv.slice(2).join(" ") + "\\n");\n`);
     const prev = process.env["ORCH_DISPATCH"];
     process.env["ORCH_DISPATCH"] = fake;
     try {
@@ -120,10 +120,9 @@ describe("detachedSpawn", () => {
         process.env["ORCH_DISPATCH"] = prev;
       }
     }
-    for (let i = 0; i < 100 && !existsSync(out); i++) {
-      await Bun.sleep(100);
+    for (let i = 0; i < 200 && !(existsSync(out) && readFileSync(out, "utf8").trim().split("\n").length >= 2); i++) {
+      await Bun.sleep(25);
     }
-    await Bun.sleep(300);
     const [ps, line] = readFileSync(out, "utf8").trim().split("\n");
     const [pid, pgid] = (ps ?? "").trim().split(/\s+/).map(Number);
     expect(pgid).toBe(pid);

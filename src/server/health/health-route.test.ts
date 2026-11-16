@@ -13,17 +13,18 @@ const servers: TestServerHandle[] = [];
 let previous: string | undefined;
 
 // A stand-in for dispatch.ts: `run health <id> --json` prints the contract's JSON for that id.
-const FAKE = `#!/usr/bin/env bash
-if [ "$1" = run ] && [ "$2" = health ] && [ "$4" = --json ]; then
-  printf '{"run":"%s","at":"2026-11-15T10:00:00Z","max_parallel":2,"running":1,"slots":1,"nodes":[{"id":"a","status":"running","health":"dead","owner_id":null,"last_activity":null,"idle_min":null,"note":"owner gone"}],"ready":["b"],"changes":[]}\\n' "$3"
-  exit 0
-fi
-if [ "$1" = herdr ] && [ "$2" = health ] && [ "$3" = --json ]; then
-  printf '{"state":"degraded","enabled":true,"reason":"on (ORCH_HERDR=1)","env_id":"orch-skill","pid":42,"pid_alive":true,"socket_ok":true,"registry":"missing","registry_path":"/x/orch-skill.json","web":"missing","web_url":"http://127.0.0.1:2222","nudged":false,"at":"2026-11-15T10:00:00Z","problems":["herdr web registry file is missing"]}\n'
-  exit 1
-fi
-echo "fake: unsupported $*" >&2
-exit 2
+const FAKE = `
+const a = process.argv.slice(2);
+if (a[0] === "run" && a[1] === "health" && a[3] === "--json") {
+  console.log(JSON.stringify({ run: a[2], at: "2026-11-15T10:00:00Z", max_parallel: 2, running: 1, slots: 1, nodes: [{ id: "a", status: "running", health: "dead", owner_id: null, last_activity: null, idle_min: null, note: "owner gone" }], ready: ["b"], changes: [] }));
+  process.exit(0);
+}
+if (a[0] === "herdr" && a[1] === "health" && a[2] === "--json") {
+  console.log(JSON.stringify({ state: "degraded", enabled: true, reason: "on (ORCH_HERDR=1)", env_id: "orch-skill", pid: 42, pid_alive: true, socket_ok: true, registry: "missing", registry_path: "/x/orch-skill.json", web: "missing", web_url: "http://127.0.0.1:2222", nudged: false, at: "2026-11-15T10:00:00Z", problems: ["herdr web registry file is missing"] }));
+  process.exit(1);
+}
+console.error("fake: unsupported " + a.join(" "));
+process.exit(2);
 `;
 
 beforeAll(() => {

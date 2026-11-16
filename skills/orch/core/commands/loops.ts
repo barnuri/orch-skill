@@ -817,8 +817,12 @@ function active(args: string[]): number {
   for (const id of dirsOf(loopsHome())) {
     const st = loopAliveStatus(id);
     if (!["running", "failed", "lost"].includes(st)) continue;
-    const s = readJsonSync(join(loopsHome(), id, "state.json"));
-    const p = readJsonSync(join(loopsHome(), id, "spec.json"));
+    let s: any;
+    let p: any;
+    try {
+      s = readJsonSync(join(loopsHome(), id, "state.json"));
+      p = readJsonSync(join(loopsHome(), id, "spec.json"));
+    } catch { continue; }
     rows.push({
       kind: "loop", id: s.id, name: p.name, status: st, reason: s.reason ?? null, started: p.started ?? null, interval: p.interval ?? null,
       iteration: s.iteration ?? null, max: p.max ?? null, next: s.next_tick ?? null, last_exit: s.last_exit ?? null, session: p.session_mode ?? null,
@@ -828,8 +832,12 @@ function active(args: string[]): number {
   for (const id of dirsOf(watchesHome())) {
     const st = watchAliveStatus(id);
     if (!["running", "lost"].includes(st)) continue;
-    const s = readJsonSync(join(watchesHome(), id, "state.json"));
-    const p = readJsonSync(join(watchesHome(), id, "spec.json"));
+    let s: any;
+    let p: any;
+    try {
+      s = readJsonSync(join(watchesHome(), id, "state.json"));
+      p = readJsonSync(join(watchesHome(), id, "spec.json"));
+    } catch { continue; }
     rows.push({
       kind: "watch", id: s.id, name: p.name, status: st, reason: s.reason ?? null, started: p.started ?? null, interval: p.interval ?? null,
       events: s.events ?? null, last_event: s.last_event ?? null, cmd: p.cmd ?? null, deadline: p.deadline ?? null,
