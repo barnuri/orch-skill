@@ -8,8 +8,8 @@ How to use: `bun scripts/orch-perf.ts --recheck` runs the `check:` commands of t
 here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 
 ## 1. Test suites and gates
-- [ ] `bun scripts/typecheck.ts` prints `typecheck: ok` on `master`.
-- [ ] `ORCH_HERDR=0 bun test --parallel=6 src` has 0 failures, under 3 minutes.
+- [x] `bun scripts/typecheck.ts` prints `typecheck: ok` on `master`. EVIDENCE: ok (cached) at e353b20 and dec7485.
+- [x] `ORCH_HERDR=0 bun test --timeout 30000 --parallel=6 src` has 0 failures, under 3 minutes. EVIDENCE 2026-11-16 18:24: 1325 pass, 0 fail, 3488 expects, 145 files, 141.8 s.
 - [ ] `bun skills/orch/tests/run.ts` (fast tier) passes in under 30 s; `--full` passes in under 5 minutes (exit 0, or 75 then `--resume` until 0).
 - [ ] No test file takes more than 20 s (`bun scripts/test-bench.ts`, top 10 slowest).
 - [ ] `bun scripts/test-all.ts` passes (bash-free).

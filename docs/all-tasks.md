@@ -62,3 +62,8 @@ RUNNING (a subagent works on it), OPEN (not started or blocked). Source of truth
 ## D. Running now
 runs-group test fixer, other-groups test fixer, typecheck cache and parallel test-all, Bun port gaps (9 items), hot CLI speed, live herdr checks.
 | Chat folder per chat or project (cwd) | CODED (dec7485): API, picker, chips, turn cwd; tests pass with fake harnesses; real harness and phone check open |
+
+## E. Final test status (2026-11-16 18:27)
+- bun tier (src): 1325 pass, 0 fail, 141.8 s wall. DONE.
+- orch tier (`run.ts --full`, per-file cap 30 s): 45 tests passed, 1 failed, 50 files, 125 s wall (was 182 s with 58 failures). 23 of 50 files were KILLED by the 30 s cap under load (they pass alone): classify-adapters, herdr-runner, routing-claude, announce, loops-watches, demo-and-harness, init-profiles, schedules-service, serve-ui, service-restart, run-budget, cost-digest, health, identity-panes-stop, inbox, lifecycle, lifecycle-retry, liveness, owner-bind, state-lock, visibility, wait, coordinator. NOT GREEN: the full tier is not yet under the per-file cap. Cause: one process start per detaching CLI call and per fake herdr, plus daemon and job waits.
+- A rerun with cap 90 s is in `$TMPDIR/final-orch2.log`.
