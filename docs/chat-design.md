@@ -37,7 +37,7 @@ Screenshots: `$TMPDIR/chat-design/before-*.png`. The ten biggest problems:
 - Sans `--font-sans` (Geist, system fallback for Hebrew), mono `--font-mono` for code, ids, durations.
 - Reading text `--fs-read` 15px / `--lh-read` 1.65. Meta 12px. Code 13px / 1.55. Headings 600, 16-18px.
 - Spacing on the 4px scale (`--s1`..`--s7`). Between messages `--s5`; between blocks inside an answer `--s3`.
-- Reading column `--measure` 760px, centered. Prose wraps with `text-wrap: pretty`.
+- One column for every row of the chat (`chat-column.css`): `--measure` 920px, centered, same inline edges for messages, tool cards, reasoning, working indicator, error notice, queue tray, settings line, composer and artifacts bar. Prose wraps with `text-wrap: pretty`.
 
 ## Layout
 
