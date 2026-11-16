@@ -17,6 +17,7 @@
 .auto-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0; color: var(--tx3); font-size: var(--fs-meta); }
 .auto-status { display: inline-flex; align-items: center; gap: var(--s1); color: var(--tx2); }
 .auto-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-waiting); flex: none; }
+.auto-dot.is-idle { background: var(--status-waiting); }
 .auto-dot.is-ok { background: var(--status-done); }
 .auto-dot.is-running { background: var(--status-running); animation: auto-pulse 1.4s ease-in-out infinite; }
 .auto-dot.is-paused { background: var(--status-stale); }

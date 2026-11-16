@@ -6,7 +6,7 @@ import { describeCron } from "../lib/cron-text";
 import { everyLabel, truncate } from "../lib/format";
 
 export type Tab = "schedules" | "loops" | "monitors";
-export type Tone = "ok" | "error" | "running" | "paused";
+export type Tone = "ok" | "error" | "running" | "paused" | "idle";
 
 export const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "schedules", label: "Schedules" },
@@ -44,7 +44,7 @@ export function scheduleSummary(s: Schedule): string {
 
 export function lastResult(s: Schedule): { label: string; tone: Tone } {
   const run = s.runs[0];
-  if (run === undefined) return { label: "Never ran", tone: "paused" };
+  if (run === undefined) return { label: "Never ran", tone: "idle" };
   const tone: Tone = run.status === "ok" ? "ok" : run.status === "failed" || run.status === "lost" ? "error" : run.status === "running" ? "running" : "paused";
   const label = run.status === "ok" ? "Ran" : run.status === "skipped" ? "Skipped a missed run" : run.status === "failed" ? `Failed${run.error ? `: ${truncate(run.error, 60)}` : ""}` : run.status;
   return { label, tone };

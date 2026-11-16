@@ -254,7 +254,7 @@ function ScheduleRow({ chatId, s, onEdit, refresh }: { chatId: string; s: Schedu
       <p className="auto-sum">{scheduleSummary(s)}</p>
       <p className="auto-meta">
         {s.enabled && s.next_at !== null ? <span>Next in {until(s.next_at)}</span> : <span>{s.pause_reason ?? "Paused"}</span>}
-        <StatusDot tone={tone === "paused" && s.runs[0] !== undefined ? lastResult(s).tone : tone} label={last.label} />
+        <StatusDot tone={s.runs[0] === undefined ? "idle" : tone === "paused" ? last.tone : tone} label={last.label} />
       </p>
       <div className="auto-actions">
         <button type="button" className="btn" onClick={() => void act(automationApi.scheduleAction(chatId, s.id, "run-now"), "Ran it once")}>Run now</button>
