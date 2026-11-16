@@ -11,7 +11,8 @@
 .pwa-bar .btn { min-height: 44px; min-width: 44px; }
 .pwa-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgb(0 0 0 / 0.45); padding: var(--s3); }
 .pwa-dialog { position: static; width: min(520px, 100%); max-height: 90dvh; overflow: auto; padding: var(--s4); color: var(--tx); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r-lg); }
-.pwa-section { display: grid; gap: var(--s3); }
+.pwa-section { display: grid; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.pwa-dialog .pwa-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .pwa-section h3 { margin: 0; }
 .pwa-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .pwa-row .btn, .pwa-devices .btn { min-height: 44px; min-width: 44px; }

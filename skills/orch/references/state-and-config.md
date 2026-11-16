@@ -428,3 +428,7 @@ Creating a chat or moving one to a runs-only profile answers 400. A chat already
 became runs-only keeps working and shows an amber warning. `profile sanity` adds `warnings` when
 `planner_profile` or `default_profile` is not runs-enabled. `profile list [--for chat|runs] [--json]`,
 `harness list --json` (`usage`).
+
+### Push state (`<home>/push/`)
+
+`vapid.json` (0600): the VAPID key pair, generated once with WebCrypto (ES256); only the public key is served (`/api/push/key`). `subscriptions.json` (0600): one record per device (endpoint, keys, label, user agent, app, categories, quiet hours, last success and error). Written only by the server. A 404 or 410 from a push service removes the record. Sending is hand-written (RFC 8291 aes128gcm, RFC 8292 VAPID, tested against the RFC vector) and goes only to the endpoint of the subscription; endpoints must be https (http only on loopback). Push works only on the HTTPS listener or localhost (see the HTTPS section above).

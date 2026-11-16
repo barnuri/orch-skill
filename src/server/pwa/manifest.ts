@@ -38,7 +38,7 @@ export function manifestFor(app: PwaApp): Record<string, unknown> {
       start_url: "/chat/",
       categories: ["productivity", "developer tools"],
       shortcuts: [{ name: "New chat", short_name: "New chat", url: "/chat/#/chats/new", icons: [{ src: "/pwa/icons/chat-192.png", sizes: "192x192", type: "image/png" }] }],
-      share_target: { action: "/chat/share", method: "GET", params: { title: "title", text: "text", url: "url" } },
+      share_target: { action: "/chat/share", method: "GET", enctype: "application/x-www-form-urlencoded", params: { title: "title", text: "text", url: "url" } },
     };
   }
   return {

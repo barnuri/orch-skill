@@ -15,7 +15,9 @@ const { PwaChrome } = await import("./PwaChrome");
 const { NotificationsSection } = await import("./NotificationsSection");
 const { safeClickUrl } = await import("../../shared/push");
 
+const realFetch = globalThis.fetch;
 afterEach(() => {
+  globalThis.fetch = realFetch;
   cleanup();
   localStorage.clear();
   document.head.querySelectorAll('link[rel="manifest"]').forEach((n) => n.remove());

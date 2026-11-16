@@ -264,7 +264,6 @@ export function ProfilesPage() {
         ) : (
           <Panel title="Settings">
             <SettingsForm key={editor.session} doc={doc} editor={editor} />
-            <NotificationsSection />
             <div className="actions">
               <Button
                 onClick={() => {
@@ -274,6 +273,7 @@ export function ProfilesPage() {
                 Add profile
               </Button>
             </div>
+            <NotificationsSection />
           </Panel>
         )}
       </div>
