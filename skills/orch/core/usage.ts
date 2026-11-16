@@ -1,4 +1,29 @@
 // Usage text printed by `dispatch.ts -h` and for an unknown subcommand.
+import { USAGE as NODE_USAGE } from "./runs/node.ts";
+import { NODE_DISPATCH_USAGE, NODE_RETRY_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE } from "./commands/dispatch.ts";
+import { RUN_WAIT_USAGE } from "./commands/wait.ts";
+import { RUN_HEALTH_USAGE } from "./commands/health.ts";
+import { RUN_STATUS_USAGE } from "./commands/run.ts";
+import { RUN_ADVANCE_USAGE } from "./commands/advance.ts";
+import { PLAN_USAGE, PLAN_APPLY_USAGE } from "./commands/plan.ts";
+import { MSG_SEND_USAGE, MSG_READ_USAGE } from "./commands/msg.ts";
+import { NODE_STARTED_USAGE, RUN_BACKFILL_TIMING_USAGE } from "./commands/timing.ts";
+import { RUN_CARRY_USAGE } from "./commands/carry.ts";
+import { NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE } from "./commands/owners.ts";
+import { NODE_SELECTIONS_USAGE } from "./commands/selections.ts";
+import { NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE } from "./commands/inbox.ts";
+
+const RUNS_SECTION = [
+  "Runs and nodes (a run is a DAG of nodes; state lives under the config home):",
+  "dispatch.ts run start \"<title>\" [--id ID] [--harness-session S]",
+  RUN_CARRY_USAGE, NODE_USAGE.add, NODE_USAGE.update, NODE_USAGE.report, NODE_USAGE.batch,
+  NODE_DISPATCH_USAGE, NODE_RETRY_USAGE, NODE_STARTED_USAGE, RUN_BACKFILL_TIMING_USAGE,
+  RUN_WAIT_USAGE, RUN_STATUS_USAGE.replace(/^usage: /, ""), RUN_HEALTH_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE, RUN_ADVANCE_USAGE,
+  PLAN_USAGE, PLAN_APPLY_USAGE, MSG_SEND_USAGE, MSG_READ_USAGE,
+  NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE, NODE_SELECTIONS_USAGE,
+  NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE,
+].join("\n");
+
 export const USAGE = `dispatch.ts classify "<task description>" [--complexity trivial|small|medium|large] [--prefer-local]
     -> prints exactly one of: claude-native | local-llm | cursor-agent | opencode | copilot
 
@@ -63,4 +88,6 @@ dispatch.ts schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--pr
     -> changes only the given fields; keeps id, created_at, enabled and run history; --prompt/--command switch the kind
 dispatch.ts schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
 dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]
+
+${RUNS_SECTION}
 `;

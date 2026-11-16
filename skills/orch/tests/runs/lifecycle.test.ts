@@ -72,8 +72,8 @@ test("node dispatch with claude-native", async () => {
   r = o("node", "dispatch", "disp-1", "a", "claude-native", "again");
   expect(r.all).toMatch(/is done, not waiting/);
   expect(r.rc).toBe(2);
-  const { fakeHub } = await import("../helpers");
-  const hub = fakeHub(30);
+  const { spawnEchoHub } = await import("../helpers/hub-proc.ts");
+  const hub = await spawnEchoHub(600);
   const job = o.env({ LLM_HUB_URL: hub.url }, "node", "dispatch", "disp-1", "b", "ping").out.trim();
   expect(o("run", "sync", "disp-1").all).toMatch(/^b.running$/m);
   o("wait", job, "--timeout", "60", "--interval", "1");
@@ -100,7 +100,7 @@ test("prune with trash unavailable", async () => {
   let r = o("prune", "--dry-run");
   expect(r.rc).toBe(0);
   expect(r.all).toMatch(/would prune: .*runs\/old-1/);
-  expect(r.all).toMatch(`would prune: .*jobs/${oldJob}`);
+  expect(r.all).toMatch(new RegExp(`would prune: .*jobs/${oldJob}`));
   expect(r.all).not.toMatch(/live-1/);
   expect(existsSync(join(home, "runs/old-1/state.json"))).toBe(true);
   r = o("prune");
