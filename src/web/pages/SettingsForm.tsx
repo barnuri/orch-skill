@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { chatRootsProblem, graceHoursProblem, parseRootsText } from "../../shared/chat-settings";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import type { ProfilesSettings } from "../../shared/types/profiles-settings";
 import { Button } from "../components/Button";
@@ -7,6 +8,8 @@ import { Select } from "../components/Select";
 import type { SelectOption } from "../components/Select";
 import { Field, IssueList, IssuesProvider, useMatchedIssues } from "../forms/Field";
 import type { DocEditor } from "../forms/use-doc-editor";
+import { applyChatDraft, ChatSettingsFields, chatDraftFrom } from "./ChatSettingsFields";
+import type { ChatDraft, ChatDraftErrors } from "./ChatSettingsFields";
 
 type NumberKey = "retention_days" | "budget_threshold" | "max_parallel" | "max_nodes";
 
@@ -45,7 +48,7 @@ export function applyNumber(settings: ProfilesSettings, key: NumberKey, text: st
   }
 }
 
-const PATHS = ["default_profile", "retention_days", "budget_threshold", "planner_profile", "max_parallel", "max_nodes"].map((f) => `settings.${f}`);
+const PATHS = ["default_profile", "retention_days", "budget_threshold", "planner_profile", "max_parallel", "max_nodes", "schedule_grace_hours", "monitor_allow_link_local", "chat_roots"].map((f) => `settings.${f}`);
 
 /**
  * The panel form shown while no profile is open. The draft lives here and marks the editor dirty on
@@ -59,6 +62,8 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
     max_parallel: doc.settings.max_parallel === undefined ? "" : String(doc.settings.max_parallel),
     max_nodes: doc.settings.max_nodes === undefined ? "" : String(doc.settings.max_nodes),
   }));
+  const [chat, setChat] = useState<ChatDraft>(() => chatDraftFrom(doc.settings));
+  const [chatErrors, setChatErrors] = useState<ChatDraftErrors>({});
   const matched = useMatchedIssues(PATHS, editor.fieldIssues);
   const defaultProfile = settings.default_profile ?? "";
   const planner = settings.planner_profile ?? "";
@@ -85,7 +90,22 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
 
   const submit = (event: FormEvent): void => {
     event.preventDefault();
+    const roots = parseRootsText(chat.roots);
+    const errors: ChatDraftErrors = {};
+    const grace = graceHoursProblem(chat.graceHours);
+    const rootsBad = chatRootsProblem(roots);
+    if (grace !== null) {
+      errors.graceHours = grace;
+    }
+    if (rootsBad !== null) {
+      errors.roots = rootsBad;
+    }
+    setChatErrors(errors);
+    if (grace !== null || rootsBad !== null) {
+      return;
+    }
     const next: ProfilesSettings = { ...settings };
+    applyChatDraft(next, chat, roots);
     for (const { key } of [...NUMBER_FIELDS, ...PLANNING_FIELDS]) {
       applyNumber(next, key, numbers[key]);
     }
@@ -134,6 +154,15 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
           )}
         </Field>
         {PLANNING_FIELDS.map(numberField)}
+        <ChatSettingsFields
+          draft={chat}
+          errors={chatErrors}
+          onChange={(next) => {
+            setChat(next);
+            setChatErrors({});
+            editor.markDirty();
+          }}
+        />
         <div className="actions">
           <Button variant="primary" type="submit" disabled={editor.saving}>
             Save

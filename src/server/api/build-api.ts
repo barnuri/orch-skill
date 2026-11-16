@@ -9,6 +9,7 @@ import { ChatAutomationController } from "./controllers/chat-automation.controll
 import { ChatQueueController } from "./controllers/chat-queue.controller";
 import { ChatsController } from "./controllers/chats.controller";
 import { ChatQuestionsController } from "./controllers/chat-questions.controller";
+import { ChatSettingsController } from "./controllers/chat-settings.controller";
 import { ServerInfoController } from "./controllers/server-info.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
@@ -55,6 +56,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new ChatsController(ctx), options);
   registerController(api, new ChatQuestionsController(ctx), options);
   registerController(api, new ChatQueueController(ctx), options);
+  registerController(api, new ChatSettingsController(ctx), options);
   registerController(api, new ChatAutomationController(ctx), options);
   registerController(api, new WorkspaceController(ctx), options);
   registerController(api, new BrowserProfilesController(ctx), options);

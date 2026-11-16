@@ -23,4 +23,10 @@ export interface ProfilesSettings {
   /** Per harness: where its profiles may be used. Missing means both. */
   harness_usage?: Record<string, Array<"chat" | "runs">>;
   herdr?: boolean;
+  /** Folders a chat may run in (absolute, or `~/…`). Default `["~/sandbox/private"]`. */
+  chat_roots?: string[];
+  /** Hours a missed chat schedule may still run late. Default 6; 0 to 72. */
+  schedule_grace_hours?: number;
+  /** Chat monitors may check link-local addresses (cloud metadata). Default off. */
+  monitor_allow_link_local?: boolean;
 }

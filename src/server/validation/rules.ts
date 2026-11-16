@@ -28,6 +28,9 @@ export const SETTINGS_KEYS = [
   "harness_usage",
   "herdr",
   "llm_hub",
+  "chat_roots",
+  "schedule_grace_hours",
+  "monitor_allow_link_local",
 ] as const;
 export const LEARNING_KEYS = [
   "auto_record_memory",

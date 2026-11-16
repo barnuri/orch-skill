@@ -1,3 +1,4 @@
+import { CHAT_ROOTS_MAX, chatRootProblem, SCHEDULE_GRACE_MAX_HOURS } from "../../shared/chat-settings";
 import type { Issue } from "../../shared/types/issue";
 import {
   isValidAllowedModelEntry,
@@ -207,6 +208,38 @@ function learningIssues(learning: unknown): Issue[] {
   return issues;
 }
 
+function chatSettingsIssues(settings: Record<string, unknown>): Issue[] {
+  const issues: Issue[] = [];
+  if ("schedule_grace_hours" in settings && !isIntegerInRange(settings["schedule_grace_hours"], 0, SCHEDULE_GRACE_MAX_HOURS)) {
+    issues.push({ path: "settings.schedule_grace_hours", reason: `must be an integer 0-${SCHEDULE_GRACE_MAX_HOURS}` });
+  }
+  if ("monitor_allow_link_local" in settings && typeof settings["monitor_allow_link_local"] !== "boolean") {
+    issues.push({ path: "settings.monitor_allow_link_local", reason: MUST_BE_BOOLEAN });
+  }
+  if ("chat_roots" in settings) {
+    const roots = settings["chat_roots"];
+    if (!Array.isArray(roots)) {
+      issues.push({ path: "settings.chat_roots", reason: MUST_BE_ARRAY });
+    } else {
+      if (roots.length > CHAT_ROOTS_MAX) {
+        issues.push({ path: "settings.chat_roots", reason: `at most ${CHAT_ROOTS_MAX} entries` });
+      }
+      roots.forEach((entry: unknown, index: number) => {
+        const path = `settings.chat_roots[${index}]`;
+        if (typeof entry !== "string") {
+          issues.push({ path, reason: MUST_BE_STRING });
+          return;
+        }
+        const why = chatRootProblem(entry);
+        if (why !== null) {
+          issues.push({ path, reason: why });
+        }
+      });
+    }
+  }
+  return issues;
+}
+
 function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonly string[]): Issue[] {
   if (!isPlainObject(settings)) {
     return [{ path: "settings", reason: MUST_BE_OBJECT }];
@@ -248,6 +281,7 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
   if ("herdr" in settings && typeof settings["herdr"] !== "boolean") {
     issues.push({ path: "settings.herdr", reason: MUST_BE_BOOLEAN });
   }
+  issues.push(...chatSettingsIssues(settings));
   if ("planner_profile" in settings) {
     issues.push(...plannerProfileIssues(settings["planner_profile"], profiles));
   }

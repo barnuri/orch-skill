@@ -1,0 +1,20 @@
+/* The Chat section of the Settings page. Amber for the link-local warning; red only for a field error. */
+.chat-settings { display: grid; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--border); min-width: 0; }
+.chat-settings h3 { margin: 0; }
+.chat-settings .field { min-width: 0; }
+.chat-settings input[type="text"], .chat-settings textarea { width: 100%; box-sizing: border-box; min-height: 36px; }
+.chat-settings textarea { resize: vertical; font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-meta); text-align: start; overflow-wrap: anywhere; }
+.chat-settings .hint { margin-top: var(--s1); color: var(--tx2); font-size: var(--fs-meta); overflow-wrap: anywhere; }
+.chat-settings .hint.is-warn { padding-inline-start: var(--s2); border-inline-start: 3px solid var(--status-stale); color: var(--status-stale); }
+.chat-settings .field-error { margin-top: var(--s1); color: var(--status-error); font-size: var(--fs-meta); overflow-wrap: anywhere; }
+.chat-switch { display: flex; align-items: center; gap: var(--s2); min-height: 36px; cursor: pointer; }
+.chat-switch input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--acc); }
+.chat-switch input:disabled + span { color: var(--tx3); }
+.chat-settings :is(input, textarea):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (pointer: coarse), (max-width: 768px) {
+  .chat-settings input[type="text"], .chat-settings textarea { min-height: 44px; }
+  .chat-switch { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-settings * { transition: none; animation: none; }
+}
