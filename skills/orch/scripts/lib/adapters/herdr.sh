@@ -5,11 +5,10 @@
 # and log. Every herdr call here is best effort; when it fails the caller starts the job detached.
 
 HERDR_USAGE='dispatch.sh herdr on|off|auto|status|attach|ensure|stop | herdr health [--json] [--nudge]'
-HERDR_WORKSPACE_LABEL="orch"
 HERDR_NO_RUN_TAB_LABEL="jobs"
 HERDR_PID_WAIT_SECS=15
 HERDR_PANE_CAP_DEFAULT=20
-HERDR_CLOSE_AFTER_DEFAULT=60
+HERDR_LINGER_DEFAULT=600
 HERDR_CALL_TIMEOUT_SECS="${ORCH_HERDR_CALL_TIMEOUT:-8}"
 HERDR_START_WAIT_SECS="${ORCH_HERDR_START_WAIT:-15}"
 HERDR_SOCK_MAX_BYTES=100
@@ -42,7 +41,7 @@ herdr_inst_home() {
 herdr_env_args() {
   local inst="$1" name
   HERDR_ENV_ARGS=(env -i "PATH=$PATH" "HOME=$inst" "TERM=${TERM:-xterm-256color}" "LANG=${LANG:-en_US.UTF-8}")
-  for name in $(compgen -e | grep -E '^ORCH_HERDR_'); do HERDR_ENV_ARGS+=("$name=${!name}"); done
+  while IFS= read -r name; do HERDR_ENV_ARGS+=("$name=${!name-}"); done < <(compgen -e | grep -E '^ORCH_HERDR_')
 }
 
 # herdr_cli <args...>: the herdr CLI against the dedicated instance only. env -i drops every
@@ -287,48 +286,69 @@ herdr_orch() {
 # Herdr shows labels with a "[n] " prefix, so a label matches exactly or as that suffix.
 HERDR_LABEL_FILTER='select(.label == $l or (.label // "" | endswith(" " + $l)))'
 
-# herdr_target_pane <tab-label> <cwd>: prints the pane id the next job runs in, creating the orch
-# workspace, the run's tab, or a split pane as needed. Returns 1 at the pane cap.
-herdr_target_pane() {
-  local tab_label="$1" cwd="$2" workspace_id tab_id created panes pane_count last_pane direction cap total
-  cap="${ORCH_HERDR_PANE_CAP:-$HERDR_PANE_CAP_DEFAULT}"
-  total=$(herdr_cli pane list | jq -r '.result.panes | length') || return 1
-  [ "$total" -lt "$cap" ] || return 1
-  workspace_id=$(herdr_cli workspace list | jq -r --arg l "$HERDR_WORKSPACE_LABEL" \
+# One workspace per run, labelled with the run id. herdr_run_workspace <run-label> <cwd> prints
+# "<workspace_id>\t<root_tab_id>\t<root_pane_id>". The root tab and pane are set only when this call
+# created the workspace; herdr_start_job closes that empty default tab after the first node tab exists.
+herdr_run_workspace() {
+  local label="$1" cwd="$2" ws created
+  ws=$(herdr_cli workspace list | jq -r --arg l "$label" \
     "[.result.workspaces[] | $HERDR_LABEL_FILTER][0].workspace_id // empty") || return 1
-  if [ -z "$workspace_id" ]; then
-    created=$(herdr_cli workspace create --cwd "$cwd" --label "$HERDR_WORKSPACE_LABEL" --no-focus) || return 1
-    tab_id=$(printf '%s' "$created" | jq -r '.result.tab.tab_id // empty')
-    [ -n "$tab_id" ] && herdr_cli tab rename "$tab_id" "$tab_label" >/dev/null || return 1
-    printf '%s' "$created" | jq -er '.result.root_pane.pane_id'
-    return
-  fi
-  tab_id=$(herdr_cli tab list --workspace "$workspace_id" | jq -r --arg l "$tab_label" \
-    "[.result.tabs[] | $HERDR_LABEL_FILTER][0].tab_id // empty") || return 1
-  if [ -z "$tab_id" ]; then
-    herdr_cli tab create --workspace "$workspace_id" --cwd "$cwd" --label "$tab_label" --no-focus \
-      | jq -er '.result.root_pane.pane_id'
-    return
-  fi
-  panes=$(herdr_cli pane list --workspace "$workspace_id" | jq -c --arg t "$tab_id" \
-    '[.result.panes[] | select(.tab_id == $t) | .pane_id]') || return 1
-  pane_count=$(printf '%s' "$panes" | jq 'length')
-  last_pane=$(printf '%s' "$panes" | jq -r '.[-1] // empty')
-  [ -n "$last_pane" ] || return 1
-  direction=right
-  [ $((pane_count % 2)) -eq 0 ] && direction=down
-  herdr_cli pane split "$last_pane" --direction "$direction" --cwd "$cwd" --no-focus \
-    | jq -er '.result.pane.pane_id'
+  if [ -n "$ws" ]; then printf '%s\t\t\n' "$ws"; return 0; fi
+  created=$(herdr_cli workspace create --cwd "$cwd" --label "$label" --no-focus) || return 1
+  printf '%s' "$created" | jq -er '[.result.workspace.workspace_id, .result.tab.tab_id, .result.root_pane.pane_id] | @tsv'
+}
+
+# herdr_node_tab_create <workspace_id> <title> <cwd>: prints "<tab_id>\t<pane_id>" of a new tab.
+herdr_node_tab_create() {
+  herdr_cli tab create --workspace "$1" --cwd "$3" --label "$2" --no-focus \
+    | jq -er '[.result.tab.tab_id, .result.root_pane.pane_id] | @tsv'
+}
+
+# herdr_find_node_tab <workspace_id> <node-id>: the node's tab, whatever its attempt suffix is.
+# Herdr prefixes labels with "[n] ", and a retry titles the tab "<node> #<attempt>".
+herdr_find_node_tab() {
+  herdr_cli tab list --workspace "$1" | jq -r --arg n "$2" \
+    '[.result.tabs[] | select((.label // "") | sub("^\\[[0-9]+\\] "; "") | sub(" #[0-9]+$"; "") == $n)][0].tab_id // empty'
+}
+
+herdr_tab_first_pane() {
+  herdr_cli pane list --workspace "$1" | jq -r --arg t "$2" \
+    '[.result.panes[] | select(.tab_id == $t) | .pane_id][0] // empty'
+}
+
+# The owner file names the job that currently runs in a tab. A retry reuses the tab, so only the
+# owner may close it: an older attempt's closer finds another owner and leaves the tab open.
+herdr_owner_file() {
+  printf '%s/tabs/%s.job\n' "$(herdr_dir)" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
+# How long an ended job's tab stays open. ORCH_HERDR_CLOSE_AFTER overrides the setting.
+herdr_linger_sec() {
+  local v="${ORCH_HERDR_CLOSE_AFTER:-$(setting_get herdr_linger_sec "$HERDR_LINGER_DEFAULT")}"
+  case "$v" in ''|*[!0-9]*) printf '%s\n' "$HERDR_LINGER_DEFAULT" ;; *) printf '%s\n' "$v" ;; esac
+}
+
+# herdr_close_job_tab <job_dir>: closes the job's tab now when this job still owns it (cancelled or
+# duplicate jobs). Best effort, never fails the caller.
+herdr_close_job_tab() {
+  local job_dir="$1" tab
+  tab=$(cat "$job_dir/herdr_tab" 2>/dev/null || true)
+  [ -n "$tab" ] || return 0
+  [ "$(cat "$(herdr_owner_file "$tab")" 2>/dev/null)" = "$job_dir" ] || return 0
+  herdr_cli tab close "$tab" >/dev/null 2>&1 || true
+  return 0
 }
 
 # Writes the script the pane runs. The pane shell inherits the instance HOME, so the launcher
 # restores the real HOME and the job's env first. It carries only the orch env, PATH, a short
 # allow-list and the job's argv, so no other secret from the caller's environment lands on disk.
 # It execs the job wrapper (the wrapper writes pid-visible status and exit_code, as for a detached
-# job); a background closer closes the pane after a successful exit and leaves a failed one open.
+# job). A background closer closes the job's tab once the job has ended and the linger has passed,
+# but only while this job still owns the tab (see herdr_owner_file).
+# herdr_write_launcher <launcher> <job_dir> <start_script> <tab_id> <owner_file> <inst> <linger> <argv...>
 herdr_write_launcher() {
-  local launcher="$1" job_dir="$2" start_script="$3" pane_id="$4" inst="$5" close_after="$6" name
-  shift 6
+  local launcher="$1" job_dir="$2" start_script="$3" tab_id="$4" owner="$5" inst="$6" linger="$7" name
+  shift 7
   {
     printf '#!/usr/bin/env bash\n'
     printf 'unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID\n'
@@ -339,38 +359,72 @@ herdr_write_launcher() {
     printf 'me=$$\n'
     printf 'printf %%s "$me" > %q\n' "$job_dir/pid"
     printf '( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n'
-    printf '  [ "$(cat %q 2>/dev/null)" = 0 ] || exit 0\n' "$job_dir/exit_code"
-    printf '  sleep %q\n' "$close_after"
-    printf '  env -i PATH=%q HOME=%q herdr pane close %q >/dev/null 2>&1\n' "$PATH" "$inst" "$pane_id"
+    printf '  sleep %q\n' "$linger"
+    printf '  [ "$(cat %q 2>/dev/null)" = %q ] || exit 0\n' "$owner" "$job_dir"
+    printf '  env -i PATH=%q HOME=%q herdr tab close %q >/dev/null 2>&1\n' "$PATH" "$inst" "$tab_id"
     printf ') >/dev/null 2>&1 </dev/null &\n'
     printf 'disown 2>/dev/null\n'
-    printf 'exec bash -c %q _' "$start_script"
+    # Bun present and ORCH_BASH unset: the TypeScript launcher runs the job under a pty and writes
+    # log and log.plain itself. Otherwise the job runs under macOS/BSD script (a pty, so the agent
+    # keeps its colour), tee keeps the ANSI log and perl writes the ANSI-free log.plain.
+    printf 'if [ "${ORCH_BASH:-}" != 1 ] && command -v bun >/dev/null 2>&1; then\n'
+    printf '  exec bun %q %q\n' "$(herdr_launch_ts)" "$job_dir"
+    printf 'fi\n'
+    printf 'FORCE_COLOR=1 COLORTERM=truecolor script -q /dev/null bash -c %q _' "$start_script"
     printf ' %q' "$@"
-    printf ' > >(tee %q) 2>&1 </dev/null\n' "$job_dir/log"
+    printf ' 2>&1 | tee -a %q | perl -pe %q > %q\n' "$job_dir/log" "$HERDR_PLAIN_PERL" "$job_dir/log.plain"
   } > "$launcher" && chmod 700 "$launcher"
 }
 
-# herdr_start_job <job_dir> <start_script> <argv...>: runs the job in a pane of the orch instance.
-# Returns 1 when nothing runs there (disabled, herdr missing, unreachable, pane cap), so the caller
-# falls back to a detached job.
+# Strips ANSI escapes and carriage returns for log.plain (the bash launcher's fallback).
+HERDR_PLAIN_PERL='s/\x04\x08+|\e\[[0-?]*[ -\/]*[@-~]|\e\][^\a\e]*(\a|\e\\)|\e[@-Z\\-_]|\r//g'
+
+# herdr_launch_ts: the TypeScript launcher path, resolved when a launcher is written (not at source time).
+herdr_launch_ts() { printf '%s/herdr-launch.ts\n' "$(cd "$SCRIPT_DIR/../core/commands" && pwd -P)"; }
+
+# herdr_start_job <job_dir> <start_script> <argv...>: runs the job in its own tab of the run's
+# workspace in the orch instance. A node's retry reuses the node's tab. Returns 1 when nothing runs
+# there (disabled, herdr missing, unreachable, pane cap), so the caller falls back to a detached job.
 herdr_start_job() {
-  local job_dir="$1" start_script="$2" launcher pane_id inst title close_after
+  local job_dir="$1" start_script="$2" launcher run base attempt title total ws root_tab root_pane
+  local tab_id pane_id inst linger owner
   shift 2
   herdr_enabled || return 1
   herdr_orch ensure 2>/dev/null || return 1
   inst=$(herdr_inst_home) || return 1
-  pane_id=$(herdr_target_pane "${ORCH_RUN_ID:-$HERDR_NO_RUN_TAB_LABEL}" "$PWD" 2>/dev/null) || return 1
-  [ -n "$pane_id" ] || return 1
-  close_after="${ORCH_HERDR_CLOSE_AFTER:-$HERDR_CLOSE_AFTER_DEFAULT}"
+  total=$(herdr_cli pane list | jq -r '.result.panes | length') 2>/dev/null || return 1
+  [ "$total" -lt "${ORCH_HERDR_PANE_CAP:-$HERDR_PANE_CAP_DEFAULT}" ] || return 1
+  run="${ORCH_RUN_ID:-$HERDR_NO_RUN_TAB_LABEL}"
+  base="${ORCH_NODE_ID:-$(basename "$job_dir")}"
+  attempt="${ORCH_NODE_ATTEMPT:-1}"
+  title="$base"
+  [ "$attempt" -le 1 ] 2>/dev/null || title="$base #$attempt"
+  IFS=$'\t' read -r ws root_tab root_pane <<< "$(herdr_run_workspace "$run" "$PWD" 2>/dev/null)" || return 1
+  [ -n "$ws" ] || return 1
+  tab_id=""
+  [ "$attempt" -le 1 ] || tab_id=$(herdr_find_node_tab "$ws" "$base")
+  if [ -n "$tab_id" ]; then
+    herdr_cli tab rename "$tab_id" "$title" >/dev/null 2>&1 || return 1
+    pane_id=$(herdr_tab_first_pane "$ws" "$tab_id")
+  else
+    IFS=$'\t' read -r tab_id pane_id <<< "$(herdr_node_tab_create "$ws" "$title" "$PWD" 2>/dev/null)" || return 1
+    # The workspace of a new run came with an empty default tab: close it now that the node has its own.
+    [ -z "$root_tab" ] || herdr_cli tab close "$root_tab" >/dev/null 2>&1 || true
+  fi
+  [ -n "$tab_id" ] && [ -n "$pane_id" ] || return 1
+  linger=$(herdr_linger_sec)
+  owner=$(herdr_owner_file "$tab_id")
+  mkdir -p "$(dirname "$owner")" && printf '%s\n' "$job_dir" > "$owner" || return 1
   launcher="$job_dir/herdr-launch.sh"
-  herdr_write_launcher "$launcher" "$job_dir" "$start_script" "$pane_id" "$inst" "$close_after" "$@" || return 1
-  title="${ORCH_RUN_ID:-job} ${ORCH_NODE_ID:-$HERDR_NO_RUN_TAB_LABEL} $(basename "$job_dir")"
+  jq -n -c '$ARGS.positional' --args -- bash -c "$start_script" _ "$@" > "$job_dir/argv.json" || return 1
+  herdr_write_launcher "$launcher" "$job_dir" "$start_script" "$tab_id" "$owner" "$inst" "$linger" "$@" || return 1
   herdr_cli pane rename "$pane_id" "$title" >/dev/null 2>&1 || true
   if ! herdr_cli pane run "$pane_id" "bash $(printf '%q' "$launcher")" >/dev/null 2>&1; then
-    herdr_cli pane close "$pane_id" >/dev/null 2>&1 || true
+    herdr_cli tab close "$tab_id" >/dev/null 2>&1 || true
     return 1
   fi
   printf '%s\n' "$pane_id" > "$job_dir/herdr_pane"
+  printf '%s\n' "$tab_id" > "$job_dir/herdr_tab"
   printf '%s\n' "$inst" > "$job_dir/herdr_home"
   printf '%s/.config/herdr/herdr.sock\n' "$inst" > "$job_dir/herdr_sock"
   return 0

@@ -1,0 +1,2 @@
+{"op":"update","id":"n1","status":"running"}
+{"op":"report","id":"n1","input_tokens":10,"output_tokens":5}

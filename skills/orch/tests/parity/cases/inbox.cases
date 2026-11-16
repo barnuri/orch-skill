@@ -1,0 +1,17 @@
+# Phase 2 parity: node tell, node ask, node inbox. Each line runs on a fresh seeded home.
+# A seeded home has no run, so these cases cover usage and unknown-run errors. The delivery path
+# (seeded run with a node) is covered by skills/orch/tests/unit/inbox-core.test.sh.
+# Not a case: `node ask` with no arguments. bash dies with "args[@]: unbound variable" (exit 1);
+# the Bun path prints usage (exit 2). Bash bug, see the handoff.
+node tell
+node tell nope n1
+node tell nope n1 hello
+node tell nope n1 hello --from orch
+node ask nope n1 question
+node ask nope n1 question --wait --timeout 0
+node ask nope n1 question --timeout x
+node inbox
+node inbox nope n1
+node inbox nope n1 --json
+node inbox nope n1 --peek
+node inbox nope n1 --ack m1

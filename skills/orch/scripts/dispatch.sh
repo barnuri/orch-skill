@@ -566,8 +566,11 @@ cmd_tail() {
     shift
   done
   local job_dir="$JOBS_HOME/$job_id"
-  [ -f "$job_dir/log" ] || { printf 'no log for job: %s\n' "$job_id" >&2; return 2; }
-  tail -n "$n" "$job_dir/log"
+  # log.plain is the ANSI-free copy a herdr job writes; a detached job has no pty, so its log is plain.
+  local logf="$job_dir/log"
+  [ -f "$job_dir/log.plain" ] && logf="$job_dir/log.plain"
+  [ -f "$logf" ] || { printf 'no log for job: %s\n' "$job_id" >&2; return 2; }
+  tail -n "$n" "$logf"
 }
 
 cmd_wait() {
@@ -649,12 +652,25 @@ run_create_with_monitor() {
   local out rc
   out=$("$@"); rc=$?
   [ -z "$out" ] || printf '%s\n' "$out"
+  [ "$rc" -ne 0 ] || coordinator_auto_record "${out%%$'\n'*}"
   [ "$rc" -ne 0 ] || health_monitor_autostart "${out%%$'\n'*}"
   return $rc
 }
 
 # Ported `<group> <verb>` pairs that run in bin/orch (Bun) instead of this bash file. Phase 0: empty.
 PORTED_COMMANDS=(
+  "node tell"
+  "node ask"
+  "node inbox"
+  "node update"
+  "node add"
+  "node report"
+  "node batch"
+  "run status"
+  "profile list"
+  "profile show"
+  "profile pick"
+  "model list"
 )
 
 is_ported() {
@@ -667,6 +683,14 @@ is_ported() {
 
 main() {
   local sub="${1:-}" verb rid
+  # Bun is required for every command. Missing bun exits 127 with the install hint.
+  if ! command -v "${ORCH_BUN:-bun}" >/dev/null 2>&1; then
+    printf 'orch needs bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again\n' >&2
+    exit 127
+  fi
+  if [ "$sub" = doctor ] && [ "$#" -eq 1 ]; then
+    exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" doctor
+  fi
   # ORCH_BASH=1 forces bash. ORCH_DIRECT=1 is passed to bin/orch (skip the server socket).
   if [ "${ORCH_BASH:-0}" != 1 ] && is_ported "$sub" "${2:-}"; then
     export ORCH_DIRECT="${ORCH_DIRECT:-0}"
@@ -736,6 +760,7 @@ main() {
     ui) shift; cmd_ui "$@" ;;
     artifact) shift; cmd_artifact "$@" ;;
     profile) shift; cmd_profile "$@" ;;
+    settings) shift; cmd_settings "$@" ;;
     model) shift; cmd_model "$@" ;;
     harness)
       shift

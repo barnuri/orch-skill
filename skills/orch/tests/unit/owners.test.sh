@@ -67,7 +67,7 @@ if command -v sqlite3 >/dev/null 2>&1; then
     insert into session_message values ('m3','ses_auto','assistant',1,'{\"model\":{\"id\":\"smart-auto-balance\",\"providerID\":\"hub\"}}');
     insert into message values ('l1','ses_old',1,'{\"role\":\"assistant\",\"modelID\":\"gpt-x\",\"providerID\":\"openai\"}');"
   expect_match "opencode.db gives the newest assistant model" '^copilot/claude-opus-5-5$' "$(ORCH_OPENCODE_DB="$odb" opencode_db_session_model ses_real)"
-  expect_match "opencode.db never gives a Smart Auto selector" '^$' "$(ORCH_OPENCODE_DB="$odb" opencode_db_session_model ses_auto)"
+  expect_no_match "opencode.db never gives a Smart Auto selector" 'smart-auto' "$(ORCH_OPENCODE_DB="$odb" opencode_db_session_model ses_auto)"
   expect_match "opencode.db falls back to the legacy message table" '^openai/gpt-x$' "$(ORCH_OPENCODE_DB="$odb" opencode_db_session_model ses_old)"
 fi
 

@@ -38,7 +38,7 @@ def hhmm: if . == null then "?" else (floor | strflocaltime("%H:%M")) end;
 | ($ix | map({key: .id, value: .}) | from_entries) as $S
 | ($prev[0] // {}) as $P
 | ($P._nodes // {}) as $pn
-| ($prof[0].settings.max_parallel // 4) as $maxp
+| (($prof[0].defaults.max_parallel // $prof[0].settings.max_parallel) // 15) as $maxp
 | . as $r
 | ($r.nodes | map({key: .id, value: .status}) | from_entries) as $st
 | [$r.nodes[] | select(.status == "running")] as $runn

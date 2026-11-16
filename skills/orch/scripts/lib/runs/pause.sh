@@ -67,8 +67,14 @@ RUN_SET_USAGE="dispatch.sh run set <run-id> auto_dispatch true|false"
 # A run without the key counts as false, so nothing starts by surprise.
 cmd_run_set() {
   local run_id="${1:-}" key="${2:-}" value="${3:-}"
-  [ -n "$run_id" ] && [ $# -eq 3 ] || { printf 'usage: %s\n' "$RUN_SET_USAGE" >&2; return 2; }
-  [ "$key" = auto_dispatch ] || { printf 'run set: unknown key %s\n  usage: %s\n' "$key" "$RUN_SET_USAGE" >&2; return 2; }
+  [ -n "$run_id" ] && [ -n "$key" ] || { printf 'usage: %s\n  or: %s\n' "$RUN_SET_USAGE" "$COORD_USAGE" >&2; return 2; }
+  if [ "$key" = coordinator ] && [ $# -eq 2 ]; then
+    require_jq "run set"
+    run_require "$run_id" >/dev/null || return $?
+    coordinator_record "$run_id"
+    return $?
+  fi
+  [ $# -eq 3 ] && [ "$key" = auto_dispatch ] || { printf 'run set: unknown key %s\n  usage: %s\n' "$key" "$RUN_SET_USAGE" >&2; return 2; }
   case "$value" in true|false) ;; *) printf 'run set: auto_dispatch must be true or false\n' >&2; return 2 ;; esac
   require_jq "run set"
   run_require "$run_id" >/dev/null || return $?
@@ -128,6 +134,7 @@ stop_kill_job() {
   if kill -0 "$pid" 2>/dev/null; then
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
   fi
+  herdr_close_job_tab "$JOBS_HOME/$job_id"
   printf 'killed\n'
 }
 

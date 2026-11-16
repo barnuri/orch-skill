@@ -199,6 +199,7 @@ run_cancel() {
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || continue
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || continue
     stopped=$((stopped + 1))
+    herdr_close_job_tab "$JOBS_HOME/$job_id"
   done <<EOF
 $(jq -r '.nodes[] | select(.status == "running") | .job_id // empty' "$file")
 EOF
@@ -433,6 +434,21 @@ node_set_status() {
     --arg old "$old" --arg dispatching "${NODE_DISPATCHING:-}" || return 1
   owner_register "$run_id" "$node_id" || true
   run_event "$run_id" status "$node_id" "$old" "$status" "$err"
+  [ "$status" != waiting ] || node_release_claim "$run_id" "$node_id" || true
+}
+
+# node_release_claim <run> <node>: renames the node's autodispatch claim files (claims/<node>@<n>) so the
+# engine may claim the node again. A node turned waiting is ready to start, so its old claim must not block it.
+node_release_claim() {
+  local dir claim stamp
+  dir="$ORCH_HOME/autodispatch/$1/claims"
+  [ -d "$dir" ] || return 0
+  stamp=$(date -u +%s)
+  for claim in "$dir/$2@"*; do
+    [ -f "$claim" ] || continue
+    case "$(basename "$claim")" in *@[0-9]*) ;; *) continue ;; esac
+    mv -f "$claim" "$claim.released-$stamp" || return 1
+  done
 }
 
 node_reopen_run() {
@@ -675,19 +691,45 @@ cmd_node_report() {
 }
 
 # node dispatch <run> <node> (--profile P | <adapter> | <prompt-using-node-profile>) [<prompt>] [args…]
+node_live_job() {
+  local run_id="$1" node_id="$2" f job pid
+  for f in "$JOBS_HOME"/*/node; do
+    [ -f "$f" ] || continue
+    [ "$(cat "$f")" = "$run_id/$node_id" ] || continue
+    job=$(basename "$(dirname "$f")")
+    pid=$(tr -d ' \n' < "$JOBS_HOME/$job/pid" 2>/dev/null || printf '')
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then printf '%s\n' "$job"; return 0; fi
+  done
+  return 1
+}
+
 cmd_node_dispatch() {
-  local run_id="${1:-}" node_id="${2:-}" file status node_profile job_id raw_prompt args_json start i inject
+  local live
+  local run_id="${1:-}" node_id="${2:-}" file status node_profile job_id raw_prompt args_json start i inject answers
   local -a dispatch_argv pass_args
   if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "${3:-}" ]; then
     printf 'usage: %s\n' "$NODE_DISPATCH_USAGE" >&2
     return 2
   fi
   shift 2
+  # --force starts a second job for a node that already has a live one. Anything else is passed on.
+  local force=0 a
+  local -a kept=()
+  for a in "$@"; do
+    if [ "$a" = --force ]; then force=1; else kept+=("$a"); fi
+  done
+  set -- ${kept[@]+"${kept[@]}"}
   require_jq "node dispatch"
   file=$(run_require "$run_id") || return $?
   node_require "$file" "$node_id" || return 2
   status=$(node_field "$file" "$node_id" status)
   [ "$status" = "waiting" ] || { printf 'node dispatch: %s is %s, not waiting\n' "$node_id" "$status" >&2; return 2; }
+  if [ "$force" = 0 ] && [ "${ORCH_NODE_DISPATCH_FORCE:-0}" != 1 ]; then
+    live=$(node_live_job "$run_id" "$node_id") && {
+      printf 'node dispatch: %s already has live job %s; pass --force to start another\n' "$node_id" "$live" >&2
+      return 2
+    }
+  fi
 
   # Neither --profile nor an adapter name first → the node's own profile (from `node add`) applies.
   if [ "$1" != "--profile" ] && ! in_list "$1" "$ADAPTER_NAMES"; then
@@ -711,8 +753,9 @@ cmd_node_dispatch() {
     *) inject=""
        if [ "$(jq '(.rules // []) | length' "$file")" != 0 ]; then inject=$(inbox_rules_block "$run_id" "$node_id"); fi
        inject="$inject$(inbox_retry_prefix "$run_id" "$node_id")"
-       if [ -n "$inject" ]; then
-         dispatch_argv[start - 1]="$raw_prompt"$'\n\n'"$inject"
+       answers=$(inbox_answers_prefix "$run_id" "$node_id")
+       if [ -n "$inject" ] || [ -n "$answers" ]; then
+         dispatch_argv[start - 1]="$answers$raw_prompt"$'\n\n'"$inject"
          set -- "${dispatch_argv[@]}"
        fi ;;
   esac
@@ -752,6 +795,7 @@ cmd_node_dispatch() {
     "$run_id/$node_id/$ORCH_NODE_ATTEMPT" || true
 
   job_id=$(cmd_start "$@") || return $?
+  printf '%s/%s\n' "$run_id" "$node_id" > "$JOBS_HOME/$job_id/node"
   node_record_worker "$run_id" "$node_id" "$job_id" || return 1
   NODE_DISPATCHING=1 node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
@@ -805,6 +849,7 @@ cmd_node_selections() {
     body=$(curl -sS --max-time "$SELECTION_HTTP_TIMEOUT" -G ${auth[@]+"${auth[@]}"} \
       --data-urlencode "worker=$run_id/$node_id/$attempt" \
       --data-urlencode "since_seq=$since" \
+      --data-urlencode "since_ts_ms=1" \
       --data-urlencode "limit=$SELECTION_PAGE_LIMIT" \
       "${LLM_HUB_URL%/}/api/smart-auto/history") \
       || { printf 'node selections: request to %s failed\n' "$LLM_HUB_URL" >&2; return 1; }
@@ -906,6 +951,7 @@ node_reset_for_retry() {
      | .next_retry_at = null' \
     --arg profile "$profile" --arg adapter "$adapter" --arg ts "$(now_iso)" || return 1
   run_event "$run_id" retry "$node_id" "" waiting ""
+  node_release_claim "$run_id" "$node_id" || true
 }
 
 node_retry_dispatch() {
@@ -942,7 +988,7 @@ node_retry_dispatch() {
       && [ "$target_adapter" = "$old_adapter" ] && adapter_supports_resume "$target_adapter" "$previous_session"; then
     retry_mode="resumed"
     resume_session="$previous_session"
-    dispatch_prompt=$(retry_continue_prompt "$summary")
+    dispatch_prompt=$(if [ -n "$supplied_prompt" ]; then printf '%s' "$supplied_prompt"; else retry_continue_prompt "$summary"; fi)
   elif [ "$no_dispatch" -eq 0 ] && [ -n "$prompt" ]; then
     retry_mode="restarted"
     original_text=$(resolve_prompt "$prompt") || return 1
@@ -1008,7 +1054,7 @@ EOF
 }
 
 cmd_node_retry() {
-  local run_id="${1:-}" node_id="${2:-}" override="" no_dispatch=0 prompt="" file
+  local run_id="${1:-}" node_id="${2:-}" override="" no_dispatch=0 prompt="" file force=0 live
   if [ -z "$run_id" ] || [ -z "$node_id" ]; then
     printf 'usage: %s\n' "$NODE_RETRY_USAGE" >&2
     return 2
@@ -1018,6 +1064,7 @@ cmd_node_retry() {
     case "$1" in
       --profile) shift; override="${1:-}" ;;
       --no-dispatch) no_dispatch=1 ;;
+      --force) force=1 ;;
       --*) printf 'node retry: unknown argument %s\n  usage: %s\n' "$1" "$NODE_RETRY_USAGE" >&2; return 2 ;;
       *)
          if [ -z "$override" ] && in_list "$1" "$ADAPTER_NAMES"; then
@@ -1034,7 +1081,13 @@ cmd_node_retry() {
   require_jq "node retry"
   file=$(run_require "$run_id") || return $?
   node_require "$file" "$node_id" || return 2
-  node_retry_dispatch "$run_id" "$node_id" "$override" "$no_dispatch" "manual retry" "$prompt"
+  if [ "$force" = 0 ]; then
+    live=$(node_live_job "$run_id" "$node_id") && {
+      printf 'node retry: %s already has live job %s; pass --force to start another\n' "$node_id" "$live" >&2
+      return 2
+    }
+  fi
+  ORCH_NODE_DISPATCH_FORCE="$force" node_retry_dispatch "$run_id" "$node_id" "$override" "$no_dispatch" "manual retry" "$prompt"
 }
 
 cmd_run_retry() {
@@ -1052,7 +1105,7 @@ cmd_run_retry() {
   require_jq "run retry"
   file=$(run_require "$run_id") || return $?
   [ -z "$override" ] || profile_require "$override" >/dev/null || return 2
-  max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
+  max_parallel=$(max_parallel_cap)
   running=$(jq '[.nodes[] | select(.status == "running")] | length' "$file")
   slots=$((max_parallel - running))
   while IFS= read -r id; do
@@ -1167,7 +1220,7 @@ run_auto_retry_errors() {
   [ "$(jq -r '.status' "$file")" != "cancelled" ] || return 0
   max_attempts=$(setting_max_attempts) || return $?
   [ "$max_attempts" = "-1" ] || [ "$max_attempts" -gt 1 ] || return 0
-  max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
+  max_parallel=$(max_parallel_cap)
   running=$(jq '[.nodes[] | select(.status == "running")] | length' "$file")
   slots=$((max_parallel - running))
   [ "$slots" -gt 0 ] || return 0
@@ -1245,6 +1298,12 @@ cmd_node_out() {
 
 # What the orchestrator reads instead of the log itself, so its context stays flat however much
 # a node printed.
+# job_plain_log <job>: the ANSI-free log of a job. A herdr job writes log.plain; a detached job has no pty, so its log is already plain.
+job_plain_log() {
+  local dir="$JOBS_HOME/$1"
+  if [ -f "$dir/log.plain" ]; then printf '%s\n' "$dir/log.plain"; else printf '%s\n' "$dir/log"; fi
+}
+
 cmd_node_digest() {
   local run_id="${1:-}" node_id="${2:-}" lines="$DIGEST_LINES_DEFAULT"
   if [ -z "$run_id" ] || [ -z "$node_id" ]; then
@@ -1285,7 +1344,7 @@ cmd_node_digest() {
   local job_st
   job_st=$(job_status "$job" 2>/dev/null || printf 'unknown')
   printf 'exit: %s\n' "${job_st#done exit=}"
-  log="$JOBS_HOME/$job/log"
+  log=$(job_plain_log "$job")
   [ -f "$log" ] || { printf 'log: none on disk\n'; return 0; }
   bytes=$(wc -c < "$log" | tr -d ' ')
   total=$(wc -l < "$log" | tr -d ' ')
@@ -1420,7 +1479,7 @@ EOF
   [ -z "$owner_lines" ] || printf '%s\n' "$owner_lines"
   stale=$(run_stale_nodes "$run_id" "$(run_activity_rows "$run_id")")
   # One jq for every summary line after the owner lines (it used to be five plus one per stale check).
-  jq -r --argjson max "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" --arg stale "$stale" "$NODE_READY_JQ_DEF"'. as $r
+  jq -r --argjson max "$(max_parallel_cap)" --arg stale "$stale" "$NODE_READY_JQ_DEF"'. as $r
     | ([.nodes[] | select(.status == "running")] | length) as $running
     | "ready: " + ([ .nodes[] | select(.status == "waiting") | .id as $n
         | select(node_ready($r))

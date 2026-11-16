@@ -1,0 +1,12 @@
+# Phase 4 parity: node update. Each line runs on a home holding run fx-run (fixtures/node-base.jsonl).
+# fixture: fx-run node-base.jsonl
+node update fx-run n1 running
+node update fx-run n1 done
+node update fx-run n2 done
+node update fx-run n1 bogus
+node update fx-run nope done
+node update fx-run n1
+node update fx-run n3 --hold "waiting"
+node update fx-run n3 --clear-hold
+node update fx-run n1 --error "boom"
+node update nope n1 done

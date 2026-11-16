@@ -173,6 +173,7 @@ profiles_template_merged() {
   jq -s '
     .[0] as $t | .[1] as $o
     | $t
+    | .defaults = ($t.defaults // {}) * ($o.defaults // {})
     | .settings = ($t.settings // {}) * ($o.settings // {})
     | .models = ($t.models // {}) + ($o.models // {})
     | .profiles = ($t.profiles // {}) + ($o.profiles // {})
@@ -603,6 +604,31 @@ profile_require() {
   printf '%s\n' "$json"
 }
 
+# profile_effective <name> [<node-override-json>]: the effective value of each profile key and where
+# it came from (node, profile, defaults, builtin). Order: node override, profile, defaults, builtin.
+# env is merged key by key (defaults first, profile wins); flags are replaced, not merged.
+# Prints a JSON object {key: {value, source}}. Shared rule with src/shared effectiveProfile().
+PROFILE_EFFECTIVE_KEYS="parallel_ok max_parallel flags env timeout_min retry stall_min effort tier role cost quality speed risk"
+profile_effective() {
+  local name="$1" node="${2:-}" json
+  require_jq "profile effective"
+  json=$(profile_require "$name") || return $?
+  [ -n "$node" ] || node='{}'
+  jq -n --argjson p "$json" --argjson d "$(jq -c '.defaults // {}' "$PROFILES_FILE")" --argjson n "$node" \
+    --arg keys "$PROFILE_EFFECTIVE_KEYS" '
+    def builtin: {parallel_ok: true, max_parallel: 15, flags: [], env: {}};
+    def pick($k):
+      if $n | has($k) then {value: $n[$k], source: "node"}
+      elif $p | has($k) then {value: $p[$k], source: "profile"}
+      elif $d | has($k) then {value: $d[$k], source: "defaults"}
+      elif builtin | has($k) then {value: builtin[$k], source: "builtin"}
+      else {value: null, source: "builtin"} end;
+    reduce ($keys | split(" ")[]) as $k ({}; . + {($k): pick($k)})
+    | .env = {value: (($d.env // {}) + ($p.env // {}) + ($n.env // {})),
+              source: (if ($n | has("env")) then "node" elif ($p | has("env")) then "profile" elif ($d | has("env")) then "defaults" else "builtin" end)}
+  '
+}
+
 # Sets PROFILE_NAME / PROFILE_HARNESS / PROFILE_MODEL / PROFILE_FLAGS[] and exports the profile's
 # env. Exit 2 = bad profile definition, exit 3 ($PROFILE_UNCONFIGURED_RC) = the profile is fine
 # but its declared env/auth is not set, exit 1 = anything else.
@@ -705,6 +731,48 @@ $(printf '%s' "$json" | jq -r '.auth[]? // empty')
 EOF
 }
 
+# `settings get <key>` / `settings set <key> <value>` for the profile defaults (defaults.<key>).
+# Validated: max_parallel is an integer 1..32, parallel_ok a boolean. Writes via profiles_commit.
+SETTINGS_USAGE='dispatch.sh settings get defaults.<key> | set defaults.<key> <value>'
+cmd_settings() {
+  local sub="${1:-}" key="${2:-}" value="${3:-}" tmp
+  require_jq "settings"
+  ensure_home || return 1
+  case "$sub" in
+    get)
+      [ -n "$key" ] || { printf 'usage: %s\n' "$SETTINGS_USAGE" >&2; return 2; }
+      jq -r --arg k "${key#defaults.}" '.defaults[$k] // "null" | tojson' "$PROFILES_FILE"
+      ;;
+    set)
+      [ -n "$key" ] && [ $# -ge 3 ] || { printf 'usage: %s\n' "$SETTINGS_USAGE" >&2; return 2; }
+      case "$key" in
+        defaults.max_parallel)
+          is_uint "$value" && [ "$value" -ge 1 ] && [ "$value" -le 32 ] || { printf 'settings set: defaults.max_parallel must be an integer 1-32\n' >&2; return 2; }
+          value_json="$value" ;;
+        defaults.parallel_ok)
+          case "$value" in true|false) value_json="$value" ;; *) printf 'settings set: defaults.parallel_ok must be true or false\n' >&2; return 2 ;; esac ;;
+        *) printf 'settings set: unknown key %s (settable: defaults.max_parallel, defaults.parallel_ok)\n' "$key" >&2; return 2 ;;
+      esac
+      tmp="$PROFILES_FILE.tmp.$$"
+      if jq --argjson v "$value_json" --arg k "${key#defaults.}" '.defaults = ((.defaults // {}) + {($k): $v}) | if $k == "max_parallel" then del(.settings.max_parallel) else . end' "$PROFILES_FILE" > "$tmp" \
+        && profiles_commit "$tmp"; then
+        printf '%s = %s\n' "$key" "$value_json"
+      else
+        profiles_tmp_discard "$tmp"; printf 'settings set: could not write profiles.json\n' >&2; return 1
+      fi
+      ;;
+    *) printf 'usage: %s\n' "$SETTINGS_USAGE" >&2; return 2 ;;
+  esac
+}
+
+# The run cap: defaults.max_parallel, else the old settings.max_parallel, else the built-in 15.
+max_parallel_cap() {
+  local v
+  v=$(jq -r '.defaults.max_parallel // .settings.max_parallel // empty' "$PROFILES_FILE" 2>/dev/null)
+  is_uint "$v" && [ "$v" -ge 1 ] && { printf '%s' "$v"; return 0; }
+  printf '15'
+}
+
 cmd_profile() {
   local sub="${1:-}"
   require_jq "profile"
@@ -716,7 +784,11 @@ cmd_profile() {
         "$PROFILES_FILE"
       ;;
     show)
-      [ -n "${2:-}" ] || { printf 'usage: dispatch.sh profile show <name>\n' >&2; return 2; }
+      [ -n "${2:-}" ] || { printf 'usage: dispatch.sh profile show <name> [--effective]\n' >&2; return 2; }
+      if [ "${3:-}" = "--effective" ]; then
+        profile_effective "$2" | jq -r 'to_entries[] | "\(.key)\t\(.value.value | tojson)\t\(.value.source)"'
+        return "${PIPESTATUS[0]}"
+      fi
       profile_require "$2" | jq .
       return "${PIPESTATUS[0]}"
       ;;

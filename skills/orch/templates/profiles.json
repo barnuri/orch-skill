@@ -1,4 +1,13 @@
 {
+  "defaults": {
+    "parallel_ok": true,
+    "max_parallel": 15,
+    "timeout_min": null,
+    "retry": null,
+    "stall_min": null,
+    "flags": [],
+    "env": {}
+  },
   "settings": {
     "default_profile": "claude-default",
     "retention_days": 7,
@@ -166,7 +175,6 @@
         "large-diff"
       ],
       "max_complexity": "small",
-      "parallel_ok": true,
       "priority": 10,
       "flags": [
         "--dangerously-skip-permissions"
@@ -221,7 +229,6 @@
         "review",
         "debug"
       ],
-      "parallel_ok": true,
       "priority": 9,
       "flags": [
         "--dangerously-skip-permissions"
@@ -277,7 +284,6 @@
         "review",
         "cursor-ui"
       ],
-      "parallel_ok": true,
       "priority": 8,
       "flags": [],
       "env": {},
@@ -300,7 +306,6 @@
         "review",
         "debug"
       ],
-      "parallel_ok": true,
       "priority": 8,
       "flags": [
         "--allow-all-tools",
@@ -369,7 +374,6 @@
       "avoid_for": [
         "large-diff"
       ],
-      "parallel_ok": true,
       "priority": 6,
       "flags": [],
       "env": {},

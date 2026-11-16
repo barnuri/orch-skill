@@ -1,0 +1,5 @@
+# Phase 3 parity: profile list, profile show. Each line runs on a fresh seeded home.
+profile list
+profile show
+profile show nope
+profile show opencode-haiku-exec

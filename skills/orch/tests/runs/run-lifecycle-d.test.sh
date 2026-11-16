@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 seed_home "$home"
-edit_json "$home/profiles.json" '.settings.max_parallel = 1'
+edit_json "$home/profiles.json" '.defaults.max_parallel = 1'
 orch run start "Run retry" --id retry-2 >/dev/null 2>&1
 orch node add retry-2 a "a" >/dev/null 2>&1
 orch node add retry-2 b "b" >/dev/null 2>&1

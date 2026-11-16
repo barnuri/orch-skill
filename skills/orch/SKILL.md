@@ -27,7 +27,10 @@ subcommand grammar: [state-and-config.md](references/state-and-config.md).
 
 ## Step 0 — Bootstrap (once per machine, idempotent)
 
+orch requires Bun. Check it first: `command -v bun`. If it prints nothing, tell the user: "orch requires bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again", and stop. `dispatch.sh` exits 127 with the same message when bun is missing.
+
 ```bash
+dispatch.sh doctor    # bun version, home path, herdr availability
 orch init            # creates ~/.harness-orch with template profiles.json and an empty memory.json
 orch profile list    # name, harness, model — `*` marks settings.default_profile
 orch memory list -n 20

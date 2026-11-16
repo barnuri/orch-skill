@@ -1,0 +1,10 @@
+# Phase 3 parity: profile pick and model list (routing). Each line runs on a fresh seeded home.
+profile pick "fix a typo"
+profile pick "refactor the whole routing layer across many files and update all their callers now" --complexity large
+profile pick "fix a typo" --kind docs
+profile pick
+profile pick "x" --bogus
+model list
+model list --harness opencode
+model list --profile nope
+model list --bogus

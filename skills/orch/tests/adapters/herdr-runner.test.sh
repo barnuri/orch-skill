@@ -36,6 +36,7 @@ case "$1 $2" in
     echo "{\"result\":{\"workspace\":{\"workspace_id\":\"w$n\"},\"tab\":{\"tab_id\":\"w$n:t1\"},\"root_pane\":{\"pane_id\":\"w$n:p1\"}}}" ;;
   "tab rename") save --arg t "$3" --arg l "$4" '(.tabs[] | select(.tab_id == $t) | .label) = ("[1] " + $l)'; echo '{}' ;;
   "tab list") jq --arg w "$4" '{result:{tabs:[.tabs[] | select(.workspace_id == $w)]}}' "$state" ;;
+  "tab close") save --arg t "$3" '.tabs |= map(select(.tab_id != $t)) | .panes |= map(select(.tab_id != $t))'; echo '{}' ;;
   "tab create")
     n=$(nid); w=$4
     save --arg w "$w" --arg t "$w:t$n" --arg p "$w:p$n" --arg l "$(label_arg "$@")" '.tabs += [{tab_id:$t,workspace_id:$w,label:$l}] | .panes += [{pane_id:$p,tab_id:$t}]'
@@ -73,7 +74,7 @@ chmod +x "$shims/claude"
 
 # `${home}` has a space and is long on purpose: the socket must still end up under 104 bytes.
 d() {
-  env HOME="$realhome" PATH="$fake:$shims:$PATH" HARNESS_ORCH_HOME="$home" ORCH_HERDR=1 \
+  env -u ORCH_RUN_ID -u ORCH_NODE_ID -u ORCH_NODE_ATTEMPT HOME="$realhome" PATH="$fake:$shims:$PATH" HARNESS_ORCH_HOME="$home" ORCH_HERDR=1 \
     ORCH_HERDR_FAKE_LOG="$fake_log" ORCH_HERDR_CLOSE_AFTER=1 ORCH_HERDR_START_WAIT=8 ORCH_HERDR_CALL_TIMEOUT=40 ORCH_HERDR_WEB_ENVS_DIR="$webdir" \
     HERDR_SOCKET_PATH="$realhome/live-session.sock" HERDR_ENV=1 HERDR_PANE_ID=live:p1 "$@"
 }
@@ -178,30 +179,49 @@ wait_job "$job"
 jd="$home/jobs/$job"
 expect_match "the job finishes with exit 0" '^done exit=0$' "$(d bash "$SCRIPT" status "$job")"
 expect_match "the exit file comes from the wrapper" '^0$' "$(cat "$jd/exit_code" 2>/dev/null)"
-expect_match "the pane id is saved in the job dir" '^w1:p1$' "$(cat "$jd/herdr_pane" 2>/dev/null)"
+expect_match "the pane id is saved in the job dir" '^w1:p2$' "$(cat "$jd/herdr_pane" 2>/dev/null)"
 expect_match "the instance socket is saved in the job dir" 'herdr\.sock$' "$(cat "$jd/herdr_sock" 2>/dev/null)"
 expect_match "the pane runs with the real HOME and the job env" "shim HOME=$realhome marker=m1" "$(cat "$jd/log" 2>/dev/null)"
-expect_match "the pane is titled with run, node and job id" "^job jobs $job\$" "$(fake_state | jq -r '.panes[].label')"
-expect_match "a job with no run gets the jobs tab" '\[1\] jobs' "$(fake_state)"
 expect_no_match "the launcher stores no unrelated env" 'live-session' "$(cat "$jd/herdr-launch.sh")"
+expect_match "the generated command line starts the TypeScript launcher" 'exec bun .*/core/commands/herdr-launch\.ts' "$(cat "$jd/herdr-launch.sh")"
+expect_match "the job's argv is written for the launcher" '"bash","-c"' "$(cat "$jd/argv.json" 2>/dev/null)"
+expect_match "the job's tab is titled with the job id" "(^|\] )$job\$" "$(fake_state | jq -r '.tabs[].label')"
+expect_match "a job with no run gets a workspace labelled jobs" '^jobs$' "$(fake_state | jq -r '.workspaces[].label')"
+expect_no_match "the job's tab has no split pane" 'pane split' "$(cat "$fake_log")"
 
-# --- success auto-close (ORCH_HERDR_CLOSE_AFTER=1)
-wait_until "[ \"\$(fake_state | jq '.panes | length')\" = 0 ]" 30
-expect_match "a successful job's pane closes" '^0$' "$(fake_state | jq '.panes | length')"
+# --- success: the tab lingers, then closes (ORCH_HERDR_CLOSE_AFTER=1)
+wait_until "[ \"\$(fake_state | jq '.tabs | length')\" = 0 ]" 30
+expect_match "a successful job's tab closes after the linger" '^0$' "$(fake_state | jq '.tabs | length')"
 
-# --- a run node: title carries run, node and job id; failure keeps the pane
+# --- a run node: one workspace per run, one tab per node titled with the node id, one pane in it
+: > "$fake_log"
 d bash "$SCRIPT" run start "Herdr run" --id hr-run >/dev/null
 d bash "$SCRIPT" node add hr-run a "a" >/dev/null
-node_job=$(d env ORCH_TEST_EXIT=3 bash "$SCRIPT" node dispatch hr-run a claude "fail probe" 2>/dev/null)
+node_job=$(d env ORCH_HERDR_CLOSE_AFTER=30 ORCH_TEST_EXIT=3 bash "$SCRIPT" node dispatch hr-run a claude "fail probe" 2>/dev/null)
 wait_job "$node_job"
 expect_match "a failed job records its exit code" '^done exit=3$' "$(d bash "$SCRIPT" status "$node_job")"
-sleep 4
-expect_match "a failed job's pane stays open" "hr-run a $node_job" "$(fake_state | jq -r '.panes[].label')"
-expect_match "the run gets its own tab" 'hr-run' "$(fake_state | jq -r '.tabs[].label')"
+expect_match "the run has its own workspace" '^hr-run$' "$(fake_state | jq -r '.workspaces[].label')"
+expect_match "the node tab is titled with the node id" '(^|\] )a$' "$(fake_state | jq -r '.tabs[].label')"
+expect_match "the node tab holds exactly one pane" '^1$' \
+  "$(fake_state | jq '[.tabs[] | select(.label == "a" or .label == "[1] a") | .tab_id] as $t | [.panes[] | select(.tab_id == $t[0])] | length')"
+expect_match "the node job made one tab and no split" '^1 0$' \
+  "$(printf '%s %s' "$(grep -c 'tab create' "$fake_log")" "$(grep -c 'pane split' "$fake_log")")"
+expect_match "the node job tab is saved in the job dir" '^w[0-9]+:t[0-9]+$' "$(cat "$home/jobs/$node_job/herdr_tab")"
 
-# --- pane cap: ORCH_HERDR_PANE_CAP=2 with one failed pane open -> second job gets a pane, third falls back
-cap2=$(d env ORCH_HERDR_PANE_CAP=2 ORCH_TEST_EXIT=1 bash "$SCRIPT" start claude "cap two" 2>/dev/null); wait_job "$cap2"
-cap3=$(d env ORCH_HERDR_PANE_CAP=2 ORCH_TEST_EXIT=1 bash "$SCRIPT" start claude "cap three" 2>/dev/null); wait_job "$cap3"
+# --- retry reuses the node tab: no new tab, title gets the attempt number
+: > "$fake_log"
+retry_job=$(d env ORCH_RUN_ID=hr-run ORCH_NODE_ID=a ORCH_NODE_ATTEMPT=2 ORCH_HERDR_CLOSE_AFTER=30 ORCH_TEST_EXIT=0 bash "$SCRIPT" start claude "retry probe" 2>/dev/null)
+wait_job "$retry_job"
+expect_match "a retry makes no new tab" '^0$' "$(grep -c 'tab create' "$fake_log")"
+expect_match "a retry renames the reused tab with the attempt" '^\[1\] a #2$' "$(fake_state | jq -r '.tabs[].label')"
+expect_match "the retry runs in the same tab as the first attempt" "^$(cat "$home/jobs/$node_job/herdr_tab")\$" "$(cat "$home/jobs/$retry_job/herdr_tab")"
+expect_match "the first attempt's closer does not close the reused tab" '^1$' "$(fake_state | jq '.tabs | length')"
+
+# --- pane cap: close the run's tabs, then cap 2 runs one pane and cap 1 falls back
+inst_herdr() { env -i PATH="$fake:$PATH" HOME="$home/herdr/home" herdr "$@"; }
+for t in $(fake_state | jq -r '.tabs[].tab_id'); do inst_herdr tab close "$t" >/dev/null; done
+cap2=$(d env ORCH_HERDR_PANE_CAP=2 ORCH_HERDR_CLOSE_AFTER=30 ORCH_TEST_EXIT=1 bash "$SCRIPT" start claude "cap two" 2>/dev/null); wait_job "$cap2"
+cap3=$(d env ORCH_HERDR_PANE_CAP=1 ORCH_TEST_EXIT=1 bash "$SCRIPT" start claude "cap three" 2>/dev/null); wait_job "$cap3"
 expect_file "the job under the cap has a pane" "$home/jobs/$cap2/herdr_pane"
 expect_missing "the job over the cap runs detached (no pane)" "$home/jobs/$cap3/herdr_pane"
 expect_match "the capped job still finishes through the wrapper" '^done exit=1$' "$(d bash "$SCRIPT" status "$cap3")"
@@ -211,7 +231,8 @@ d bash "$SCRIPT" run start "Gone run" --id gone-run >/dev/null
 d bash "$SCRIPT" node add gone-run a "a" >/dev/null
 gone_job=$(d env ORCH_TEST_SLEEP=60 bash "$SCRIPT" node dispatch gone-run a claude "die" 2>/dev/null)
 wait_until "[ -s '$home/jobs/$gone_job/pid' ]" 30
-pkill -9 -P "$(cat "$home/jobs/$gone_job/pid")" 2>/dev/null; kill -9 "$(cat "$home/jobs/$gone_job/pid")" 2>/dev/null
+gone_kids=$(pgrep -P "$(cat "$home/jobs/$gone_job/pid")" 2>/dev/null)
+kill -9 "$(cat "$home/jobs/$gone_job/pid")" 2>/dev/null; kill -9 $gone_kids 2>/dev/null
 wait_until "! kill -0 $(cat "$home/jobs/$gone_job/pid") 2>/dev/null" 20
 d bash "$SCRIPT" run sync gone-run --no-retry >/dev/null 2>&1
 expect_match "a lost job's node becomes error" '^error$' "$(jq -r '.nodes[0].status' "$home/runs/gone-run/state.json")"
@@ -275,7 +296,7 @@ if command -v herdr >/dev/null 2>&1; then
   expect_match "real herdr: the pane shows the job output" '(^|[^a-z])hi' "$pane_text"
   expect_match "real herdr: exit 0 from the wrapper" '^done exit=0$' "$(rd bash "$SCRIPT" status "$rjob")"
   expect_match "real herdr: the log has the output" 'hi' "$(cat "$rhome/jobs/$rjob/log")"
-  expect_match "real herdr: the pane title is set" "job jobs $rjob" "$(env -i PATH="$PATH" HOME="$rinst" herdr pane list 2>&1)"
+  expect_match "real herdr: the node tab title is set" "$rjob" "$(env -i PATH="$PATH" HOME="$rinst" herdr pane list 2>&1)"
   expect_no_match "real herdr: no plugin loaded in the instance" 'herdr-folders' "$(env -i PATH="$PATH" HOME="$rinst" herdr plugin list 2>&1)"
   # Second web plugin server on a temp port, its own HOME and registry dir: never the live plugin.
   web_out=""

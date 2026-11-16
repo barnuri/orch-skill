@@ -1,0 +1,7 @@
+# Phase 4 parity: node update, part A (split from node-update.cases to stay under the 60 s per-file cap).
+# fixture: fx-run node-base.jsonl
+node update fx-run n1 running
+node update fx-run n1 done
+node update fx-run n2 done
+node update fx-run n1 bogus
+node update fx-run nope done

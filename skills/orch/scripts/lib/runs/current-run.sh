@@ -16,6 +16,7 @@ cmd_use() {
   case "$run_id" in */*|.|..) printf 'use: invalid run id: %s\n' "$run_id" >&2; return 2 ;; esac
   [ -f "$ORCH_HOME/runs/$run_id/state.json" ] || { printf 'use: no such run: %s\n' "$run_id" >&2; return 1; }
   mkdir -p "$ORCH_HOME" && printf '%s\n' "$run_id" > "$file"
+  coordinator_auto_record "$run_id"
   printf '%s\n' "$run_id"
 }
 

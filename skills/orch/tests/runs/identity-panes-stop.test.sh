@@ -135,7 +135,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404); self.end_headers(); return
         worker = query.get("worker", [""])[0]
         since = int(query.get("since_seq", ["0"])[0])
-        rows = [e for e in events.get(worker, []) if e["seq"] > since]
+        # Like the hub, only a since_ts_ms query reads the stored history; without it the ring is empty.
+        rows = [e for e in events.get(worker, []) if e["seq"] > since] if "since_ts_ms" in query else []
         body = json.dumps({"events": rows}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

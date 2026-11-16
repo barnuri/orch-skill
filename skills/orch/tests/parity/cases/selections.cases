@@ -1,0 +1,9 @@
+# fixture: fx-status run-status.jsonl
+# Phase 2 parity: node selections. The hub is not running in parity, so the cases cover usage, unknown
+# run and node, and the LLM_HUB_URL-not-set error. The hub success path is not in parity.
+node selections
+node selections fx-status
+node selections fx-status n1 extra
+node selections no-such-run n1
+node selections fx-status no-such-node
+node selections fx-status n1

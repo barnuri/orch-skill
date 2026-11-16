@@ -1,0 +1,7 @@
+# Phase 2 parity: node add. Each line runs on a home holding run fx-run (fixtures/node-base.jsonl).
+# fixture: fx-run node-base.jsonl
+node add fx-run n9 nine
+node add fx-run n1 dup
+node add fx-run n10 ten --after n1
+node add fx-run n11 eleven --after nope
+node add nope n1 x

@@ -12,7 +12,14 @@
 #   bash skills/orch/tests/run.sh record wait   only files whose name contains "record" or "wait"
 #                                               (all tiers); with --fast/--full/--changed it filters that tier.
 # Options:
-#   --budget SECS   stop the whole run after SECS; unfinished files are listed so you can rerun them.
+#   --budget SECS   stop starting files after SECS (default 300 with --full, else none), give running
+#                   files 20 s more (ORCH_TEST_BUDGET_GRACE), then kill them. Each file's result
+#                   (passed, failed, not_run) goes to ${TMPDIR}/orch-test-progress.json
+#                   (ORCH_TEST_PROGRESS); the run prints `PARTIAL: N of M files, run again with
+#                   --resume` and exits 75.
+#   --resume        run only the files of the recorded run that have not passed (same tier). On exit 75
+#                   run --resume again until it exits 0 or 1. Never raise the budget instead.
+#                   A run that finishes every file clears the progress file.
 #   ORCH_TEST_JOBS=N             at most N files at once (default: all at once on the fast tier, one
 #                                per CPU otherwise; 1 = serial).
 #   ORCH_TEST_FILE_CAP=SECS      per-file cap (default 30 on the fast tier, 240 otherwise). A file over
@@ -29,7 +36,8 @@ JOBS="${ORCH_TEST_JOBS:-0}"
 
 mode=""
 ref=HEAD
-budget=0
+budget=""
+resume=0
 frags=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -37,17 +45,37 @@ while [ $# -gt 0 ]; do
     --full) mode=full ;;
     --changed) mode=changed ;;
     --changed=*) mode=changed; ref="${1#*=}" ;;
-    --budget) budget="${2:-}"; shift ;;
+    --budget) budget="${2:-x}"; shift ;;
     --budget=*) budget="${1#*=}" ;;
+    --resume) resume=1 ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) printf 'run.sh: unknown option %s (see --help)\n' "$1" >&2; exit 2 ;;
     *) frags+=("$1") ;;
   esac
   shift
 done
-case "$budget" in ''|*[!0-9]*) printf 'run.sh: --budget needs whole seconds\n' >&2; exit 2 ;; esac
+case "$budget" in *[!0-9]*) printf 'run.sh: --budget needs whole seconds\n' >&2; exit 2 ;; esac
+GRACE="${ORCH_TEST_BUDGET_GRACE:-20}"
+PROGRESS="${ORCH_TEST_PROGRESS:-${TMPDIR:-/tmp}/orch-test-progress.json}"
+PROGRESS="${PROGRESS//\/\//\/}"
+
+# The progress record, one entry per line so plain sed reads it back:
+#   {"mode": "full",
+#    "files": {"unit/locks": "passed", "runs/batch": "not_run", ...}}
+progress_mode() { sed -nE 's/^[{ ]*"mode": "([a-z]+)",?$/\1/p' "$PROGRESS" | head -1; }
+progress_entries() { sed -nE 's/^ *"([^"]+)": "(passed|failed|not_run)",?$/\1 \2/p' "$PROGRESS"; }
+prior_passed=()
+if [ "$resume" -eq 1 ]; then
+  [ -f "$PROGRESS" ] || { printf 'run.sh: no partial run recorded in %s; run without --resume\n' "$PROGRESS" >&2; exit 2; }
+  mode=$(progress_mode)
+  frags=()
+  [ -n "$mode" ] || { printf 'run.sh: %s has no mode; run without --resume\n' "$PROGRESS" >&2; exit 2; }
+fi
 if [ -z "$mode" ]; then
   if [ ${#frags[@]} -gt 0 ]; then mode=pick; else mode=fast; fi
+fi
+if [ -z "$budget" ]; then
+  if [ "$mode" = full ]; then budget=300; else budget=0; fi
 fi
 # Outside the fast tier, at most one file per CPU at once: 70+ files at once made each file 10x slower.
 if [ -z "${ORCH_TEST_JOBS:-}" ] && [ "$mode" != fast ]; then
@@ -86,7 +114,11 @@ changed_tests() {
 }
 
 candidates=()
-case "$mode" in
+if [ "$resume" -eq 1 ]; then
+  while read -r id st; do
+    if [ "$st" = passed ]; then prior_passed+=("$id"); else candidates+=("$TESTS_DIR/$id.test.sh"); fi
+  done < <(progress_entries)
+else case "$mode" in
   fast) for f in "$TESTS_DIR"/unit/*.test.sh; do candidates+=("$f"); done ;;
   full|pick) for f in "$TESTS_DIR"/*/*.test.sh; do candidates+=("$f"); done ;;
   changed)
@@ -95,7 +127,7 @@ case "$mode" in
       case "$f" in "$TESTS_DIR"/unit/*) ;; *) candidates+=("$f") ;; esac
     done < <(changed_tests)
     ;;
-esac
+esac; fi
 
 files=()
 for f in ${candidates[@]+"${candidates[@]}"}; do
@@ -110,7 +142,7 @@ for f in ${candidates[@]+"${candidates[@]}"}; do
   fi
   files+=("$f")
 done
-[ ${#files[@]} -gt 0 ] || { printf 'no test files match\n' >&2; exit 1; }
+[ ${#files[@]} -gt 0 ] || [ ${#prior_passed[@]} -gt 0 ] || { printf 'no test files match\n' >&2; exit 1; }
 
 if [ "$mode" = full ]; then
   . "$REPO_ROOT/scripts/heavy-test-lock.sh"
@@ -129,14 +161,14 @@ export ORCH_TEST_HOME_TEMPLATE
 TIMINGS="${ORCH_TEST_TIMINGS:-${TMPDIR:-/tmp}/orch-bash-test-timings}"
 ordered=()
 while IFS= read -r line; do ordered+=("${line#* }"); done < <(
-  for f in "${files[@]}"; do
+  for f in ${files[@]+"${files[@]}"}; do
     s=$(awk -v n="$(test_name "$f")" '$1 == n {print int($2)}' "$TIMINGS" 2>/dev/null)
     # --changed: the fast tier starts first, so its signal comes before the slow mapped files.
     if [ "$mode" = changed ] && [ "${f#"$TESTS_DIR"/unit/}" != "$f" ]; then s=999999; fi
     printf '%s %s\n' "${s:-99999}" "$f"
   done | sort -rn
 )
-files=("${ordered[@]}")
+files=(${ordered[@]+"${ordered[@]}"})
 
 # capped.pl <pgid-file> <rc-file> <cap-secs> <deadline-epoch|0> <cmd...>: runs cmd in its own process
 # group, kills the whole group at the cap or the deadline, and writes "<rc> <secs> <ok|timeout|budget>".
@@ -166,8 +198,14 @@ open my $o, '>', "$rcf.tmp"; printf $o "%d %.1f %s\n", $rc, time - $t0, $why; cl
 rename "$rcf.tmp", $rcf;
 PL
 
+# Budget: no file starts after $deadline; a running file is killed at $deadline + GRACE.
 deadline=0
-[ "$budget" -gt 0 ] && deadline=$(( $(date +%s) + budget ))
+kill_at=0
+if [ "$budget" -gt 0 ]; then
+  deadline=$(( $(date +%s) + budget ))
+  kill_at=$(( deadline + GRACE ))
+  printf 'budget: %ss (+%ss grace), progress: %s\n' "$budget" "$GRACE" "$PROGRESS" >&2
+fi
 pids=()
 names=()
 skipped=()
@@ -178,7 +216,7 @@ running_count() {
   for p in ${pids[@]+"${pids[@]}"}; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done
   printf '%s' "$n"
 }
-for f in "${files[@]}"; do
+for f in ${files[@]+"${files[@]}"}; do
   name=$(test_name "$f")
   key="${name//\//__}"
   if [ "$JOBS" -gt 0 ]; then
@@ -186,7 +224,7 @@ for f in "${files[@]}"; do
   fi
   if [ "$deadline" -gt 0 ] && [ "$(date +%s)" -ge "$deadline" ]; then skipped+=("$name"); continue; fi
   names+=("$name")
-  perl "$out_dir/capped.pl" "$out_dir/$key.pgid" "$out_dir/$key.rc" "$cap" "$deadline" \
+  perl "$out_dir/capped.pl" "$out_dir/$key.pgid" "$out_dir/$key.rc" "$cap" "$kill_at" \
     bash "$f" > "$out_dir/$key.out" 2>&1 9>&- &
   pids+=($!)
 done
@@ -198,6 +236,8 @@ bad=0
 bad_files=0
 bad_names=""
 : > "$out_dir/secs"
+: > "$out_dir/status"
+for id in ${prior_passed[@]+"${prior_passed[@]}"}; do printf '%s passed\n' "$id" >> "$out_dir/status"; done
 for name in ${names[@]+"${names[@]}"}; do
   key="${name//\//__}"
   read -r rc secs why < "$out_dir/$key.rc" 2>/dev/null || { rc=1; secs=0; why=ok; }
@@ -210,6 +250,11 @@ for name in ${names[@]+"${names[@]}"}; do
   total_fail=$((total_fail + ${fl:-0}))
   if [ "$why" = timeout ] || [ "$rc" -ne 0 ] || [ -z "$tally" ]; then
     bad_files=$((bad_files + 1)); bad_names+="$name "
+    printf '%s failed\n' "$name" >> "$out_dir/status"
+  elif [ "${fl:-0}" -gt 0 ]; then
+    printf '%s failed\n' "$name" >> "$out_dir/status"
+  else
+    printf '%s passed\n' "$name" >> "$out_dir/status"
   fi
   if [ "$why" = timeout ]; then
     bad=1
@@ -231,14 +276,28 @@ if [ -s "$out_dir/secs" ]; then
   sort -k2 -rn "$out_dir/secs" | head -5 | awk '{printf " %s %ss,", $1, $2}' | sed 's/,$//' >&2
   printf '\n' >&2
 fi
-if [ ${#skipped[@]} -gt 0 ]; then
-  bad=1
-  printf '\nbudget of %ss reached; not finished (%s): %s\nrerun them: bash skills/orch/tests/run.sh %s\n' \
-    "$budget" "${#skipped[@]}" "${skipped[*]}" "$( [ "$mode" = full ] && printf -- '--full ')${skipped[*]}"
-fi
 
 printf '\n%s passed, %s failed (%s tier, %s files, %ss wall)\n' "$total_pass" "$total_fail" "$mode" \
   "${#names[@]}" "$((SECONDS - started))"
 [ "$bad_files" -gt 0 ] && printf '%s file(s) timed out or exited non-zero: %s\n' "$bad_files" "${bad_names% }"
+
+# Progress record: kept while files are left (exit 75), cleared once a budgeted or resumed run has
+# run every file. Runs without a budget never touch it.
+for name in ${skipped[@]+"${skipped[@]}"}; do printf '%s not_run\n' "$name" >> "$out_dir/status"; done
+if [ ${#skipped[@]} -gt 0 ]; then
+  {
+    printf '{"mode": "%s",\n "files": {\n' "$mode"
+    awk '{ printf "%s  \"%s\": \"%s\"", (NR > 1 ? ",\n" : ""), $1, $2 } END { printf "\n" }' "$out_dir/status"
+    printf ' }}\n'
+  } > "$PROGRESS.tmp.$$" && mv -f "$PROGRESS.tmp.$$" "$PROGRESS"
+  total=$(wc -l < "$out_dir/status" | tr -d ' ')
+  printf 'not run (%s): %s\n' "${#skipped[@]}" "${skipped[*]}"
+  printf 'PARTIAL: %s of %s files, run again with --resume\n' "$((total - ${#skipped[@]}))" "$total"
+  trash "$out_dir" 2>/dev/null || true
+  exit 75
+fi
+if { [ "$budget" -gt 0 ] || [ "$resume" -eq 1 ]; } && [ -f "$PROGRESS" ]; then
+  trash "$PROGRESS" 2>/dev/null || mv -f "$PROGRESS" "$PROGRESS.cleared"
+fi
 trash "$out_dir" 2>/dev/null || true
 [ "$bad" -eq 0 ] && [ "$total_fail" -eq 0 ] || exit 1

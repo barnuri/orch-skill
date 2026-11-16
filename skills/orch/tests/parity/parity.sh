@@ -19,8 +19,22 @@ case_file="${1:-}"
 # shellcheck source=../test-home.sh
 . "$ORCH_SKILL/tests/test-home.sh"
 
-export ORCH_NO_ANNOUNCE=1 ORCH_HERDR=0
+export ORCH_NO_ANNOUNCE=1 ORCH_HERDR=0 ORCH_OWNER_FILL=0
+export ORCH_PARITY_FIXTURES="$PARITY_DIR/fixtures"
 work=$(mktemp -d "${TMPDIR:-/tmp}/orch-parity.XXXXXX") || exit 1
+work=$(cd "$work" && pwd -P) || exit 1
+
+# Fixture: `# fixture: <run-id> <ops-file>` (ops file under fixtures/) builds that run once on the bash
+# path. Each case copies the run's runs/ tree into both homes before its command runs.
+fx=$(sed -n 's/^# fixture: //p' "$case_file" | head -1)
+fx_home="$work/fixture/home"
+if [ -n "$fx" ]; then
+  read -r fx_run fx_ops <<<"$fx"
+  seed_home "$fx_home" || { printf 'parity: seed failed for fixture\n' >&2; exit 1; }
+  env HARNESS_ORCH_HOME="$fx_home" ORCH_BASH=1 bash "$DISPATCH" run start "fixture" --id "$fx_run" >/dev/null 2>&1 \
+    && env HARNESS_ORCH_HOME="$fx_home" ORCH_BASH=1 bash "$DISPATCH" node batch "$fx_run" --file "$ORCH_PARITY_FIXTURES/$fx_ops" >/dev/null 2>&1 \
+    || { printf 'parity: fixture build failed (%s)\n' "$fx" >&2; exit 1; }
+fi
 
 total=0
 fails=0
@@ -35,6 +49,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   seed_home "$homeA" || { printf 'parity: seed failed for %s\n' "$homeA" >&2; exit 1; }
   seed_home "$homeB" || { printf 'parity: seed failed for %s\n' "$homeB" >&2; exit 1; }
   mkdir -p "$case_dir/a" "$case_dir/b"
+  if [ -n "$fx" ]; then
+    cp -R "$fx_home/runs" "$homeA/" && cp -R "$fx_home/runs" "$homeB/" || { printf 'parity: fixture copy failed\n' >&2; exit 1; }
+  fi
 
   env HARNESS_ORCH_HOME="$homeA" ORCH_BASH=1 bash -c "bash \"$DISPATCH\" $line" \
     >"$case_dir/a/out" 2>"$case_dir/a/err"; rcA=$?
@@ -49,8 +66,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   # Home paths differ per side by design: map both to <HOME> before comparing text.
   for side in a b; do
     h=$homeA; [ "$side" = b ] && h=$homeB
+    real=$(cd "$h" && pwd -P)
     for f in out err; do
-      sed "s#$h#<HOME>#g" "$case_dir/$side/$f" >"$case_dir/$side/$f.n" 2>/dev/null
+      sed -e "s#$real#<HOME>#g" -e "s#$h#<HOME>#g" "$case_dir/$side/$f" >"$case_dir/$side/$f.n" 2>/dev/null
     done
   done
   "$BUN" "$PARITY_DIR/normalize.ts" "$homeA" | sed "s#$homeA#<HOME>#g" >"$case_dir/a/tree"

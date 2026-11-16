@@ -134,7 +134,7 @@ wait_check_monitor() {
 
 cmd_run_wait() {
   local run_id="" timeout=0 stall_min="" json=0 follow=0 notes=0 file evf cursor cur poll every
-  local deadline=0 next_health=0 next_sync=0 next_scan=0 rescan key last_key="" total n hm events out now extra newcur
+  local deadline=0 next_health=0 next_sync=0 next_scan=0 next_bridge=0 rescan key last_key="" total n hm events out now extra newcur
   while [ $# -gt 0 ]; do
     case "$1" in
       --timeout) shift; timeout="${1:-}" ;;
@@ -183,6 +183,12 @@ cmd_run_wait() {
       fi
     fi
     if [ "$now" -ge "$next_scan" ]; then next_scan=$((now + rescan)); last_key=""; fi
+    if [ "$now" -ge "$next_bridge" ]; then
+      next_bridge=$((now + COORD_SWEEP_SECS))
+      # The first wait of a session records the coordinator; later sweeps keep the stored one.
+      [ "$(jq -r '.coordinator == null' "$file")" = true ] && coordinator_auto_record "$run_id" >/dev/null 2>&1 || true
+      coord_sweep "$run_id" >/dev/null 2>&1 || true
+    fi
     if [ "$now" -ge "$next_health" ]; then
       next_health=$((now + every))
       hm=$(wait_health_map "$run_id" "$stall_min") || hm=null

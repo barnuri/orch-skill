@@ -32,12 +32,12 @@ expect_match "a waiting node that needs the user says so" '^needs-user needs the
 expect_match "a held node is held" '^held held: later$' "$(hof h)"
 expect_match "a node waiting on a dependency names it" '^ok waiting on e$' "$(hof d)"
 expect_match "the ready list holds only the free node" '^\["e"\]$' "$(printf '%s' "$line" | jq -c .ready)"
-expect_match "slots are max_parallel minus running" '^4 3 1$' "$(printf '%s' "$line" | jq -r '"\(.max_parallel) \(.running) \(.slots)"')"
+expect_match "slots are max_parallel minus running" '^15 3 12$' "$(printf '%s' "$line" | jq -r '"\(.max_parallel) \(.running) \(.slots)"')"
 expect_file "the pass is saved" "$H/health/r1.json"
 expect_match "the first pass records the ready nodes as a change" 'ready: e' "$(printf '%s' "$line" | jq -r '.changes[].note')"
 
 text=$(printf '%s' "$line" | health_render_text)
-expect_match "the text report has the run header" '^run r1 \[running\]: running 3/4, slots 1$' "$text"
+expect_match "the text report has the run header" '^run r1 \[running\]: running 3/15, slots 12$' "$text"
 expect_match "the text report lists the stalled node" '^stalled: b — no activity since [0-9]{2}:[0-9]{2}$' "$text"
 
 mkdir -p "$H/runs/r2" "$H/runs/loop-x" "$H/runs/r3"

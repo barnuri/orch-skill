@@ -135,7 +135,7 @@ cmd_plan() {
   prompt_file=$(run_prompt_file "$run_id" "$node_id")
   mkdir -p "$out_dir" "${prompt_file%/*}" || return 1
   plan_prompt_text "$run_id" "$goal" "$out_dir" \
-    "$(setting_uint max_nodes "$MAX_NODES_DEFAULT")" "$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")" \
+    "$(setting_uint max_nodes "$MAX_NODES_DEFAULT")" "$(max_parallel_cap)" \
     "$(setting_get default_profile "")" > "$prompt_file" || return 1
   state_write "$run_id" '.plan = {node: $n, profile: $p, applied: null, summary: null, tasks: 0}' \
     --arg n "$node_id" --arg p "$profile" || return 1
@@ -316,7 +316,7 @@ run_advance_once() {
     esac
   fi
 
-  max_parallel=$(setting_uint max_parallel "$MAX_PARALLEL_DEFAULT")
+  max_parallel=$(max_parallel_cap)
   running=$(jq '[.nodes[] | select(.status == "running")] | length' "$file")
   slots=$((max_parallel - running))
   while IFS= read -r id; do

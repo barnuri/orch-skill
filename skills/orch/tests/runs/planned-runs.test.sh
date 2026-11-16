@@ -25,7 +25,7 @@ expect_match "joined flag strings are split into argv entries" '^\["--yolo","--n
 # The planner prompt names the goal, the limits and the profile menu; `plan apply` validates.
 edit_json "$home/profiles.json" '.settings.disabled_harnesses = ["claude","opencode","cursor-agent"]
   | .profiles["local-llm-fast"].enabled = true | .settings.default_profile = "local-llm-fast"
-  | .settings.planner_profile = "local-llm-fast" | .settings.max_parallel = 2 | .settings.max_nodes = 5'
+  | .settings.planner_profile = "local-llm-fast" | .defaults.max_parallel = 2 | .settings.max_nodes = 5'
 state="$home/runs/plan-1/state.json"
 orch run start "Planned" --id plan-1 >/dev/null 2>&1
 # A closed port: the planner job fails at once, and the test marks the node done by hand.
