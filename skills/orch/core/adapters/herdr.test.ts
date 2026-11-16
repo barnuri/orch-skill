@@ -42,7 +42,7 @@ describe("herdr", () => {
     const s = setup();
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "0" }, async () => {
       expect(await herdrEnabled(s.home)).toBe(false);
-      expect(await startJob(s.home, join(s.home, "jobs", "j"), "true", [])).toBe(false);
+      expect(await startJob(s.home, join(s.home, "jobs", "j"), ["true"])).toBe(false);
     });
   });
 
@@ -51,7 +51,7 @@ describe("herdr", () => {
     const job = join(s.home, "jobs", "j1");
     mkdirSync(job);
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "n1", ORCH_HERDR_WEB_ENVS_DIR: join(s.root, "envs") }, async () => {
-      expect(await startJob(s.home, job, "true", ["a"])).toBe(true);
+      expect(await startJob(s.home, job, ["true", "a"])).toBe(true);
     });
     const calls = readFileSync(s.log, "utf8");
     expect(calls).toContain("tab create --workspace w1");
@@ -59,7 +59,7 @@ describe("herdr", () => {
     expect(readFileSync(join(job, "herdr_pane"), "utf8")).toBe("p1\n");
     expect(readFileSync(join(job, "herdr_tab"), "utf8")).toBe("t1\n");
     expect(existsSync(join(job, "herdr_sock"))).toBe(true);
-    expect(JSON.parse(readFileSync(join(job, "argv.json"), "utf8"))).toEqual(["bash", "-c", "true", "_", "a"]);
+    expect(JSON.parse(readFileSync(join(job, "argv.json"), "utf8"))).toEqual(["true", "a"]);
   });
 
   test("a retry reuses the node tab and titles it with the attempt", async () => {
@@ -68,7 +68,7 @@ describe("herdr", () => {
     mkdirSync(job);
     writeFileSync(s.panes, JSON.stringify({ result: { panes: [{ pane_id: "p1", tab_id: "t1" }] } }));
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "n1", ORCH_NODE_ATTEMPT: "2", ORCH_HERDR_WEB_ENVS_DIR: join(s.root, "envs") }, async () => {
-      expect(await startJob(s.home, job, "true", [])).toBe(true);
+      expect(await startJob(s.home, job, ["true"])).toBe(true);
     });
     const calls = readFileSync(s.log, "utf8");
     expect(calls).toContain("tab rename t1 n1 #2");

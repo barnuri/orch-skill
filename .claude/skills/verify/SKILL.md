@@ -14,6 +14,7 @@ The skill and its scripts live in the orch-skill repo: `.claude/skills/verify/SK
 1. `$V/check-api.ts` - service up, `/api/build` `stale:false`, watchdog on, run counts.
 2. `$V/check-run-page.ts <run-id> [text ...]` - opens the run page headless, waits for cards, fails if any given text is missing, saves a screenshot.
 3. `$V/check-herdr.ts` - orch herdr instance panes and agent states (read only).
+3b. `$V/check-herdr.ts --lifecycle [--no-orphan]` (throwaway home, fake claude: workspace, tab, ANSI, linger, orphan sweep, about 40 s, 100 s with the orphan wait) and `$V/check-herdr-bridge.ts` (throwaway run, fake-agent coordinator pane: delivery, busy, typing, repoint).
 4. `$V/check-herdr-web.ts [url]` - herdr-web pad answers and renders.
 
 Run 1 first. If the service is stale, restart it (`bun scripts/service.ts restart` in the orch-skill repo) before the browser checks, or the page shows old code.
