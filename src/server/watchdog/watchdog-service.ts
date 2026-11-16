@@ -6,6 +6,7 @@ import type { WatchdogAction, WatchdogCounters, WatchdogFlag, WatchdogRule, Watc
 import { dispatchPath } from "../dispatch-path";
 import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
+import { countPendingAsks } from "../runs/coordinator-state";
 import { RunEngine, type Starter } from "../runs/auto-dispatch";
 
 /**
@@ -36,6 +37,9 @@ import { RunEngine, type Starter } from "../runs/auto-dispatch";
 
 export const LOST_AFTER_MS: number = 120_000;
 export const STALL_MIN_DEFAULT: number = 15;
+/** The coordinator sweep runs at most this often per run. */
+const COORD_EVERY_MS = 20_000;
+
 /** A node still `starting` (dispatched, no real activity) after this long is retried once. */
 export const STARTING_AFTER_MS: number = 180_000;
 export const OWNERS_EVERY_MS: number = 30_000;
@@ -81,6 +85,7 @@ interface WatchRun {
   stopped?: boolean;
   auto_dispatch?: boolean;
   nodes?: WatchNode[];
+  coordinator?: { unreachable?: unknown } | null;
 }
 
 export interface WatchdogOptions {
@@ -235,6 +240,8 @@ export class WatchdogService {
   private readonly lostAfterMs: number;
   private readonly startingAfterMs: number;
   private readonly ownersEveryMs: number;
+  private readonly coordAt = new Map<string, number>();
+  private readonly coordBusy = new Set<string>();
   /** Last `node bind-owners` start per run, and the runs with one in flight. */
   private readonly ownersAt = new Map<string, number>();
   private readonly ownersBusy = new Set<string>();
@@ -311,6 +318,38 @@ export class WatchdogService {
     }
     this.checkFinish(runId, state, nodes);
     this.syncOwners(runId, nodes);
+    this.syncCoordinator(runId, state);
+  }
+
+  /**
+   * Coordinator failover: when a run has a coordinator, `run messages <run> retry` runs the sweep, which refreshes
+   * the heartbeat, repoints an unreachable coordinator and redelivers the pending asks. Throttled per run, and
+   * only while the coordinator is unreachable or asks are pending.
+   */
+  private syncCoordinator(runId: string, state: WatchRun): void {
+    const coord = state.coordinator;
+    if (coord === undefined || coord === null) {
+      return;
+    }
+    const nowMs = this.now().getTime();
+    const last = this.coordAt.get(runId);
+    const pending = countPendingAsks(orchPaths(this.home).runs, runId) > 0;
+    if (this.coordBusy.has(runId) || (last !== undefined && nowMs - last < COORD_EVERY_MS)) {
+      return;
+    }
+    if ((coord.unreachable ?? null) === null && !pending) {
+      return;
+    }
+    this.coordAt.set(runId, nowMs);
+    this.coordBusy.add(runId);
+    const p = this.runDispatch(["run", "messages", runId, "retry"], this.home)
+      .then((rc) => this.record({ at: this.now().toISOString(), run: runId, node: null, rule: "coordinator", action: "run messages", detail: "coordinator sweep", rc }))
+      .catch((err: unknown) => this.log(`coordinator sweep ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        this.coordBusy.delete(runId);
+        this.inflight.delete(p);
+      });
+    this.inflight.add(p);
   }
 
   /**

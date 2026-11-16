@@ -18,6 +18,8 @@ export interface RunState {
   stopped?: boolean;
   /** Set by `dispatch.sh run pause`: starts no node until `run resume`. */
   paused?: boolean;
+  /** Added by GET /api/runs/<id>: the coordinator's reachability and pending asks. */
+  coordinator_state?: import("../../server/runs/coordinator-state").CoordinatorState | null;
   paused_at?: string | null;
   stopped_at?: string | null;
   /** Closed paused or stopped stretches, written by `run resume`; node durations leave them out. */

@@ -155,3 +155,7 @@ main:has(.run-page) { max-width: none; }
 .node-thread li { overflow-wrap: anywhere; }
 .node-send { display: flex; gap: var(--s2); align-items: flex-end; }
 .node-send textarea { flex: 1; resize: vertical; min-height: 44px; font: inherit; }
+
+.coordinator-block { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; }
+.coordinator-unreachable .coordinator-warn { color: var(--status-stale); }
+.coordinator-candidates { list-style: none; margin: 0; padding: 0; width: 100%; }

@@ -145,6 +145,15 @@ export class NodeMessageInputDto extends ZodDto {
   ask?: string;
 }
 
+@ZodObject({ description: "The coordinator pane the user picked from the candidates." })
+export class RepointInputDto extends ZodDto {
+  @ZodField(z.string().min(1).max(500), { description: "Herdr socket path of the candidate." })
+  socket_path!: string;
+
+  @ZodField(z.string().min(1).max(100), { description: "Pane id of the candidate." })
+  pane_id!: string;
+}
+
 @ZodObject({ description: "A run's messages, oldest first." })
 export class RunMessagesEnvelopeDto extends ZodDto {
   @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Messages {id, seq, from, to, kind (tell|ask|answer|rule), at, text, status, delivered_at, via, answer?, answered_at?, reply_to?}." })

@@ -115,5 +115,14 @@ set_coord p-back ""
 coord_touch r1
 expect_match "a heartbeat stores the stable session id" '^ses_A$' "$(state_of .coordinator.session_id)"
 
+reset_fake
+set_get p-back '{"agent_status":"idle","agent_session":{"value":"ses_A"}}'
+set_coord p-back ses_A
+export FAKE_WORKING=1
+cmd_node_ask r1 a "busy q6" >/dev/null
+for i in 1 2 3 4 5 6 7 8 9 10 11; do coord_deliver r1 "$(last_orch)" >/dev/null; done
+expect_match "an ask never becomes failed after many tries" '^pending$' "$(jq -r .status "$(last_orch)")"
+expect_match "the tries are counted" '^1[0-9]$' "$(jq -r .tries "$(last_orch)")"
+
 cleanup_dir "$(dirname "$H")"
 finish
