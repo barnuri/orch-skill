@@ -11,7 +11,7 @@ import { runLimited } from "../state/proc.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
-import { applyReport, ev, findNode, ownerParse, parseReportArgs, setStatus, type Ctx } from "../runs/node.ts";
+import { applyReport, ev, findNode, ownerParse, parseReportArgs, setStatus, SMART_AUTO_TIERS, type Ctx } from "../runs/node.ts";
 import { loadEnvFile, nodeSelectionsText } from "./selections.ts";
 import { mutateRun, resolveRun } from "./node.ts";
 
@@ -891,7 +891,7 @@ async function actualRun(home: string, runId: string, ix: Sess[], deadline: numb
   const models = new Map(ix.map((s) => [s.id, s.model]));
   let count = 0;
   for (const n of fresh.nodes) {
-    if (!(n.status === "running" || ((n.actual_model ?? "") === "" && ["done", "error"].includes(n.status)))) continue;
+    if (!(n.status === "running" || ((n.actual_model ?? "") === "" && ["done", "error"].includes(n.status) && n.fill_backfilled !== true))) continue;
     const ses = String(n.owner_id ?? "").startsWith("ses_") && alt(n.owner_kind, "session") === "session" ? n.owner_id : String(n.session ?? "").startsWith("ses_") ? n.session : "";
     let kind = "";
     if ((n.adapter || n.harness || "") === "copilot" && (n.session ?? "") !== "") kind = "copilot";
@@ -997,6 +997,76 @@ async function apiFillRun(home: string, runId: string, ix: Sess[], dl: number): 
   }
 }
 
+// ---- backfill: an old node gets what is still missing, once --------------------------------------------
+
+const BACKFILL_SELECTIONS_MAX = 30;
+
+// What a finished node can still get after its run ended: the tier its Smart Auto model name carries, the
+// model its session served, and the hub selection events (actual model, role, effort) of a job-dispatched
+// node that never had `worker_identity`. A node is marked `fill_backfilled` once every source it needs
+// answered, so later sweeps skip it. What the hub or the opencode database no longer holds stays empty.
+export async function ownersBackfillRun(home: string, runId: string, deadline = 0): Promise<string[]> {
+  if (process.env.ORCH_OWNER_FILL === "0") return [];
+  const run = await loadRun(home, runId);
+  if (!run) return [];
+  const todo = run.nodes.filter((n) => ["done", "error", "stopped"].includes(n.status) && n.fill_backfilled !== true);
+  if (todo.length === 0) return [];
+  const dl = deadline || Math.floor(Date.now() / 1000) + 3600;
+  await loadEnvFile(home);
+  const dbOn = existsSync(opencodeDbPath());
+  const hubOn = process.env.ORCH_OWNER_HUB !== "0" && (process.env.LLM_HUB_URL ?? "") !== "";
+  const plan = new Map<string, { set: Record<string, any>; needsDb: boolean; needsSel: boolean }>();
+  for (const n of todo) {
+    const set: Record<string, any> = {};
+    const named = [n.model, n.model_id].map((m) => /smart-auto-([a-z]+)$/.exec(String(m ?? ""))?.[1]).find((t) => t !== undefined && SMART_AUTO_TIERS.includes(t));
+    if (n.tier == null && named !== undefined) set.tier = named;
+    let needsDb = false;
+    if ((n.actual_model ?? "") === "") {
+      const ses = String(n.owner_id ?? "").startsWith("ses_") && alt(n.owner_kind, "session") === "session" ? String(n.owner_id) : String(n.session ?? "").startsWith("ses_") ? String(n.session) : "";
+      let m = "";
+      if ((n.adapter || n.harness || "") === "copilot" && (n.session ?? "") !== "") m = copilotActualModel(n.session);
+      else if (n.hub?.actual?.model != null) m = String(n.hub.actual.model);
+      else if (ses !== "") {
+        needsDb = true;
+        if (dbOn) m = dbSessionModel(ses);
+      }
+      if (m !== "") set.actual_model = m;
+    }
+    const needsSel = n.selections_final !== true && (n.job_id ?? "") !== "" && ["claude", "opencode"].includes(String(n.adapter ?? "")) && (selector(n.model) || selector(n.model_id));
+    if (needsSel && (n.worker_identity ?? "") === "") set.worker_identity = `${runId}/${n.id}/${(n.attempts ?? []).length + 1}`;
+    plan.set(n.id, { set, needsDb: needsDb && !dbOn, needsSel });
+  }
+  const changed = new Map<string, string[]>();
+  await commit(home, runId, [(r) => {
+    for (const [id, p] of plan) {
+      patch(r, id, (x) => {
+        for (const [k, v] of Object.entries(p.set)) {
+          if (x[k] == null || x[k] === "") { x[k] = v; if (k !== "worker_identity") changed.set(id, [...(changed.get(id) ?? []), k]); }
+        }
+      });
+    }
+  }]);
+  const selDone = new Set<string>();
+  let calls = 0;
+  for (const [id, p] of plan) {
+    if (!p.needsSel || !hubOn) continue;
+    if (calls >= BACKFILL_SELECTIONS_MAX || Date.now() / 1000 >= dl) break;
+    calls++;
+    const r = await nodeSelectionsText(home, [runId, id]);
+    if (r.code !== 0) continue;
+    selDone.add(id);
+    const after = (await loadRun(home, runId))?.nodes.find((x) => x.id === id);
+    if (after && (after.selection_history ?? []).length > 0) changed.set(id, [...(changed.get(id) ?? []), "selections"]);
+  }
+  await commit(home, runId, [(r) => {
+    for (const [id, p] of plan) {
+      if (p.needsDb || (p.needsSel && !selDone.has(id))) continue;
+      patch(r, id, (x) => { x.fill_backfilled = true; if (selDone.has(id)) x.selections_final = true; });
+    }
+  }]);
+  return [...changed].map(([id, keys]) => `${id}\tbackfilled ${[...new Set(keys)].join(", ")}`);
+}
+
 export async function ownersFillRun(home: string, runId: string, deadline = 0): Promise<string[]> {
   if (process.env.ORCH_OWNER_FILL === "0") return [];
   if (!existsSync(paths.runState(home, runId))) return [];
@@ -1006,7 +1076,8 @@ export async function ownersFillRun(home: string, runId: string, deadline = 0): 
   await actualRun(home, runId, ix, dl).catch(() => undefined);
   await selectionsRun(home, runId, dl).catch(() => undefined);
   await apiFillRun(home, runId, ix, dl).catch(() => undefined);
-  return lines;
+  const backfilled = await ownersBackfillRun(home, runId, dl).catch(() => []);
+  return [...lines, ...backfilled];
 }
 
 // ---- verify ---------------------------------------------------------------------------------------
