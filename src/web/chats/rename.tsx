@@ -24,7 +24,7 @@ type ChatPages = InfiniteData<Page<Chat>, string | null>;
 /** Writes `title` into every cached copy of the chat: each chat-list page and the chat itself. */
 function setCachedTitle(client: QueryClient, id: string, title: string): void {
   client.setQueriesData<ChatPages>({ queryKey: ["chats"] }, (data) =>
-    data === undefined ? data : { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.map((c) => (c.id === id ? { ...c, title } : c)) })) },
+    data === undefined || !Array.isArray(data.pages) ? data : { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.map((c) => (c.id === id ? { ...c, title } : c)) })) },
   );
   client.setQueryData<Chat>(["chat", id], (chat) => (chat === undefined ? chat : { ...chat, title }));
 }
