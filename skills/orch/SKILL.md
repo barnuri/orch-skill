@@ -465,6 +465,10 @@ reads it with `orch msg read <run-id>`, asks the user through the question tool 
 then answers with `orch msg send <run-id> --to <node-id> --from orch "<answer>"`. A subagent returns its
 question in its report, and the session asks it the same way.
 
+## Node questions
+
+Nodes never talk to the user. They ask with `node ask`, and the question arrives in the coordinator session (through the herdr bridge, `run wait` or the notify log). The coordinator triages each question: it answers a technical or plan question itself with `node answer <run> <node> <id> "<text>"` and a one-line reason. When the decision belongs to the user (preference, risk, cost, credentials, scope), the coordinator asks the user through the question tool, with one option per node option and a recommended first option, and then relays the choice with `node answer`. The coordinator answers within one turn: an unanswered ask holds a node for up to 600 s.
+
 ## Asking the user
 
 Every question to the user goes through the session's question tool (`AskUserQuestion` in Claude
