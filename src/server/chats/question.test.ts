@@ -79,7 +79,7 @@ async function ask(srv: TestServerHandle): Promise<{ chat: string; question: Que
     const rows = await messages(srv, chat);
     const chatRow = (await (await srv.api(`/api/chats/${chat}`)).json()) as { status: string };
     const part = rows.flatMap((r) => (r.role === "tool" ? parseParts(r.parts) ?? [] : [])).find((p): p is QuestionPart => p.type === "question");
-    return part !== undefined && chatRow.status === "idle" ? part : null;
+    return part !== undefined && chatRow.status === "waiting" ? part : null;
   });
   return { chat, question };
 }
@@ -94,6 +94,9 @@ describe("question end to end (fake claude asks, the answer finishes the turn)",
     expect(first?.status).toBe("done");
     const waiting = (await (await srv.api("/api/chats/questions/waiting")).json()) as { chat_ids: string[] };
     expect(waiting.chat_ids).toEqual([chat]);
+    expect(await (await srv.api(`/api/chats/${chat}`)).json()).toMatchObject({ status: "waiting", awaiting_answer: true });
+    const listed = ((await (await srv.api("/api/chats")).json()) as { items: Array<{ id: string; status: string; awaiting_answer: boolean }> }).items.find((c) => c.id === chat);
+    expect(listed).toMatchObject({ status: "waiting", awaiting_answer: true });
 
     const url = `/api/chats/${chat}/questions/toolu_ask1/answer`;
     expect((await json(srv, url, { answers: [["Purple"], ["x"]] })).status).toBe(400);
@@ -116,6 +119,7 @@ describe("question end to end (fake claude asks, the answer finishes the turn)",
     const part = done.flatMap((r) => (r.role === "tool" ? parseParts(r.parts) ?? [] : [])).find((p): p is QuestionPart => p.type === "question") as QuestionPart;
     expect(part).toMatchObject({ state: "answered", answers: [["Red"]] });
     expect(((await (await srv.api("/api/chats/questions/waiting")).json()) as { chat_ids: string[] }).chat_ids).toEqual([]);
+    expect(await (await srv.api(`/api/chats/${chat}`)).json()).toMatchObject({ status: "idle", awaiting_answer: false });
     const spawns = (await Bun.file(process.env.FAKE_AGENT_LOG as string).text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { args?: string[] }).filter((l) => l.args);
     expect(spawns).toHaveLength(2);
     expect(spawns[1]?.args).toContain("--resume");

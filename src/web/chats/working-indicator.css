@@ -12,6 +12,8 @@
 .working.is-stalled { padding: var(--s2) var(--s3); border: 1px solid var(--status-stale-bd); border-radius: var(--r-md); background: var(--status-stale-bg); }
 .working.is-stalled .working-label { color: var(--status-stale); }
 .working.is-stalled .working-dots i { background: var(--status-stale); }
+.working.is-waiting .working-label { color: var(--status-stale); font-weight: 500; }
+.working.is-waiting .working-dots i { background: var(--status-stale); }
 .working-actions { display: inline-flex; align-items: center; gap: var(--s3); margin-inline-start: auto; }
 .working-stop { border-color: var(--status-stale-bd); color: var(--status-stale); min-height: 36px; }
 .working-checked { flex-basis: 100%; margin: 0; color: var(--tx2); }

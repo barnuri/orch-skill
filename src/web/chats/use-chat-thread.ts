@@ -15,6 +15,8 @@ export interface ChatThread {
   hasOlder: boolean;
   loadingOlder: boolean;
   running: boolean;
+  /** True while the agent's question waits for an answer (the stream's `waiting` status). */
+  waiting: boolean;
   /** The chat's message queue (queue event of the live stream). */
   queue: QueueSnapshot;
   setQueue: (queue: QueueSnapshot) => void;
@@ -32,6 +34,7 @@ export function useChatThread(chatId: string): ChatThread {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [running, setRunning] = useState(false);
+  const [waitingForAnswer, setWaitingForAnswer] = useState(false);
   const [queue, setQueue] = useState<QueueSnapshot>(EMPTY_QUEUE);
   const [conn, setConn] = useState<ConnState>("connecting");
   const latest = useRef<Message[]>([]);
@@ -44,6 +47,7 @@ export function useChatThread(chatId: string): ChatThread {
     setLoadError(null);
     setCursor(null);
     setRunning(false);
+    setWaitingForAnswer(false);
     setQueue(EMPTY_QUEUE);
     void (async () => {
       const page = await chatsApi.messages(chatId, null);
@@ -79,6 +83,7 @@ export function useChatThread(chatId: string): ChatThread {
             if (ev.event === "status") {
               const status = (data as { status?: unknown } | null)?.status;
               setRunning(status === "running");
+              setWaitingForAnswer(status === "waiting");
             } else if (ev.event === "queue") {
               const snap = data as QueueSnapshot | null;
               if (snap !== null && Array.isArray(snap.items)) {
@@ -127,7 +132,7 @@ export function useChatThread(chatId: string): ChatThread {
     await chatsApi.stop(chatId);
   }, [chatId]);
 
-  return { messages, loading, loadError, hasOlder: cursor !== null, loadingOlder, running, queue, setQueue, conn, loadOlder, send, stop };
+  return { messages, loading, loadError, hasOlder: cursor !== null, loadingOlder, running, waiting: waitingForAnswer, queue, setQueue, conn, loadOlder, send, stop };
 }
 
 /** A clock that ticks once a second while `active`, for live durations. */

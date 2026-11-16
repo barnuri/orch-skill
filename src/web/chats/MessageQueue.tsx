@@ -3,7 +3,7 @@ import type { DragEvent, KeyboardEvent } from "react";
 import { describeFailure } from "../api/result";
 import type { ApiResult, NonOk } from "../api/result";
 import { queueApi } from "./queue-api";
-import { attachmentLabel, dropped, moved, pausedNotice, preview, queuedCountLabel, runningItem, waiting } from "./queue-logic";
+import { attachmentLabel, dropped, moved, pausedNotice, preview, queuedCountLabel, runningItem, waiting, waitingNotice } from "./queue-logic";
 import type { QueueItem, QueueSnapshot } from "./queue-logic";
 
 const STARTED = "Already started";
@@ -211,7 +211,7 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
           </button>
         ) : null}
       </header>
-      {snapshot.paused ? <p className="queue-paused" role="status" data-testid="queue-paused">{pausedNotice(snapshot.reason, list.length)}</p> : null}
+      {snapshot.paused ? <p className="queue-paused" role="status" data-testid="queue-paused">{pausedNotice(snapshot.reason, list.length)}</p> : snapshot.waiting_for_answer === true ? <p className="queue-paused queue-waiting" role="status" data-testid="queue-waiting">{waitingNotice(list.length)}</p> : null}
       {notes.tray !== undefined ? <p className="queue-note" role="alert">{notes.tray}</p> : null}
       {open ? (
         <>

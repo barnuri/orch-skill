@@ -60,6 +60,9 @@ export class QueueSnapshotDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "Why it is paused." })
   reason!: string | null;
+
+  @ZodField(z.boolean().optional(), { description: "True while the agent's question waits for the person: the next queued message does not start until it is answered or skipped (or sent now). Not a pause: it continues by itself." })
+  waiting_for_answer?: boolean;
 }
 
 @ZodObject({ description: "Changes to a queued message. Allowed only while it is queued." })

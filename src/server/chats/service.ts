@@ -140,6 +140,7 @@ export class ChatService {
       isRunning: (chatId) => this.turns.has(chatId) || this.store.getChat(chatId)?.status === "running",
       start: (chatId, input) => this.sendMessage(chatId, input),
       stopRunning: (chatId) => this.stop(chatId),
+      hasPendingQuestion: (chatId) => this.store.pendingQuestionRows(chatId).length > 0,
       assertOpen: (chatId) => {
         if (this.chat(chatId).archived_at !== null) {
           throw new QueueError(409, "chat is archived");
@@ -188,10 +189,29 @@ export class ChatService {
         const row = this.store.getMessage(r.id);
         if (row !== null) {
           this.emit(r.chat_id, { event: "done", id: `${row.id}.${row.content.length}`, data: { message_id: row.id, status: row.status, error: row.error, context_truncated: row.context_truncated === 1, warning: row.warning } });
-          this.emit(r.chat_id, { event: "status", data: { chat_id: r.chat_id, status: "idle" } });
+          this.emit(r.chat_id, { event: "status", data: { chat_id: r.chat_id, status: this.idleStatus(r.chat_id) } });
         }
       }
     }
+  }
+
+  /**
+   * The status shown to people: `running` while a reply streams, `waiting` while an agent's question waits for an
+   * answer, else `idle`. Stored `chats.status` stays idle or running; `waiting` is derived from the pending question.
+   */
+  statusOf(chat: Pick<ChatRow, "id" | "status" | "archived_at">, waiting: ReadonlySet<string> | null = null): "idle" | "running" | "waiting" {
+    if (chat.status === "running" || this.turns.has(chat.id)) {
+      return "running";
+    }
+    if (chat.archived_at !== null) {
+      return "idle";
+    }
+    return (waiting === null ? this.store.pendingQuestionRows(chat.id).length > 0 : waiting.has(chat.id)) ? "waiting" : "idle";
+  }
+
+  private idleStatus(chatId: string): "idle" | "waiting" {
+    const chat = this.store.getChat(chatId);
+    return chat === null ? "idle" : this.statusOf({ ...chat, status: "idle" }) as "idle" | "waiting";
   }
 
   private pidOf(turn: Turn): boolean | null {
@@ -211,7 +231,7 @@ export class ChatService {
     }
     this.liveness.end(chatId);
     void this.manager.drop(chatId);
-    this.emit(chatId, { event: "status", data: { chat_id: chatId, status: "idle" } });
+    this.emit(chatId, { event: "status", data: { chat_id: chatId, status: this.idleStatus(chatId) } });
   }
 
   private emitActivity(chatId: string, turn: Turn): void {
@@ -1025,7 +1045,7 @@ export class ChatService {
     this.manager.release(chat.id);
     this.artifactTurnEnd(chat);
     this.emit(chat.id, { event: "done", id: `${id}.${final.content.length}`, data: { message_id: id, status: final.status, error: final.error, context_truncated: final.context_truncated === 1, warning: final.warning } });
-    this.emit(chat.id, { event: "status", data: { chat_id: chat.id, status: "idle" } });
+    this.emit(chat.id, { event: "status", data: { chat_id: chat.id, status: this.idleStatus(chat.id) } });
     try {
       this.queue.turnEnded(chat.id, final.status === "done" ? "done" : final.status === "stopped" ? "stopped" : "error");
     } catch (err) {
@@ -1175,7 +1195,7 @@ export class ChatService {
         }
       }
     }
-    out.push({ event: "status", data: { chat_id: chat.id, status: this.store.getChat(chat.id)?.status ?? "idle" } });
+    out.push({ event: "status", data: { chat_id: chat.id, status: this.store.getChat(chat.id) === null ? "idle" : this.statusOf(this.store.getChat(chat.id) as ChatRow) } });
     const turn = this.turns.get(chat.id);
     const activity = turn === undefined ? null : this.liveness.snapshot(chat.id);
     if (turn !== undefined && activity !== null) {

@@ -18,6 +18,7 @@ import { Composer } from "./Composer";
 import { ConversationView } from "./ConversationView";
 import { QueueBubbles, QueueCounter, QueueTray } from "./MessageQueue";
 import { EMPTY_QUEUE, waiting } from "./queue-logic";
+import { WaitingIndicator } from "./WorkingIndicator";
 import type { QueueSnapshot } from "./queue-logic";
 import { QuestionCard } from "./QuestionCard";
 import { pendingQuestion, useAnswerQuestion } from "./question-hooks";
@@ -224,6 +225,7 @@ function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: 
   const asking = pendingQuestion(rows);
   const answerQuestion = useAnswerQuestion(chatId);
   const running = thread.running || rows.some(isLive);
+  const awaitingAnswer = !running && (thread.waiting || asking !== null);
   const voice = useVoiceConversation({
     messages: thread.messages,
     running,
@@ -295,8 +297,8 @@ function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: 
           onLoadOlder={thread.loadOlder}
           onOpenImage={setLightbox}
           fallbackModel={modelLabel(options.data, { harness: chat.harness, profile: chat.profile, model: chat.model_id })}
-          tail={<QueueBubbles items={thread.queue.items} />}
-          tailKey={waiting(thread.queue).length}
+          tail={<>{awaitingAnswer ? <WaitingIndicator /> : null}<QueueBubbles items={thread.queue.items} /></>}
+          tailKey={waiting(thread.queue).length + (awaitingAnswer ? 100 : 0)}
           onRetry={(text) => {
             void send(text, []).then((failure) => {
               if (failure !== null) {

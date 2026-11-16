@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const ROLE = z.enum(["user", "assistant", "system", "tool"]);
 const MESSAGE_STATUS = z.enum(["pending", "streaming", "done", "error", "stopped"]);
-const CHAT_STATUS = z.enum(["idle", "running"]);
+const CHAT_STATUS = z.enum(["idle", "running", "waiting"]);
 const LIMIT = z.coerce.number().int().min(1).max(100).optional();
 const FLAG = z.enum(["0", "1", "true", "false"]).optional();
 
@@ -144,8 +144,8 @@ export class ChatDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "The agent's own session id, set after the first reply." })
   session_id!: string | null;
 
-  @ZodField(CHAT_STATUS, { description: "running while a reply streams." })
-  status!: "idle" | "running";
+  @ZodField(CHAT_STATUS, { description: "running while a reply streams; waiting while the agent's question waits for an answer (the queue does not start the next message then); else idle." })
+  status!: "idle" | "running" | "waiting";
 
   @ZodField(z.string(), { description: "ISO 8601 UTC." })
   created_at!: string;
@@ -173,7 +173,7 @@ export class ChatDto extends ZodDto {
 
   @ZodField(z.string().nullable().optional(), { description: "In chat reads and lists: the folder the next turn runs in (the chat's own, else its project's). Null means a scratch folder." })
   effective_cwd?: string | null;
-  /** True while the agent asked a question that the user has not answered yet. */
+  @ZodField(z.boolean().optional(), { description: "True while the agent asked a question that the user has not answered yet. Kept for older clients: `status` is `waiting` for the same chats." })
   awaiting_answer?: boolean;
 
   @ZodField(z.boolean().optional(), { description: "In chat lists only: true when the chat has no message and no attachment. Empty chats older than 24 hours are archived at server start." })

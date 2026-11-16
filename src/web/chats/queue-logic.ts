@@ -16,9 +16,11 @@ export interface QueueSnapshot {
   items: QueueItem[];
   paused: boolean;
   reason: string | null;
+  /** The agent's question waits for the person: the next queued message starts after it is answered or skipped. */
+  waiting_for_answer?: boolean;
 }
 
-export const EMPTY_QUEUE: QueueSnapshot = { chat_id: "", items: [], paused: false, reason: null };
+export const EMPTY_QUEUE: QueueSnapshot = { chat_id: "", items: [], paused: false, reason: null, waiting_for_answer: false };
 
 export const PREVIEW_CHARS = 140;
 
@@ -74,4 +76,9 @@ export function queuedCountLabel(count: number): string {
 export function pausedNotice(reason: string | null, count: number): string {
   const what = reason === null || reason === "" ? "The queue is paused." : `${reason.replace(/\.$/, "")}. The queue is paused.`;
   return `${what} ${count === 1 ? "1 message is" : `${count} messages are`} waiting.`;
+}
+
+/** Notice text while the agent's question holds the queue. */
+export function waitingNotice(count: number): string {
+  return `Waiting for your answer. ${count === 1 ? "1 message starts" : `${count} messages start`} after you answer or skip the question.`;
 }

@@ -11,7 +11,7 @@ import { QueueError } from "../../chats/queue";
 import { type ChatService, chatServiceFor, HttpError } from "../../chats/service";
 import { eventStream } from "../../chats/sse";
 import { deleteUnattached, saveUploads, serveAttachment, UploadError } from "../../chats/uploads";
-import type { AttachmentRow, MessageRow } from "../../chats/types";
+import type { AttachmentRow, ChatRow, MessageRow } from "../../chats/types";
 import { jsonResponse } from "../../http/responses";
 import type { ServerContext } from "../../types/server-context";
 import type { ApiContext } from "../pipeline";
@@ -38,6 +38,12 @@ function guarded(work: () => Response | Promise<Response>): Promise<Response> {
 @Controller({ path: "/api", tags: ["chats"] })
 export class ChatsController {
   private readonly service: ChatService;
+
+  /** A chat as the API shows it: `status` is `waiting` while a question waits, `awaiting_answer` says the same for older clients. */
+  private shown<T extends ChatRow>(chat: T, waiting: ReadonlySet<string> | null = null): T & { awaiting_answer: boolean } {
+    const status = this.service.statusOf(chat, waiting);
+    return { ...chat, status, awaiting_answer: status === "waiting" };
+  }
 
   constructor(ctx: ServerContext) {
     this.service = chatServiceFor(ctx);
@@ -92,7 +98,7 @@ export class ChatsController {
   setFolder(c: ApiContext): Response {
     try {
       const chat = this.service.setChatFolder(idOf(c), valid<{ path: string | null }>(c, "json").path);
-      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) } });
+      return jsonResponse(200, { chat: { ...this.shown(chat), effective_cwd: this.service.effectiveCwd(chat) } });
     } catch (err) {
       return failure(err);
     }
@@ -112,7 +118,7 @@ export class ChatsController {
       const id = idOf(c);
       const body = valid<{ subfolder?: string | null }>(c, "json");
       const chat = body.subfolder === undefined ? this.service.chat(id) : this.service.setChatSubfolder(id, body.subfolder);
-      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) } });
+      return jsonResponse(200, { chat: { ...this.shown(chat), effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat) } });
     } catch (err) {
       return failure(err);
     }
@@ -128,7 +134,7 @@ export class ChatsController {
     const q = valid<{ limit?: number; cursor?: string; project_id?: string; archived?: string }>(c, "query");
     const page = this.service.store.listChats({ projectId: q.project_id, archived: q.archived === "1" || q.archived === "true", limit: q.limit, cursor: q.cursor });
     const waiting = new Set(this.service.chatsWaitingForAnswer());
-    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...row, effective_cwd: this.service.effectiveCwd(row), empty: this.service.store.chatIsEmpty(row.id), awaiting_answer: waiting.has(row.id) })) });
+    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...this.shown(row, waiting), effective_cwd: this.service.effectiveCwd(row), empty: this.service.store.chatIsEmpty(row.id) })) });
   }
 
   @Post("/chats", {
@@ -156,7 +162,7 @@ export class ChatsController {
   read(c: ApiContext): Response {
     try {
       const chat = this.service.chat(idOf(c));
-      return jsonResponse(200, { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) });
+      return jsonResponse(200, { ...this.shown(chat), effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat) });
     } catch (err) {
       return failure(err);
     }
@@ -173,7 +179,7 @@ export class ChatsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such chat." })
   rename(c: ApiContext): Response {
     try {
-      return jsonResponse(200, { chat: this.service.renameChat(idOf(c), valid<{ title: string }>(c, "json").title) });
+      return jsonResponse(200, { chat: this.shown(this.service.renameChat(idOf(c), valid<{ title: string }>(c, "json").title)) });
     } catch (err) {
       return failure(err);
     }
@@ -189,7 +195,7 @@ export class ChatsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such chat." })
   setProject(c: ApiContext): Response {
     try {
-      return jsonResponse(200, { chat: this.service.setChatProject(idOf(c), valid<{ project_id: string | null }>(c, "json").project_id) });
+      return jsonResponse(200, { chat: this.shown(this.service.setChatProject(idOf(c), valid<{ project_id: string | null }>(c, "json").project_id)) });
     } catch (err) {
       return failure(err);
     }
@@ -206,7 +212,7 @@ export class ChatsController {
   @ResponseSchema(ErrorDto.schema, { status: 409, description: "The chat already has messages." })
   config(c: ApiContext): Response {
     try {
-      return jsonResponse(200, { chat: this.service.configureChat(idOf(c), valid(c, "json")) });
+      return jsonResponse(200, { chat: this.shown(this.service.configureChat(idOf(c), valid(c, "json"))) });
     } catch (err) {
       return failure(err);
     }
@@ -237,7 +243,7 @@ export class ChatsController {
   private setArchived(c: ApiContext, archived: boolean): Response {
     try {
       this.service.chat(idOf(c));
-      return jsonResponse(200, { chat: this.service.store.setChatArchived(idOf(c), archived) });
+      return jsonResponse(200, { chat: this.shown(this.service.store.setChatArchived(idOf(c), archived) as ChatRow) });
     } catch (err) {
       return failure(err);
     }

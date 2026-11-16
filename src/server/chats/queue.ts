@@ -28,6 +28,8 @@ export interface QueueSnapshot {
   items: QueueItem[];
   paused: boolean;
   reason: string | null;
+  /** True while the agent's question waits for the person: the queue does not start the next message until it is answered or skipped. */
+  waiting_for_answer: boolean;
 }
 
 /** An error the API shows as `status` plus the message. */
@@ -69,6 +71,8 @@ export interface QueueHost {
   start(chatId: string, input: { content: string; attachment_ids: string[] }): { user_message_id: string };
   /** Stops the running turn and waits until it is finalized. False when none was running. */
   stopRunning(chatId: string): Promise<boolean>;
+  /** True while a question the agent asked still waits for the person. */
+  hasPendingQuestion(chatId: string): boolean;
   /** Throws a QueueError when the chat does not take messages (missing, archived). */
   assertOpen(chatId: string): void;
   emit(chatId: string, snapshot: QueueSnapshot): void;
@@ -123,7 +127,8 @@ export class ChatQueue {
   snapshot(chatId: string): QueueSnapshot {
     const running = this.rows(chatId, "state = 'running'").map(item);
     const { paused, reason } = this.pauseRow(chatId);
-    return { chat_id: chatId, items: [...running, ...this.queued(chatId)], paused, reason };
+    const items = [...running, ...this.queued(chatId)];
+    return { chat_id: chatId, items, paused, reason, waiting_for_answer: items.length > 0 && this.host.hasPendingQuestion(chatId) };
   }
 
   private publish(chatId: string): void {
@@ -277,7 +282,7 @@ export class ChatQueue {
     this.reorder(chatId, [qid]);
     this.setPause(chatId, false, null);
     if (!this.host.isRunning(chatId)) {
-      this.advance(chatId);
+      this.advance(chatId, true);
       this.publish(chatId);
       return { interrupted: false };
     }
@@ -287,7 +292,7 @@ export class ChatQueue {
     if (this.sendNowTarget.get(chatId) === qid) {
       this.sendNowTarget.delete(chatId);
       this.setPause(chatId, false, null);
-      this.advance(chatId);
+      this.advance(chatId, true);
       this.publish(chatId);
     }
     return { interrupted: stopped };
@@ -295,13 +300,21 @@ export class ChatQueue {
 
   // ---- the loop ----
 
-  /** Starts the first queued message when nothing runs and the queue is not paused. */
-  advance(chatId: string): void {
+  /**
+   * Starts the first queued message when nothing runs and the queue is not paused. While a question of the agent
+   * waits for the person it starts nothing (starting a message would dismiss the question); `force` is the person's
+   * own "send now".
+   */
+  advance(chatId: string, force: boolean = false): void {
     if (this.host.isRunning(chatId) || this.isPaused(chatId)) {
       return;
     }
     const next = this.rows(chatId, "state = 'queued'")[0];
     if (next === undefined) {
+      return;
+    }
+    if (!force && this.host.hasPendingQuestion(chatId)) {
+      this.publish(chatId);
       return;
     }
     const claimed = this.db.query("UPDATE chat_queue SET state = 'running', position = 0 WHERE id = ? AND state = 'queued'").run(next.id);
@@ -328,7 +341,7 @@ export class ChatQueue {
     if (target !== undefined) {
       this.sendNowTarget.delete(chatId);
       this.setPause(chatId, false, null);
-      this.advance(chatId);
+      this.advance(chatId, true);
       this.publish(chatId);
       return;
     }

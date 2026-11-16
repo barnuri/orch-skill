@@ -63,3 +63,13 @@ export function WorkingIndicator({ message, now, fallbackModel }: Props) {
     </div>
   );
 }
+
+/** The agent asked a question and waits: amber still dots and one plain line, no clock, no Stop. */
+export function WaitingIndicator() {
+  return (
+    <div className="working is-waiting" data-testid="working-waiting" data-state="waiting-answer">
+      <span className="working-dots is-still" aria-hidden="true"><i /><i /><i /></span>
+      <span className="working-label" role="status" data-testid="working-label">Waiting for your answer</span>
+    </div>
+  );
+}
