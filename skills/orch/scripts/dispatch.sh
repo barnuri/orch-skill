@@ -269,7 +269,7 @@ fi
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
-  runs/delegate dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
+  dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
   automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
   automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
@@ -671,6 +671,10 @@ PORTED_COMMANDS=(
   "profile show"
   "profile pick"
   "model list"
+  "delegate plan"
+  "delegate task"
+  "delegate finding"
+  "delegate show"
 )
 
 is_ported() {
@@ -692,7 +696,10 @@ main() {
     exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" doctor
   fi
   # ORCH_BASH=1 forces bash. ORCH_DIRECT=1 is passed to bin/orch (skip the server socket).
-  if [ "${ORCH_BASH:-0}" != 1 ] && is_ported "$sub" "${2:-}"; then
+  # delegate takes the run id second, so its verb is the third word.
+  local ported_verb="${2:-}"
+  [ "$sub" = delegate ] && ported_verb="${3:-}"
+  if [ "${ORCH_BASH:-0}" != 1 ] && is_ported "$sub" "$ported_verb"; then
     export ORCH_DIRECT="${ORCH_DIRECT:-0}"
     exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" "$@"
   fi
@@ -720,7 +727,7 @@ main() {
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_paused "${1:-}" || printf 'paused: true\n' ;; esac
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_stopped "${1:-}" || printf 'stopped: true\n' ;; esac
           exit $rc ;;
-        finish|list|advance|retry|wait|health|broadcast|rule|messages) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        finish|list|advance|retry|wait|health|broadcast|rule|messages|repoint) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         backfill-timing) shift 2; cmd_run_backfill_timing "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
@@ -739,7 +746,6 @@ main() {
     owner) shift; cmd_owner_event "$@" ;;
     plan) shift; cmd_plan "$@" ;;
     msg) shift; cmd_msg "$@" ;;
-    delegate) shift; cmd_delegate "$@" ;;
     start) shift; cmd_start "$@" ;;
     status) shift; cmd_status "$@" ;;
     tail) shift; cmd_tail "$@" ;;

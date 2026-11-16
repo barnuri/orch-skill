@@ -218,7 +218,14 @@ cmd_node_ask() {
       printf '%s\n' "$ans"
       return 0
     fi
-    [ "$(date -u +%s)" -lt "$deadline" ] || { printf 'node ask: no answer to %s after %ss\n' "$id" "$timeout" >&2; return 4; }
+    [ "$(date -u +%s)" -lt "$deadline" ] || {
+      # Timed out: the node goes on with its best choice. A later answer is delivered as a late message.
+      inbox_write_file "$path" '.waiting = false | .answered_late_expected = true' || return 1
+      printf 'node ask: no answer to %s after %ss; continue with your best choice, a late answer is delivered as a message\n' "$id" "$timeout" >&2
+      return 4
+    }
+    # Undelivered while waiting (coordinator unreachable): each poll sweeps, so a repoint delivers the ask.
+    if [ "$(jq -r '.delivered_at == null' "$path")" = true ]; then coord_sweep "$IT_RUN" >/dev/null 2>&1 || true; fi
     sleep "${ORCH_ASK_POLL_SECS:-2}"
   done
 }
@@ -261,12 +268,14 @@ cmd_node_answer() {
   [ "$(jq -r .from "$path")" = "$IT_NODE" ] || { printf 'node answer: %s was not asked by %s\n' "$ask" "$IT_NODE" >&2; return 2; }
   [ "$(jq -r '.answer // empty' "$path")" = "" ] || { printf 'node answer: %s is already answered\n' "$(jq -r .id "$path")" >&2; return 2; }
   ask=$(jq -r .id "$path")
+  local late=""
+  [ "$(jq -r '.answered_late_expected // false' "$path")" = true ] && late="(late, your ask had timed out) "
   # The node's copy first: a waiting `node ask --wait` acks it as soon as the ask holds the answer.
-  node_path=$(inbox_new "$IT_RUN" "$IT_NODE" "${IT_FROM:-orch}" answer "Answer to $ask: $IT_TEXT") || return 1
+  node_path=$(inbox_new "$IT_RUN" "$IT_NODE" "${IT_FROM:-orch}" answer "Answer to $ask: $late$IT_TEXT") || return 1
   inbox_write_file "$node_path" '.reply_to = $r' --arg r "$ask" || return 1
   inbox_write_file "$path" '.answer = $a | .answered_at = $at | .status = "delivered" | .delivered_at = (.delivered_at // $at) | .via = (.via // "answer")' \
     --arg a "$IT_TEXT" --arg at "$(now_iso)" || return 1
-  # A blocked `node ask --wait` prints the answer itself, so no pane push for it.
+  # A blocked `node ask --wait` prints the answer itself, so no pane push for it. A late answer has no waiter.
   if [ "$(jq -r '.waiting // false' "$path")" = true ]; then out=pending; else out=$(inbox_deliver "$IT_RUN" "$IT_NODE" "$node_path"); fi
   run_event "$IT_RUN" message "$IT_NODE" "${IT_FROM:-orch}" "$out" "answer $ask: $IT_TEXT"
   printf '%s answered %s %s\n' "$ask" "$IT_NODE" "$out"
@@ -466,10 +475,126 @@ coordinator_record() {
     printf 'run set coordinator: HERDR_PANE_ID and HERDR_SOCKET_PATH must be set (run in the coordinator pane)\n' >&2
     return 2
   fi
-  state_write "$run_id" '.coordinator = {pane_id: $p, socket_path: $s, workspace_id: $w, harness: $h, at: $at, unreachable: null}' \
-    --arg p "$pane" --arg s "$sock" --arg w "$ws" --arg h "$(coordinator_harness)" --arg at "$(now_iso)" || return 1
+  local sid
+  sid=$(coord_session_of "$(coord_cli "$sock" pane get "$pane" 2>/dev/null || true)")
+  state_write "$run_id" '.coordinator = {pane_id: $p, socket_path: $s, workspace_id: $w, session_id: $sid, repo: $repo, harness: $h, at: $at, unreachable: null, candidates: null, backlog_pending: true}' \
+    --arg p "$pane" --arg s "$sock" --arg w "$ws" --arg sid "$sid" --arg repo "$(pwd -P)" --arg h "$(coordinator_harness)" --arg at "$(now_iso)" || return 1
   run_event "$run_id" note "" "" "" "coordinator set: pane $pane"
+  coord_flush_backlog "$run_id" >/dev/null 2>&1 || true
   printf 'coordinator: %s %s\n' "$run_id" "$pane"
+}
+
+# coord_session_of <pane-get-json>: the stable agent session id of a pane (agent_session.value), or nothing.
+coord_session_of() {
+  jq -r '[.. | objects | .agent_session?.value? // empty] | first // empty' <<<"${1:-}" 2>/dev/null || true
+}
+
+# coord_touch <run>: refreshes the coordinator heartbeat (at) and its session id when the pane answers.
+coord_touch() {
+  local run_id="$1" coord out sid
+  coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
+  [ "$coord" != null ] || return 0
+  out=$(coord_cli "$(jq -r .socket_path <<<"$coord")" pane get "$(jq -r .pane_id <<<"$coord")" 2>/dev/null) || return 0
+  sid=$(coord_session_of "$out")
+  state_write "$run_id" '.coordinator.at = $at | .coordinator.session_id = (if $sid == "" then .coordinator.session_id else $sid end)' \
+    --arg at "$(now_iso)" --arg sid "$sid"
+}
+
+# coord_sockets <coordinator-json>: the recorded socket, then the default user socket (once each).
+coord_sockets() {
+  local rec default="$HOME/.config/herdr/herdr.sock"
+  rec=$(jq -r .socket_path <<<"$1")
+  printf '%s\n' "$rec"
+  [ "$default" = "$rec" ] || printf '%s\n' "$default"
+}
+
+# coord_candidates <coordinator-json>: JSON array of the panes in every socket that could be the coordinator:
+# {socket_path, pane_id, workspace_id, session_id, agent, cwd}. Node panes (jobs/*/herdr_pane) are left out.
+coord_candidates() {
+  local coord="$1" sock listing info row rows='[]' node_panes pane ws cwd
+  node_panes=$(cat "$JOBS_HOME"/*/herdr_pane 2>/dev/null || true)
+  while IFS= read -r sock; do
+    [ -e "$sock" ] || continue
+    listing=$(coord_cli "$sock" pane list 2>/dev/null) || continue
+    while IFS=$'\t' read -r pane ws cwd; do
+      [ -n "$pane" ] || continue
+      grep -qxF "$pane" <<<"$node_panes" && continue
+      info=$(coord_cli "$sock" pane get "$pane" 2>/dev/null) || continue
+      row=$(jq -c --arg s "$sock" --arg p "$pane" --arg w "$ws" --arg c "$cwd" \
+        '{socket_path: $s, pane_id: $p, workspace_id: $w, cwd: $c,
+          session_id: ([.. | objects | .agent_session?.value? // empty] | first // ""),
+          agent: ([.. | objects | .agent? | strings] | first // "")}' <<<"$info" 2>/dev/null) || continue
+      rows=$(jq -c --argjson r "$row" '. + [$r]' <<<"$rows")
+    done < <(jq -r '.result.panes[]? | [.pane_id, .workspace_id, .cwd] | @tsv' <<<"$listing" 2>/dev/null)
+  done < <(coord_sockets "$coord")
+  printf '%s\n' "$rows"
+}
+
+# coord_repoint <run> <candidate-json> <reason>: points the run at the candidate and arms the backlog notice.
+coord_repoint() {
+  local run_id="$1" row="$2" reason="$3" from
+  from=$(jq -r '.coordinator.pane_id // "none"' "$(run_state_file "$run_id")")
+  state_write "$run_id" '.coordinator = (.coordinator + {socket_path: $s, pane_id: $p, workspace_id: $w,
+      session_id: (if $sid == "" then .coordinator.session_id else $sid end), at: $at, unreachable: null,
+      candidates: null, backlog_pending: true, last_repoint: {at: $at, from: $from, to: $p, reason: $r}})' \
+    --arg s "$(jq -r .socket_path <<<"$row")" --arg p "$(jq -r .pane_id <<<"$row")" \
+    --arg w "$(jq -r .workspace_id <<<"$row")" --arg sid "$(jq -r .session_id <<<"$row")" \
+    --arg at "$(now_iso)" --arg from "$from" --arg r "$reason" || return 1
+  run_event "$run_id" message orch "" repointed "coordinator repointed: $from -> $(jq -r .pane_id <<<"$row") ($reason)"
+}
+
+# coord_try_repoint <run>: 0 when the coordinator moved to exactly one qualifying pane. Same session id wins;
+# otherwise a pane with the harness of the record in the run repo. Several matches: no guess, the candidates are
+# stored on the coordinator and it stays unreachable.
+coord_try_repoint() {
+  local run_id="$1" coord cands pick n sid harness repo
+  coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
+  [ "$coord" != null ] || return 1
+  cands=$(coord_candidates "$coord")
+  sid=$(jq -r '.session_id // ""' <<<"$coord")
+  harness=$(jq -r '.harness // ""' <<<"$coord")
+  repo=$(jq -r '.repo // ""' <<<"$coord")
+  pick=$(jq -c --arg sid "$sid" --arg h "$harness" --arg r "$repo" '
+    ([.[] | select($sid != "" and .session_id == $sid)]) as $by_sid
+    | if ($by_sid | length) > 0 then $by_sid
+      else [.[] | select(.agent == $h and .cwd == $r)] end' <<<"$cands")
+  n=$(jq 'length' <<<"$pick")
+  if [ "$n" = 1 ]; then
+    coord_repoint "$run_id" "$(jq -c '.[0]' <<<"$pick")" "$(if [ -n "$sid" ] && jq -e --arg sid "$sid" 'any(.[]; .session_id == $sid)' <<<"$pick" >/dev/null; then printf 'same session'; else printf 'same harness and repo'; fi)"
+    return 0
+  fi
+  state_write "$run_id" '.coordinator.candidates = $c' --argjson c "$pick" || return 1
+  return 1
+}
+
+# coord_pending_asks <run>: how many asks to the coordinator are not delivered yet.
+coord_pending_asks() {
+  local f n=0
+  for f in $(inbox_files "$1" orch); do
+    [ "$(jq -r '(.kind == "ask") and (.delivered_at == null)' "$f")" = true ] && n=$((n + 1))
+  done
+  printf '%s\n' "$n"
+}
+
+# coord_flush_backlog <run>: after a repoint or a new coordinator, types one line `N pending node questions`
+# into the coordinator pane. Waits (next sweep) while the pane is working or the user is typing.
+coord_flush_backlog() {
+  local run_id="$1" coord n err
+  [ "$(jq -r '.coordinator.backlog_pending // false' "$(run_state_file "$run_id")")" = true ] || return 0
+  coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
+  [ "$coord" != null ] || return 0
+  n=$(coord_pending_asks "$run_id")
+  if [ "$n" = 0 ]; then
+    state_write "$run_id" '.coordinator.backlog_pending = false' || return 1
+    return 0
+  fi
+  [ "$(coord_pane_status "$coord")" = idle ] || return 0
+  coord_pane_quiet "$coord" || return 0
+  if err=$(coord_cli "$(jq -r .socket_path <<<"$coord")" pane send-text "$(jq -r .pane_id <<<"$coord")" "$n pending node questions" 2>&1) \
+    && coord_cli "$(jq -r .socket_path <<<"$coord")" pane send-keys "$(jq -r .pane_id <<<"$coord")" Enter >/dev/null 2>&1; then
+    state_write "$run_id" '.coordinator.backlog_pending = false' || return 1
+    run_event "$run_id" message orch "" delivered "backlog notice: $n pending node questions"
+  fi
 }
 
 # coordinator_auto_record <run>: records the coordinator when the calling env has one; silent otherwise.
@@ -549,12 +674,17 @@ coord_count_try() {
 
 # coord_deliver <run> <path>: one attempt to type the message into the coordinator pane.
 # Prints delivered | pending | failed | unreachable | none (no coordinator recorded).
+# A gone pane first tries a repoint; a send that fails keeps the message pending and marks the coordinator unreachable.
 coord_deliver() {
   local run_id="$1" path="$2" coord status sock pane err node kind line
   coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
   [ "$coord" != null ] || { printf 'none\n'; return 0; }
   [ "$(jq -r '.delivered_at // empty' "$path")" = "" ] || { printf 'delivered\n'; return 0; }
   status=$(coord_pane_status "$coord")
+  if [ "$status" = gone ] && coord_try_repoint "$run_id"; then
+    coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
+    status=$(coord_pane_status "$coord")
+  fi
   if [ "$status" = gone ]; then
     coord_set_unreachable "$run_id" "pane or socket gone"
     printf 'unreachable\n'; return 0
@@ -576,22 +706,51 @@ coord_deliver() {
   if err=$(coord_cli "$sock" pane send-text "$pane" "$line" 2>&1) \
     && err=$(coord_cli "$sock" pane send-keys "$pane" Enter 2>&1); then
     inbox_write_file "$path" '.status = "delivered" | .delivered_at = $at | .via = "herdr-coordinator" | .last_error = null' --arg at "$(now_iso)"
+    coord_touch "$run_id"
     run_event "$run_id" message "$node" orch delivered "$(jq -r .id "$path") to coordinator"
     printf 'delivered\n'
     return 0
   fi
-  coord_count_try "$run_id" "$path" "${err:-send failed}"
+  # The send failed (herdr down or the pane went away mid-send): the message stays pending, no try is spent.
+  inbox_write_file "$path" '.last_error = $e' --arg e "${err:-send failed}"
+  coord_set_unreachable "$run_id" "send failed: ${err:-send failed}"
+  printf 'unreachable\n'
 }
 
-# coord_sweep <run>: one pass over the messages to the coordinator that are not delivered yet.
+# coord_sweep <run>: one pass over the messages to the coordinator that are not delivered yet, in order.
+# Heartbeat, repoint when unreachable, then the backlog notice. The pass stops at the first message that is
+# still pending or unreachable, so later messages never overtake it.
 coord_sweep() {
   local run_id="$1" f r n=0
+  coord_touch "$run_id"
+  if [ "$(jq -r '.coordinator.unreachable != null' "$(run_state_file "$run_id")")" = true ]; then
+    coord_try_repoint "$run_id" >/dev/null 2>&1 || true
+  fi
+  coord_flush_backlog "$run_id" >/dev/null 2>&1 || true
   [ -d "$RUNS_HOME/$run_id/inbox/orch" ] || { printf 'swept 0\n'; return 0; }
   for f in $(inbox_files "$run_id" orch); do
     [ "$(jq -r '(.delivered_at == null) and (.status == "pending")' "$f")" = true ] || continue
     r=$(coord_deliver "$run_id" "$f")
     n=$((n + 1))
     printf '%s %s\n' "$(jq -r .id "$f")" "$r"
+    case "$r" in pending|unreachable) break ;; esac
   done
   printf 'swept %s\n' "$n"
+}
+
+RUN_REPOINT_USAGE='dispatch.sh run repoint <run-id> <socket-path> <pane-id>   (a pane from the candidates of an unreachable coordinator)'
+
+# cmd_run_repoint <run> <socket> <pane>: the user picks one of the candidates of an unreachable coordinator.
+# The pick must be one of coord_candidates; the pending asks go out on the next sweep.
+cmd_run_repoint() {
+  local run_id="${1:-}" sock="${2:-}" pane="${3:-}" coord row
+  [ -n "$run_id" ] && [ -n "$sock" ] && [ -n "$pane" ] || { printf 'usage: %s\n' "$RUN_REPOINT_USAGE" >&2; return 2; }
+  require_jq "run repoint"
+  run_require "$run_id" >/dev/null || return $?
+  coord=$(jq -c '.coordinator // null' "$(run_state_file "$run_id")")
+  [ "$coord" != null ] || { printf 'run repoint: %s has no coordinator\n' "$run_id" >&2; return 2; }
+  row=$(coord_candidates "$coord" | jq -c --arg s "$sock" --arg p "$pane" '[.[] | select(.socket_path == $s and .pane_id == $p)] | first // empty')
+  [ -n "$row" ] || { printf 'run repoint: %s in %s is not a candidate pane\n' "$pane" "$sock" >&2; return 2; }
+  coord_repoint "$run_id" "$row" "chosen by user" || return 1
+  printf 'repointed: %s %s\n' "$run_id" "$pane"
 }

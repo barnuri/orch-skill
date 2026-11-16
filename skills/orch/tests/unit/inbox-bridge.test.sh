@@ -12,7 +12,10 @@ cat > "$FAKE/herdr" <<'FAKE_HERDR'
 printf '%s %s\n' "${HERDR_SOCKET_PATH:-}" "$*" >> "$FAKE_LOG"
 case "$*" in
   "pane get "*) [ -z "${FAKE_GONE:-}" ] || exit 1
+                [ "$3" != "${FAKE_GONE_PANE:-}" ] || exit 1
+                if [ -f "$FAKE_GETS/$3.json" ]; then cat "$FAKE_GETS/$3.json"; exit 0; fi
                 if [ -n "${FAKE_WORKING:-}" ]; then echo '{"agent_status": "working"}'; else echo '{"agent_status": "idle"}'; fi ;;
+  "pane list"*) [ ! -f "$FAKE_LIST" ] || cat "$FAKE_LIST" ;;
   "pane read "*) [ -z "${FAKE_READ_FAIL:-}" ] || exit 1
                  if [ -n "${FAKE_CHANGING:-}" ]; then date +%N; fi
                  if [ -n "${FAKE_TYPING:-}" ]; then echo "output"; echo "❯ half a draft"; else echo "output"; echo "❯"; fi ;;
@@ -104,6 +107,89 @@ unset HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_WORKSPACE_ID
 mkdir -p "$H/runs/r2"; jq '(.run_id = "r2") | del(.coordinator)' "$H/runs/r1/state.json" > "$H/runs/r2/state.json"
 expect_match "an ask in a run with no coordinator stays pending" '^m1 asked$' "$(cmd_node_ask r2 b "no coordinator")"
 expect_match "no coordinator is reported as none" '^none$' "$(coord_deliver r2 "$(inbox_files r2 orch | tail -n1)")"
+
+# ---- Failover: the coordinator pane is replaced (herdr crash) ----
+# Panes of the fake user herdr: FAKE_GETS/<pane>.json (pane get), FAKE_LIST (pane list). The default socket is
+# moved under the test home so a real herdr socket on this machine never adds candidates.
+export HOME="$H/home"; mkdir -p "$HOME/.config/herdr"; : > "$H/coord.sock"
+export FAKE_GETS="$H/gets"; mkdir -p "$FAKE_GETS"
+REPO="$H/repo"; mkdir -p "$REPO"
+printf '{"agent_session":{"value":"ses_abc"},"agent":"opencode"}\n' > "$FAKE_GETS/p-coord.json"
+printf '{"agent_session":{"value":"ses_abc"},"agent":"opencode"}\n' > "$FAKE_GETS/p-new.json"
+printf '{"agent":"opencode"}\n' > "$FAKE_GETS/p-x1.json"
+printf '{"agent":"opencode"}\n' > "$FAKE_GETS/p-x2.json"
+list_of() {
+  local name="$1" f spec sep=""; shift
+  f="$H/list-$name.json"
+  printf '{"result":{"panes":[' > "$f"
+  for spec in "$@"; do printf '%s{"pane_id":"%s","workspace_id":"%s","cwd":"%s"}' "$sep" "${spec%%:*}" "${spec#*:}" "$REPO" >> "$f"; sep=,; done
+  printf ']}}\n' >> "$f"
+  printf '%s\n' "$f"
+}
+# reset_coord: records p-coord as the coordinator again (session ses_abc, run repo) and clears the fakes.
+reset_coord() {
+  reset_fake; unset FAKE_GONE_PANE FAKE_LIST
+  export HERDR_PANE_ID=p-coord HERDR_SOCKET_PATH="$H/coord.sock" HERDR_WORKSPACE_ID=ws-1
+  coordinator_record r1 >/dev/null
+  state_write r1 '.coordinator.repo = $r | .coordinator.harness = "opencode" | .coordinator.candidates = null | .coordinator.unreachable = null' --arg r "$REPO"
+  unset HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_WORKSPACE_ID
+  reset_fake
+}
+
+reset_coord
+expect_match "the record stores the agent session id" '^ses_abc$' "$(jq -r .coordinator.session_id "$H/runs/r1/state.json")"
+
+reset_coord
+export FAKE_GONE_PANE=p-coord FAKE_LIST="$(list_of same p-new:ws-2)"
+expect_match "a replaced pane with the same session id is repointed and the ask delivered" '^m[0-9]+ asked$' "$(cmd_node_ask r1 a "repoint me")"
+expect_match "the coordinator moves to the new pane" '^p-new$' "$(jq -r .coordinator.pane_id "$H/runs/r1/state.json")"
+expect_match "the repoint reason is the same session" '^same session$' "$(jq -r .coordinator.last_repoint.reason "$H/runs/r1/state.json")"
+expect_match "the ask is delivered to the new pane" '^herdr-coordinator$' "$(jq -r .via "$(last_orch)")"
+expect_match "the unreachable mark is cleared after the repoint" '^null$' "$(jq -c .coordinator.unreachable "$H/runs/r1/state.json")"
+
+reset_coord
+export FAKE_GONE_PANE=p-coord FAKE_LIST="$(list_of two p-x1:ws-2 p-x2:ws-2)"
+state_write r1 '.coordinator.session_id = "ses_none"' >/dev/null
+cmd_node_ask r1 a "two candidates?" >/dev/null
+expect_match "two candidates keep the coordinator unreachable" '^pane or socket gone$' "$(jq -r .coordinator.unreachable.reason "$H/runs/r1/state.json")"
+expect_match "the two candidates are listed" '^2$' "$(jq '.coordinator.candidates | length' "$H/runs/r1/state.json")"
+expect_match "the pane is not guessed" '^p-coord$' "$(jq -r .coordinator.pane_id "$H/runs/r1/state.json")"
+expect_match "the ask waits in inbox/orch, undelivered" '^pending null$' "$(jq -r '"\(.status) \(.delivered_at)"' "$(last_orch)")"
+expect_match "the user picks a candidate with run repoint" '^repointed: r1 p-x2$' "$(cmd_run_repoint r1 "$H/coord.sock" p-x2)"
+expect_match "run repoint records the user choice" '^chosen by user$' "$(jq -r .coordinator.last_repoint.reason "$H/runs/r1/state.json")"
+expect_match "run repoint refuses a pane that is not a candidate" '^run repoint: p-zz in' "$(cmd_run_repoint r1 "$H/coord.sock" p-zz 2>&1 || true)"
+
+reset_coord
+export FAKE_SEND_FAIL=1
+expect_match "a failed send keeps the ask pending" '^m[0-9]+ asked$' "$(cmd_node_ask r1 a "send fails")"
+expect_match "a failed send keeps delivered_at null" '^pending null$' "$(jq -r '"\(.status) \(.delivered_at)"' "$(last_orch)")"
+expect_match "a failed send marks the coordinator unreachable with the error" '^send failed' "$(jq -r .coordinator.unreachable.reason "$H/runs/r1/state.json")"
+unset FAKE_SEND_FAIL; reset_fake
+expect_match "the kept ask is delivered on the next sweep" '^herdr-coordinator$' "$(coord_sweep r1 >/dev/null; jq -r .via "$(last_orch)")"
+
+reset_coord
+export FAKE_GONE_PANE=p-coord FAKE_LIST="$(list_of none)"
+cmd_node_ask r1 a "first in order" >/dev/null
+cmd_node_ask r1 a "second in order" >/dev/null
+unset FAKE_GONE_PANE; reset_fake
+export FAKE_LIST="$(list_of back p-new:ws-2)"
+state_write r1 '.coordinator.session_id = "ses_abc"' >/dev/null
+expect_match "the sweep repoints and redelivers both asks" '^swept 2$' "$(coord_sweep r1 | tail -n1)"
+expect_match "the backlog notice comes first" '^2 pending node questions$' "$(sed -n 1p "$FAKE_TEXT")"
+expect_match "the first ask goes out second-line in order" '^\[orch ask #m[0-9]+ from a\] first in order' "$(sed -n 2p "$FAKE_TEXT")"
+expect_match "the second ask follows the first" '^\[orch ask #m[0-9]+ from a\] second in order' "$(sed -n 3p "$FAKE_TEXT")"
+expect_match "the backlog notice is logged" 'backlog notice: 2 pending node questions' "$(tail -n1 "$H/runs/r1/events.jsonl" | jq -r .note)"
+
+reset_coord
+expect_match "a node ask with --timeout 0 times out and marks the late expectation" '^4$' "$(cmd_node_ask r1 a "late one" --wait --timeout 0 >/dev/null 2>&1; echo $?)"
+expect_match "the timed out ask records answered_late_expected" '^true$' "$(jq -r .answered_late_expected "$(last_orch)")"
+expect_match "the late answer is recorded on the ask" '^ok$' "$(cmd_node_answer r1 a "use postgres" --ask "$(jq -r .id "$(last_orch)")" >/dev/null && echo ok)"
+expect_match "the late answer reaches the node flagged late" '^Answer to m[0-9]+: \(late, your ask had timed out\) use postgres$' "$(inbox_all r1 | jq -r '[.[] | select(.kind == "answer" and .to == "a")] | last | .text')"
+
+reset_coord
+state_write r1 '.coordinator.at = "2000-01-01T00:00:00Z"' >/dev/null
+coord_touch r1
+expect_match "a heartbeat refreshes the coordinator at" '^changed$' "$([ "$(jq -r .coordinator.at "$H/runs/r1/state.json")" != 2000-01-01T00:00:00Z ] && echo changed || echo same)"
 
 cleanup_dir "$(dirname "$H")"
 finish

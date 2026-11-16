@@ -8,6 +8,7 @@ import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
 import { doctor } from "./commands/doctor.ts";
+import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 export const VERSION = "0.1.0";
 
@@ -28,6 +29,11 @@ export const COMMANDS: Record<string, Handler> = {
   "profile show": profileShow,
   "profile pick": profilePickCommand,
   "model list": modelList,
+  // `delegate <run> <verb>`: the run id is the second word, so the key is built in main().
+  "delegate plan": (a) => delegatePlan(a),
+  "delegate task": (a) => delegateTask(a),
+  "delegate finding": (a) => delegateFinding(a),
+  "delegate show": (a) => delegateShow(a),
 };
 
 export function parseArgv(argv: string[]): { flags: Set<string>; words: string[] } {
@@ -58,6 +64,28 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (words[0] === "doctor" && words.length === 1) return doctor();
+  // `delegate <run> <verb> ...`: the verb is the third word. The handler gets the run id first, then
+  // the rest, so the verb is dropped from argv.
+  if (words[0] === "delegate") {
+    const dkey = `delegate ${words[2] ?? ""}`.trim();
+    const dh = COMMANDS[dkey];
+    if (!dh || words.length < 3) {
+      process.stderr.write(`usage: ${DELEGATE_USAGE}\n`);
+      return 2;
+    }
+    const drest: string[] = [];
+    let nonflag = 0;
+    for (const a of argv) {
+      if (a.startsWith("--")) {
+        drest.push(a);
+        continue;
+      }
+      nonflag++;
+      if (nonflag === 1 || nonflag === 3) continue;
+      drest.push(a);
+    }
+    return await dh(drest);
+  }
   const key = `${words[0]} ${words[1] ?? ""}`.trim();
   const handler = COMMANDS[key];
   if (!handler) {

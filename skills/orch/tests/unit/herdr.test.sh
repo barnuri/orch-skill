@@ -33,14 +33,14 @@ expect_match "web url honours the override" '^off$' "$(herdr_web_url)"
 expect_match "web listing is skipped when the url is off" '^skipped$' "$(herdr_web_listed)"
 
 job=$(new_tmp)
-herdr_write_launcher "$job/l.sh" "$job" 'echo hi' t-7 "$job/owner" /x/inst 5 a 'b c'
+herdr_write_launcher "$job/l.sh" "$job" t-7 "$job/owner" /x/inst 5
 expect_match "launcher is mode 700" '700' "$(stat -f '%Lp' "$job/l.sh" 2>/dev/null || stat -c '%a' "$job/l.sh")"
 expect_match "  ... closes its own tab after the linger" 'herdr tab close t-7' "$(cat "$job/l.sh")"
 expect_match "  ... only while this job owns the tab" "= $job \\]" "$(cat "$job/l.sh")"
 expect_match "  ... waits the linger (5 s)" 'sleep 5' "$(cat "$job/l.sh")"
-expect_match "  ... and runs the job under a pty with the bash fallback" "script -q /dev/null bash -c echo\\\\ hi _ a b\\\\ c" "$(cat "$job/l.sh")"
-expect_match "  ... and starts the TypeScript launcher when bun is present" 'herdr-launch\.ts' "$(cat "$job/l.sh")"
-expect_match "  ... and keeps the bash launcher when ORCH_BASH=1" 'ORCH_BASH:-}" != 1' "$(cat "$job/l.sh")"
+expect_match "  ... and execs the TypeScript launcher" 'exec bun .*/core/commands/herdr-launch\.ts' "$(cat "$job/l.sh")"
+expect_match "  ... and exits 127 with the bun requirement when bun is missing" 'orch needs bun.*exit 127' "$(cat "$job/l.sh")"
+expect_no_match "  ... and has no bash fallback" 'script -q|tee -a|ORCH_BASH' "$(cat "$job/l.sh")"
 bash -n "$job/l.sh"; rc=$?
 expect_exit "  ... and is valid bash" 0 "$rc"
 

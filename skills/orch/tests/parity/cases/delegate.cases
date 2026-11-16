@@ -1,0 +1,29 @@
+# Phase 2 parity: delegate. Each line runs on a fresh home holding run fx-run (fixtures/node-base.jsonl).
+# Each line is one step, so state does not carry between lines.
+# fixture: fx-run node-base.jsonl
+delegate fx-run plan "Ship the feature"
+delegate fx-run plan @$ORCH_PARITY_FIXTURES/delegate-plan.md
+delegate fx-run plan @$ORCH_PARITY_FIXTURES/no-such-file.md
+delegate fx-run plan
+delegate fx-run show
+delegate fx-run show --json
+delegate nope show
+delegate fx-run task add t1 --stage implement --profile claude-haiku --label "First"
+delegate fx-run task add t2 --stage plan --profile claude-opus
+delegate fx-run task add t3 --stage plan --profile claude-haiku
+delegate fx-run task add t4 --stage review --profile nope
+delegate fx-run task add t5 --stage bogus --profile claude-haiku
+delegate fx-run task add bad!id --stage fix --profile claude-haiku
+delegate fx-run task add t6 --stage fix --profile claude-haiku --weird
+delegate fx-run task add t7 --stage fix --profile claude-opus
+delegate fx-run task set t1 doing
+delegate fx-run task set t1 bogus
+delegate fx-run task set nope done
+delegate nope task add t1 --stage fix --profile claude-haiku
+delegate fx-run finding add nope "orphan"
+delegate fx-run finding add t1 ""
+delegate fx-run finding add t1 "Null handling missing"
+delegate fx-run finding close F1
+delegate fx-run finding close F9
+delegate fx-run bogus
+delegate fx-run

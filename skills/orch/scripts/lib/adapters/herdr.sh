@@ -341,16 +341,17 @@ herdr_close_job_tab() {
 
 # Writes the script the pane runs. The pane shell inherits the instance HOME, so the launcher
 # restores the real HOME and the job's env first. It carries only the orch env, PATH, a short
-# allow-list and the job's argv, so no other secret from the caller's environment lands on disk.
-# It execs the job wrapper (the wrapper writes pid-visible status and exit_code, as for a detached
-# job). A background closer closes the job's tab once the job has ended and the linger has passed,
-# but only while this job still owns the tab (see herdr_owner_file).
-# herdr_write_launcher <launcher> <job_dir> <start_script> <tab_id> <owner_file> <inst> <linger> <argv...>
+# allow-list, so no other secret from the caller's environment lands on disk. The job's argv is
+# in <job_dir>/argv.json, read by the TypeScript launcher, which runs the job under a pty and writes
+# log, log.plain and exit_code. A background closer closes the job's tab once the job has ended and
+# the linger has passed, but only while this job still owns the tab (see herdr_owner_file).
+# Bun is required: without it the shim prints the requirement and exits 127.
+# herdr_write_launcher <launcher> <job_dir> <tab_id> <owner_file> <inst> <linger>
 herdr_write_launcher() {
-  local launcher="$1" job_dir="$2" start_script="$3" tab_id="$4" owner="$5" inst="$6" linger="$7" name
-  shift 7
+  local launcher="$1" job_dir="$2" tab_id="$3" owner="$4" inst="$5" linger="$6" name
   {
     printf '#!/usr/bin/env bash\n'
+    printf '%s\n' 'command -v bun >/dev/null 2>&1 || { echo "orch needs bun: install it from https://bun.sh" >&2; exit 127; }'
     printf 'unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID\n'
     for name in $(compgen -e | grep -E '^(ORCH_|HARNESS_ORCH_)|^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LC_ALL|TMPDIR|SSH_AUTH_SOCK|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME)$'); do
       printf 'export %s=%q\n' "$name" "${!name}"
@@ -364,20 +365,9 @@ herdr_write_launcher() {
     printf '  env -i PATH=%q HOME=%q herdr tab close %q >/dev/null 2>&1\n' "$PATH" "$inst" "$tab_id"
     printf ') >/dev/null 2>&1 </dev/null &\n'
     printf 'disown 2>/dev/null\n'
-    # Bun present and ORCH_BASH unset: the TypeScript launcher runs the job under a pty and writes
-    # log and log.plain itself. Otherwise the job runs under macOS/BSD script (a pty, so the agent
-    # keeps its colour), tee keeps the ANSI log and perl writes the ANSI-free log.plain.
-    printf 'if [ "${ORCH_BASH:-}" != 1 ] && command -v bun >/dev/null 2>&1; then\n'
-    printf '  exec bun %q %q\n' "$(herdr_launch_ts)" "$job_dir"
-    printf 'fi\n'
-    printf 'FORCE_COLOR=1 COLORTERM=truecolor script -q /dev/null bash -c %q _' "$start_script"
-    printf ' %q' "$@"
-    printf ' 2>&1 | tee -a %q | perl -pe %q > %q\n' "$job_dir/log" "$HERDR_PLAIN_PERL" "$job_dir/log.plain"
+    printf 'exec bun %q %q\n' "$(herdr_launch_ts)" "$job_dir"
   } > "$launcher" && chmod 700 "$launcher"
 }
-
-# Strips ANSI escapes and carriage returns for log.plain (the bash launcher's fallback).
-HERDR_PLAIN_PERL='s/\x04\x08+|\e\[[0-?]*[ -\/]*[@-~]|\e\][^\a\e]*(\a|\e\\)|\e[@-Z\\-_]|\r//g'
 
 # herdr_launch_ts: the TypeScript launcher path, resolved when a launcher is written (not at source time).
 herdr_launch_ts() { printf '%s/herdr-launch.ts\n' "$(cd "$SCRIPT_DIR/../core/commands" && pwd -P)"; }
@@ -417,7 +407,7 @@ herdr_start_job() {
   mkdir -p "$(dirname "$owner")" && printf '%s\n' "$job_dir" > "$owner" || return 1
   launcher="$job_dir/herdr-launch.sh"
   jq -n -c '$ARGS.positional' --args -- bash -c "$start_script" _ "$@" > "$job_dir/argv.json" || return 1
-  herdr_write_launcher "$launcher" "$job_dir" "$start_script" "$tab_id" "$owner" "$inst" "$linger" "$@" || return 1
+  herdr_write_launcher "$launcher" "$job_dir" "$tab_id" "$owner" "$inst" "$linger" || return 1
   herdr_cli pane rename "$pane_id" "$title" >/dev/null 2>&1 || true
   if ! herdr_cli pane run "$pane_id" "bash $(printf '%q' "$launcher")" >/dev/null 2>&1; then
     herdr_cli tab close "$tab_id" >/dev/null 2>&1 || true
