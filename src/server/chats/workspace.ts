@@ -234,7 +234,7 @@ export class Workspace {
     const entries: Array<{ name: string; data: Uint8Array; mtime: Date }> = [];
     const walk = (dir: string, prefix: string): void => {
       for (const entry of readdirSync(dir)) {
-        if (entry === ".trash") {
+        if (entry === ".trash" || (entry === "browser" && basename(dir) === ".orch")) {
           continue;
         }
         const full = join(dir, entry);
