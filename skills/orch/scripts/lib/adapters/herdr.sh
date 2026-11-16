@@ -365,6 +365,7 @@ herdr_write_launcher() {
     printf '  env -i PATH=%q HOME=%q herdr tab close %q >/dev/null 2>&1\n' "$PATH" "$inst" "$tab_id"
     printf ') >/dev/null 2>&1 </dev/null &\n'
     printf 'disown 2>/dev/null\n'
+    printf 'command -v bun >/dev/null 2>&1 || { echo "orch: bun is required to run a herdr job" >&2; exit 127; }\n'
     printf 'exec bun %q %q\n' "$(herdr_launch_ts)" "$job_dir"
   } > "$launcher" && chmod 700 "$launcher"
 }
