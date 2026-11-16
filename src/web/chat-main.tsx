@@ -1,5 +1,6 @@
 import "./zod-config";
 import "./pwa/head";
+import { PwaChrome } from "./pwa/PwaChrome";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { adoptTokenFromUrl } from "./api/token";
@@ -19,6 +20,7 @@ createRoot(root).render(
     <ToastProvider>
       <ConfirmProvider>
         <ChatShell />
+        <PwaChrome />
       </ConfirmProvider>
     </ToastProvider>
   </QueryClientProvider>,

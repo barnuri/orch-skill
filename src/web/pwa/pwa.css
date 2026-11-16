@@ -1,0 +1,33 @@
+/* Install prompt, update toast and the Notifications section. Tokens only; red is not used. */
+.pwa-bar {
+  position: fixed; left: var(--s3); right: var(--s3); bottom: calc(var(--s3) + env(safe-area-inset-bottom, 0px)); z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2);
+  max-width: 480px; margin: 0 auto; padding: var(--s2) var(--s3); color: var(--tx); font-size: var(--fs-sm, 13px);
+  background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+}
+.pwa-bar > span { flex: 1 1 12rem; overflow-wrap: anywhere; }
+.pwa-update { border-inline-start: 3px solid var(--acc); bottom: calc(var(--s3) + 64px + env(safe-area-inset-bottom, 0px)); }
+.pwa-install { bottom: calc(var(--s3) + env(safe-area-inset-bottom, 0px)); }
+.pwa-bar .btn { min-height: 44px; min-width: 44px; }
+.pwa-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgb(0 0 0 / 0.45); padding: var(--s3); }
+.pwa-dialog { position: static; width: min(520px, 100%); max-height: 90dvh; overflow: auto; padding: var(--s4); color: var(--tx); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r-lg); }
+.pwa-section { display: grid; gap: var(--s3); }
+.pwa-section h3 { margin: 0; }
+.pwa-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.pwa-row .btn, .pwa-devices .btn { min-height: 44px; min-width: 44px; }
+.pwa-hint { display: block; margin: 0; color: var(--tx2); font-size: var(--fs-sm, 13px); overflow-wrap: anywhere; }
+.pwa-note { margin: 0; padding: var(--s2) var(--s3); color: var(--tx1); background: var(--inset); border: 1px solid var(--border); border-radius: var(--r-sm); overflow-wrap: anywhere; }
+.pwa-switch { display: flex; align-items: center; gap: var(--s2); min-height: 44px; cursor: pointer; }
+.pwa-switch input { width: 20px; height: 20px; accent-color: var(--acc); }
+.pwa-switch input:disabled + span { color: var(--tx3); }
+.pwa-cats { display: grid; gap: 0; margin: 0; padding: 0; border: 0; }
+.pwa-cats legend { padding: 0; color: var(--tx2); font-size: var(--fs-sm, 13px); }
+.pwa-quiet { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+.pwa-quiet label:not(.pwa-switch) { display: flex; align-items: center; gap: var(--s2); }
+.pwa-quiet input[type="time"] { min-height: 44px; }
+.pwa-devices { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
+.pwa-devices li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.pwa-devices li > div { flex: 1 1 14rem; display: grid; gap: 2px; min-width: 0; }
+.pwa-bar :focus-visible, .pwa-section :focus-visible, .pwa-dialog :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .pwa-bar { animation: pwa-in 180ms ease-out; } }
+@keyframes pwa-in { from { opacity: 0; transform: translateY(8px); } }

@@ -28,6 +28,7 @@ import { useSetUsage } from "../lib/use-set-usage";
 import { ProfileForm } from "./ProfileForm";
 import { SanityPanel, SanityStatusChip, SanityTestButton, useRunSanity, useSanity } from "./SanityPanel";
 import { SettingsForm } from "./SettingsForm";
+import { NotificationsSection } from "../pwa/NotificationsSection";
 
 const DESC_MAX = 48;
 const CORRUPT_HINT = "profiles.json could not be parsed — fix it in an editor and this page picks it up.";
@@ -263,6 +264,7 @@ export function ProfilesPage() {
         ) : (
           <Panel title="Settings">
             <SettingsForm key={editor.session} doc={doc} editor={editor} />
+            <NotificationsSection />
             <div className="actions">
               <Button
                 onClick={() => {
