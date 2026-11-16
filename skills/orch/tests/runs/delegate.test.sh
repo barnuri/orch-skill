@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: delegation state (plan, task list, findings) on a run
+# dispatch.ts tests: delegation state (plan, task list, findings) on a run
 # Run: bash delegate.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 home=$(new_tmp)
-orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
+orch() { env HARNESS_ORCH_HOME="$home" bun "$SCRIPT" "$@"; }
 seed_home "$home"
 
 # Strong planner (quality high) and a cheaper implementer (quality standard).

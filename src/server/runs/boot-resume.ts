@@ -2,12 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPath } from "../dispatch-path";
 
-/** Runs `dispatch.sh <args>` in the background; resolves with its exit code. */
+/** Runs `dispatch.ts <args>` in the background; resolves with its exit code. */
 export type ResumeSpawner = (args: readonly string[]) => Promise<number>;
 
 /**
  * Run ids under `<home>/runs` whose state.json has `paused: true` and `auto_resume: true`.
- * A run a user stopped (`stopped: true`, `dispatch.sh run stop`) never resumes at boot.
+ * A run a user stopped (`stopped: true`, `dispatch.ts run stop`) never resumes at boot.
  */
 export function autoResumeRunIds(home: string): string[] {
   const runsDir = join(home, "runs");
@@ -36,7 +36,7 @@ export function autoResumeRunIds(home: string): string[] {
 
 function homeResumeSpawner(home: string): ResumeSpawner {
   return async (args) => {
-    const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+    const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
       env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "boot-resume" },
       stdin: "ignore",
       stdout: "ignore",
@@ -51,7 +51,7 @@ function homeResumeSpawner(home: string): ResumeSpawner {
 }
 
 /**
- * On server boot, runs `dispatch.sh run resume <run>` in the background for every run that
+ * On server boot, runs `dispatch.ts run resume <run>` in the background for every run that
  * `run pause` marked `auto_resume`, so a paused run resumes by itself after a PC restart.
  * Never throws: every failure is logged. Returns the ids it started a resume for.
  */

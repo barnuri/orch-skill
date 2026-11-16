@@ -33,12 +33,12 @@ const HEARTBEAT_DEBOUNCE_SECS = 20;
 const HERDR_PID_WAIT_SECS = 15;
 const HUB_HTTP_TIMEOUT_MS = 5000;
 
-export const NODE_VERIFY_OWNERS_USAGE = "dispatch.sh node verify-owners [<run-id>] [--json] [--no-apply]";
-export const NODE_BIND_OWNERS_USAGE = "dispatch.sh node bind-owners [--run <run-id>] [--json]";
-export const NODE_BRIEF_USAGE = "dispatch.sh node brief <run-id> <node-id>";
-export const NODE_ACTIVITY_USAGE = "dispatch.sh node activity <run-id> <node-id> [--limit N]";
+export const NODE_VERIFY_OWNERS_USAGE = "dispatch.ts node verify-owners [<run-id>] [--json] [--no-apply]";
+export const NODE_BIND_OWNERS_USAGE = "dispatch.ts node bind-owners [--run <run-id>] [--json]";
+export const NODE_BRIEF_USAGE = "dispatch.ts node brief <run-id> <node-id>";
+export const NODE_ACTIVITY_USAGE = "dispatch.ts node activity <run-id> <node-id> [--limit N]";
 export const OWNER_EVENT_USAGE =
-  "dispatch.sh owner event <session-id> <started|alive|finished|failed> [--note \"text\"] [--harness opencode|claude]";
+  "dispatch.ts owner event <session-id> <started|alive|finished|failed> [--note \"text\"] [--harness opencode|claude]";
 
 type Node = Record<string, any>;
 type Op = (run: RunState, ctx: Ctx) => void;
@@ -197,7 +197,7 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-// job_status (dispatch.sh): "running" | "done exit=N" | "done exit=unknown ..." | null (unknown job).
+// job_status (dispatch.ts): "running" | "done exit=N" | "done exit=unknown ..." | null (unknown job).
 export function jobStatus(home: string, id: string): string | null {
   const dir = join(paths.jobs(home), id);
   if (!isDir(dir)) return null;

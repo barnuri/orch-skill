@@ -1,4 +1,4 @@
-// test-tier: slow (real dispatch.sh schedule runs)
+// test-tier: slow (real dispatch.ts schedule runs)
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 
 import { readSchedules } from "./schedule-reader";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 const homes: string[] = [];
 
 function newHome(): string {
@@ -23,7 +23,7 @@ afterAll(() => {
 });
 
 async function sh(home: string, ...args: string[]): Promise<string> {
-  const proc = Bun.spawn(["bash", DISPATCH, "schedule", ...args], {
+  const proc = Bun.spawn([process.execPath, DISPATCH, "schedule", ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: home },
     stdout: "pipe",
     stderr: "ignore",

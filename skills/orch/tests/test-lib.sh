@@ -4,10 +4,10 @@
 
 set -u
 
-# TESTS_DIR is skills/orch/tests; SCRIPT_DIR is skills/orch/scripts (dispatch.sh, lib/).
+# TESTS_DIR is skills/orch/tests; SCRIPT_DIR is skills/orch/scripts (dispatch.ts, lib/).
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_DIR="$(cd "$TESTS_DIR/../scripts" && pwd)"
-SCRIPT="$SCRIPT_DIR/dispatch.sh"
+SCRIPT="$SCRIPT_DIR/dispatch.ts"
 . "$TESTS_DIR/test-home.sh"
 
 export ORCH_NO_ANNOUNCE=1
@@ -108,7 +108,7 @@ write_snapshot() { printf '%s' "$2" > "$1"; }
 edit_json() { jq "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
 
 # PATH with each named binary's own directory removed, so `command -v <name>` reports "not
-# found" without disturbing any other tool dispatch.sh itself needs (date, jq, curl, stat, ...).
+# found" without disturbing any other tool dispatch.ts itself needs (date, jq, curl, stat, ...).
 # A name that isn't on PATH to begin with is skipped.
 path_without() {
   local result="$PATH" bin resolved dir
@@ -190,9 +190,9 @@ stop_fixture() {
 }
 
 # load_dispatch: the in-process seam of the fast tier (tests/unit/). Seeds a fresh home in $H, points
-# HARNESS_ORCH_HOME at it and sources dispatch.sh into this shell, so a test calls lib functions
-# directly instead of paying a dispatch.sh process (10-40 forks) per check. Sourcing defines functions
-# only (see dispatch.sh), so this is safe. Call it once, at the top of the file, before any check.
+# HARNESS_ORCH_HOME at it and sources dispatch.ts into this shell, so a test calls lib functions
+# directly instead of paying a dispatch.ts process (10-40 forks) per check. Sourcing defines functions
+# only (see dispatch.ts), so this is safe. Call it once, at the top of the file, before any check.
 load_dispatch() {
   H="$(new_tmp)/home"
   seed_home "$H" || { printf 'FAIL: seed_home %s\n' "$H" >&2; exit 1; }

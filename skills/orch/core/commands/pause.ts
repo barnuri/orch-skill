@@ -11,12 +11,12 @@ import { dispatchNodeJob } from "./dispatch.ts";
 import { coordinatorRecord, coordinatorAutoRecord, coordSweep } from "./inbox.ts";
 import { healthMonitorAutostart } from "./health.ts";
 
-const RUN_PAUSE_USAGE = "dispatch.sh run pause <run-id>";
-const RUN_RESUME_USAGE = "dispatch.sh run resume <run-id> [--stopped]";
-const RUN_STOP_USAGE = "dispatch.sh run stop <run-id>";
-const RUN_SET_USAGE = "dispatch.sh run set <run-id> auto_dispatch true|false";
-const COORD_USAGE = "dispatch.sh run set <run-id> coordinator   (run in the coordinator pane: HERDR_PANE_ID, HERDR_SOCKET_PATH set)";
-const NODE_CANCEL_USAGE = "dispatch.sh node cancel <run-id> <node-id>";
+const RUN_PAUSE_USAGE = "dispatch.ts run pause <run-id>";
+const RUN_RESUME_USAGE = "dispatch.ts run resume <run-id> [--stopped]";
+const RUN_STOP_USAGE = "dispatch.ts run stop <run-id>";
+const RUN_SET_USAGE = "dispatch.ts run set <run-id> auto_dispatch true|false";
+const COORD_USAGE = "dispatch.ts run set <run-id> coordinator   (run in the coordinator pane: HERDR_PANE_ID, HERDR_SOCKET_PATH set)";
+const NODE_CANCEL_USAGE = "dispatch.ts node cancel <run-id> <node-id>";
 const STOP_GRACE = () => Number(process.env.RUN_STOP_GRACE ?? 5);
 
 const out = (s: string) => process.stdout.write(s);
@@ -34,8 +34,8 @@ export async function pauseGuard(home: string, run: string, toErr = false): Prom
   const out = toErr ? err : (x: string) => process.stdout.write(x);
   if (!run) return 0;
   const r = await loadRun(home, run);
-  if (r?.stopped === true) return (out(`run stopped: ${run} (dispatch.sh run resume ${run} --stopped)\n`), 3);
-  if (r?.paused === true) return (out(`run paused: ${run} (dispatch.sh run resume ${run})\n`), 3);
+  if (r?.stopped === true) return (out(`run stopped: ${run} (dispatch.ts run resume ${run} --stopped)\n`), 3);
+  if (r?.paused === true) return (out(`run paused: ${run} (dispatch.ts run resume ${run})\n`), 3);
   return 0;
 }
 

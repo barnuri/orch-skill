@@ -91,7 +91,7 @@ function onShutdown(server: Server<undefined>, home: string): void {
 }
 
 /**
- * Foreground entrypoint: `dispatch.sh serve` execs it, `ui` nohups it. Owns the whole
+ * Foreground entrypoint: `dispatch.ts serve` execs it, `ui` nohups it. Owns the whole
  * lifecycle — seed ORCH_HOME, mint the token, bind, publish the `serve/` markers bash polls —
  * and never opens a browser; bash `ui` does that.
  */

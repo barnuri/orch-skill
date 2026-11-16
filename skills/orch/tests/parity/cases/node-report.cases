@@ -1,5 +1,0 @@
-# Phase 2 parity: node report. Each line runs on a home holding run fx-run (fixtures/node-base.jsonl).
-# fixture: fx-run node-base.jsonl
-node report fx-run n1 --input-tokens 10 --output-tokens 5
-node report fx-run n2 --usd 0.5 --note x
-node report fx-run nope --usd 1

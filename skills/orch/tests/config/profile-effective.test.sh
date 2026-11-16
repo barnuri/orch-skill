@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: profile defaults resolution (node > profile > defaults > builtin) and settings get/set.
+# dispatch.ts tests: profile defaults resolution (node > profile > defaults > builtin) and settings get/set.
 # Run: bash profile-effective.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 home=$(new_tmp)
-orch() { env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$home/none.json" bash "$SCRIPT" "$@"; }
+orch() { env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$home/none.json" bun "$SCRIPT" "$@"; }
 seed_home "$home"
 
 # A profile that sets parallel_ok false itself, and one that inherits everything.

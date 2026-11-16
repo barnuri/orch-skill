@@ -1,6 +1,0 @@
-# Phase 5 parity: announce. Each line runs on a fresh seeded home, outside Herdr.
-announce --dry-run
-announce --dry-run --clear
-announce --dry-run --run nope
-announce --dry-run --ttl-sec 30
-announce --stop

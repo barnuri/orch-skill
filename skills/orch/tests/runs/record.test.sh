@@ -5,7 +5,7 @@ set -u
 export ORCH_NO_ANNOUNCE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
-SCRIPT="$SCRIPT_DIR/dispatch.sh"
+SCRIPT="$SCRIPT_DIR/dispatch.ts"
 
 failures=0
 pass_count=0
@@ -44,7 +44,7 @@ cleanup_dir() { trash "$1" 2>/dev/null || true; }
 
 HOME_DIR=$(mktemp -d)
 export HARNESS_ORCH_HOME="$HOME_DIR"
-orch() { bash "$SCRIPT" "$@"; }
+orch() { bun "$SCRIPT" "$@"; }
 node_json() { jq -c --arg n "$2" '.nodes[] | select(.id == $n)' "$HOME_DIR/runs/$1/state.json"; }
 
 run_id=$(orch run start "record test" | tail -1 | tr -d '[:space:]')

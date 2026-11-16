@@ -61,9 +61,9 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
-// Runs dispatch.sh without blocking the event loop; the handler resolves once the script exits.
+// Runs dispatch.ts without blocking the event loop; the handler resolves once the script exits.
 async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {
-  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",

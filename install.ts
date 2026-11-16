@@ -116,7 +116,7 @@ function linkTarget(path: string): string {
   return join(resolve(dirname(p)), p.split("/").pop() as string);
 }
 
-const WRAPPER = join(REPO_DIR, "bin/orch");
+const WRAPPER = join(REPO_DIR, "skills/orch/scripts/dispatch.ts");
 
 function removePreviousCliSymlink(): void {
   const c = readCliConfig();

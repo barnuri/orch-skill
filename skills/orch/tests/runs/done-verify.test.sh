@@ -7,7 +7,7 @@
 
 home=$(new_tmp); seed_home "$home"
 export HARNESS_ORCH_HOME="$home" ORCH_HEALTH_MONITOR=0 ORCH_OWNER_FILL=0
-o() { bash "$SCRIPT" "$@"; }
+o() { bun "$SCRIPT" "$@"; }
 st() { jq -r --arg n "$2" ".nodes[] | select(.id == \$n) | $3" "$home/runs/$1/state.json"; }
 
 R=$(o run start "done check")

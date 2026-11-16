@@ -10,8 +10,8 @@ import { applyAdd, findNode, ID_PATTERN, loadHub, WORK_ROLES, type AddArgs } fro
 import { dispatchNodeJob, nodeOutDir, profileRequire } from "./dispatch.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 
-export const PLAN_USAGE = 'dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]';
-export const PLAN_APPLY_USAGE = "dispatch.sh plan apply <run-id> [--file plan.json]";
+export const PLAN_USAGE = 'dispatch.ts plan <run-id> "<goal>|@file" [--profile P] [--node ID]';
+export const PLAN_APPLY_USAGE = "dispatch.ts plan apply <run-id> [--file plan.json]";
 const PLAN_NODE_DEFAULT = "plan";
 const MAX_NODES_DEFAULT = 12;
 const PLAN_LABEL_MAX = 80;

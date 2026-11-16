@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# seed_home <dir>: makes <dir> the same as `dispatch.sh init` on an empty home would, by copying a
+# seed_home <dir>: makes <dir> the same as `dispatch.ts init` on an empty home would, by copying a
 # home that was initialised once. Sourced by test-lib.sh and by the self-contained *.test.sh files.
 #
 # Why: the first command on a new home runs the profiles.json migrations (several jq passes and
@@ -12,7 +12,7 @@ seed_home_template() {
   local dir="$1"
   mkdir -p "$dir" || return 1
   env HARNESS_ORCH_HOME="$dir" ORCH_NO_ANNOUNCE=1 ORCH_HERDR=0 \
-    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/dispatch.sh" init >/dev/null 2>&1
+    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/dispatch.ts" init >/dev/null 2>&1
 }
 
 # seed_home_template_cached: prints the path of a template home shared across runs, under $TMPDIR and
@@ -21,7 +21,7 @@ seed_home_template() {
 seed_home_template_cached() {
   local orch key cache tmp
   orch="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  key=$(cat "$orch/scripts/dispatch.sh" "$orch"/scripts/lib/*/*.sh "$orch"/templates/* 2>/dev/null | cksum | tr ' ' '-')
+  key=$(cat "$orch/scripts/dispatch.ts" "$orch"/scripts/lib/*/*.sh "$orch"/templates/* 2>/dev/null | cksum | tr ' ' '-')
   cache="${TMPDIR:-/tmp}"
   cache="${cache%/}/orch-test-home-template.$key"
   if [ ! -f "$cache/profiles.json" ]; then

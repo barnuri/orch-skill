@@ -1,5 +1,5 @@
 // Adapter spawn: `run` (sync, stdio inherited) and `start` (detached job, stdio to job files).
-// Ported from lib/adapters/adapters.sh and the run/start part of dispatch.sh. Bun built-ins only.
+// Ported from lib/adapters/adapters.sh and the run/start part of dispatch.ts. Bun built-ins only.
 // ${VAR} references in a profile's env are resolved into the spawn env only, never written to state.
 import { existsSync, mkdirSync, readdirSync, symlinkSync, lstatSync, unlinkSync, writeFileSync, renameSync, openSync } from "node:fs";
 import { join } from "node:path";
@@ -398,7 +398,7 @@ export async function parseTarget(sub: string, args: string[]): Promise<Target |
   const name = (profile ? args[1] : args[0]) ?? "";
   const raw = (profile ? args[2] : args[1]) ?? "";
   const rest = args.slice(profile ? 3 : 2);
-  if (name === "" || raw === "") return (err(`usage: dispatch.sh ${sub} (--profile <name> | <adapter>) <prompt|@file> [args...]\n`), 2);
+  if (name === "" || raw === "") return (err(`usage: dispatch.ts ${sub} (--profile <name> | <adapter>) <prompt|@file> [args...]\n`), 2);
   const prompt = await resolvePrompt(raw);
   if (prompt === null) return 1;
   return { kind: profile ? "profile" : "adapter", name, prompt, rest };

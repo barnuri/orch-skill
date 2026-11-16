@@ -7,10 +7,10 @@ export interface WatchdogAction {
   run: string;
   node: string | null;
   rule: WatchdogRule;
-  /** What the watchdog did: a dispatch.sh call, or `flag` when it only reports. */
+  /** What the watchdog did: a dispatch.ts call, or `flag` when it only reports. */
   action: string;
   detail: string;
-  /** dispatch.sh exit code; null for a report-only action. */
+  /** dispatch.ts exit code; null for a report-only action. */
   rc: number | null;
 }
 

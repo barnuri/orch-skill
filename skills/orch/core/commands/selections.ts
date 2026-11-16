@@ -7,7 +7,7 @@ import { loadRun } from "../state/store.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { mutateRun } from "./node.ts";
 
-export const NODE_SELECTIONS_USAGE = "dispatch.sh node selections <run-id> <node-id>";
+export const NODE_SELECTIONS_USAGE = "dispatch.ts node selections <run-id> <node-id>";
 export const SELECTION_PAGE_LIMIT = 500;
 export const SELECTION_HISTORY_MAX = 500;
 export const SELECTION_HTTP_TIMEOUT_MS = 5000;

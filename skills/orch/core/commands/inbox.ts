@@ -14,9 +14,9 @@ import { herdrCli, herdrEnabled } from "../adapters/herdr.ts";
 import { findNode } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
 
-export const NODE_TELL_USAGE = 'dispatch.sh node tell <run-id> <node-id> "<text>" [--from NAME]';
-export const NODE_ASK_USAGE = 'dispatch.sh node ask <run-id> <node-id> "<question>" [--wait] [--timeout SECS]';
-export const NODE_INBOX_USAGE = "dispatch.sh node inbox <run-id> <node-id> [--json] [--peek] [--ack <id>] [--via NAME]";
+export const NODE_TELL_USAGE = 'dispatch.ts node tell <run-id> <node-id> "<text>" [--from NAME]';
+export const NODE_ASK_USAGE = 'dispatch.ts node ask <run-id> <node-id> "<question>" [--wait] [--timeout SECS]';
+export const NODE_INBOX_USAGE = "dispatch.ts node inbox <run-id> <node-id> [--json] [--peek] [--ack <id>] [--via NAME]";
 const INBOX_ASK_WAIT_SECS = 1800;
 const LOCK_TRIES = 600; // run_lock: 600 x 50 ms
 const LOCK_SLEEP_MS = 50;
@@ -248,7 +248,7 @@ export async function cmdNodeAsk(args: string[]): Promise<number> {
     if (m.kind === "answer" && m.status === "pending") unread.push(`- ${m.id}: ${m.text}`);
   }
   if (unread.length) {
-    err(`Unread answers from the coordinator:\n${unread.join("\n")}\nread your answers first (dispatch.sh node inbox ${a.run} ${a.node})\n`);
+    err(`Unread answers from the coordinator:\n${unread.join("\n")}\nread your answers first (dispatch.ts node inbox ${a.run} ${a.node})\n`);
     return 3;
   }
   const want = norm(a.text);
@@ -299,7 +299,7 @@ async function ackAnswer(home: string, run: string, node: string, askId: string)
 }
 
 export async function cmdNodeAnswer(args: string[]): Promise<number> {
-  const USAGE = 'dispatch.sh node answer <run-id> <node-id> "<answer>" [--ask <id>]';
+  const USAGE = 'dispatch.ts node answer <run-id> <node-id> "<answer>" [--ask <id>]';
   let ask = "";
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -416,7 +416,7 @@ async function inboxRetryRun(home: string, run: string): Promise<void> {
 }
 
 export async function cmdRunMessages(args: string[]): Promise<number> {
-  const USAGE = "dispatch.sh run messages <run-id> [--json] | run messages <run-id> retry";
+  const USAGE = "dispatch.ts run messages <run-id> [--json] | run messages <run-id> retry";
   const run = args[0] ?? "";
   if (!run) return (err(`usage: ${USAGE}\n`), 2);
   const home = orchHome();
@@ -450,7 +450,7 @@ export async function cmdRunBroadcast(args: string[]): Promise<number> {
     else if (!run) run = args[i];
     else text = text ? `${text} ${args[i]}` : args[i];
   }
-  if (!run || !text) return (err('usage: dispatch.sh run broadcast <run-id> "<text>" [--from NAME]\n'), 2);
+  if (!run || !text) return (err('usage: dispatch.ts run broadcast <run-id> "<text>" [--from NAME]\n'), 2);
   const home = orchHome();
   if (!(await requireRun(home, run))) return 2;
   try {
@@ -463,7 +463,7 @@ export async function cmdRunBroadcast(args: string[]): Promise<number> {
 }
 
 export async function cmdRunRule(args: string[]): Promise<number> {
-  const USAGE = 'dispatch.sh run rule add <run-id> "<text>" | run rule list <run-id> [--json]';
+  const USAGE = 'dispatch.ts run rule add <run-id> "<text>" | run rule list <run-id> [--json]';
   const [verb = "", run = ""] = args;
   const home = orchHome();
   if (verb === "add") {
@@ -726,7 +726,7 @@ export async function coordDeliver(home: string, run: string, path: string): Pro
   if (!(await coordPaneQuiet(c))) return coordCountTry(path, "coordinator is typing or the screen is changing");
   const text = String(m.text).replace(/[\r\n]/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const line = m.kind === "ask"
-    ? `[orch ask #${m.id} from ${m.from}] ${text} | answer: dispatch.sh node answer ${run} ${m.from} ${m.id} "<text>"`
+    ? `[orch ask #${m.id} from ${m.from}] ${text} | answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`
     : `[orch tell #${m.id} from ${m.from}] ${text}`;
   const a = await coordCli(c.socket_path, ["pane", "send-text", c.pane_id, line]);
   const b = a.ok ? await coordCli(c.socket_path, ["pane", "send-keys", c.pane_id, "Enter"]) : a;
@@ -763,7 +763,7 @@ export async function coordSweep(home: string, run: string): Promise<string[]> {
 
 export async function cmdRunRepoint(args: string[]): Promise<number> {
   const [run = "", sock = "", pane = ""] = args;
-  if (!run || !sock || !pane) return (err("usage: dispatch.sh run repoint <run-id> <socket-path> <pane-id>   (a pane from the candidates of an unreachable coordinator)\n"), 2);
+  if (!run || !sock || !pane) return (err("usage: dispatch.ts run repoint <run-id> <socket-path> <pane-id>   (a pane from the candidates of an unreachable coordinator)\n"), 2);
   const home = orchHome();
   if (!(await requireRun(home, run))) return 2;
   const c = await coordOf(home, run);

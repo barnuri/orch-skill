@@ -92,7 +92,7 @@ describe("POST /api/build/restart", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; command: string };
     expect(body.error).toBe("service not installed");
-    expect(body.command).toContain("dispatch.sh ui");
+    expect(body.command).toContain("dispatch.ts ui");
     await Bun.sleep(PAST_DELAY_MS);
     expect(calls()).toBe(0);
   });

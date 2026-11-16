@@ -19,7 +19,7 @@ Orch exists for visibility, the right model per task, lower cost and tokens, and
 
 | # | Weak spot | Evidence | Direction of fix |
 |---|---|---|---|
-| W1 | Every orch command costs about 90 process starts | `dispatch.sh run status` 7.1 s wall for 0.4 s CPU: 50 printf, 19 jq, 10 stat, 6 date; process start 80 ms or more under Defender and load | Bun core, one process per command, long-lived server for hot paths |
+| W1 | Every orch command costs about 90 process starts | `dispatch.ts run status` 7.1 s wall for 0.4 s CPU: 50 printf, 19 jq, 10 stat, 6 date; process start 80 ms or more under Defender and load | Bun core, one process per command, long-lived server for hot paths |
 | W2 | Agents end their turn early | 145 of 181 done nodes had no handoff, 5 nodes lost 40 to 80 minutes redoing work | handoff first, resume the same session with a continue message, watchdog guard |
 | W3 | The coordinator answers slowly | median ask latency 702 s, nodes waiting on a shell timeout of 120 s | herdr bridge into the coordinator pane, node ask wait 90 s, coordinator answers within one turn |
 | W4 | Duplicate workers on one node | about 12 jobs in minutes after manual dispatch plus engine plus watchdog retry | claim per attempt, refuse a second live job, release the claim on reset |

@@ -157,7 +157,7 @@ describe("HealthWatcher", () => {
 
 describe("health helpers", () => {
   test("parseHealth rejects text without the contract's shape", () => {
-    expect(parseHealth("usage: dispatch.sh run …")).toBeNull();
+    expect(parseHealth("usage: dispatch.ts run …")).toBeNull();
     expect(parseHealth('{"run":"x"}')).toBeNull();
     expect(parseHealth(report())?.nodes[0]?.idle_min).toBe(20);
   });

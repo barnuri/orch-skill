@@ -173,7 +173,7 @@ function subtitle(visible: readonly RunSummary[], hidden: number): string {
 }
 
 function noRunsState(): HTMLElement {
-  const hint = el("span", {}, ["Start one with ", el("code", { text: 'dispatch.sh run start "<title>"' }), ", then add nodes and dispatch them."]);
+  const hint = el("span", {}, ["Start one with ", el("code", { text: 'dispatch.ts run start "<title>"' }), ", then add nodes and dispatch them."]);
   return emptyState("No runs yet", hint);
 }
 

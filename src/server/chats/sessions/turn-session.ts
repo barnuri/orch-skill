@@ -37,7 +37,7 @@ const CAPTURE_TIMEOUT_MS = 15_000;
 
 interface TurnResult { code: number; stdout: string; stderr: string; streamed: boolean }
 
-/** Plain text from `dispatch.sh run`: every piece is a text delta, exit code 0 is `done`. */
+/** Plain text from `dispatch.ts run`: every piece is a text delta, exit code 0 is `done`. */
 export class PlainParser implements TurnParser {
   readonly mode = "text" as const;
   stdout = "";
@@ -65,7 +65,7 @@ export class PlainParser implements TurnParser {
 }
 
 /**
- * Fallback for harnesses without a persistent protocol: each turn runs `dispatch.sh run --profile P`
+ * Fallback for harnesses without a persistent protocol: each turn runs `dispatch.ts run --profile P`
  * (so profile env, flags and model resolve exactly as for any orch job). Output arrives as plain
  * text; there are no tool or usage events. Memory across turns, per harness:
  *  - copilot, pi: the dashboard mints the session id on turn 1 and resumes it afterwards.
@@ -220,7 +220,7 @@ export class TurnSession implements AgentSession {
       mkdirSync(turnsDir(this.params.home), { recursive: true });
       writeFileSync(promptFile, text, { mode: 0o600 });
       started = startTurn({
-        home: this.params.home, id, cmd: ["bash", this.dispatch, "run", "--profile", this.params.profile, `@${promptFile}`], cwd: this.params.cwd, env, stdin: null,
+        home: this.params.home, id, cmd: [process.execPath, this.dispatch, "run", "--profile", this.params.profile, `@${promptFile}`], cwd: this.params.cwd, env, stdin: null,
         meta: { harness: this.params.harness, parser: "plain", session_id: session, chat_id: this.params.chatId, message_id: messageId, model: this.params.modelId },
       });
     } catch (err) {

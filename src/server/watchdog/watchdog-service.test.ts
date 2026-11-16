@@ -8,7 +8,7 @@ import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
 import { actionsLog, isInfraError, WatchdogService } from "./watchdog-service";
 
-const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
 beforeAll(() => {
   prevDispatch = process.env["ORCH_DISPATCH"];

@@ -51,7 +51,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
     info: {
       title: "orch dashboard API",
       version: "1.0.0",
-      description: "The API behind the orch dashboard. Reads are cheap; writes go through `dispatch.sh`, the only writer of orch state.",
+      description: "The API behind the orch dashboard. Reads are cheap; writes go through `dispatch.ts`, the only writer of orch state.",
     },
   });
   installFallbacks(api, ctx);

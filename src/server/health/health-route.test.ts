@@ -1,4 +1,4 @@
-// test-tier: slow (stand-in dispatch.sh processes)
+// test-tier: slow (stand-in dispatch.ts processes)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ const RUN = "20261115-100000-abcd";
 const servers: TestServerHandle[] = [];
 let previous: string | undefined;
 
-// A stand-in for dispatch.sh: `run health <id> --json` prints the contract's JSON for that id.
+// A stand-in for dispatch.ts: `run health <id> --json` prints the contract's JSON for that id.
 const FAKE = `#!/usr/bin/env bash
 if [ "$1" = run ] && [ "$2" = health ] && [ "$4" = --json ]; then
   printf '{"run":"%s","at":"2026-11-15T10:00:00Z","max_parallel":2,"running":1,"slots":1,"nodes":[{"id":"a","status":"running","health":"dead","owner_id":null,"last_activity":null,"idle_min":null,"note":"owner gone"}],"ready":["b"],"changes":[]}\\n' "$3"
@@ -28,7 +28,7 @@ exit 2
 
 beforeAll(() => {
   const dir = mkdtempSync(join(tmpdir(), "orch-health-fake-"));
-  const path = join(dir, "dispatch.sh");
+  const path = join(dir, "dispatch.ts");
   writeFileSync(path, FAKE);
   chmodSync(path, 0o755);
   previous = process.env["ORCH_DISPATCH"];

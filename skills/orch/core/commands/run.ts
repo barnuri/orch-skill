@@ -15,7 +15,7 @@ export async function runStatusCommand(args: string[]): Promise<number> {
   return r.code;
 }
 
-export const RUN_STATUS_USAGE = "usage: dispatch.sh run status <run-id> [--json] [--fresh]";
+export const RUN_STATUS_USAGE = "usage: dispatch.ts run status <run-id> [--json] [--fresh]";
 
 // The `node_ready` rule (lib/core/config.sh NODE_READY_JQ_DEF).
 export function nodeReady(run: any, x: any): boolean {

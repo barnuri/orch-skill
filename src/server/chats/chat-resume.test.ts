@@ -7,13 +7,13 @@ import { buildOptions } from "./options";
 import { buildReplayPrompt } from "./sessions/history-replay";
 import { HARNESSES, installChatResumeCleanup, PROFILES, PROMPT_DISPATCH, say, setup, TESTING } from "./testing/chat-resume-support";
 
-// The tests that drive the real dispatch.sh live in chat-resume-{opencode,cursor,pi}.test.ts,
+// The tests that drive the real dispatch.ts live in chat-resume-{opencode,cursor,pi}.test.ts,
 // one file per harness so the parallel runner overlaps them.
 installChatResumeCleanup();
 
 describe("memory across 3 turns, one session per chat", () => {
   test("copilot keeps resuming the minted id through ORCH_RESUME_SESSION", async () => {
-    const { service, log } = setup(join(TESTING, "fake-dispatch.sh"));
+    const { service, log } = setup(join(TESTING, "fake-dispatch.ts"));
     const chat = service.createChat({ title: "t", harness: "copilot", profile: "copilot" });
     process.env.FAKE_AGENT_LOG = log;
     await say(service, chat.id, "a");

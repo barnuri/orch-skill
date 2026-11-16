@@ -86,7 +86,7 @@ function watchItem(home: string, id: string): ActiveItem | null {
   }
   const recorded = str(state["status"], "");
   // A recorded "running" whose process is gone (or whose pid now belongs to another process) is
-  // dead: `dispatch.sh` records it so on its next read, and it is left out here as it is there.
+  // dead: `dispatch.ts` records it so on its next read, and it is left out here as it is there.
   // "lost" is what older versions recorded for a streaming watch that lost its process.
   const shown = recorded === "lost" || (recorded === "running" && watchProcessAlive(state["pid"], id));
   if (!shown) {
@@ -110,8 +110,8 @@ function watchItem(home: string, id: string): ActiveItem | null {
 
 /**
  * Running loops and monitors, plus any that failed or lost their process (those need attention).
- * A direct read of the state files `dispatch.sh` writes: it takes about a millisecond, where
- * spawning `dispatch.sh active --json` took 0.1 to 0.7 s and ran on every poll of every page.
+ * A direct read of the state files `dispatch.ts` writes: it takes about a millisecond, where
+ * spawning `dispatch.ts active --json` took 0.1 to 0.7 s and ran on every poll of every page.
  * Liveness is the same check the shell uses: `kill -0` on the recorded pid, and for a watch also its
  * command line naming the watch (watch-liveness.ts).
  */

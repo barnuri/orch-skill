@@ -14,7 +14,7 @@ import { opencodeDbPath, sessionIndex, type Sess } from "./owners.ts";
 import { nodeReady } from "./run.ts";
 import { watchAliveStatus } from "./loops.ts";
 
-export const RUN_HEALTH_USAGE = "dispatch.sh run health <run-id> [--json] [--nudge] | run health --ensure-monitors";
+export const RUN_HEALTH_USAGE = "dispatch.ts run health <run-id> [--json] [--nudge] | run health --ensure-monitors";
 const STALL_MIN_DEFAULT = 15;
 const EVERY_SEC_DEFAULT = 30;
 const EVERY_SEC_MIN = 10;

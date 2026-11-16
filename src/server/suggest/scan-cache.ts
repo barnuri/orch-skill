@@ -46,7 +46,7 @@ export function scanSignature(home: string): string {
 }
 
 async function runScan(home: string): Promise<ScanResult> {
-  const proc = Bun.spawn(["bash", dispatchPath(), "suggest", "scan"], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), "suggest", "scan"], {
     env: { ...process.env, HARNESS_ORCH_HOME: home },
     stdout: "pipe",
     stderr: "pipe",

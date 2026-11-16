@@ -46,7 +46,7 @@ interface Turn {
 }
 
 const DEFAULT_TITLE = "New chat";
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 
 /** Both binaries can be replaced from the environment, which is how tests keep real models out. */
 function defaultFactory(ctx: ServerContext, servers: OpencodeServerPool | null): SessionFactory {

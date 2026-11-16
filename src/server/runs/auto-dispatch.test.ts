@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { TempHome } from "../test-support/temp-home";
 import { decide, maxParallel, notifyFile, profileCapOf, RunEngine, subscribeNodeChanges, type NodeChange, type RunState } from "./auto-dispatch";
 
-const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
 beforeAll(() => {
   prevDispatch = process.env["ORCH_DISPATCH"];

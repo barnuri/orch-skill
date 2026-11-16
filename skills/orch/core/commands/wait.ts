@@ -12,7 +12,7 @@ import { dispatchSh } from "../state/proc.ts";
 import { healthEverySec, healthMap, stallMinutes } from "../runs/health.ts";
 import { nodeReady } from "./run.ts";
 
-export const RUN_WAIT_USAGE = "dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]";
+export const RUN_WAIT_USAGE = "dispatch.ts run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]";
 const POLL_DEFAULT = 2;
 const RESCAN_DEFAULT = 15;
 const COORD_SWEEP_SECS = 20;

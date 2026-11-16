@@ -106,7 +106,7 @@ describe("evaluateSchedules", () => {
 describe("detachedSpawn", () => {
   test("runs dispatch in its own session through ORCH_DISPATCH", async () => {
     const home = makeHome();
-    const fake = join(home, "fake-dispatch.sh");
+    const fake = join(home, "fake-dispatch.ts");
     const out = join(home, "out.txt");
     writeFileSync(fake, `#!/bin/bash\nps -o pid=,pgid=,sess= -p $$ > "${out}"\necho "$$ $PPID $*" >> "${out}"\n`);
     const prev = process.env["ORCH_DISPATCH"];

@@ -1,5 +1,0 @@
-{"summary":"two stage plan","tasks":[
- {"id":"api","label":"API","profile":"claude-haiku","role":"implementation","after":[],"prompt":"Build the api"},
- {"id":"docs","profile":"no-such-profile","after":[],"prompt":"Write docs"},
- {"id":"merge","label":"Merge","after":["api","docs"],"prompt":"Integrate"}
-]}

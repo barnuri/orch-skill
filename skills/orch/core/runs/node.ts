@@ -25,10 +25,10 @@ const HUB_ROLE_TIERS_DEFAULT: Record<string, string> = {
 };
 
 export const USAGE = {
-  add: 'dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]',
-  report: "dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note \"text\"]",
-  update: `dispatch.sh node update <run-id> <node-id> [${NODE_STATUSES.join("|")}] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]`,
-  batch: "dispatch.sh node batch <run-id> [--file F] [--dry-run]   (one JSON op per line on stdin or in F)",
+  add: 'dispatch.ts node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]',
+  report: "dispatch.ts node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note \"text\"]",
+  update: `dispatch.ts node update <run-id> <node-id> [${NODE_STATUSES.join("|")}] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]`,
+  batch: "dispatch.ts node batch <run-id> [--file F] [--dry-run]   (one JSON op per line on stdin or in F)",
 };
 
 // An op failure. The message is the stderr text (without the trailing newline).

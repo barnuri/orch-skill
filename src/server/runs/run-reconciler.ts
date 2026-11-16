@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { listRuns } from "./runs-reader";
 import type { OrchPaths } from "../types/orch-paths";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 export const RECONCILE_MS: number = 30_000;
 export const RECONCILE_TIMEOUT_MS: number = 20_000;
 const FIRST_MS: number = 8_000;
@@ -219,7 +219,7 @@ export function nonOverlapping(pass: () => Promise<unknown>): () => Promise<void
 
 /** The command a pass runs per run: sync without retry, with owner verification (agent owners finish or vanish). */
 export function reconcileArgs(runId: string): string[] {
-  return ["bash", DISPATCH, "run", "sync", runId, "--no-retry", "--verify-owners", "--lock"];
+  return [process.execPath, DISPATCH, "run", "sync", runId, "--no-retry", "--verify-owners", "--lock"];
 }
 
 function bunSpawner(home: string): RunSpawner {

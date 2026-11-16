@@ -8,10 +8,10 @@ import { BUILTIN_DEFAULTS, effectiveProfile, type ProfileDefaults } from "../../
 /**
  * Event-driven run engine. Watches each active run's folder (fs.watch, debounced) and, on every
  * change to state.json, starts each ready node of a run that opted in with
- * `dispatch.sh run set <run> auto_dispatch true`. A 30 s sweep catches missed events and new runs.
+ * `dispatch.ts run set <run> auto_dispatch true`. A 30 s sweep catches missed events and new runs.
  * It also turns every node change to done or error into a bus event (SSE) and a notification line.
  * Server-written files, like the schedule claims: `<home>/autodispatch/<run>/claims/<node>@<attempt>`
- * and `<home>/autodispatch/<run>/notify.log`. Run state is only changed through `dispatch.sh`.
+ * and `<home>/autodispatch/<run>/notify.log`. Run state is only changed through `dispatch.ts`.
  */
 
 export const DEBOUNCE_MS: number = 200;
@@ -68,12 +68,12 @@ export function publishNodeChange(change: NodeChange): void {
   }
 }
 
-/** Spawns `dispatch.sh <args>`; resolves with its exit code. */
+/** Spawns `dispatch.ts <args>`; resolves with its exit code. */
 export type Starter = (args: string[], home: string) => Promise<number>;
 export type Logger = (line: string) => void;
 
 export const spawnDispatch: Starter = async (args, home) => {
-  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: home },
     stdin: "ignore",
     stdout: "ignore",

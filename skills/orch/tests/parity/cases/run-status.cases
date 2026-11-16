@@ -1,5 +1,0 @@
-# fixture: fx-status run-status.jsonl
-run status fx-status
-run status fx-status --json
-run status fx-status --fresh
-run status no-such-run

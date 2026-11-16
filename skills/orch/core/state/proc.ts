@@ -122,7 +122,7 @@ export function ensureDir(d: string): void {
 }
 export { dirname, existsSync };
 
-// job_status of dispatch.sh: running | done exit=N | done exit=unknown (...), or null for an unknown job.
+// job_status of dispatch.ts: running | done exit=N | done exit=unknown (...), or null for an unknown job.
 export function jobStatus(jobsHome: string, id: string): string | null {
   const dir = join(jobsHome, id);
   if (!existsSync(dir)) return null;

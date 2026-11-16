@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 import { isRunId } from "./run-id";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 export const ACTIVITY_MESSAGES = 20;
 export const ACTIVITY_MAX_BYTES = 8192;
 export const ACTIVITY_CACHE_MS = 5_000;
@@ -103,7 +103,7 @@ export function reduceActivity(rawJson: string, after: string | null): ActivityB
 }
 
 async function spawnRaw(home: string, runId: string, nodeId: string, timeoutMs: number): Promise<{ code: number; stdout: string }> {
-  const proc = Bun.spawn(["bash", DISPATCH, "node", "activity", runId, nodeId], {
+  const proc = Bun.spawn([process.execPath, DISPATCH, "node", "activity", runId, nodeId], {
     env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_NO_ANNOUNCE: "1", ORCH_OWNER_CALL_TIMEOUT: "3" },
     stdout: "pipe",
     stderr: "ignore",

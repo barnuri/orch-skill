@@ -197,7 +197,7 @@ describe.concurrent("GET /api/runs/:id", () => {
   });
 });
 
-const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 
 function failedRun(): RunState {
   return runState({
@@ -256,7 +256,7 @@ describe.concurrent("POST retry routes (fake dispatch)", () => {
   });
 });
 
-describe("POST retry routes (real dispatch.sh smoke)", () => {
+describe("POST retry routes (real dispatch.ts smoke)", () => {
   test("node retry goes through dispatch and reopens the run", async () => {
     const srv = server();
     seed(

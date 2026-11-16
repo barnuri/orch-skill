@@ -14,8 +14,8 @@ import { MEMORY_ADD_USAGE, memoryAdd } from "./suggest.ts";
 const err = (s: string, code: number): number => (process.stderr.write(s), code);
 const out = (s: string): number => (s !== "" && process.stdout.write(s), 0);
 
-export const SETTINGS_USAGE = "dispatch.sh settings get defaults.<key> | set defaults.<key> <value>";
-export const PROFILE_SANITY_USAGE = "dispatch.sh profile sanity [--profile NAME] [--json]";
+export const SETTINGS_USAGE = "dispatch.ts settings get defaults.<key> | set defaults.<key> <value>";
+export const PROFILE_SANITY_USAGE = "dispatch.ts profile sanity [--profile NAME] [--json]";
 const SANITY_PROMPT = "orch sanity check: respond with exactly the word OK and nothing else.";
 const MEMORY_LIST_DEFAULT = 20;
 
@@ -102,7 +102,7 @@ async function probeOne(home: string, name: string): Promise<Row> {
     return { ...base, status: loaded.rc === 3 ? "unconfigured" : "failed", harness, model_id: modelId, slug, exit_code: loaded.rc, error: last };
   }
   const start = Date.now();
-  const proc = Bun.spawn([process.execPath, join(import.meta.dir, "../../bin/orch"), "run", "--profile", name, SANITY_PROMPT], {
+  const proc = Bun.spawn([process.execPath, join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "--profile", name, SANITY_PROMPT], {
     stdin: "ignore", stdout: "pipe", stderr: "pipe", env: process.env as Record<string, string>,
   });
   const [o, e] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), new Response(proc.stderr as ReadableStream).text()]);
@@ -132,7 +132,7 @@ export async function profileSanity(args: string[]): Promise<number> {
 
 export async function profileUnsetEnv(args: string[]): Promise<number> {
   const [name = "", ...vars] = args;
-  if (name === "" || vars.length === 0) return err("usage: dispatch.sh profile unset-env <name> <VAR>...\n", 2);
+  if (name === "" || vars.length === 0) return err("usage: dispatch.ts profile unset-env <name> <VAR>...\n", 2);
   const home = await requireHome();
   if (!home) return 1;
   const doc: any = await Bun.file(paths.profiles(home)).json();
@@ -208,5 +208,5 @@ export async function memory(args: string[]): Promise<number> {
       .map((r) => [r.ts, r.profile, r.outcome, r.task_kind, r.note].map((x) => String(x ?? "").replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r")).join("\t") + "\n");
     return out(lines.join(""));
   }
-  return err(`usage: ${MEMORY_ADD_USAGE} | dispatch.sh memory list [--profile P] [-n N]\n`, 2);
+  return err(`usage: ${MEMORY_ADD_USAGE} | dispatch.ts memory list [--profile P] [-n N]\n`, 2);
 }

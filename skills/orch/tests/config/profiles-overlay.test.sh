@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: profiles template + gitignored overlay (templates/profiles.local.json)
+# dispatch.ts tests: profiles template + gitignored overlay (templates/profiles.local.json)
 # Run: bash profiles-overlay.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
@@ -10,7 +10,7 @@ REAL_OVERLAY="$SCRIPT_DIR/../templates/profiles.local.json"
 
 # --- template only: no overlay file -------------------------------------------
 home=$(new_tmp)
-out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$home/no-overlay.json" bash "$SCRIPT" init 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$home/no-overlay.json" bun "$SCRIPT" init 2>&1); rc=$?
 expect_exit "template-only init exits 0" 0 "$rc"
 expect_match "template-only home has the eight generic profiles" '^8$' \
   "$(jq '.profiles | length' "$home/profiles.json")"
@@ -35,7 +35,7 @@ jq -n '{
       description: "overridden by the overlay", enabled: true, priority: 10, flags: [], env: {}, auth: []}
   }
 }' > "$overlay"
-out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$overlay" bash "$SCRIPT" init 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$overlay" bun "$SCRIPT" init 2>&1); rc=$?
 expect_exit "overlay-only init exits 0" 0 "$rc"
 expect_match "overlay-only home has the overlay profile" '^custom-model$' \
   "$(jq -r '.profiles["my-custom"].model' "$home/profiles.json")"
@@ -51,7 +51,7 @@ expect_match "overlay-only home has no llm-hub profile from the real overlay" '^
 # --- both: the real overlay merged over the template -------------------------
 if [ -f "$REAL_OVERLAY" ]; then
   home=$(new_tmp)
-  out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$REAL_OVERLAY" bash "$SCRIPT" init 2>&1); rc=$?
+  out=$(env HARNESS_ORCH_HOME="$home" ORCH_PROFILES_OVERLAY="$REAL_OVERLAY" bun "$SCRIPT" init 2>&1); rc=$?
   expect_exit "both init exits 0" 0 "$rc"
   expect_match "both home has 18 profiles (8 template + 10 overlay)" '^18$' \
     "$(jq '.profiles | length' "$home/profiles.json")"

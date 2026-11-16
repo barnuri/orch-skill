@@ -1,6 +1,6 @@
 # Adapter Contract
 
-`scripts/dispatch.sh` dispatches to a target harness through a small set of shell functions named
+`scripts/dispatch.ts` dispatches to a target harness through a small set of shell functions named
 `adapter_<name>`, defined in `scripts/lib/adapters/adapters.sh`. This is the contract every adapter follows,
 how profiles feed into them, and the steps to add a new one.
 
@@ -8,7 +8,7 @@ how profiles feed into them, and the steps to add a new one.
 
 | File | Holds |
 |---|---|
-| `scripts/dispatch.sh` | Entrypoint: constants, symlink-safe self-resolution, `main`, classify, budget-check, job plumbing (`run`/`start`/`status`/`tail`/`wait`/`list`). Sources every `scripts/lib/<category>/*.sh` listed in `ORCH_LIB_FILES`. |
+| `scripts/dispatch.ts` | Entrypoint: constants, symlink-safe self-resolution, `main`, classify, budget-check, job plumbing (`run`/`start`/`status`/`tail`/`wait`/`list`). Sources every `scripts/lib/<category>/*.sh` listed in `ORCH_LIB_FILES`. |
 | `scripts/lib/adapters/adapters.sh` | `resolve_prompt`, the `adapter_*` functions, `adapter_dispatch`, `dispatch_with_profile` |
 | `scripts/lib/core/config.sh` | Config home (`~/.harness-orch`), `init`, settings, `profile_load`, `profile`/`memory` subcommands |
 | `scripts/lib/runs/runs.sh` | Run/node state, `node dispatch`, `prune` |
@@ -52,7 +52,7 @@ adapter_<name> <prompt> [pass-through args...]
 
 | Adapter | Target | Invocation |
 |---|---|---|
-| `claude-native` | none — sentinel | Prints a notice, exits 0. `SKILL.md` handles this result before ever calling `run`/`start`; the function only exists so direct scripting against `dispatch.sh` gets defined behavior. |
+| `claude-native` | none — sentinel | Prints a notice, exits 0. `SKILL.md` handles this result before ever calling `run`/`start`; the function only exists so direct scripting against `dispatch.ts` gets defined behavior. |
 | `claude` | `claude` CLI (headless) | `claude -p "<prompt>" --output-format json [--session-id <new-id> \| --resume <existing-id>] [args…]` |
 | `cursor-agent` | `cursor-agent` CLI | `cursor-agent -p "<prompt>" --output-format text [--resume <chatId>] [args…]` |
 | `opencode` | `opencode` CLI | `opencode run "<prompt>" --auto [--session <id>] [args…]` (`--auto`: no TTY to approve permissions) |
@@ -102,7 +102,7 @@ headers; other harnesses are not claimed to carry them until their header suppor
 2. Add one `case` arm in `adapter_dispatch()` mapping the name to the function, and add the name to
    `VALID_HARNESSES` in `lib/core/config.sh` so profiles may target it.
 3. If the harness takes a model flag, add a `case` arm in `dispatch_with_profile()`.
-4. If `classify` should ever pick it, add a branch to `classify_cmd()` in `scripts/dispatch.sh`
+4. If `classify` should ever pick it, add a branch to `classify_cmd()` in `scripts/dispatch.ts`
    (and the adapter list in its `usage()`), then extend the `classify prints → Use` table in
    `SKILL.md`.
 5. Add tests under `tests/adapters/` (run with `tests/run.sh`): at minimum the "binary missing" path (strip its dir from

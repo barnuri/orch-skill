@@ -12,7 +12,7 @@ import { ChatService } from "./service";
 
 const TEMPLATE = resolve(import.meta.dir, "../../../skills/orch/templates/profiles.json");
 const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
-const FAKE_LOAD = resolve(import.meta.dir, "testing/fake-dispatch-load.sh");
+const FAKE_LOAD = resolve(import.meta.dir, "testing/fake-dispatch-load.ts");
 const HARNESSES = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
 
 const cleanup: Array<() => Promise<void>> = [];

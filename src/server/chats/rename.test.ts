@@ -28,7 +28,7 @@ function service(): ChatService {
   const log = home.resolve("agent.log");
   writeFileSync(log, "");
   process.env.ORCH_CHAT_CLAUDE_BIN = resolve(import.meta.dir, "testing/fake-claude.sh");
-  process.env.ORCH_CHAT_DISPATCH = resolve(import.meta.dir, "testing/fake-dispatch.sh");
+  process.env.ORCH_CHAT_DISPATCH = resolve(import.meta.dir, "testing/fake-dispatch.ts");
   process.env.FAKE_AGENT_LOG = log;
   const ctx: ServerContext = {
     paths: orchPaths(home.path), bindHost: "127.0.0.1", hostname: hostname(), tokenDigest: digestToken("t"), requireToken: true,

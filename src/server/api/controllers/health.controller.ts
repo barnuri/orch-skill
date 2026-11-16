@@ -17,7 +17,7 @@ export class HealthController {
 
   @Get("/health", {
     summary: "Server health",
-    description: "Answers 200 with the server's pid, state directory and Bun version. The service supervisor and `dispatch.sh` use it to tell a live server from a stale one.",
+    description: "Answers 200 with the server's pid, state directory and Bun version. The service supervisor and `dispatch.ts` use it to tell a live server from a stale one.",
   })
   @ResponseSchema(HealthDto.schema, { description: "The server is up." })
   getHealth(c: ApiContext): Promise<Response> {

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const home = process.env["HARNESS_ORCH_HOME"] ?? join(process.env["HOME"] ?? "", ".harness-orch");
-const dispatch = join(import.meta.dir, "..", "skills", "orch", "scripts", "dispatch.sh");
+const dispatch = join(import.meta.dir, "..", "skills", "orch", "scripts", "dispatch.ts");
 const args = process.argv.slice(2);
 const noPause = args.includes("--no-pause");
 
@@ -28,7 +28,7 @@ function newestRun(): string {
 
 const run = args.find((a) => !a.startsWith("--")) ?? newestRun();
 const statePath = join(home, "runs", run, "state.json");
-const sh = (a: string[]): string => spawnSync("bash", [dispatch, ...a], { encoding: "utf8" }).stdout.trim();
+const sh = (a: string[]): string => spawnSync(process.execPath, [dispatch, ...a], { encoding: "utf8" }).stdout.trim();
 
 if (!noPause) {
   console.log(sh(["run", "set", run, "auto_dispatch", "false"]));

@@ -26,7 +26,7 @@ function stampOf(path: string): number {
 }
 
 async function probe(ctx: ServerContext): Promise<HarnessesEnvelope | ApiError> {
-  const proc = Bun.spawn(["bash", dispatchPath(), "harness", "list", "--json"], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), "harness", "list", "--json"], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",
@@ -51,7 +51,7 @@ export interface HarnessesHandlerOptions {
 }
 
 /**
- * The probe starts a `dispatch.sh`, so it is not cheap: under load it takes longer than the cache TTL, so a
+ * The probe starts a `dispatch.ts`, so it is not cheap: under load it takes longer than the cache TTL, so a
  * plain TTL cache is expired by the time most callers arrive. The cache is therefore stale-while-revalidate:
  * an expired entry is served at once and refreshed by one background probe. Concurrent callers share one probe.
  * Only the first call, `?refresh=1` (the Re-detect button) and a change to profiles.json wait for a probe.
@@ -65,7 +65,7 @@ export function listHarnessesHandler(ctx: ServerContext, options: HarnessesHandl
   const start = (): Promise<HarnessesEnvelope | ApiError> => {
     const run = probeFn(ctx)
       .then((result) => {
-        // Stamped after the probe: `dispatch.sh` may itself touch profiles.json while it runs,
+        // Stamped after the probe: `dispatch.ts` may itself touch profiles.json while it runs,
         // and a stamp taken before would never match again.
         if (!("error" in result)) {
           cached = { at: Date.now(), stamp: stampOf(ctx.paths.profiles), body: result };

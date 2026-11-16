@@ -7,7 +7,7 @@
 
 home=$(new_tmp)
 seed_home "$home"
-o() { HARNESS_ORCH_HOME="$home" ORCH_OWNER_FILL=0 bash "$SCRIPT" "$@"; }
+o() { HARNESS_ORCH_HOME="$home" ORCH_OWNER_FILL=0 bun "$SCRIPT" "$@"; }
 
 R=$(o run start "state lock")
 o node add "$R" base "Base" >/dev/null

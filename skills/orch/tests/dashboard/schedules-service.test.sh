@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: skill folder, disabled harness, schedules, service.sh restart
+# dispatch.ts tests: skill folder, disabled harness, schedules, service.sh restart
 # Run: bash schedules-service.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
@@ -20,7 +20,7 @@ dh_home=$(new_tmp)
 dh_shims=$(new_tmp)
 printf '#!/usr/bin/env bash\nprintf "ran\\n"\n' > "$dh_shims/claude"
 chmod +x "$dh_shims/claude"
-dh() { env PATH="$dh_shims:$PATH" HARNESS_ORCH_HOME="$dh_home" bash "$SCRIPT" "$@"; }
+dh() { env PATH="$dh_shims:$PATH" HARNESS_ORCH_HOME="$dh_home" bun "$SCRIPT" "$@"; }
 dh init >/dev/null 2>&1
 out=$(dh run --profile claude-default "hi" 2>&1); rc=$?
 expect_exit "an enabled harness runs its profile" 0 "$rc"
@@ -43,7 +43,7 @@ sch_home=$(new_tmp)
 sch_shims=$(new_tmp)
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/claude-argv"\n' "$sch_home" > "$sch_shims/claude"
 chmod +x "$sch_shims/claude"
-sch() { env PATH="$sch_shims:$PATH" HARNESS_ORCH_HOME="$sch_home" bash "$SCRIPT" schedule "$@"; }
+sch() { env PATH="$sch_shims:$PATH" HARNESS_ORCH_HOME="$sch_home" bun "$SCRIPT" schedule "$@"; }
 
 out=$(sch next "0 9 * * 1-5" 2>&1); rc=$?
 expect_exit "schedule next accepts a weekday cron" 0 "$rc"

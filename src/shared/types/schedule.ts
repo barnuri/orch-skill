@@ -13,7 +13,7 @@ export interface ScheduleRun {
   model?: string | null;
 }
 
-/** One schedule, as `dispatch.sh schedule list --json` reports it. Newest run first. */
+/** One schedule, as `dispatch.ts schedule list --json` reports it. Newest run first. */
 export interface Schedule {
   id: string;
   name: string;

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DISPATCH, runCmd, tempDir, autoCleanup } from "../helpers";
 autoCleanup();
 
-test("dispatch.sh exits 127 without bun and prints the install hint", () => {
+test("dispatch.ts exits 127 without bun and prints the install hint", () => {
   const scratch = tempDir();
   const bin = join(scratch, "bin");
   Bun.spawnSync(["mkdir", "-p", bin]);
@@ -15,7 +15,7 @@ test("dispatch.sh exits 127 without bun and prints the install hint", () => {
 
 test("doctor runs the Bun CLI", () => {
   const home = join(tempDir(), "orch");
-  const r = runCmd(["bash", DISPATCH, "doctor"], { home });
+  const r = runCmd([process.execPath, DISPATCH, "doctor"], { home });
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^bun: \d/m);
   expect(r.out).toContain(`home: ${home}`);

@@ -41,9 +41,9 @@ function claimOnce(path: string, body: unknown): boolean {
   }
 }
 
-/** Spawns dispatch.sh in its own session with no stdio, so it is never a child of the server. */
+/** Spawns dispatch.ts in its own session with no stdio, so it is never a child of the server. */
 export const detachedSpawn: Spawner = (args, home) => {
-  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: home },
     stdin: "ignore",
     stdout: "ignore",
@@ -137,7 +137,7 @@ function newestClaim(claims: string, nowMs: number): { at: number; claimedAt: nu
 }
 
 // The server is the scheduler's clock. Each evaluation hands due fires to a detached
-// `dispatch.sh schedule tick`, so a restart never kills a tick and never repeats one.
+// `dispatch.ts schedule tick`, so a restart never kills a tick and never repeats one.
 export function startTicker(home: string): Ticker {
   const tick = (): void => {
     try {

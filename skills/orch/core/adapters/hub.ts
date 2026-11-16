@@ -38,7 +38,7 @@ import { loadEnv, type Env } from "./spawn.ts";
 import { readCatalog } from "./routing.ts";
 import { writeJsonAtomic } from "../state/store.ts";
 
-export const HUB_USAGE = "dispatch.sh hub setup [--harness H] | hub off | hub status | hub resolve <tier> [<role>]";
+export const HUB_USAGE = "dispatch.ts hub setup [--harness H] | hub off | hub status | hub resolve <tier> [<role>]";
 const HUB_HARNESSES = ["claude", "opencode", "copilot", "pi"];
 const HUB_HTTP_TIMEOUT_MS = 5000;
 

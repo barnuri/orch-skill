@@ -1,4 +1,4 @@
-// test-tier: slow (compares with real dispatch.sh active)
+// test-tier: slow (compares with real dispatch.ts active)
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 
 import { readActive } from "./active-reader";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 const DEAD_PID: number = 2147483646;
 const homes: string[] = [];
 const procs: Bun.Subprocess[] = [];
@@ -68,7 +68,7 @@ function fixture(home: string): void {
 }
 
 async function viaShell(home: string): Promise<unknown[]> {
-  const proc = Bun.spawn(["bash", DISPATCH, "active", "--json"], {
+  const proc = Bun.spawn([process.execPath, DISPATCH, "active", "--json"], {
     env: { ...process.env, HARNESS_ORCH_HOME: home },
     stdout: "pipe",
     stderr: "ignore",
@@ -120,7 +120,7 @@ describe("readActive", () => {
     expect(readActive(home).some((i) => i.id === "x")).toBe(false);
   });
 
-  test("matches `dispatch.sh active --json` field for field", async () => {
+  test("matches `dispatch.ts active --json` field for field", async () => {
     const home = newHome();
     fixture(home);
     expect(byId(readActive(home))).toEqual(byId((await viaShell(home)) as { id: string }[]));

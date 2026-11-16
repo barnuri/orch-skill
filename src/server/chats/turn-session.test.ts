@@ -19,7 +19,7 @@ afterAll(() => {
   Bun.spawnSync(["trash", PRIVATE_TMP], { stdout: "ignore", stderr: "ignore" });
 });
 
-const TREE = resolve(import.meta.dir, "testing/fake-dispatch-tree.sh");
+const TREE = resolve(import.meta.dir, "testing/fake-dispatch-tree.ts");
 
 afterEach(() => {
   delete process.env.FAKE_TREE_PIDS;

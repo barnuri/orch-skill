@@ -1,4 +1,4 @@
-// test-tier: slow (real dispatch.sh profile and memory writes)
+// test-tier: slow (real dispatch.ts profile and memory writes)
 import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -7,10 +7,10 @@ import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
 import { MAX_BODY_BYTES } from "./document-routes";
 
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 // The server's own background calls (harness list) go to the fake, so they never migrate a home
 // while a test inspects it. Only runCli below uses the real CLI.
-const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 const previousDispatch: string | undefined = process.env["ORCH_DISPATCH"];
 process.env["ORCH_DISPATCH"] = FAKE_DISPATCH;
 const ETAG_PATTERN = /^"[0-9a-f]{64}"$/;
@@ -41,7 +41,7 @@ function tmpLeftovers(srv: TestServerHandle): string[] {
 // compare-and-write actually notices an out-of-band change. Spawned asynchronously so the
 // concurrent tests overlap their CLI calls instead of blocking the event loop.
 async function runCli(srv: TestServerHandle, args: readonly string[]): Promise<{ exitCode: number; stdout: string }> {
-  const proc = Bun.spawn(["bash", DISPATCH, ...args], {
+  const proc = Bun.spawn([process.execPath, DISPATCH, ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: srv.home.path },
     stdout: "pipe",
     stderr: "ignore",

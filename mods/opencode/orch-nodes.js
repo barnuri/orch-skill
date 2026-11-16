@@ -127,7 +127,7 @@ export function createHandler({ exists = existsSync, run, now = Date.now, env = 
       const record = { child: child.child, parent: child.parent, title: child.title, created: new Date(child.created_ms ?? now()).toISOString().replace(/\.\d+Z$/, "Z"), created_ms: child.created_ms ?? now() };
       write(pendingPath(home, child.child), JSON.stringify(record) + "\n");
       const dispatch = findDispatch(env, home);
-      if (dispatch && !known) run("bash", [dispatch, "node", "bind-owners", "--run", runId]);
+      if (dispatch && !known) run("bun", [dispatch, "node", "bind-owners", "--run", runId]);
       return true;
     }
     const mapped = mapEvent(event);
@@ -143,7 +143,7 @@ export function createHandler({ exists = existsSync, run, now = Date.now, env = 
     if (!dispatch) return false;
     if (pending.has(mapped.id) && !started.has(mapped.id)) {
       started.add(mapped.id);
-      run("bash", [dispatch, "owner", "event", mapped.id, "started", "--harness", "opencode"]);
+      run("bun", [dispatch, "owner", "event", mapped.id, "started", "--harness", "opencode"]);
     }
     const args = [dispatch, "owner", "event", mapped.id, mapped.kind, "--harness", "opencode"];
     if (mapped.note) args.push("--note", mapped.note);
@@ -212,7 +212,7 @@ export function createInbox({ env = process.env, now = Date.now, runSync = syncR
     if (!hasPending(home, at, { ...(readdir ? { readdir } : {}), ...(read ? { read } : {}) })) return null;
     const dispatch = findDispatch(env, home);
     if (!dispatch) return null;
-    const out = runSync("bash", [dispatch, "node", "inbox", at.run, at.node, "--json", "--via", "plugin"]);
+    const out = runSync("bun", [dispatch, "node", "inbox", at.run, at.node, "--json", "--via", "plugin"]);
     try {
       const text = formatMessages(JSON.parse(out ?? "[]"));
       return text || null;

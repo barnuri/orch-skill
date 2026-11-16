@@ -1,11 +1,11 @@
-// Profile and model routing. Ported from lib/adapters/routing.sh and budget_check (scripts/dispatch.sh).
+// Profile and model routing. Ported from lib/adapters/routing.sh and budget_check (scripts/dispatch.ts).
 // Bun built-ins only. Pure over the parsed profiles.json, plus the budget snapshot read.
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const PROFILE_PICK_USAGE = 'dispatch.sh profile pick "<task>" [--complexity trivial|small|medium|large] [--kind K]';
-export const MODEL_LIST_USAGE = "dispatch.sh model list [--profile P] [--harness H]";
+export const PROFILE_PICK_USAGE = 'dispatch.ts profile pick "<task>" [--complexity trivial|small|medium|large] [--kind K]';
+export const MODEL_LIST_USAGE = "dispatch.ts model list [--profile P] [--harness H]";
 export const DEFAULT_BUDGET_THRESHOLD = 85;
 export const SNAPSHOT_MAX_AGE_SECS = Number(process.env.HARNESS_ORCH_SNAPSHOT_MAX_AGE ?? 900);
 
@@ -125,7 +125,7 @@ export function profilePick(cat: Catalog, mem: any[], complexity: string, kind: 
   return out;
 }
 
-// budget_check (dispatch.sh): true when every rate-limit window is below the threshold, or when
+// budget_check (dispatch.ts): true when every rate-limit window is below the threshold, or when
 // no gating applies (no snapshot, stale snapshot, not a subscription account). False = avoid Claude.
 export async function budgetCheck(cat: Catalog): Promise<boolean> {
   const threshold = Number(process.env.HARNESS_ORCH_BUDGET_THRESHOLD ?? setting(cat, "budget_threshold", String(DEFAULT_BUDGET_THRESHOLD)));

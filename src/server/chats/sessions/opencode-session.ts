@@ -195,7 +195,7 @@ export class OpencodeSession implements AgentSession {
     const env: Record<string, string | undefined> = { ...process.env, ...launch.env, HARNESS_ORCH_HOME: this.params.home };
     // opencode 2.x rejects --pure. The turn attaches to this profile's long-lived `opencode serve` (started with the
     // same env, so it read the profile's OPENCODE_CONFIG_CONTENT; the shared background service would not). When that
-    // server is down, `--standalone` starts a private one for this turn, as the dispatch.sh opencode adapter does.
+    // server is down, `--standalone` starts a private one for this turn, as the dispatch.ts opencode adapter does.
     const target = { home: this.params.home, profile: this.params.profile, config: launch.env };
     const server = forceStandalone || this.servers === null ? null : await this.servers.get(this.bin, env, target);
     const args = ["run", "--format", "json", "--auto"];

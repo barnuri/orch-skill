@@ -212,7 +212,7 @@ export function MemoryPage() {
       <div className="layout">
         {entries.length === 0 ? (
           <div className="empty">
-            No entries yet. Record one here, or with <code>dispatch.sh memory add --profile &lt;name&gt; --outcome success</code>.
+            No entries yet. Record one here, or with <code>dispatch.ts memory add --profile &lt;name&gt; --outcome success</code>.
           </div>
         ) : (
           <div className="runs" role="list">

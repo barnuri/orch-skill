@@ -193,7 +193,7 @@ describe("BuildBanner", () => {
     fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("service not installed");
-    expect(alert.textContent).toContain("dispatch.sh ui");
+    expect(alert.textContent).toContain("dispatch.ts ui");
   });
 
   test("poll interval override", () => {

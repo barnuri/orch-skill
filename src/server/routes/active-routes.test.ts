@@ -1,4 +1,4 @@
-// test-tier: slow (real dispatch.sh loop stop)
+// test-tier: slow (real dispatch.ts loop stop)
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { startTestServer } from "../test-support/test-server";

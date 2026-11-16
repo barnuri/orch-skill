@@ -1,7 +1,0 @@
-# Phase 4 parity: node update, part B (split from node-update.cases to stay under the 60 s per-file cap).
-# fixture: fx-run node-base.jsonl
-node update fx-run n1
-node update fx-run n3 --hold "waiting"
-node update fx-run n3 --clear-hold
-node update fx-run n1 --error "boom"
-node update nope n1 done

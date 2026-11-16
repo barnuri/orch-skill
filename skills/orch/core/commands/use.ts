@@ -8,7 +8,7 @@ export async function useCommand(args: string[]): Promise<number> {
   const runId = args[0] ?? "";
   if (!runId) {
     const text = (await Bun.file(paths.currentRun(home)).text().catch(() => "")).trim();
-    if (!text) { process.stderr.write("no current run; set one with: dispatch.sh use <run-id>\n"); return 1; }
+    if (!text) { process.stderr.write("no current run; set one with: dispatch.ts use <run-id>\n"); return 1; }
     process.stdout.write((await Bun.file(paths.currentRun(home)).text()));
     return 0;
   }

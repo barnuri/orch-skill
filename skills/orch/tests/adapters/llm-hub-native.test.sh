@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: llm-hub native mode
+# dispatch.ts tests: llm-hub native mode
 # Run: bash llm-hub-native.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
@@ -50,7 +50,7 @@ PY
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@"\n' > "$nh_shims/copilot"
   chmod +x "$nh_shims/opencode" "$nh_shims/copilot"
   printf 'LLM_HUB_URL=http://127.0.0.1:%s\nLLM_HUB_KEY=k\n' "$(cat "$nh_dir/port")" > "$nh_home/env"
-  norch() { env PATH="$nh_shims:$PATH" HARNESS_ORCH_HOME="$nh_home" bash "$SCRIPT" "$@"; }
+  norch() { env PATH="$nh_shims:$PATH" HARNESS_ORCH_HOME="$nh_home" bun "$SCRIPT" "$@"; }
   norch profile list >/dev/null 2>&1
 
   out=$(norch hub setup --harness nope 2>&1); rc=$?

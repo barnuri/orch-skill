@@ -10,7 +10,7 @@ export function renderTokenGate(onSubmit: (token: string) => void): HTMLElement 
     type: "password",
     autocomplete: "off",
     spellcheck: "false",
-    placeholder: "Paste the token printed by dispatch.sh ui",
+    placeholder: "Paste the token printed by dispatch.ts ui",
   });
   const form = el("form", { class: "form" }, [
     el("div", { class: "field" }, [el("label", { for: INPUT_ID, text: "Token" }), input]),

@@ -19,4 +19,4 @@ profile-sanity  routing-claude profiles-overlay
 batch           done-verify
 timing          wait
 visibility      stop
-dispatch.sh     run-lifecycle classify-adapters lib-list
+dispatch.ts     run-lifecycle classify-adapters lib-list

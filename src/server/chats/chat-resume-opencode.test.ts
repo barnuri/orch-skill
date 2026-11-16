@@ -1,4 +1,4 @@
-// test-tier: slow (each turn runs the real dispatch.sh)
+// test-tier: slow (each turn runs the real dispatch.ts)
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

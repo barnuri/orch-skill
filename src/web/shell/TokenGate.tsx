@@ -31,7 +31,7 @@ export function TokenGate() {
             type="password"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Paste the token printed by dispatch.sh ui"
+            placeholder="Paste the token printed by dispatch.ts ui"
             value={value}
             onChange={(event) => {
               setValue(event.target.value);

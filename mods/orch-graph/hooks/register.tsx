@@ -20,7 +20,7 @@ let dashboardCheckedAt = 0
 const DASHBOARD_RECHECK_MS = 15_000
 
 function dispatchPath($: EngineInterface): string {
-  return `${$.plugin.root}/../../skills/orch/scripts/dispatch.sh`
+  return `${$.plugin.root}/../../skills/orch/scripts/dispatch.ts`
 }
 
 // Probes the server's port file and `/api/health` directly (`serve status --json` takes ~4 s and
@@ -47,7 +47,7 @@ async function openInDashboard($: EngineInterface, runId: string): Promise<void>
   let base = await dashboard($, true)
   if (!base) {
     await $.process
-      .run(['bash', dispatchPath($), 'ui'], {
+      .run(['bun', dispatchPath($), 'ui'], {
         env: { HARNESS_ORCH_HOME: await resolveHome($), ORCH_NO_OPEN: '1' },
         timeoutMs: 60_000,
       })
@@ -111,7 +111,7 @@ async function readActive($: EngineInterface): Promise<GraphView['active']> {
 
 async function fetchActive($: EngineInterface): Promise<GraphView['active']> {
   const ran = await $.process
-    .run(['bash', dispatchPath($), 'active', '--json'], { env: { HARNESS_ORCH_HOME: await resolveHome($) }, timeoutMs: 5_000 })
+    .run(['bun', dispatchPath($), 'active', '--json'], { env: { HARNESS_ORCH_HOME: await resolveHome($) }, timeoutMs: 5_000 })
     .catch(() => null)
   try {
     return ran?.exitCode === 0 ? toActiveViews(JSON.parse(ran.stdout || '[]'), await $.clock.now()) : []
@@ -123,7 +123,7 @@ async function fetchActive($: EngineInterface): Promise<GraphView['active']> {
 // The dashboard's "Retry failed nodes", through the same subcommand its API calls.
 async function retryFailed($: EngineInterface, runId: string): Promise<void> {
   const ran = await $.process
-    .run(['bash', dispatchPath($), 'run', 'retry', runId], {
+    .run(['bun', dispatchPath($), 'run', 'retry', runId], {
       env: { HARNESS_ORCH_HOME: await resolveHome($) },
       timeoutMs: 60_000,
     })
@@ -186,7 +186,7 @@ async function autoOpen($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PANE, title: 'orch graph' })
 }
 
-// Read-only: state.json is written by dispatch.sh alone.
+// Read-only: state.json is written by dispatch.ts alone.
 async function refresh($: EngineInterface): Promise<void> {
   let next: GraphView
   try {

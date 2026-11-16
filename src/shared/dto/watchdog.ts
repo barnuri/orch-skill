@@ -19,13 +19,13 @@ export class WatchdogActionDto extends ZodDto {
   })
   rule!: (typeof RULES)[number];
 
-  @ZodField(z.string(), { description: "The dispatch.sh call (`node retry`, `node update error`, `run finish`), or `flag` when the watchdog only reports." })
+  @ZodField(z.string(), { description: "The dispatch.ts call (`node retry`, `node update error`, `run finish`), or `flag` when the watchdog only reports." })
   action!: string;
 
   @ZodField(z.string(), { description: "Why, in words." })
   detail!: string;
 
-  @ZodField(z.number().nullable(), { description: "dispatch.sh exit code; null for a flag." })
+  @ZodField(z.number().nullable(), { description: "dispatch.ts exit code; null for a flag." })
   rc!: number | null;
 }
 
