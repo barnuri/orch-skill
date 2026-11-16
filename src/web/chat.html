@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Orch chat</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Orch chat">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="./theme-boot.js"></script>
+<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./chats/chat-only.css">
+<link rel="manifest" href="./chat.webmanifest">
+<link rel="icon" type="image/svg+xml" href="../snapshot/favicon.svg" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/svg+xml" href="../snapshot/favicon-dark.svg" media="(prefers-color-scheme: dark)">
+</head>
+<body class="chat-only">
+<div id="root"></div>
+<script type="module" src="./chat-main.tsx"></script>
+</body>
+</html>

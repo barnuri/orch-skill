@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { chatsApi } from "../api/chats";
+import { getToken } from "../api/token";
+import { useChatFrame } from "./chat-frame";
+import { chatOnlyUrl } from "./chat-only-link";
 import { useToast } from "../components/Toast";
 import { isSearchShortcut, keyboardInset, keyboardOpen, normalizeSelection } from "../lib/chat-logic";
 import { ChatView } from "./ChatView";
@@ -18,6 +21,7 @@ export const DRAWER_QUERY: string = "(max-width: 768px), (max-height: 500px) and
 
 /** Desktop: sidebar + conversation. Phone: the conversation alone, with the sidebar as a slide-over drawer. */
 export function ChatsPage({ chatId, projectId }: Props) {
+  const { standalone } = useChatFrame();
   const [drawer, setDrawer] = useState(false);
   const options = useChatOptions();
   const chats = useChats(false);
@@ -27,22 +31,6 @@ export function ChatsPage({ chatId, projectId }: Props) {
     document.body.classList.add("chats-page");
     return () => {
       document.body.classList.remove("chats-page");
-    };
-  }, []);
-  useEffect(() => {
-    const header = document.querySelector("header");
-    if (header === null || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const set = (): void => {
-      document.documentElement.style.setProperty("--hdr", `${header.getBoundingClientRect().height}px`);
-    };
-    set();
-    const watcher = new ResizeObserver(set);
-    watcher.observe(header);
-    return () => {
-      watcher.disconnect();
-      document.documentElement.style.removeProperty("--hdr");
     };
   }, []);
   useEffect(() => {
@@ -128,6 +116,12 @@ export function ChatsPage({ chatId, projectId }: Props) {
       <aside className="chats-side" aria-label="Projects and chats">
         <button type="button" className="icon-btn side-close" aria-label="Close" onClick={close}>×</button>
         <Sidebar activeChatId={chatId} activeProjectId={projectId} options={options.data} onNavigate={close} />
+        {standalone ? null : (
+          <div className="side-chat-only">
+            <a className="btn" href={chatOnlyUrl(location.origin, chatId, getToken())} target="_blank" rel="noopener">Open chat-only</a>
+            <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(chatOnlyUrl(location.origin, chatId, null)).then(() => { toast("ok", "link copied"); })}>Copy link</button>
+          </div>
+        )}
       </aside>
       {drawer ? <div className="scrim" onClick={close} aria-hidden="true" /> : null}
       <section className="chats-main">

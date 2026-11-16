@@ -351,3 +351,6 @@ button.folder-chip:focus-visible { outline: 2px solid var(--focus); outline-offs
   .folder-free { flex-direction: column; }
   .folder-free .btn { min-height: 44px; }
 }
+
+.side-chat-only { display: flex; gap: var(--s2); padding: var(--s2) var(--s3); border-top: 1px solid var(--border); }
+.side-chat-only .btn { flex: 1; text-align: center; }

@@ -1,0 +1,24 @@
+/* Chat-only page (/chat): the shared chat layout filling the viewport, no rail or header. Tokens only. */
+/* The chat page sizes itself from --hdr and --tabbar-h; the app shell measures them, this shell has neither. */
+body.chat-only { --hdr: 0px; --tabbar-h: 0px; margin: 0; overflow: hidden; background: var(--bg); }
+body.chat-only .chat-only-main { max-width: none; padding: 0; margin: 0; }
+body.chat-only .chats-layout { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+body.chat-only .chats-side { padding-top: env(safe-area-inset-top); }
+body.chat-only .chat-head { padding-top: max(var(--s2), env(safe-area-inset-top)); }
+body.chat-only .composer { padding-bottom: max(var(--s2), env(safe-area-inset-bottom)); }
+.chat-only-dot { position: fixed; z-index: 30; top: calc(env(safe-area-inset-top) + 6px); right: 8px; width: 10px; height: 10px; border-radius: 50%; }
+.chat-only-dot.is-error { background: var(--er); }
+
+/* 769-899px: still a drawer (the shared phone rules stop at 768px); 900px and wider keep the sidebar. */
+@media (min-width: 769px) and (max-width: 899px) {
+  body.chat-only .chats-layout { grid-template-columns: minmax(0, 1fr); }
+  body.chat-only .chats-side {
+    position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: 340px;
+    transform: translateX(-100%); visibility: hidden; transition: transform var(--t-base), visibility 0s linear 150ms;
+    box-shadow: var(--shadow); background: var(--panel2);
+  }
+  body.chat-only .chats-layout[data-drawer] .chats-side { transform: none; visibility: visible; transition: transform var(--t-base); }
+  body.chat-only .side-close { display: grid; position: absolute; top: var(--s2); right: var(--s2); z-index: 1; }
+  body.chat-only .side-actions { padding-right: 52px; }
+  body.chat-only .drawer-btn { display: grid; flex: none; }
+}

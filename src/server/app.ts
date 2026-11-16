@@ -2,7 +2,9 @@ import type { Server } from "bun";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 
+import chatIndex from "../web/chat.html";
 import webIndex from "../web/index.html";
+import { CHAT_ICON_DARK, CHAT_ICON_LIGHT, chatManifestResponse, chatIconResponse } from "./chat-only-routes";
 import { buildApi } from "./api/build-api";
 import { orchPaths } from "./files/paths";
 import { jsonResponse } from "./http/responses";
@@ -62,7 +64,16 @@ export function startServer(options: ServerOptions): Server<undefined> {
     maxRequestBodySize: Math.max(MAX_BODY_BYTES + BODY_SLACK_BYTES, MAX_UPLOAD_REQUEST_BYTES),
     // Only the dashboard page (and the retired /next redirect) is a Bun route (it is an HTML import Bun bundles); every /api/* path,
     // and everything unlisted, goes to the Hono app, whose fallback answers 404 or 405.
-    routes: { "/": webIndex, "/next": Response.redirect("/", 301) },
+    routes: {
+      "/": webIndex,
+      "/chat": chatIndex,
+      "/chat/": chatIndex,
+      "/chat/manifest.webmanifest": () => chatManifestResponse(),
+      "/chat/icon.svg": () => chatIconResponse(CHAT_ICON_LIGHT),
+      "/chat/icon-dark.svg": () => chatIconResponse(CHAT_ICON_DARK),
+      "/chat/:id": chatIndex,
+      /* unknown paths below /chat/ fall to the Hono 404 via `fetch` */ "/next": Response.redirect("/", 301),
+    },
     fetch: (req: Request, server: Server<undefined>): Response | Promise<Response> => api.fetch(req, { server }),
     // Stack goes to stderr only; the client learns nothing beyond "internal".
     error: (err: Error): Response => {

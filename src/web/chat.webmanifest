@@ -1,0 +1,14 @@
+{
+  "name": "Orch chat",
+  "short_name": "Orch chat",
+  "description": "The orch dashboard chat, on its own.",
+  "start_url": "/chat",
+  "scope": "/chat",
+  "display": "standalone",
+  "theme_color": "#0b0d10",
+  "background_color": "#0b0d10",
+  "icons": [
+    { "src": "/chat/icon-dark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/chat/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

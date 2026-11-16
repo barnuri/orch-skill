@@ -37,3 +37,13 @@ A chat can be attached to a folder; the agent process of every turn then starts 
 - **API.** `GET /api/chats/folders?root=` (child folders of a root, recent first then by name, no dot folders or `node_modules`, at most 200), `PATCH /api/chats/{id}/folder` and `PATCH /api/projects/{id}/folder` with `{"path": "<dir>" | null}`, `cwd` on `POST /api/chats`. Chat reads and lists carry `cwd` and `effective_cwd`.
 - **Turns.** claude, pi and the dispatch-based chats start their process with the effective folder as cwd; opencode also gets `--dir`. A running turn keeps its folder; the session manager replaces an idle session whose folder changed, so a move applies from the next message.
 - **UI.** Folder chip in the chat header and chat list (a project-inherited folder is marked), a searchable picker with a free path field (server-validated; a bottom sheet on phones), and a project folder setting on the project page.
+
+## Chat-only page (`/chat`)
+
+The dashboard server also serves the Chats page alone, with no rail or other pages, for phones and a desktop app window.
+
+- `/chat` opens the thread list; `/chat/<chat-id>` opens one thread; `/chat?project=<id>` opens a project; `/chat?folder=<path>` starts a new chat in that folder.
+- Same auth as the dashboard: a loopback peer needs no token; anyone else opens `/chat?token=<t>` once (kept in `sessionStorage`, scrubbed from the address bar). The page HTML is public, `/api/*` stays guarded. The Chat tab's "Open chat-only" button opens a new tab with the token; "Copy link" copies it without.
+- It is the same `ChatsPage` as the Chat tab, mounted by a thin `ChatShell` (`src/web/chats/ChatShell.tsx`); the dashboard mounts it in `AppShell`. A shell tells the page about itself through `ChatFrameContext`. The page takes its height from `--hdr` and `--tabbar-h`, which `AppShell` measures and `body.chat-only` sets to 0. Every chat feature therefore shows in both. `chat-shells.test.tsx` renders both shells and compares the controls.
+- The sidebar is persistent from 900 px, a drawer (hamburger) below. A small dot shows when the server is offline.
+- Installable: `<link rel="manifest">` plus `apple-mobile-web-app-capable` meta tags. The manifest is `src/web/chat.webmanifest` (name Orch chat, `display: standalone`, `start_url: /chat`, tokens' dark colours, icons `/chat/icon.svg` and `/chat/icon-dark.svg` from `src/snapshot/favicon*.svg`), also served at `/chat/manifest.webmanifest`. No service worker. Add to Home Screen opens it fullscreen; a remote device must sign in with the token once, since `sessionStorage` is not shared with the installed app.

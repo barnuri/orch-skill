@@ -69,6 +69,22 @@ export function AppShell() {
   };
   const current = SECTION_HREF[route.kind];
   useEffect(() => {
+    const header = document.querySelector("header");
+    if (header === null || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const set = (): void => {
+      document.documentElement.style.setProperty("--hdr", `${header.getBoundingClientRect().height}px`);
+    };
+    set();
+    const watcher = new ResizeObserver(set);
+    watcher.observe(header);
+    return () => {
+      watcher.disconnect();
+      document.documentElement.style.removeProperty("--hdr");
+    };
+  }, []);
+  useEffect(() => {
     document.title = `${TITLE_PREFIX}${sectionTitle(route)}`;
   }, [route]);
   return (
