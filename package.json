@@ -10,6 +10,8 @@
     "test:resume": "bun scripts/test-budget.ts --resume",
     "test:random": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --randomize src",
     "test:changed": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --changed src",
+    "test:bench": "bun scripts/test-bench.ts",
+    "test:orch:spawn": "ORCH_TEST_SPAWN=1 bun skills/orch/tests/run.ts",
     "test:orch": "bun skills/orch/tests/run.ts",
     "test:orch:changed": "bun skills/orch/tests/run.ts --changed",
     "test:orch:full": "bun skills/orch/tests/run.ts --full",

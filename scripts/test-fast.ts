@@ -3,6 +3,7 @@
 // A file is slow when its first line is `// test-tier: slow (...)`: it spawns the real
 // dispatch, a real server process or a real harness CLI. `bun run test` still runs all of them.
 // Extra arguments go to `bun test` (for example --watch or a name filter).
+import { cpus, loadavg } from "node:os";
 import { Glob } from "bun";
 import { readFileSync } from "node:fs";
 import { REPO_DIR, runInherit } from "./lib/util.ts";
@@ -24,7 +25,7 @@ if (files.length === 0) {
 }
 console.error(`test-fast: ${files.length} files`);
 process.exit(
-  await runInherit([process.execPath, "test", "--timeout", "30000", "--parallel=6", ...process.argv.slice(2), ...files], {
+  await runInherit([process.execPath, "test", "--timeout", "30000", `--parallel=${Math.max(2, Math.min(cpus().length, Math.ceil(cpus().length - loadavg()[0]!)))}`, ...process.argv.slice(2), ...files], {
     cwd: REPO_DIR,
     env: { ORCH_HERDR: "0" },
   }),

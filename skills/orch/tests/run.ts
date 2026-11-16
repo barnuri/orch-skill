@@ -7,10 +7,13 @@
 //   --budget SECS   stop starting files after SECS, give running files ORCH_TEST_BUDGET_GRACE (20) more, then kill;
 //                   progress goes to $TMPDIR/orch-test-progress.json (ORCH_TEST_PROGRESS); exit 75
 //   --resume        run only the files not passed in the recorded run
-//   ORCH_TEST_JOBS=N, ORCH_TEST_FILE_CAP=SECS (30 fast, 240 otherwise)
+//   ORCH_TEST_JOBS=N (default: cores minus current load, between half the cores and all cores), ORCH_TEST_FILE_CAP=SECS (15 fast, 240 otherwise)
+//   ORCH_TEST_SPAWN=1  run every orch command as a real process instead of in-process (tests/helpers/inproc.ts)
+//   Each file runs as its own `bun test` process; the tests inside a file run in order. `bun test skills/orch/tests --parallel` also works.
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } from "node:fs";
 import { join, resolve, basename, dirname } from "node:path";
-import { tmpdir, cpus } from "node:os";
+import { tmpdir, cpus, loadavg } from "node:os";
+import { templateHome } from "./helpers/template.ts";
 
 const TESTS_DIR = import.meta.dir;
 const REPO = resolve(TESTS_DIR, "../../..");
@@ -51,8 +54,9 @@ if (resume) {
 if (!mode) mode = frags.length ? "pick" : "fast";
 const budget = budgetArg ? Number(budgetArg) : mode === "full" ? 300 : 0;
 const jobsEnv = process.env.ORCH_TEST_JOBS;
-const jobs = jobsEnv ? Number(jobsEnv) : mode === "fast" ? 0 : cpus().length;
-const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 30 : 240));
+const ncpu = cpus().length;
+const jobs = jobsEnv ? Number(jobsEnv) : Math.max(Math.ceil(ncpu / 2), Math.min(ncpu, Math.ceil(ncpu - loadavg()[0])));
+const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 15 : 240));
 
 const idOf = (f: string) => `${basename(dirname(f))}/${basename(f).replace(/\.test\.ts$/, "")}`;
 const fileOf = (id: string) => join(TESTS_DIR, `${id}.test.ts`);
@@ -98,6 +102,7 @@ const weight = (f: string) => (mode === "changed" && f.startsWith(join(TESTS_DIR
 files.sort((a, b) => weight(b) - weight(a));
 
 const t0 = Date.now();
+const homeTemplate = templateHome();
 const deadline = budget > 0 ? t0 + budget * 1000 : 0;
 if (budget > 0) console.error(`budget: ${budget}s (+${GRACE}s grace), progress: ${PROGRESS}`);
 
@@ -107,7 +112,7 @@ const skipped: string[] = [];
 
 async function runOne(f: string): Promise<void> {
   const id = idOf(f), start = Date.now();
-  const proc = Bun.spawn(["bun", "test", "--timeout", "120000", f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1" }, stdout: "pipe", stderr: "pipe", detached: true } as any);
+  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate }, stdout: "pipe", stderr: "pipe", detached: true } as any);
   let why: Res["why"] = "ok";
   const killer = setInterval(() => {
     const now = Date.now();

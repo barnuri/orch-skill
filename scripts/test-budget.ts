@@ -13,6 +13,7 @@
 // A run that has run every file clears the progress file.
 // Seams for tests: ORCH_BUN_TEST_ROOT (folder to scan, default src), ORCH_BUN_TEST_CMD (command the
 // file paths are appended to, default the `bun test` flags of `bun run test`).
+import { cpus, loadavg } from "node:os";
 import { Glob } from "bun";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -55,7 +56,7 @@ const chunk = Number(chunkArg);
 const GRACE = Number(process.env["ORCH_TEST_BUDGET_GRACE"] ?? 20);
 const PROGRESS = (process.env["ORCH_BUN_TEST_PROGRESS"] ?? `${tmpDir()}/orch-bun-test-progress.json`).replace(/\/\/+/g, "/");
 const TEST_ROOT = process.env["ORCH_BUN_TEST_ROOT"] ?? "src";
-const CMD = (process.env["ORCH_BUN_TEST_CMD"] ?? `${process.execPath} test --timeout 300000 --parallel=6 --retry=1`).split(/\s+/).filter(Boolean);
+const CMD = (process.env["ORCH_BUN_TEST_CMD"] ?? `${process.execPath} test --timeout 300000 --parallel=${Math.max(2, Math.min(cpus().length, Math.ceil(cpus().length - loadavg()[0]!)))} --retry=1`).split(/\s+/).filter(Boolean);
 
 type St = "passed" | "failed" | "not_run";
 const status = new Map<string, St>();

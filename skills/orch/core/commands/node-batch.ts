@@ -182,7 +182,7 @@ export async function nodeBatch(args: string[]): Promise<number> {
     text = await Bun.file(src).text();
   } else {
     if (process.stdin.isTTY) return usageFail(`node batch: pipe the ops on stdin or pass --file\n  usage: ${USAGE.batch}`);
-    text = await Bun.stdin.text();
+    text = (globalThis as any).__orchStdin ?? (await Bun.stdin.text());
   }
   const lines = parseLines(text);
   if (lines.length === 0) return usageFail("node batch: no ops");

@@ -28,7 +28,7 @@ switch (k) {
   }
   case "tab rename": { const s = load(); const t = s.tabs.find((x: any) => x.tab_id === a[2]); if (t) t.label = "[1] " + a[3]; save(s); out({}); break; }
   case "tab list": out({ result: { tabs: load().tabs.filter((t: any) => t.workspace_id === a[3]) } }); break;
-  case "tab close": { const s = load(); s.tabs = s.tabs.filter((t: any) => t.tab_id !== a[2]); s.panes = s.panes.filter((p: any) => p.tab_id !== a[2]); save(s); out({}); break; }
+  case "tab close": { const s = load(); s.tabs = s.tabs.filter((t: any) => t.tab_id !== a[2]); s.panes = s.panes.filter((p: any) => p.tab_id !== a[2]); s.workspaces = s.workspaces.filter((w: any) => s.tabs.some((t: any) => t.workspace_id === w.workspace_id)); save(s); out({}); break; }
   case "tab create": {
     const n = nid(), w = a[3], s = load();
     s.tabs.push({ tab_id: `${w}:t${n}`, workspace_id: w, label: label() }); s.panes.push({ pane_id: `${w}:p${n}`, tab_id: `${w}:t${n}` }); save(s);

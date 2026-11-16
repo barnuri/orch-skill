@@ -3,7 +3,7 @@ import { closeSync, openSync, readFileSync, statSync, mkdirSync, writeFileSync, 
 import { dirname, join } from "node:path";
 
 export const BIN_ORCH = join(import.meta.dir, "..", "..", "scripts", "dispatch.ts");
-export const DISPATCH_SH = process.env.ORCH_DISPATCH || BIN_ORCH;
+export const dispatchPath = (): string => process.env.ORCH_DISPATCH || BIN_ORCH;
 export const HERDR_PID_WAIT_SECS = 15;
 
 export function pidAlive(pid: unknown): boolean {
@@ -73,7 +73,7 @@ export function spawnOrch(args: string[], log: string | null, env?: Record<strin
 
 // Runs the dispatch entry in a child process.
 export async function dispatchSh(args: string[], opts: { env?: Record<string, string | undefined>; inheritErr?: boolean; logFile?: string } = {}): Promise<{ code: number; out: string; err: string }> {
-  const p = Bun.spawn([process.execPath, DISPATCH_SH, ...args], {
+  const p = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     stdin: "ignore",
     stdout: "pipe",
     stderr: opts.inheritErr ? "inherit" : "pipe",
