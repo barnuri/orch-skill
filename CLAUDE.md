@@ -158,7 +158,7 @@ once. The rule text is in `skills/orch/SKILL.md`, section "Learn from runs, and 
 
 ## Verification
 
-Use the `verify` skill (browser, herdr and herdr-web checks). Its scripts live in `scripts/verify/`.
+Use the `verify` repo skill (`.claude/skills/verify/SKILL.md`: browser, herdr and herdr-web checks). Its scripts live in `scripts/verify/`.
 
 ## Tests
 

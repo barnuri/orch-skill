@@ -7,7 +7,7 @@ description: (BN) Fast, repeatable verification of orch-skill work with saved sc
 
 Run the saved scripts instead of retyping browser steps. Each prints one `PASS` or `FAIL` line per check and exits non-zero on a fail. Show their output as the evidence.
 
-The skill and its scripts live in the orch-skill repo: `skills/verify/SKILL.md` and `scripts/verify` (`/Users/barnu/sandbox/private/orch-skill/scripts/verify`, call it `$V`), so they change with the code they check. They need `jq`, `curl`, `playwright-cli` and `herdr` on PATH.
+The skill and its scripts live in the orch-skill repo: `.claude/skills/verify/SKILL.md` (a repo skill, not part of the plugin) and `scripts/verify` (`/Users/barnu/sandbox/private/orch-skill/scripts/verify`, call it `$V`), so they change with the code they check. They need `jq`, `curl`, `playwright-cli` and `herdr` on PATH.
 
 ## Fast order (about 30 seconds)
 

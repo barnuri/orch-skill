@@ -15,8 +15,7 @@
       "strict": false,
       "skills": [
         "./skills/orch",
-        "./skills/unorch",
-        "./skills/verify"
+        "./skills/unorch"
       ]
     }
   ]
