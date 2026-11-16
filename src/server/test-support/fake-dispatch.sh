@@ -27,5 +27,11 @@ if { [ "${1:-}" = "run" ] || [ "${1:-}" = "node" ]; } && [ "${2:-}" = "retry" ];
   echo "retried ${4:-$run_id}"
   exit 0
 fi
+if [ "${1:-}" = "node" ] && [ "${2:-}" = "dispatch" ]; then
+  # Records each start (run node profile) so auto-dispatch tests can count them.
+  printf '%s %s %s\n' "${3:-}" "${4:-}" "${6:-}" >> "${HARNESS_ORCH_HOME:-}/fake-dispatch.calls"
+  echo "job-fake-${4:-}"
+  exit 0
+fi
 echo "fake-dispatch: unsupported: $*" >&2
 exit 2

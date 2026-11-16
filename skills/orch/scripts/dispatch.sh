@@ -642,7 +642,7 @@ main() {
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
         start|carry) verb="$2"; shift 2; run_create_with_monitor "cmd_run_$verb" "$@" ;;
-        pause|resume|stop) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        pause|resume|stop|set) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         # A paused or stopped run (lib/pause.sh) starts nothing on sync.
         sync) shift 2; pause_guard "${1:-}" || exit 0; cmd_run_sync "$@" ;;
         status)

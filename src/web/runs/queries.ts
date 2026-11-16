@@ -1,5 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { authHeaders } from "../api/chats";
+import { followSse } from "../lib/sse";
 import type { RunEvent } from "../../shared/types/run-event";
 import { mergeEvents } from "../lib/run-activity";
 import type { HealthSummary, RunHealth } from "../../shared/types/run-health";
@@ -34,6 +36,23 @@ export function useRuns() {
 
 /** A 404 is "pruned", not a failure to retry: the page shows its own notice. */
 export function useRun(runId: string) {
+  // Event-driven refresh: the server pushes a `node` event when a node turns done or error, and the
+  // run and its activity feed refetch at once instead of on the next poll.
+  useEffect(() => {
+    const abort = new AbortController();
+    void followSse({
+      url: `${API_BASE}/runs/${encodeURIComponent(runId)}/live`,
+      headers: authHeaders,
+      resumeId: () => null,
+      signal: abort.signal,
+      onEvents: () => {
+        void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
+        void queryClient.invalidateQueries({ queryKey: [runKeys.events(runId)] });
+        void queryClient.invalidateQueries({ queryKey: [runKeys.runs] });
+      },
+    });
+    return () => abort.abort();
+  }, [runId]);
   return useQuery({
     queryKey: [runKeys.run(runId)],
     queryFn: () => conditionalGet(runKeys.run(runId), (etag) => api.getRun(runId, etag)),
