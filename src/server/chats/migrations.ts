@@ -96,4 +96,7 @@ export const MIGRATIONS: readonly string[] = [
     reason TEXT
   );
   `,
+  `
+  ALTER TABLE chats ADD COLUMN subfolder TEXT;
+  `,
 ];

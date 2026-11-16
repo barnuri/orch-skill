@@ -24,6 +24,7 @@ import { pendingQuestion, useAnswerQuestion } from "./question-hooks";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { TodoPanel } from "./Todos";
 import { FolderChip, FolderPicker } from "./FolderPicker";
+import { SubfolderField } from "./SubfolderField";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
 import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
 import { repairSelection } from "./repair-selection";
@@ -112,7 +113,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
         </span>
         <span className="chat-session-note" data-testid="session-note">{sessionNote(chat, options)}</span>
         <span className="chat-folder-row">
-          <FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} onClick={() => { setPickingFolder(true); }} />
+          <FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} subfolder={chat.cwd == null ? chat.subfolder : null} onClick={() => { setPickingFolder(true); }} />
           {chat.status === "running" ? <span className="chat-session-note">A change applies from the next message.</span> : null}
         </span>
         {pickingFolder ? (
@@ -139,6 +140,13 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
 
 function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat; options: ChatOptions; running: boolean; modelUsed: string | null; lastFailed: boolean }) {
   const toast = useToast();
+  const client = useQueryClient();
+  const projectPath = useProjects(false).data?.find((p) => p.id === chat.project_id)?.path ?? null;
+  const saveSubfolder = async (next: string | null): Promise<string | null> => {
+    const res = await chatsApi.setChatSubfolder(chat.id, next);
+    void refreshChats(client);
+    return res.kind === "ok" ? null : describeFailure(res, "could not set the subfolder");
+  };
   const [sel, setSel] = useState<Selection>({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
   useEffect(() => {
     setSel({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
@@ -183,6 +191,7 @@ function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat;
   return (
     <ChatSettings summary={pickerSummary({ ...chat, effort: effort as Chat["effort"] }, options, modelUsed)} badge={badge}>
       <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} onChange={(n) => void change(n)} effort={{ value: effort, onChange: (e) => void change(sel, e) }} />
+      {projectPath === null ? null : <SubfolderField projectPath={projectPath} value={chat.subfolder ?? null} onSave={saveSubfolder} />}
     </ChatSettings>
   );
 }

@@ -88,7 +88,7 @@ export function folderUsable(path: string, roots: readonly string[]): boolean {
 }
 
 /** Child directories of `root` (itself an allowed root or a folder inside one): recent use first, then by name, at most 200. */
-export function listFolders(roots: readonly string[], rootParam: string | undefined, use: ReadonlyMap<string, string>): FolderList {
+export function listFolders(roots: readonly string[], rootParam: string | undefined, use: ReadonlyMap<string, string>, depth: 1 | 2 = 1): FolderList {
   const root = rootParam === undefined || rootParam === "" ? roots[0] : validateFolder(rootParam, roots);
   if (root === undefined) {
     return { root: "", roots: [...roots], items: [], truncated: false };
@@ -115,5 +115,17 @@ export function listFolders(roots: readonly string[], rootParam: string | undefi
     }
     return a.name.localeCompare(b.name);
   });
+  if (depth === 2) {
+    // children of the children, named `parent/child`, after the first level; same hiding and containment rules
+    for (const parent of items.slice()) {
+      for (const name of readdirSync(parent.path).sort()) {
+        const path = name.startsWith(".") || HIDDEN.has(name) ? null : real(join(parent.path, name));
+        if (path !== null && isDir(path) && roots.some((r) => inside(r, path)) && !seen.has(path)) {
+          seen.add(path);
+          items.push({ path, name: `${parent.name}/${name}`, last_used_at: use.get(path) ?? null });
+        }
+      }
+    }
+  }
   return { root, roots: [...roots], items: items.slice(0, MAX_FOLDERS), truncated: items.length > MAX_FOLDERS };
 }

@@ -162,6 +162,9 @@ export class ChatDto extends ZodDto {
   @ZodField(z.string().nullable().optional(), { description: "Absolute folder the agent runs in for this chat. Null means the project's folder, else a scratch folder." })
   cwd?: string | null;
 
+  @ZodField(z.string().nullable().optional(), { description: "Relative folder inside the project's folder, normalised. When the chat has no folder of its own, the agent runs in `<project path>/<subfolder>`. Null means the project's folder." })
+  subfolder?: string | null;
+
   @ZodField(z.enum(["low", "medium", "high", "max"]).nullable().optional(), { description: "Effort asked of the harness. Null is Auto: nothing is passed." })
   effort?: "low" | "medium" | "high" | "max" | null;
 
@@ -206,6 +209,9 @@ export class ChatInputDto extends ZodDto {
   @ZodField(z.string().max(1000).nullable().optional(), { description: "Folder to run in. Same rules as PATCH /api/chats/{id}/folder. Omit to use the project's folder." })
   cwd?: string | null;
 
+  @ZodField(z.string().max(1500).nullable().optional(), { description: "Subfolder of the project's folder to run in (relative; no `..`, no leading `/` or `~`, at most 6 levels, names up to 200 characters). Created when missing. 400 `subfolder needs a project with a folder` without a project folder. Omit or empty for none." })
+  subfolder?: string | null;
+
   @ZodField(z.enum(["low", "medium", "high", "max"]).nullable().optional(), { description: "Effort. Omit or null for Auto. 400 when the harness has no effort control." })
   effort?: "low" | "medium" | "high" | "max" | null;
 }
@@ -234,6 +240,12 @@ export class ChatRenameDto extends ZodDto {
   title!: string;
 }
 
+@ZodObject({ description: "Changes to a chat's own settings." })
+export class ChatUpdateDto extends ZodDto {
+  @ZodField(z.string().max(1500).nullable().optional(), { description: "Subfolder of the project's folder. `null` or an empty string clears it. Same rules as on create." })
+  subfolder?: string | null;
+}
+
 @ZodObject({ description: "The project to move a chat to." })
 export class ChatProjectDto extends ZodDto {
   @ZodField(z.string().max(100).nullable(), { description: "Project id, or null to take the chat out of its project." })
@@ -246,6 +258,9 @@ export class ChatProjectDto extends ZodDto {
 export class FolderQueryDto extends ZodDto {
   @ZodField(z.string().max(1000).optional(), { description: "An allowed root, or a folder inside one. Default: the first root of settings.chat_roots (`~/sandbox/private`)." })
   root?: string;
+
+  @ZodField(z.enum(["1", "2"]).optional(), { description: "1 (default): child folders. 2: also the children of the children, named `parent/child`." })
+  depth?: "1" | "2";
 }
 
 @ZodObject({ description: "A folder a chat may run in." })

@@ -6,12 +6,20 @@ export function folderName(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/** The chip text: the folder's name, or `project / subfolder` when the path is a project folder plus a subfolder. */
+function chipName(path: string, subfolder: string | null): string {
+  if (subfolder === null || subfolder === "" || !path.endsWith(`/${subfolder}`)) {
+    return folderName(path);
+  }
+  return `${folderName(path.slice(0, -(subfolder.length + 1)))} / ${subfolder}`;
+}
+
 /** A small tag with the last part of a folder path; the full path is its tooltip. Renders nothing without a path. */
-export function FolderChip({ path, inherited = false, onClick }: { path: string | null | undefined; inherited?: boolean; onClick?: () => void }) {
+export function FolderChip({ path, inherited = false, subfolder = null, onClick }: { path: string | null | undefined; inherited?: boolean; subfolder?: string | null; onClick?: () => void }) {
   if (path === null || path === undefined || path === "") {
     return onClick === undefined ? null : <button type="button" className="folder-chip is-empty" onClick={onClick} data-testid="folder-chip">Choose folder</button>;
   }
-  const body = <><span aria-hidden="true">📁</span> <span className="folder-chip-name">{folderName(path)}</span>{inherited ? <span className="folder-chip-note"> (project)</span> : null}</>;
+  const body = <><span aria-hidden="true">📁</span> <span className="folder-chip-name">{chipName(path, subfolder)}</span>{inherited ? <span className="folder-chip-note"> (project)</span> : null}</>;
   return onClick === undefined
     ? <span className="folder-chip" title={path} data-testid="folder-chip">{body}</span>
     : <button type="button" className="folder-chip" title={path} onClick={onClick} data-testid="folder-chip">{body}</button>;

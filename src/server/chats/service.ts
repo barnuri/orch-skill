@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 
 import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
+import { ensureSubfolder, normaliseSubfolder, SubfolderError } from "./subfolder";
 import { chatRoots, FolderError, folderUsable, type FolderList, listFolders, validateFolder } from "./folders";
 import { alternativeHint, buildOptions, chatUsageRefusal, EFFORTS, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
@@ -321,12 +322,13 @@ export class ChatService {
   // ---- chats ----
 
   /** Never rejected for a disabled, missing or unconfigured harness: the check happens when a turn is sent. */
-  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null; effort?: string | null }): ChatRow {
+  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null; subfolder?: string | null; effort?: string | null }): ChatRow {
     this.checkProject(input.project_id);
     this.checkChatUse(input.profile);
     const cwd = input.cwd === undefined ? null : this.checkedFolder(input.cwd);
+    const subfolder = this.checkedSubfolder(input.project_id ?? null, input.subfolder);
     const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
-    const row = this.store.createChat({ ...input, cwd, effort: this.checkedEffort(input.harness, input.effort), title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+    const row = this.store.createChat({ ...input, cwd, subfolder, effort: this.checkedEffort(input.harness, input.effort), title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
     this.indexChat(row);
     return row;
   }
@@ -387,11 +389,40 @@ export class ChatService {
     return row;
   }
 
+  /** The normalised subfolder after creating it under the project's folder; null clears. Needs a project with a folder (400). */
+  private checkedSubfolder(projectId: string | null, value: string | null | undefined): string | null {
+    let clean: string | null;
+    try {
+      clean = normaliseSubfolder(value);
+      if (clean === null) {
+        return null;
+      }
+      const path = projectId === null ? null : (this.store.getProject(projectId)?.path ?? null);
+      if (path === null) {
+        throw new SubfolderError("subfolder needs a project with a folder");
+      }
+      ensureSubfolder(path, clean);
+    } catch (err) {
+      throw err instanceof SubfolderError ? new HttpError(400, err.message) : err;
+    }
+    return clean;
+  }
+
+  /** Sets or clears (null or blank) the chat's subfolder inside its project's folder. Applies from the next turn. */
+  setChatSubfolder(id: string, value: string | null): ChatRow {
+    const before = this.chat(id);
+    const subfolder = this.checkedSubfolder(before.project_id, value);
+    const row = this.store.setChatSubfolder(id, subfolder) as ChatRow;
+    void this.manager.drop(id);
+    this.afterMove(before, row);
+    return row;
+  }
+
   // ---- folders ----
 
-  folders(root?: string): FolderList {
+  folders(root?: string, depth: 1 | 2 = 1): FolderList {
     try {
-      return listFolders(chatRoots(this.home), root, this.store.folderUse());
+      return listFolders(chatRoots(this.home), root, this.store.folderUse(), depth);
     } catch (err) {
       throw asHttp(err);
     }
@@ -434,12 +465,37 @@ export class ChatService {
   /** The folder the chat's next turn runs in: its own, else its project's, else null (a scratch folder). */
   effectiveCwd(chat: ChatRow): string | null {
     const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
+    if (chat.cwd === null && project?.path != null && chat.subfolder !== null) {
+      return join(project.path, chat.subfolder);
+    }
     return chat.cwd ?? project?.path ?? null;
+  }
+
+  /** Creates the chat's subfolder when missing (a deleted one comes back). False when it cannot be created or leaves the project folder. */
+  private prepareSubfolder(chat: ChatRow): boolean {
+    const path = chat.project_id === null ? null : (this.store.getProject(chat.project_id)?.path ?? null);
+    if (path === null || chat.subfolder === null) {
+      return false;
+    }
+    try {
+      ensureSubfolder(path, chat.subfolder);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private projectOwnPath(chat: ChatRow): string | null {
+    return chat.project_id === null ? null : (this.store.getProject(chat.project_id)?.path ?? null);
   }
 
   /** The folder a turn really runs in (exists, and inside the roots when it is the chat's own), or null for the scratch folder. */
   usableCwd(chat: ChatRow): string | null {
-    const wanted = this.effectiveCwd(chat);
+    let wanted = this.effectiveCwd(chat);
+    if (chat.cwd === null && chat.subfolder !== null && wanted !== null && wanted !== this.projectOwnPath(chat)) {
+      // the folder is created again whenever it is needed, so a deleted one never breaks a turn; on failure the project folder applies
+      wanted = this.prepareSubfolder(chat) ? wanted : this.projectOwnPath(chat);
+    }
     // A chat folder is checked again at every turn: a symlink swapped after it was picked must not lead outside the roots.
     if (wanted !== null && existsSync(wanted) && statSync(wanted).isDirectory() && (chat.cwd === null || folderUsable(wanted, chatRoots(this.home)))) {
       return wanted;
@@ -528,7 +584,11 @@ export class ChatService {
   /** Why the chat will not run where the user expects, or null: its folder is gone or no longer allowed. */
   warningFor(chat: ChatRow): string | null {
     const cwd = this.effectiveCwd(chat);
-    if (cwd !== null && !existsSync(cwd)) {
+    const own = this.projectOwnPath(chat);
+    if (chat.cwd === null && chat.subfolder !== null && own !== null && cwd !== own && existsSync(own) && !this.prepareSubfolder(chat)) {
+      return `Subfolder ${chat.subfolder} could not be created in ${own}: the agent runs in the project folder instead.`;
+    }
+    if (cwd !== null && !existsSync(cwd) && !(cwd !== own && own !== null && existsSync(own))) {
       return `${chat.cwd === null ? "Project" : "Chat"} directory ${cwd} no longer exists: the agent runs in a scratch folder instead.`;
     }
     if (cwd !== null && chat.cwd !== null && !folderUsable(cwd, chatRoots(this.home))) {

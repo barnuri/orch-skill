@@ -76,7 +76,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
             }}
             onCancel={stop}
           />
-          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} /></span>
+          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} subfolder={chat.cwd == null ? chat.subfolder : null} /></span>
         </div>
       ) : (
         <a
@@ -94,7 +94,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
           }}
         >
           <span className="thread-title">{waiting ? <span className="thread-waiting" role="img" aria-label="waiting for your answer" title="Waiting for your answer" /> : null}{chat.title}</span>
-          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} /></span>
+          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} subfolder={chat.cwd == null ? chat.subfolder : null} /></span>
         </a>
       )}
       {editing ? null : (

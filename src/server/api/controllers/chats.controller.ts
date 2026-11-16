@@ -4,7 +4,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Response as ResponseS
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import {
   AttachmentsDto, ChatConfigDto, ChatDto, ChatEnvelopeDto, ChatIdParamsDto, ChatInputDto, ChatOptionsDto, ChatOptionsQueryDto, ChatPageDto,
-  ChatProjectDto, ChatRenameDto, FolderListDto, FolderQueryDto, FolderSetDto, PageQueryDto, ChatSearchQueryDto, ChatsQueryDto, MessagePageDto, SearchResultDto,
+  ChatProjectDto, ChatRenameDto, FolderListDto, FolderQueryDto, FolderSetDto, PageQueryDto, ChatSearchQueryDto, ChatsQueryDto, ChatUpdateDto, MessagePageDto, SearchResultDto,
   SendMessageDto, SendResultDto, StopResultDto,
 } from "../../../shared/dto/chats";
 import { QueueError } from "../../chats/queue";
@@ -73,7 +73,8 @@ export class ChatsController {
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Root not allowed." })
   folders(c: ApiContext): Response {
     try {
-      return jsonResponse(200, this.service.folders(valid<{ root?: string }>(c, "query").root));
+      const q = valid<{ root?: string; depth?: "1" | "2" }>(c, "query");
+      return jsonResponse(200, this.service.folders(q.root, q.depth === "2" ? 2 : 1));
     } catch (err) {
       return failure(err);
     }
@@ -92,6 +93,26 @@ export class ChatsController {
     try {
       const chat = this.service.setChatFolder(idOf(c), valid<{ path: string | null }>(c, "json").path);
       return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) } });
+    } catch (err) {
+      return failure(err);
+    }
+  }
+
+  @Patch("/chats/{id}", {
+    summary: "Update a chat's subfolder",
+    description: "Sets the chat's `subfolder` inside its project's folder (relative path, created when missing); `null` or an empty string clears it. It applies from the next turn when the chat has no folder of its own. Answers 400 with the reason: absolute path, `..`, backslash, NUL, leading `~`, too long or deep, outside the project folder through a symlink, or no project with a folder (`subfolder needs a project with a folder`).",
+  })
+  @Param(ChatIdParamsDto.schema)
+  @Body(ChatUpdateDto.schema)
+  @ResponseSchema(ChatEnvelopeDto.schema, { description: "The chat after the change." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Subfolder not allowed." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such chat." })
+  update(c: ApiContext): Response {
+    try {
+      const id = idOf(c);
+      const body = valid<{ subfolder?: string | null }>(c, "json");
+      const chat = body.subfolder === undefined ? this.service.chat(id) : this.service.setChatSubfolder(id, body.subfolder);
+      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) } });
     } catch (err) {
       return failure(err);
     }

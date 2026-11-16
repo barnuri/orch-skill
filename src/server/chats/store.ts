@@ -103,17 +103,17 @@ export class ChatStore {
 
   // ---- chats ----
 
-  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null; title_manual?: boolean; cwd?: string | null; effort?: string | null }): ChatRow {
+  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null; title_manual?: boolean; cwd?: string | null; subfolder?: string | null; effort?: string | null }): ChatRow {
     const stamp = now();
     const row: ChatRow = {
       id: newId("chat"), project_id: input.project_id ?? null, title: input.title, harness: input.harness,
       profile: input.profile, model_id: input.model_id ?? null, session_id: null, status: "idle",
-      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0, cwd: input.cwd ?? null, effort: input.effort ?? null,
+      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0, cwd: input.cwd ?? null, subfolder: input.subfolder ?? null, effort: input.effort ?? null,
     };
     this.db.query(
-      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual, cwd, effort)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?, ?, ?)`,
-    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual, row.cwd, row.effort);
+      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual, cwd, subfolder, effort)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?)`,
+    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual, row.cwd, row.subfolder, row.effort);
     return row;
   }
 
@@ -151,6 +151,12 @@ export class ChatStore {
   /** Sets or clears the chat's own folder. It does not touch `updated_at`: moving a folder is not activity. */
   setChatCwd(id: string, cwd: string | null): ChatRow | null {
     this.db.query("UPDATE chats SET cwd = ? WHERE id = ?").run(cwd, id);
+    return this.getChat(id);
+  }
+
+  /** Sets or clears the chat's subfolder. Not activity, so `updated_at` stays. */
+  setChatSubfolder(id: string, subfolder: string | null): ChatRow | null {
+    this.db.query("UPDATE chats SET subfolder = ? WHERE id = ?").run(subfolder, id);
     return this.getChat(id);
   }
 
