@@ -1,6 +1,6 @@
 import { Window } from "happy-dom";
 
-const KEYS = ["window", "document", "navigator", "localStorage", "HTMLElement", "HTMLDialogElement", "Node", "Element", "MutationObserver", "Event", "KeyboardEvent", "MouseEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const;
+const KEYS = ["window", "location", "document", "navigator", "localStorage", "HTMLElement", "HTMLDialogElement", "Node", "Element", "MutationObserver", "Event", "KeyboardEvent", "MouseEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const;
 
 let installed = false;
 

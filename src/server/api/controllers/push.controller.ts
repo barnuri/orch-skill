@@ -71,7 +71,7 @@ export class PushController {
     return jsonResponse(200, { devices: this.hub.store.list().map(publicDevice) });
   }
 
-  @Patch("/subscriptions/{id}", { summary: "Change a device's categories, quiet hours or label" })
+  @Patch("/subscriptions/{id}", { summary: "Change a device's categories, quiet hours or label", description: "Only the fields sent change. Answers 404 for an unknown device." })
   @Param(ChatIdParamsDto.schema)
   @Body(PushUpdateDto.schema)
   @ResponseSchema(PushDeviceDto.schema, { description: "The device." })
@@ -82,7 +82,7 @@ export class PushController {
     return next === null ? jsonResponse(404, { error: "no such device" }) : jsonResponse(200, publicDevice(next));
   }
 
-  @Delete("/subscriptions/{id}", { summary: "Remove a device" })
+  @Delete("/subscriptions/{id}", { summary: "Remove a device", description: "Stops notifications to that device. Answers 404 for an unknown device." })
   @Param(ChatIdParamsDto.schema)
   @ResponseSchema(PushRemovedDto.schema, { description: "Removed." })
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such device." })
