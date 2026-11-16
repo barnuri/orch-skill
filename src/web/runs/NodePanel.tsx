@@ -20,6 +20,8 @@ import { Ago } from "./RunActivity";
 import { useJobChat, useJobLog, useNodeActivity } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
+import { ModelIcon } from "./ModelIcon";
+import { familyOf, iconModelOf, showsRoleTier } from "../lib/model-family";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
 const ATTEMPT_TAIL_LINES = 8;
@@ -136,12 +138,12 @@ function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxA
       <Row k="status" value={node.status} />
       {wait === null ? null : <Row k="why" value={wait.text} cls={`wait-reason wait-${wait.kind}`} title={wait.title} />}
       <ActivityRows node={node} />
-      <MetricRow k="model" metric={modelMetric(node)} cls="mono" />
+      <Row k="model" value={<><ModelIcon family={familyOf(iconModelOf(node))} /> {modelMetric(node).text}</>} cls={`mono${modelMetric(node).present ? "" : " missing"}`} title={modelMetric(node).title} />
       <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" />
       <MetricRow k="duration" metric={duration} />
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />
       <Row k="attempt" value={attemptLine(node, maxAttempts)} />
-      <Row k="role · tier" value={roleTier ?? "not set"} cls={roleTier === null ? "missing" : ""} />
+      {showsRoleTier(node) ? <Row k="role · tier" value={roleTier ?? "not set"} cls={roleTier === null ? "missing" : ""} /> : null}
       <Row k="effort" value={effort ?? "not set"} cls={effort === null ? "missing" : ""} title={effort === null ? "No selection event carries an effort for this node." : undefined} />
       <Row k="profile" value={node.profile ?? "—"} />
       <Row k="adapter" value={node.adapter ?? "—"} />

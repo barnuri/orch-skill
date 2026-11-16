@@ -8,10 +8,12 @@ import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, 
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
+import { familyOf, iconModelOf, showsRoleTier } from "../lib/model-family";
 import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
+import { ModelIcon } from "./ModelIcon";
 import { useNow } from "./use-now";
 
 type Point = { x: number; y: number };
@@ -26,6 +28,8 @@ const USAGE_Y = 98;
 const ROLE_TIER_Y = 113;
 const HEALTH_Y = 129;
 const META_LEFT_X = 14;
+const MODEL_ICON_GAP = 16;
+const MODEL_ICON_GAP_CHARS = 2;
 const META_RIGHT_X = NODE_W - 12;
 const STAGE_LABEL_Y = 16;
 
@@ -229,12 +233,13 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
         {wait === null ? statusLine(node, maxAttempts) : wait.text}
         {wait === null ? null : <title>{wait.title}</title>}
       </text>
-      <MetricText metric={model} base={pick?.isAuto === true ? "model auto" : "model"} x={META_LEFT_X} y={MODEL_Y} max={META_MAX_CHARS} />
+      <ModelIcon family={familyOf(iconModelOf(node))} x={META_LEFT_X} y={MODEL_Y - 10} />
+      <MetricText metric={model} base={pick?.isAuto === true ? "model auto" : "model"} x={META_LEFT_X + MODEL_ICON_GAP} y={MODEL_Y} max={META_MAX_CHARS - MODEL_ICON_GAP_CHARS} />
       {autoTitle === null ? null : <title>{autoTitle}</title>}
       <line className="metrics-rule" x1={META_LEFT_X} y1={METRICS_RULE_Y} x2={META_RIGHT_X} y2={METRICS_RULE_Y} />
       <MetricText metric={duration} base="metric dur" x={META_LEFT_X} y={DURATION_Y} max={META_MAX_CHARS} />
       <MetricText metric={usage} base="metric cost" x={META_LEFT_X} y={USAGE_Y} max={META_MAX_CHARS} />
-      <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} />
+      {showsRoleTier(node) ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
       <Health node={node} runId={runId} />
       {isCyclic ? (
         <text className="cycle" x={NODE_W - 8} y={14} textAnchor="end">

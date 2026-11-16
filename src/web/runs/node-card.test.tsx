@@ -35,8 +35,8 @@ describe("NodeCard rows", () => {
     expect(cost?.textContent).toContain("usage — · cost —");
     expect(cost?.getAttribute("class")).toContain("missing");
     const role = container.querySelector(".metric.role");
-    expect(role?.textContent).toContain("role — · tier —");
-    expect(role?.getAttribute("class")).toContain("missing");
+    expect(role).toBeNull();
+    expect(card(node({ model: "hub/smart-auto-balance" } as Partial<RunNode>)).container.querySelector(".metric.role")?.textContent).toContain("role — · tier —");
     expect(container.querySelector(".st")?.textContent).toContain("ready, not started");
     cleanup();
     expect(card(node({ status: "running" })).container.querySelector(".st")?.textContent).toContain("attempt 1/5");
@@ -58,11 +58,23 @@ describe("NodeCard rows", () => {
     expect(st(node({ status: "done", hold: "x" })).text).toBe("done · attempt 1/5");
   });
 
-  test("a set role shows beside the tier placeholder", () => {
-    const { container } = card(node({ role: "planning" } as Partial<RunNode>));
+  test("a set role shows beside the tier placeholder on a smart-auto node only", () => {
+    const { container } = card(node({ model: "hub/smart-auto-balance", role: "planning" } as Partial<RunNode>));
     const role = container.querySelector(".metric.role");
     expect(role?.textContent).toContain("planning · tier —");
     expect(role?.getAttribute("class")).not.toContain("missing");
+    cleanup();
+    expect(card(node({ role: "planning" } as Partial<RunNode>)).container.querySelector(".metric.role")).toBeNull();
+  });
+
+  test("the model icon follows the served model on auto nodes and the configured model otherwise", () => {
+    const auto = card(node({ model: "hub/smart-auto-balance", actual_model: "copilot/claude-opus-5-5" } as Partial<RunNode>));
+    expect(auto.container.querySelector(".model-icon")?.getAttribute("data-family")).toBe("claude");
+    cleanup();
+    const plain = card(node({ model: "qwen3-coder" } as Partial<RunNode>));
+    expect(plain.container.querySelector(".model-icon")?.getAttribute("data-family")).toBe("qwen");
+    cleanup();
+    expect(card(node({ model: "hub/smart-auto-balance" } as Partial<RunNode>)).container.querySelector(".model-icon")?.getAttribute("data-family")).toBe("fallback");
   });
 
   test("a needs_user node carries its own needs-you chip, the reason in its tooltip", () => {
@@ -77,6 +89,6 @@ describe("NodeCard rows", () => {
 
   test("the model row reads alias → actual when the served model differs", () => {
     const { container } = card(node({ model: "hub/smart-auto-balance", actual_model: "copilot/claude-opus-5-5" } as Partial<RunNode>));
-    expect(container.querySelector(".model")?.textContent).toContain("smart-a… → claude-opus-5-5");
+    expect(container.querySelector(".model")?.textContent).toContain("→ claude-opus-");
   });
 });

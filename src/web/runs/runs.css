@@ -110,3 +110,5 @@ main:has(.run-page) { max-width: none; }
 .run-long-banner { border-color: var(--status-stale-bd); color: var(--status-stale); background: var(--status-stale-bg); }
 .run-long-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; color: var(--tx); }
 .run-long-row .btn { margin-left: 0; }
+.run-page .model-icon-frame { fill: var(--panel2); stroke: var(--border-strong); stroke-width: 1; }
+.run-page .model-icon-shape { fill: var(--tx2); stroke: var(--tx2); stroke-width: 1.2; stroke-linejoin: round; }
