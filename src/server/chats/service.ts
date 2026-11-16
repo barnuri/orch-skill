@@ -11,16 +11,22 @@ import { alternativeHint, buildOptions, chatUsageRefusal, EFFORTS, type ChatOpti
 import { OpencodeSession } from "./sessions/opencode-session";
 import { OpencodeServerPool } from "./sessions/opencode-server";
 import { ClaudeSession } from "./sessions/claude-session";
+import { ChatQueue, QueueError, type QueueItem } from "./queue";
 import { SessionManager } from "./sessions/manager";
 import { TurnSession } from "./sessions/turn-session";
 import type { AgentEvent, AgentSession, ReplayMessage, SessionFactory, SessionParams } from "./sessions/types";
 import { ChatStore } from "./store";
 import type { AttachmentRow, ChatRow, MessageRow, ProjectRow } from "./types";
+import { runEmptyCleanupOnce } from "./empty-cleanup";
 import { agentPathFor, blobPath, SWEEP_AGE_MS, sweepUnattached } from "./uploads";
 import { OpencodeParser } from "./sessions/opencode-session";
 import { ClaudeParser } from "./sessions/claude-session";
 import { isAlive, killGroup, listTurns, type TurnMeta, type TurnParser, turnEvents, turnPaths, sweepTurnFiles } from "./sessions/turn-files";
 import { PlainParser, sweepPromptDirs } from "./sessions/turn-session";
+import { type LivenessOptions, TurnLiveness } from "./turn-liveness";
+import { ArtifactHub, ArtifactStore, externalCandidate, readSettings } from "./artifacts";
+import type { ArtifactEvent } from "../../shared/artifacts";
+import { BrowserProfiles, browserEnv, ensureProfile, primaryForCwd } from "./browser-profile";
 import { indexRemove, indexUpsert, instructionBlock, memoryFingerprint, type Scope, Workspace } from "./workspace";
 
 export class HttpError extends Error {
@@ -35,7 +41,7 @@ function asHttp(err: unknown): unknown {
 
 export interface ChatEvent {
   /** SSE `event:` name. */
-  event: "status" | "message" | "delta" | "usage" | "done";
+  event: "status" | "message" | "delta" | "usage" | "queue" | "done" | "activity" | "artifact";
   /** SSE `id:`, `<message id>.<content length>`; absent for events that belong to no message. */
   id?: string;
   data: Record<string, unknown>;
@@ -52,20 +58,20 @@ interface Turn {
   pid: number | null;
   abort: AbortController;
   promise: Promise<void>;
-}
-
-const DEFAULT_TITLE = "New chat";
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
-
-/** Both binaries can be replaced from the environment, which is how tests keep real models out. */
   /** Set by the watchdog: the reply ends as an error with this text instead of stopped. */
   failure?: string | undefined;
   failedAt?: number | undefined;
+}
+
+const DEFAULT_TITLE = "New chat";
+const WATCH_MS = 5000;
+const FORCE_AFTER_MS = 4000;
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
+
+/** Both binaries can be replaced from the environment, which is how tests keep real models out. */
 function defaultFactory(ctx: ServerContext, servers: OpencodeServerPool | null): SessionFactory {
   return (params: SessionParams) => {
     if (params.harness === "claude") {
-const WATCH_MS = 5000;
-const FORCE_AFTER_MS = 4000;
       const bin = process.env.ORCH_CHAT_CLAUDE_BIN ?? Bun.which("claude");
       const resolved = resolveLaunch(ctx.paths.home, params.harness, params.profile, params.modelId);
       if (bin === null || bin === undefined) {
@@ -74,7 +80,9 @@ const FORCE_AFTER_MS = 4000;
       if (!resolved.ok) {
         throw new HttpError(400, resolved.error);
       }
-      return new ClaudeSession(params, bin, resolved.launch);
+      const profile = primaryForCwd(ctx.paths.home, params.cwd);
+      ensureProfile(profile);
+      return new ClaudeSession(params, bin, { ...resolved.launch, env: { ...resolved.launch.env, ...browserEnv(profile) } });
     }
     if (params.harness === "opencode" && process.env.ORCH_CHAT_OPENCODE_DISPATCH !== "1") {
       const bin = process.env.ORCH_CHAT_OPENCODE_BIN ?? Bun.which("opencode") ?? join(process.env.HOME ?? "", ".opencode", "bin", "opencode");
@@ -95,7 +103,14 @@ export class ChatService {
   private readonly turns = new Map<string, Turn>();
   /** Fingerprint of the memories the agent last heard about, per chat (see workspaceInstructions). */
   private readonly lastBlock = new Map<string, string>();
+  private readonly browser = new BrowserProfiles(() => this.home);
   readonly recovered: number;
+  readonly artifactHub = new ArtifactHub();
+  private readonly artifactPaths = new Map<string, Set<string>>();
+  /** The per-chat message queue: what waits while a turn runs (see queue.ts). */
+  readonly queue: ChatQueue;
+  readonly liveness: TurnLiveness;
+  private readonly watchdog: ReturnType<typeof setInterval>;
   /** Long-lived `opencode serve` per profile env that opencode chat turns attach to (null: disabled, always standalone). */
   readonly opencodeServers: OpencodeServerPool | null = OpencodeServerPool.enabled() ? new OpencodeServerPool() : null;
 
@@ -108,13 +123,93 @@ export class ChatService {
     sweepPromptDirs();
     sweepTurnFiles(ctx.paths.home);
     const uploads = sweepUnattached(this.store, ctx.paths.home);
-    const empties = this.store.archiveEmptyChatsBefore(new Date(Date.now() - SWEEP_AGE_MS).toISOString());
+    const empties = this.store.archiveEmptyChatsBefore(new Date(Date.now() - SWEEP_AGE_MS).toISOString()) + runEmptyCleanupOnce(this.store, ctx.paths.home);
     if (uploads > 0 || empties > 0) {
       console.log(`chats: startup sweep removed ${uploads} unattached upload(s) and archived ${empties} empty chat(s)`);
     }
     this.manager = new SessionManager(opts.factory ?? defaultFactory(ctx, this.opencodeServers), opts.idleMs);
+    this.queue = new ChatQueue(this.store, {
+      isRunning: (chatId) => this.turns.has(chatId) || this.store.getChat(chatId)?.status === "running",
+      start: (chatId, input) => this.sendMessage(chatId, input),
+      stopRunning: (chatId) => this.stop(chatId),
+      assertOpen: (chatId) => {
+        if (this.chat(chatId).archived_at !== null) {
+          throw new QueueError(409, "chat is archived");
+        }
+      },
+      emit: (chatId, snapshot) => { this.emit(chatId, { event: "queue", data: { ...snapshot } }); },
+    }, ctx.paths.home);
     for (const a of adoptable) {
       this.reattach(a.meta, a.paths);
+    }
+    this.queue.recover((chatId) => this.turns.has(chatId));
+    this.watchdog = setInterval(() => { this.watch(); }, opts.liveness?.tickMs ?? WATCH_MS);
+    this.watchdog.unref();
+  }
+
+  /**
+   * Every tick: a running turn that is silent or whose process is gone ends as an error, and a message that is still
+   * streaming with no turn behind it (its process died, the follower threw) is closed as interrupted.
+   */
+  watch(): void {
+    for (const [chatId, turn] of [...this.turns]) {
+      if (turn.detached) {
+        continue;
+      }
+      if (turn.failure !== undefined) {
+        // The kill did not end the follower in time: finish the row here so nothing stays streaming.
+        if (Date.now() - (turn.failedAt ?? 0) > FORCE_AFTER_MS) {
+          this.forceFinish(chatId, turn, turn.failure);
+        }
+        continue;
+      }
+      const verdict = this.liveness.verdict(chatId, this.pidOf(turn));
+      if (verdict.kind === "dead") {
+        turn.failure = verdict.message;
+        turn.failedAt = Date.now();
+        void this.stopTurn(turn).catch(() => undefined);
+      } else {
+        this.emitActivity(chatId, turn);
+      }
+    }
+    const open = new Set([...this.turns.values()].map((t) => t.assistantId));
+    const orphans = (this.store.streamingRows()).filter((r) => !open.has(r.id));
+    if (orphans.length > 0) {
+      this.store.recoverStreaming(open);
+      for (const r of orphans) {
+        const row = this.store.getMessage(r.id);
+        if (row !== null) {
+          this.emit(r.chat_id, { event: "done", id: `${row.id}.${row.content.length}`, data: { message_id: row.id, status: row.status, error: row.error, context_truncated: row.context_truncated === 1, warning: row.warning } });
+          this.emit(r.chat_id, { event: "status", data: { chat_id: r.chat_id, status: "idle" } });
+        }
+      }
+    }
+  }
+
+  private pidOf(turn: Turn): boolean | null {
+    const pid = turn.pid ?? turn.session?.processId ?? null;
+    return pid === null ? null : isAlive(pid);
+  }
+
+  private forceFinish(chatId: string, turn: Turn, error: string): void {
+    const current = this.store.getMessage(turn.assistantId);
+    if (current !== null && (current.status === "streaming" || current.status === "pending")) {
+      const final = this.store.finalizeMessage(turn.assistantId, { status: "error", error, model_used: null, input_tokens: 0, output_tokens: 0, cost_usd: null, context_truncated: false, warning: null }) as MessageRow;
+      this.emit(chatId, { event: "done", id: `${final.id}.${final.content.length}`, data: { message_id: final.id, status: final.status, error: final.error, context_truncated: false, warning: null } });
+    }
+    this.store.updateChat(chatId, { status: "idle" });
+    if (this.turns.get(chatId) === turn) {
+      this.turns.delete(chatId);
+    }
+    this.liveness.end(chatId);
+    void this.manager.drop(chatId);
+    this.emit(chatId, { event: "status", data: { chat_id: chatId, status: "idle" } });
+  }
+
+  private emitActivity(chatId: string, turn: Turn): void {
+    const activity = this.liveness.snapshot(chatId);
+    if (activity !== null) {
+      this.emit(chatId, { event: "activity", data: { message_id: turn.assistantId, ...activity } });
     }
   }
 
@@ -153,6 +248,7 @@ export class ChatService {
     this.store.updateChat(chat.id, { status: "running" }, false);
     const turn: Turn = { assistantId: meta.message_id, stopRequested: false, detached: false, session: null, pid: meta.pid, abort: new AbortController(), promise: Promise.resolve() };
     this.turns.set(chat.id, turn);
+    this.liveness.begin(chat.id, meta.message_id);
     const parser = this.parserFor(meta);
     turn.promise = this.consume(chat, turn, (onReplay) => turnEvents(paths, meta, parser, { signal: turn.abort.signal, replayUntil: meta.offset, onReplay }), () => parser.sessionId() ?? meta.session_id);
   }
@@ -161,11 +257,13 @@ export class ChatService {
     return this.ctx.paths.home;
   }
 
-  options(): ChatOptions {
-    return buildOptions(this.home, this.ctx.harnesses);
+  options(use: "chat" | "runs" = "chat"): ChatOptions {
+    return buildOptions(this.home, this.ctx.harnesses, use);
   }
 
   async dispose(): Promise<void> {
+    clearInterval(this.watchdog);
+    this.artifactHub.closeAll();
     const running = [...this.turns.values()];
     for (const t of running) {
       t.detached = true;
@@ -204,6 +302,13 @@ export class ChatService {
     }
   }
 
+  private checkChatUse(profile: string): void {
+    const why = chatUsageRefusal(this.home, profile);
+    if (why !== null) {
+      throw new HttpError(400, why);
+    }
+  }
+
   private checkSelection(harness: string, profile: string, modelId: string | null): void {
     const result = resolveLaunch(this.home, harness, profile, modelId);
     if (!result.ok) {
@@ -216,6 +321,7 @@ export class ChatService {
   /** Never rejected for a disabled, missing or unconfigured harness: the check happens when a turn is sent. */
   createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null; effort?: string | null }): ChatRow {
     this.checkProject(input.project_id);
+    this.checkChatUse(input.profile);
     const cwd = input.cwd === undefined ? null : this.checkedFolder(input.cwd);
     const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
     const row = this.store.createChat({ ...input, cwd, effort: this.checkedEffort(input.harness, input.effort), title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
@@ -255,7 +361,9 @@ export class ChatService {
       throw new HttpError(409, "a reply is running; change harness, profile or model between turns");
     }
     this.checkSelection(input.harness, input.profile, input.model_id);
-    this.liveness.begin(chat.id, meta.message_id);
+    if (input.profile !== chat.profile) {
+      this.checkChatUse(input.profile);
+    }
     const sameHarness = chat.harness === input.harness;
     const { effort: wanted, ...rest } = input;
     // A harness switch clears an effort it does not take; an omitted effort keeps the stored one while it still applies.
@@ -410,6 +518,11 @@ export class ChatService {
     }
   }
 
+  private projectPathOf(chat: ChatRow): string | null {
+    const path = chat.project_id === null ? null : (this.store.getProject(chat.project_id)?.path ?? null);
+    return path !== null && existsSync(path) ? path : null;
+  }
+
   /** Why the chat will not run where the user expects, or null: its folder is gone or no longer allowed. */
   warningFor(chat: ChatRow): string | null {
     const cwd = this.effectiveCwd(chat);
@@ -468,6 +581,7 @@ export class ChatService {
       return row;
     });
     const paths = attachments.map((a) => agentPathFor(this.home, a));
+    this.expireQuestions(chatId);
     const userMsg = this.store.addMessage({ chat_id: chatId, role: "user", content, status: "done" });
     this.store.linkAttachments(ids, userMsg.id);
     const assistant = this.store.addMessage({ chat_id: chatId, role: "assistant", status: "streaming" });
@@ -482,9 +596,14 @@ export class ChatService {
     this.emit(chatId, { event: "status", data: { chat_id: chatId, status: "running" } });
     const turn: Turn = { assistantId: assistant.id, stopRequested: false, detached: false, session: null, pid: null, abort: new AbortController(), promise: Promise.resolve() };
     this.turns.set(chatId, turn);
+    this.liveness.begin(chatId, assistant.id);
+    this.emitActivity(chatId, turn);
     const fresh = this.chat(chatId);
+    this.artifactTurnStart(fresh, assistant.id);
     const block = content.trim() === "" ? "" : this.workspaceInstructions(fresh);
-    turn.promise = this.runTurn(fresh, turn, block === "" ? content : `${content}\n\n${block}`, paths);
+    const browserNote = content.trim() === "" ? "" : this.browser.startTurn({ id: fresh.id, cwd: this.usableCwd(fresh), projectPath: this.projectPathOf(fresh) }, fresh.harness === "local-llm");
+    const tail = [block, browserNote, this.artifactUserNote(fresh)].filter((t) => t !== "").join("\n\n");
+    turn.promise = this.runTurn(fresh, turn, tail === "" ? content : `${content}\n\n${tail}`, paths).finally(() => this.browser.endTurn(chatId));
     return { user_message_id: userMsg.id, assistant_message_id: assistant.id };
   }
 
@@ -493,10 +612,40 @@ export class ChatService {
     await this.turns.get(chatId)?.promise;
   }
 
+  /** Like `settled`, but follows the queue: resolves when no turn runs and nothing starts next. */
+  async settledAll(chatId: string): Promise<void> {
+    for (let guard = 0; guard < 200; guard++) {
+      const turn = this.turns.get(chatId);
+      if (turn === undefined) {
+        return;
+      }
+      await turn.promise;
+      await Promise.resolve();
+    }
+  }
+
+  /**
+   * The send used by the API: starts a turn at once when the chat is idle and nothing waits, otherwise puts the
+   * message at the end of the chat's queue (it keeps the order: a new message never jumps ahead of waiting ones).
+   */
+  submit(chatId: string, input: { content: string; attachment_ids?: string[] }): { queued: false; user_message_id: string; assistant_message_id: string } | { queued: true; item: QueueItem } {
+    const chat = this.chat(chatId);
+    const busy = this.turns.has(chatId) || chat.status === "running";
+    if (!busy && !this.queue.hasQueued(chatId)) {
+      return { queued: false, ...this.sendMessage(chatId, input) };
+    }
+    const item = this.queue.enqueue(chatId, input);
+    if (!busy) {
+      this.queue.advance(chatId);
+    }
+    return { queued: true, item };
+  }
+
   async stop(chatId: string): Promise<boolean> {
     this.chat(chatId);
     const turn = this.turns.get(chatId);
     if (turn === undefined) {
+      this.queue.pause(chatId, "The reply was stopped.");
       return false;
     }
     await this.stopTurn(turn);
@@ -514,162 +663,6 @@ export class ChatService {
     }
   }
 
-  private paramsFor(chat: ChatRow): SessionParams {
-    const cwd = this.usableCwd(chat) ?? join(this.home, "chats", "workspace");
-    mkdirSync(cwd, { recursive: true });
-    return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, effort: (EFFORTS[chat.harness] ?? []).includes(chat.effort ?? "") ? chat.effort : null, history: () => this.historyFor(chat.id) };
-  }
-
-  /** Finished user and assistant messages before the reply now streaming, oldest first. */
-  private historyFor(chatId: string): ReplayMessage[] {
-    const rows: ReplayMessage[] = [];
-    let cursor: string | null = null;
-    do {
-      const page = this.store.listMessages(chatId, { limit: 100, cursor });
-      for (const m of page.items) {
-        if ((m.role === "user" || m.role === "assistant") && m.status !== "streaming" && m.status !== "pending" && m.content !== "") {
-          rows.push({ role: m.role, content: m.content });
-        }
-      }
-      cursor = page.next_cursor;
-    } while (cursor !== null && rows.length < 200);
-    rows.reverse();
-    // The newest user message is the prompt being sent; the session adds it itself.
-    if (rows.length > 0 && rows[rows.length - 1]?.role === "user") {
-      rows.pop();
-    }
-    return rows;
-  }
-
-  private async runTurn(chat: ChatRow, turn: Turn, prompt: string, paths: string[]): Promise<void> {
-    const id = turn.assistantId;
-    let session: AgentSession | null = null;
-    return this.consume(chat, turn, () => {
-      session = this.manager.acquire(this.paramsFor(chat));
-      turn.session = session;
-      return session.send(prompt, paths, { messageId: id }) as AsyncIterable<AgentEvent>;
-    }, () => (session as AgentSession | null)?.sessionId ?? null);
-  }
-
-  /**
-   * Applies a turn's events to the database and the live listeners, then finalizes the message once. `source`
-   * gets a callback for events that were already delivered before a restart (their text is rebuilt silently).
-   */
-  private async consume(chat: ChatRow, turn: Turn, source: (onReplay: (ev: AgentEvent) => void) => AsyncIterable<AgentEvent>, sessionIdOf: () => string | null): Promise<void> {
-    const id = turn.assistantId;
-    let content = "";
-    let usage = { input: 0, output: 0, cost: null as number | null, model: null as string | null };
-    let truncated = false;
-    let warning: string | null = null;
-    let outcome: { status: "done" | "error" | "stopped"; error: string | null } | null = null;
-    let interrupted = false;
-    let replayedText = false;
-    const toolRows = new Map<string, string>();
-    let reasoning = "";
-    let reasoningRow: string | null = null;
-    const flush = (): void => {
-      if (replayedText) {
-        replayedText = false;
-        this.store.setContent(id, content);
-      }
-    };
-    const handle = (ev: AgentEvent, replay: boolean): void => {
-      if (ev.type === "text-delta") {
-        content += ev.text;
-        if (replay) {
-          replayedText = true;
-        } else {
-          this.store.appendContent(id, ev.text);
-          this.emit(chat.id, { event: "delta", id: `${id}.${content.length}`, data: { message_id: id, text: ev.text, offset: content.length } });
-    this.expireQuestions(chatId);
-        }
-      } else if (ev.type === "tool") {
-        if (!replay) {
-          const parts = partsForToolCall({ id: ev.id ?? "", name: ev.name, input: ev.input ?? null, at: new Date().toISOString() });
-          const tool = this.store.addMessage({ chat_id: chat.id, role: "tool", content: ev.summary === "" ? ev.name : `${ev.name}: ${ev.summary}`, status: "done", parts });
-          if (ev.id !== undefined && ev.id !== "") {
-            toolRows.set(ev.id, tool.id);
-          }
-          this.emitRow(chat.id, tool);
-        }
-      } else if (ev.type === "tool-result") {
-        const rowId = toolRows.get(ev.id);
-        const row = rowId === undefined || replay ? null : this.store.getMessage(rowId);
-        const parts = parseParts(row?.parts ?? null);
-        if (row !== null && parts !== null) {
-          const done = parts.map((p) => (p.type === "tool-call" ? { ...p, state: ev.error ? "error" as const : "done" as const, output: ev.output.slice(0, 20_000), ended_at: new Date().toISOString() } : p));
-          const next = this.store.setParts(row.id, done);
-          if (next !== null) {
-            this.emitRow(chat.id, next);
-          }
-    this.liveness.begin(chatId, assistant.id);
-    this.emitActivity(chatId, turn);
-        }
-      } else if (ev.type === "reasoning-delta") {
-        if (!replay) {
-          reasoning += ev.text;
-          const parts: ChatPart[] = [{ type: "reasoning", text: reasoning }];
-          const row = reasoningRow === null ? this.store.addMessage({ chat_id: chat.id, role: "tool", content: "", status: "done", parts }) : this.store.setParts(reasoningRow, parts);
-          if (row !== null) {
-            reasoningRow = row.id;
-            this.emitRow(chat.id, row);
-          }
-        }
-      } else if (ev.type === "usage") {
-        usage = { input: ev.input_tokens, output: ev.output_tokens, cost: ev.cost_usd, model: ev.model };
-        const question = questionPartFromTool(ev.name, ev.id ?? "", ev.input ?? null, new Date().toISOString());
-        if (question !== null) {
-          asked = true;
-          if (!replay) {
-            const row = this.store.addMessage({ chat_id: chat.id, role: "tool", content: `question: ${question.questions[0]?.question ?? ""}`.slice(0, 200), status: "done", parts: [question] });
-            this.emitRow(chat.id, row);
-          }
-        } else if (!replay) {
-          this.emit(chat.id, { event: "usage", id: `${id}.${content.length}`, data: { message_id: id, input_tokens: ev.input_tokens, output_tokens: ev.output_tokens, cost_usd: ev.cost_usd, model: ev.model } });
-        }
-      } else if (ev.type === "context-truncated") {
-        truncated = true;
-      } else if (ev.type === "warning") {
-        warning = warning === null ? ev.message : `${warning} ${ev.message}`;
-      } else if (ev.type === "done") {
-        outcome = { status: "done", error: null };
-        if (ev.session_id !== null && ev.session_id !== chat.session_id) {
-          this.store.updateChat(chat.id, { session_id: ev.session_id }, false);
-        }
-      } else if (ev.type === "interrupted") {
-        interrupted = true;
-        outcome = { status: "error", error: ev.message };
-      } else {
-        outcome = { status: "error", error: ev.message };
-      }
-    };
-    try {
-      for await (const ev of source((r) => handle(r, true))) {
-        flush();
-        handle(ev, false);
-      }
-    } catch (err) {
-      outcome = { status: "error", error: err instanceof Error ? err.message : String(err) };
-    }
-    if (turn.detached) {
-      return;
-    }
-    flush();
-    if (turn.failure !== undefined) {
-      outcome = { status: "error", error: turn.failure };
-    } else if (turn.stopRequested) {
-      outcome = { status: "stopped", error: null };
-    } else if (outcome === null) {
-      outcome = { status: "error", error: "agent ended without a result" };
-    }
-    if (interrupted || asked) {
-      const sid = sessionIdOf();
-      if (sid !== null && sid !== chat.session_id) {
-        this.store.updateChat(chat.id, { session_id: sid }, false);
-      }
-    }
-    const current = this.store.getMessage(id);
-    const final = (current !== null && (current.status === "streaming" || current.status === "pending")
   /** Ends the turn's process without marking the reply stopped (the agent asked a question and waits for the answer). */
   private async endProcess(turn: Turn): Promise<void> {
     if (turn.session !== null) {
@@ -733,19 +726,196 @@ export class ChatService {
     return this.store.chatsWithPendingQuestion();
   }
 
+  private paramsFor(chat: ChatRow): SessionParams {
+    const cwd = this.usableCwd(chat) ?? join(this.home, "chats", "workspace");
+    mkdirSync(cwd, { recursive: true });
+    return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, effort: (EFFORTS[chat.harness] ?? []).includes(chat.effort ?? "") ? chat.effort : null, history: () => this.historyFor(chat.id) };
+  }
+
+  /** Finished user and assistant messages before the reply now streaming, oldest first. */
+  private historyFor(chatId: string): ReplayMessage[] {
+    const rows: ReplayMessage[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = this.store.listMessages(chatId, { limit: 100, cursor });
+      for (const m of page.items) {
+        if ((m.role === "user" || m.role === "assistant") && m.status !== "streaming" && m.status !== "pending" && m.content !== "") {
+          rows.push({ role: m.role, content: m.content });
+        }
+      }
+      cursor = page.next_cursor;
+    } while (cursor !== null && rows.length < 200);
+    rows.reverse();
+    // The newest user message is the prompt being sent; the session adds it itself.
+    if (rows.length > 0 && rows[rows.length - 1]?.role === "user") {
+      rows.pop();
+    }
+    return rows;
+  }
+
+  private async runTurn(chat: ChatRow, turn: Turn, prompt: string, paths: string[]): Promise<void> {
+    const id = turn.assistantId;
+    let session: AgentSession | null = null;
+    return this.consume(chat, turn, () => {
+      session = this.manager.acquire(this.paramsFor(chat));
+      turn.session = session;
+      return session.send(prompt, paths, { messageId: id }) as AsyncIterable<AgentEvent>;
+    }, () => (session as AgentSession | null)?.sessionId ?? null);
+  }
+
+  /**
+   * Applies a turn's events to the database and the live listeners, then finalizes the message once. `source`
+   * gets a callback for events that were already delivered before a restart (their text is rebuilt silently).
+   */
+  private async consume(chat: ChatRow, turn: Turn, source: (onReplay: (ev: AgentEvent) => void) => AsyncIterable<AgentEvent>, sessionIdOf: () => string | null): Promise<void> {
+    const id = turn.assistantId;
+    let content = "";
+    let usage = { input: 0, output: 0, cost: null as number | null, model: null as string | null };
+    let truncated = false;
+    let warning: string | null = null;
+    let outcome: { status: "done" | "error" | "stopped"; error: string | null } | null = null;
+    let interrupted = false;
+    let asked = false;
+    let askedStopped = false;
+    let replayedText = false;
+    const toolRows = new Map<string, string>();
+    let reasoning = "";
+    let reasoningRow: string | null = null;
+    const flush = (): void => {
+      if (replayedText) {
+        replayedText = false;
+        this.store.setContent(id, content);
+      }
+    };
+    const handle = (ev: AgentEvent, replay: boolean): void => {
+      if (!replay && this.liveness.note(chat.id, ev)) {
+        this.emitActivity(chat.id, turn);
+      }
+      if (ev.type === "text-delta") {
+        content += ev.text;
+        if (replay) {
+          replayedText = true;
+        } else {
+          this.store.appendContent(id, ev.text);
+          this.emit(chat.id, { event: "delta", id: `${id}.${content.length}`, data: { message_id: id, text: ev.text, offset: content.length } });
+        }
+      } else if (ev.type === "tool") {
+        const question = questionPartFromTool(ev.name, ev.id ?? "", ev.input ?? null, new Date().toISOString());
+        if (question !== null) {
+          asked = true;
+          if (!replay) {
+            const row = this.store.addMessage({ chat_id: chat.id, role: "tool", content: `question: ${question.questions[0]?.question ?? ""}`.slice(0, 200), status: "done", parts: [question] });
+            this.emitRow(chat.id, row);
+          }
+        } else if (!replay) {
+          const parts = partsForToolCall({ id: ev.id ?? "", name: ev.name, input: ev.input ?? null, at: new Date().toISOString() });
+          const tool = this.store.addMessage({ chat_id: chat.id, role: "tool", content: ev.summary === "" ? ev.name : `${ev.name}: ${ev.summary}`, status: "done", parts });
+          if (ev.id !== undefined && ev.id !== "") {
+            toolRows.set(ev.id, tool.id);
+          }
+          this.emitRow(chat.id, tool);
+          this.artifactTool(chat, ev.name, ev.input ?? null);
+        }
+      } else if (ev.type === "tool-result") {
+        const rowId = toolRows.get(ev.id);
+        const row = rowId === undefined || replay ? null : this.store.getMessage(rowId);
+        const parts = parseParts(row?.parts ?? null);
+        if (row !== null && parts !== null) {
+          const done = parts.map((p) => (p.type === "tool-call" ? { ...p, state: ev.error ? "error" as const : "done" as const, output: ev.output.slice(0, 20_000), ended_at: new Date().toISOString() } : p));
+          const next = this.store.setParts(row.id, done);
+          if (next !== null) {
+            this.emitRow(chat.id, next);
+          }
+        }
+      } else if (ev.type === "reasoning-delta") {
+        if (!replay) {
+          reasoning += ev.text;
+          const parts: ChatPart[] = [{ type: "reasoning", text: reasoning }];
+          const row = reasoningRow === null ? this.store.addMessage({ chat_id: chat.id, role: "tool", content: "", status: "done", parts }) : this.store.setParts(reasoningRow, parts);
+          if (row !== null) {
+            reasoningRow = row.id;
+            this.emitRow(chat.id, row);
+          }
+        }
+      } else if (ev.type === "usage") {
+        usage = { input: ev.input_tokens, output: ev.output_tokens, cost: ev.cost_usd, model: ev.model };
+        if (!replay) {
+          this.emit(chat.id, { event: "usage", id: `${id}.${content.length}`, data: { message_id: id, input_tokens: ev.input_tokens, output_tokens: ev.output_tokens, cost_usd: ev.cost_usd, model: ev.model } });
+        }
+      } else if (ev.type === "context-truncated") {
+        truncated = true;
+      } else if (ev.type === "warning") {
+        warning = warning === null ? ev.message : `${warning} ${ev.message}`;
+      } else if (ev.type === "done") {
+        outcome = { status: "done", error: null };
+        if (ev.session_id !== null && ev.session_id !== chat.session_id) {
+          this.store.updateChat(chat.id, { session_id: ev.session_id }, false);
+        }
+      } else if (ev.type === "interrupted") {
+        interrupted = true;
+        outcome = { status: "error", error: ev.message };
+      } else {
+        outcome = { status: "error", error: ev.message };
+      }
+    };
+    try {
+      for await (const ev of source((r) => handle(r, true))) {
+        flush();
+        handle(ev, false);
+        if (asked && !askedStopped && !turn.stopRequested) {
+          // No harness has a live channel for an answer (see chat-harnesses.md): end the run here, the answer starts the next turn.
+          askedStopped = true;
+          await this.endProcess(turn);
+        }
+      }
+    } catch (err) {
+      outcome = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+    if (turn.detached) {
+      return;
+    }
+    flush();
+    if (turn.failure !== undefined) {
+      outcome = { status: "error", error: turn.failure };
+    } else if (turn.stopRequested) {
+      outcome = { status: "stopped", error: null };
+    } else if (outcome === null && asked) {
+      outcome = { status: "done", error: null };
+    } else if (outcome === null) {
+      outcome = { status: "error", error: "agent ended without a result" };
+    }
+    if (interrupted || asked) {
+      const sid = sessionIdOf();
+      if (sid !== null && sid !== chat.session_id) {
+        this.store.updateChat(chat.id, { session_id: sid }, false);
+      }
+    }
+    const current = this.store.getMessage(id);
+    const final = (current !== null && (current.status === "streaming" || current.status === "pending")
       ? this.store.finalizeMessage(id, {
         status: outcome.status, error: outcome.error, model_used: usage.model, input_tokens: usage.input, output_tokens: usage.output, cost_usd: usage.cost,
         context_truncated: truncated, warning,
       })
       : current) as MessageRow;
+    const now = this.turns.get(chat.id);
+    if (now !== undefined && now !== turn) {
+      // A watchdog already closed this reply and a newer one runs: leave the chat alone.
+      return;
+    }
     this.store.updateChat(chat.id, { status: "idle" });
     if (now === turn) {
       this.turns.delete(chat.id);
       this.liveness.end(chat.id);
     }
     this.manager.release(chat.id);
+    this.artifactTurnEnd(chat);
     this.emit(chat.id, { event: "done", id: `${id}.${final.content.length}`, data: { message_id: id, status: final.status, error: final.error, context_truncated: final.context_truncated === 1, warning: final.warning } });
     this.emit(chat.id, { event: "status", data: { chat_id: chat.id, status: "idle" } });
+    try {
+      this.queue.turnEnded(chat.id, final.status === "done" ? "done" : final.status === "stopped" ? "stopped" : "error");
+    } catch (err) {
+      console.error(`chats: queue advance failed for ${chat.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // ---- live events ----
@@ -782,8 +952,6 @@ export class ChatService {
   }
 
   // ---- artifacts (see artifacts.ts) ----
-    let asked = false;
-    let askedStopped = false;
 
   artifactStore(chat: ChatRow): ArtifactStore {
     return new ArtifactStore(this.workspace(chat, "chat"));
@@ -862,11 +1030,6 @@ export class ChatService {
       return "";
     }
   }
-        if (asked && !askedStopped && !turn.stopRequested) {
-          // No harness has a live channel for an answer (see chat-harnesses.md): end the run here, the answer starts the next turn.
-          askedStopped = true;
-          await this.endProcess(turn);
-        }
 
   private replayFor(chat: ChatRow, lastEventId: string | null): ChatEvent[] {
     const out: ChatEvent[] = [];
@@ -879,8 +1042,6 @@ export class ChatService {
           out.push({ event: "delta", id: `${seen.id}.${seen.content.length}`, data: { message_id: seen.id, text: seen.content.slice(offset), offset: seen.content.length } });
         }
         if (seen.status !== "streaming" && seen.status !== "pending") {
-    } else if (outcome === null && asked) {
-      outcome = { status: "done", error: null };
           out.push({ event: "done", id: `${seen.id}.${seen.content.length}`, data: { message_id: seen.id, status: seen.status, error: seen.error, context_truncated: seen.context_truncated === 1, warning: seen.warning } });
         }
         // Ids sort by creation, but a reply's tool rows are created after its assistant row, so "after the
@@ -893,6 +1054,15 @@ export class ChatService {
       }
     }
     out.push({ event: "status", data: { chat_id: chat.id, status: this.store.getChat(chat.id)?.status ?? "idle" } });
+    const turn = this.turns.get(chat.id);
+    const activity = turn === undefined ? null : this.liveness.snapshot(chat.id);
+    if (turn !== undefined && activity !== null) {
+      out.push({ event: "activity", data: { message_id: turn.assistantId, ...activity } });
+    }
+    const queued = this.queue.snapshot(chat.id);
+    if (queued.items.length > 0 || queued.paused) {
+      out.push({ event: "queue", data: { ...queued } });
+    }
     return out;
   }
 }

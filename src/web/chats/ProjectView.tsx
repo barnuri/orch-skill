@@ -3,11 +3,10 @@ import { chatsApi } from "../api/chats";
 import { describeFailure } from "../api/result";
 import { EmptyState } from "../components/EmptyState";
 import { useToast } from "../components/Toast";
-import { normalizeSelection } from "../lib/chat-logic";
 import type { Project } from "../lib/chat-types";
 import { rel } from "../lib/format";
-import { refreshChats, refreshProjects, useChatOptions, useChats, useProjects } from "./queries";
-import { useSingleFlight } from "../lib/use-single-flight";
+import { newChatHash } from "../router/route";
+import { refreshChats, refreshProjects, useChats, useProjects } from "./queries";
 import { ChatListRow } from "./ChatListRow";
 import { FolderChip, FolderPicker } from "./FolderPicker";
 
@@ -15,7 +14,6 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
   const toast = useToast();
   const active = useProjects(false);
   const archivedList = useProjects(true);
-  const options = useChatOptions();
   const chats = useChats(false);
   const project: Project | undefined = [...(active.data ?? []), ...(archivedList.data ?? [])].find((p) => p.id === projectId);
   const [name, setName] = useState("");
@@ -27,16 +25,9 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
       setDescription(project.description);
     }
   }, [project?.id, project?.name, project?.description]);
-  const [newChat, creating] = useSingleFlight(async (): Promise<void> => {
-    const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
-    const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
-    if (res.kind !== "ok") {
-      toast("error", describeFailure(res, "could not create the chat"));
-      return;
-    }
-    void refreshChats();
-    location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
-  });
+  const newChat = (): void => {
+    location.hash = newChatHash({ projectId });
+  };
   if (project === undefined) {
     return <div className="chat-empty"><p className="muted">{active.isLoading ? "Loading…" : "Project not found."}</p></div>;
   }
@@ -81,7 +72,7 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
         <div className="project-actions">
           <button type="submit" className="btn primary" disabled={name.trim() === ""}>Save</button>
           <button type="button" className="btn" onClick={() => void archive()}>{project.archived_at === null ? "Archive project" : "Unarchive project"}</button>
-          <button type="button" className="btn" onClick={() => void newChat()} disabled={project.archived_at !== null || creating}>New chat here</button>
+          <button type="button" className="btn" onClick={newChat} disabled={project.archived_at !== null}>New chat here</button>
         </div>
       </form>
       {picking ? <FolderPicker title="Folder for this project" current={project.path} onPick={pickFolder} onClose={() => { setPicking(false); }} /> : null}

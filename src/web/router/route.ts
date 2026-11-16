@@ -1,7 +1,7 @@
 export type Route =
   | { kind: "list" }
   | { kind: "run"; runId: string }
-  | { kind: "chats"; chatId: string | null; projectId?: string | null }
+  | { kind: "chats"; chatId: string | null; projectId?: string | null; draft?: boolean; folder?: string | null }
   | { kind: "project"; projectId: string }
   | { kind: "profiles" }
   | { kind: "harnesses" }
@@ -12,6 +12,7 @@ export type Route =
 export type RouteKind = Route["kind"];
 
 const RUN_HASH = /^#\/run\/(.+)$/;
+const NEW_CHAT_HASH = /^#\/chats\/new(?:\?(.*))?$/;
 const CHAT_HASH = /^#\/chats\/(.+)$/;
 const PROJECT_HASH = /^#\/projects\/(.+)$/;
 const SECTION_HASHES: Readonly<Record<string, Route>> = {
@@ -39,6 +40,13 @@ export function parseRoute(hash: string): Route {
   const section = SECTION_HASHES[hash];
   if (section !== undefined) {
     return section;
+  }
+  const fresh = NEW_CHAT_HASH.exec(hash);
+  if (fresh !== null) {
+    const params = new URLSearchParams(fresh[1] ?? "");
+    const project = params.get("project");
+    const folder = params.get("folder");
+    return { kind: "chats", chatId: null, projectId: project === null || project === "" ? null : project, draft: true, folder: folder === null || folder === "" ? null : folder };
   }
   const chat = CHAT_HASH.exec(hash);
   if (chat !== null) {
@@ -72,7 +80,9 @@ export function routeKey(route: Route): string {
   return route.kind === "run"
     ? `run:${route.runId}`
     : route.kind === "chats"
-      ? `chats:${route.chatId ?? ""}`
+      ? route.draft === true
+        ? `chats:new:${route.projectId ?? ""}:${route.folder ?? ""}`
+        : `chats:${route.chatId ?? ""}`
       : route.kind === "project"
         ? `project:${route.projectId}`
         : route.kind;
@@ -100,3 +110,16 @@ export const NAV_LINKS: readonly { href: string; label: string }[] = [
   { href: "#/memory", label: "Memory" },
   { href: "#/suggestions", label: "Suggestions" },
 ];
+
+/** The hash of the start page for a new chat, optionally in a project or a folder. Nothing is created until the first message is sent. */
+export function newChatHash(scope: { projectId?: string | null; folder?: string | null } = {}): string {
+  const params = new URLSearchParams();
+  if (scope.projectId !== undefined && scope.projectId !== null && scope.projectId !== "") {
+    params.set("project", scope.projectId);
+  }
+  if (scope.folder !== undefined && scope.folder !== null && scope.folder !== "") {
+    params.set("folder", scope.folder);
+  }
+  const query = params.toString();
+  return `#/chats/new${query === "" ? "" : `?${query}`}`;
+}

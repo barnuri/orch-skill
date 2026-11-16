@@ -3,11 +3,16 @@ import { chatsApi } from "../api/chats";
 import { describeFailure } from "../api/result";
 import { Toggle } from "../components/Toggle";
 import { useToast } from "../components/Toast";
-import { normalizeSelection, visibleChats } from "../lib/chat-logic";
+import { visibleChats } from "../lib/chat-logic";
 import type { Chat, ChatOptions, Project } from "../lib/chat-types";
 import { refreshChats, refreshProjects, useChatSearch, useChats, useProjects } from "./queries";
 import { useSingleFlight } from "../lib/use-single-flight";
 import { ChatListRow, chatMeta } from "./ChatListRow";
+import { requestComposerFocus } from "./composer-focus";
+import { draftScope } from "../lib/chat-draft";
+import { newChatHash } from "../router/route";
+import { setStartSeed } from "./start-seed";
+import { useDraftScopes } from "./use-draft-scopes";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -38,8 +43,9 @@ function ChatRow({ chat, active, onNavigate }: { chat: Chat; active: boolean; on
   return <ChatListRow chat={chat} href={href} active={active} meta={chatMeta(chat)} onNavigate={onNavigate} />;
 }
 
-export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: SidebarProps) {
+export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarProps) {
   const toast = useToast();
+  const drafts = useDraftScopes();
   const [archived, setArchived] = useState(false);
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query, 250);
@@ -66,17 +72,13 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
     return out;
   }, [chats.chats, projects.data, activeChatId, archived]);
 
-  const [newChat, creatingChat] = useSingleFlight(async (projectId: string | null): Promise<void> => {
-    const sel = options === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options, null);
-    const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
-    if (res.kind !== "ok") {
-      toast("error", describeFailure(res, "could not create the chat"));
-      return;
-    }
-    void refreshChats();
+  // Nothing is created here: the start page makes the chat when the first message is sent.
+  const newChat = (projectId: string | null, like?: Chat): void => {
+    setStartSeed(like === undefined ? null : { harness: like.harness, profile: like.profile, model: like.model_id });
+    requestComposerFocus();
     onNavigate();
-    location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
-  });
+    location.hash = newChatHash({ projectId });
+  };
 
   const [addProject, creatingProject] = useSingleFlight(async (): Promise<void> => {
     const res = await chatsApi.createProject({ name: name.trim(), path: path.trim() === "" ? null : path.trim() });
@@ -96,7 +98,8 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
   return (
     <div className="side">
       <div className="side-actions">
-        <button type="button" className="btn primary" disabled={creatingChat} onClick={() => void newChat(activeProjectId)}>
+        <button type="button" className="btn primary" onClick={() => { newChat(activeProjectId); }}>
+          
           New chat
         </button>
         <button
@@ -156,7 +159,21 @@ export function Sidebar({ activeChatId, activeProjectId, options, onNavigate }: 
                     {group.project.name}
                   </a>
                 )}
-                <span className="group-count">{group.chats.length}</span>
+                <span className="group-tools">
+                  {drafts.includes(draftScope(group.project?.id ?? null)) ? <a className="draft-tag" href={newChatHash({ projectId: group.project?.id ?? null })} title="Unsent first message" onClick={onNavigate}>Draft</a> : null}
+                  <span className="group-count">{group.chats.length}</span>
+                  {archived || group.project?.archived_at != null ? null : (
+                    <button
+                      type="button"
+                      className="icon-btn group-add"
+                      aria-label={`New chat in ${group.project === null ? "No project" : group.project.name}`}
+                      title={`New chat in ${group.project === null ? "No project" : group.project.name}`}
+                      onClick={() => { newChat(group.project?.id ?? null, group.chats[0]); }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                    </button>
+                  )}
+                </span>
               </h3>
               {group.chats.map((chat) => (
                 <ChatRow key={chat.id} chat={chat} active={chat.id === activeChatId} onNavigate={onNavigate} />

@@ -3,6 +3,12 @@ import { installDom } from "../test/dom";
 import type { Message } from "../lib/chat-types";
 
 const uninstall = installDom();
+for (const k of ["location", "history", "sessionStorage"] as const) {
+  const w = window as unknown as Record<string, unknown>;
+  if (w[k] !== undefined && (globalThis as Record<string, unknown>)[k] === undefined) {
+    Object.defineProperty(globalThis, k, { value: w[k], configurable: true, writable: true });
+  }
+}
 const { render, screen, fireEvent, cleanup, act, renderHook, waitFor } = await import("@testing-library/react");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { ToastProvider } = await import("../components/Toast");
@@ -56,7 +62,7 @@ describe("double submits", () => {
     expect(result.current[1]).toBe(false);
   });
 
-  test("a double click on New chat creates one chat", async () => {
+  test("clicking New chat only opens the start page: no chat is created", async () => {
     let created = 0;
     Object.assign(chatsApi, {
       projects: async () => ok({ items: [], next_cursor: null }),
@@ -76,10 +82,8 @@ describe("double submits", () => {
     const button = screen.getByRole("button", { name: "New chat" });
     fireEvent.click(button);
     fireEvent.click(button);
-    expect(created).toBe(1);
-    await waitFor(() => {
-      expect((screen.getByRole("button", { name: "New chat" }) as HTMLButtonElement).disabled).toBe(true);
-    });
+    expect(created).toBe(0);
+    expect(location.hash).toBe("#/chats/new");
   });
 });
 

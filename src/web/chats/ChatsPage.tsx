@@ -4,12 +4,15 @@ import { getToken } from "../api/token";
 import { useChatFrame } from "./chat-frame";
 import { chatOnlyUrl } from "./chat-only-link";
 import { useToast } from "../components/Toast";
-import { isSearchShortcut, keyboardInset, keyboardOpen, normalizeSelection } from "../lib/chat-logic";
+import { isSearchShortcut, keyboardInset, keyboardOpen } from "../lib/chat-logic";
+import { chatIsWaiting } from "../lib/chat-waiting";
+import { useRoute } from "../router/use-route";
 import { ChatView } from "./ChatView";
 import { ProjectView } from "./ProjectView";
 import { Sidebar } from "./Sidebar";
-import { refreshChats, useChatOptions, useChats } from "./queries";
-import { useSingleFlight } from "../lib/use-single-flight";
+import { SIDE_PANEL_ID, SideFloat, SideHead, SideRail, useSidebarMode } from "./SidebarChrome";
+import { StartPage } from "./StartPage";
+import { useChatOptions, useChats } from "./queries";
 
 interface Props {
   chatId: string | null;
@@ -22,11 +25,15 @@ export const DRAWER_QUERY: string = "(max-width: 768px), (max-height: 500px) and
 /** Desktop: sidebar + conversation. Phone: the conversation alone, with the sidebar as a slide-over drawer. */
 export function ChatsPage({ chatId, projectId }: Props) {
   const { standalone } = useChatFrame();
+  useWaitingTitle();
   const [drawer, setDrawer] = useState(false);
   const options = useChatOptions();
   const chats = useChats(false);
-  useWaitingTitle();
   const toast = useToast();
+  const route = useRoute();
+  const draftRoute = route.kind === "chats" && route.draft === true ? route : null;
+  const toggleDrawer = useCallback((): void => { setDrawer((d) => !d); }, []);
+  const side = useSidebarMode(toggleDrawer);
 
   useEffect(() => {
     document.body.classList.add("chats-page");
@@ -83,6 +90,8 @@ export function ChatsPage({ chatId, projectId }: Props) {
       e.preventDefault();
       if (window.matchMedia(DRAWER_QUERY).matches) {
         setDrawer(true);
+      } else if (side.wide && side.mode !== "open") {
+        side.change("open");
       }
       setTimeout(() => {
         const box = document.getElementById("chat-search");
@@ -96,47 +105,36 @@ export function ChatsPage({ chatId, projectId }: Props) {
     return () => {
       document.removeEventListener("keydown", onKey);
     };
-  }, []);
+  }, [side.wide, side.mode, side.change]);
 
   const open = (): void => { setDrawer(true); };
   const close = (): void => { setDrawer(false); };
-  const [startChat, starting] = useSingleFlight(async (): Promise<void> => {
-    // Never blocked: the first enabled harness is the default, and a chat with none is still created (the composer says why).
-    const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
-    const res = await chatsApi.createChat({ project_id: null, harness: sel.harness, profile: sel.profile, model_id: sel.model });
-    if (res.kind === "ok") {
-      void refreshChats();
-      location.hash = `#/chats/${encodeURIComponent(res.body.id)}`;
-    } else {
-      toast("error", "could not create the chat");
-    }
-  });
-
+  const collapsed = side.wide && side.mode !== "open";
   return (
-    <div className="chats-layout" data-drawer={drawer || undefined}>
-      <aside className="chats-side" aria-label="Projects and chats">
-        <button type="button" className="icon-btn side-close" aria-label="Close" onClick={close}>×</button>
-        <Sidebar activeChatId={chatId} activeProjectId={projectId} options={options.data} onNavigate={close} />
-        {standalone ? null : (
-          <div className="side-chat-only">
-            <a className="btn" href={chatOnlyUrl(location.origin, chatId, getToken())} target="_blank" rel="noopener">Open chat-only</a>
-            <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(chatOnlyUrl(location.origin, chatId, null)).then(() => { toast("ok", "link copied"); })}>Copy link</button>
-          </div>
-        )}
+    <div className="chats-layout" data-drawer={drawer || undefined} data-side={side.wide ? side.mode : "open"}>
+      <aside id={SIDE_PANEL_ID} className="chats-side" aria-label="Projects and chats">
+        {side.wide && side.mode === "rail" ? <SideRail waiting={chats.chats.some(chatIsWaiting)} projectId={projectId} onChange={side.change} onNavigate={close} /> : null}
+        <div className="side-full" hidden={collapsed}>
+          <button type="button" className="icon-btn side-close" aria-label="Close" onClick={close}>×</button>
+          {side.wide ? <SideHead onChange={side.change} /> : null}
+          <Sidebar activeChatId={chatId} activeProjectId={projectId} options={options.data} onNavigate={close} />
+          {standalone ? null : (
+            <div className="side-chat-only">
+              <a className="btn" href={chatOnlyUrl(location.origin, chatId, getToken())} target="_blank" rel="noopener">Open chat-only</a>
+              <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(chatOnlyUrl(location.origin, chatId, null)).then(() => { toast("ok", "link copied"); })}>Copy link</button>
+            </div>
+          )}
+        </div>
       </aside>
+      {side.wide && side.mode === "hidden" ? <SideFloat onChange={side.change} /> : null}
       {drawer ? <div className="scrim" onClick={close} aria-hidden="true" /> : null}
       <section className="chats-main">
         {chatId !== null ? (
           <ChatView key={chatId} chatId={chatId} onOpenDrawer={open} />
-        ) : projectId !== null ? (
+        ) : projectId !== null && draftRoute === null ? (
           <ProjectView key={projectId} projectId={projectId} onOpenDrawer={open} />
         ) : (
-          <div className="chat-empty">
-            <button type="button" className="icon-btn drawer-btn" aria-label="Projects and chats" onClick={open}>☰</button>
-            <h1>Chats</h1>
-            <p className="muted">{chats.chats.length === 0 ? "No chats yet. Everything you send is saved here." : "Pick a chat on the left, or start a new one."}</p>
-            <button type="button" className="btn primary" disabled={starting} onClick={() => void startChat()}>New chat</button>
-          </div>
+          <StartPage key={`${draftRoute?.projectId ?? ""}|${draftRoute?.folder ?? ""}`} projectId={draftRoute?.projectId ?? null} folder={draftRoute?.folder ?? null} onOpenDrawer={open} />
         )}
       </section>
     </div>
