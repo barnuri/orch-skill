@@ -1,0 +1,14 @@
+# Phase: run lifecycle (list, retry, sync, cancel, prune). Each line runs on a fresh seeded home.
+run list
+run retry
+run retry no-such-run
+run retry r1 --bogus
+run sync
+run sync no-such-run
+run sync r1 --bogus
+__run-cancel
+__run-cancel no-such-run
+prune --bogus
+prune --older-than x
+prune --dry-run
+prune --older-than 1h --dry-run
