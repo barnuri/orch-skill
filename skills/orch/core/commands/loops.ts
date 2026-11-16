@@ -284,7 +284,7 @@ async function loopRun(args: string[]): Promise<number> {
     const prompt = `${readFileSync(join(dir, "prompt.txt"), "utf8")}\n\nTo end this loop, write STOP to the file at ${control}.`;
     const log = join(dir, `iter-${iter}.log`);
     const fd = openSync(log, "w");
-    const p = Bun.spawn(["bash", process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.sh"), "run", ...(kind === "profile" ? ["--profile", name] : [name]), prompt, ...targetArgs], {
+    const p = Bun.spawn([process.execPath, process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.ts"), "run", ...(kind === "profile" ? ["--profile", name] : [name]), prompt, ...targetArgs], {
       stdin: "ignore", stdout: fd, stderr: fd, env: env as any,
     });
     const rc = (await p.exited) ?? 1;

@@ -34,7 +34,7 @@ export async function init(args: string[]): Promise<number> {
     await trashPath(home, p);
     if (!process.env.ORCH_INSTALL_QUIET) process.stderr.write(`orch: moved legacy dashboard leftover ${n}\n`);
   }
-  const dispatch = process.env.ORCH_DISPATCH || resolve(import.meta.dir, "../../scripts/dispatch.sh");
+  const dispatch = process.env.ORCH_DISPATCH || resolve(import.meta.dir, "../../scripts/dispatch.ts");
   try {
     const tmp = join(home, `.dispatch-path.tmp.${process.pid}`);
     writeFileSync(tmp, realpathSync(dispatch) + "\n");

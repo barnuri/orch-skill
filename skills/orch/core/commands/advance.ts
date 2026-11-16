@@ -19,8 +19,8 @@ const out = (s: string) => void process.stdout.write(s);
 const err = (s: string) => void process.stderr.write(s);
 
 async function runSync(runId: string): Promise<boolean> {
-  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.sh");
-  const p = Bun.spawn(["bash", dispatch, "run", "sync", runId], { stdin: "ignore", stdout: "ignore", stderr: "inherit", env: process.env as Record<string, string> });
+  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
+  const p = Bun.spawn([process.execPath, dispatch, "run", "sync", runId], { stdin: "ignore", stdout: "ignore", stderr: "inherit", env: process.env as Record<string, string> });
   return (await p.exited) === 0;
 }
 

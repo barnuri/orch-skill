@@ -37,12 +37,17 @@ import { cmdHub } from "./adapters/hub.ts";
 import { runStart, runList, runRetry, runSync, runCancel, prune } from "./commands/runs.ts";
 import { nodeUsage, nodeCost, nodeOut, nodeDigest, nodeRemove, nodePing } from "./commands/node-ops.ts";
 import { adapterUtil } from "./commands/adapter-util.ts";
+import { classifyCommand, budgetCheckCommand, statusCommand, tailCommand, waitCommand, listCommand } from "./commands/jobs.ts";
+import { USAGE } from "./usage.ts";
+import { BIN_ORCH, spawnDetached } from "./state/proc.ts";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const VERSION = "0.1.0";
 
 export type Handler = (args: string[]) => Promise<number> | number;
 
-// Ported `<group> <verb>` commands. Keep in step with PORTED_COMMANDS in scripts/dispatch.sh.
+// `<group> <verb>` commands.
 export const COMMANDS: Record<string, Handler> = {
   "run start": runStart, "run list": runList, "run retry": runRetry, "run sync": runSync, "__run-cancel": runCancel, prune: (a) => prune(a),
   "node usage": nodeUsage, "node cost": nodeCost, "node out": nodeOut, "node digest": nodeDigest, "node remove": nodeRemove, "node ping": nodePing,
@@ -149,24 +154,56 @@ export function parseArgv(argv: string[]): { flags: Set<string>; words: string[]
   return { flags, words };
 }
 
-function usage(): string {
-  return [
-    "usage: orch --version | orch <group> <verb> [args...]",
-    "ported commands: " + (Object.keys(COMMANDS).join(", ") || "(none)"),
-  ].join("\n");
+const usage = (): string => USAGE;
+
+// After a state mutation, refresh the Herdr label and status line in the background. Debounced (5 s),
+// skipped for the dashboard server (ORCH_NO_ANNOUNCE=1) and outside Herdr and agent sessions.
+function announceHook(argv: string[]): void {
+  const [a, b] = argv;
+  const hit = (a === "run" && ["start", "finish", "sync"].includes(b ?? "")) || (a === "node" && ["update", "report", "ping", "dispatch", "batch"].includes(b ?? ""));
+  if (!hit || process.env.ORCH_NO_ANNOUNCE === "1") return;
+  if (process.env.HERDR_ENV !== "1" && !process.env.CLAUDE_CODE_SESSION_ID && !process.env.OPENCODE_SESSION_ID) return;
+  try {
+    const home = orchHome();
+    const stamp = join(home, ".announce-ts");
+    const now = Math.floor(Date.now() / 1000);
+    const last = existsSync(stamp) ? Number(readFileSync(stamp, "utf8").trim()) || 0 : 0;
+    if (now - last < 5) return;
+    mkdirSync(home, { recursive: true });
+    const tmp = `${stamp}.${process.pid}`;
+    writeFileSync(tmp, `${now}\n`);
+    renameSync(tmp, stamp);
+    spawnDetached([process.execPath, BIN_ORCH, "announce", "--quiet"], null);
+  } catch {}
 }
 
 export async function main(argv: string[], opts: { direct?: boolean } = {}): Promise<number> {
+  const rc = await mainInner(argv, opts);
+  announceHook(argv);
+  return rc;
+}
+
+async function mainInner(argv: string[], opts: { direct?: boolean }): Promise<number> {
   const { flags, words } = parseArgv(argv);
   if (flags.has("--version")) {
     process.stdout.write(`orch ${VERSION}\n`);
     return 0;
   }
-  if (words.length === 0 || flags.has("--help") || flags.has("-h")) {
+  if (words.length === 0 || flags.has("--help") || words[0] === "-h") {
     process.stdout.write(usage() + "\n");
     return 0;
   }
   if (words[0] === "doctor" && words.length === 1) return doctor();
+  if (words[0] === "version") {
+    process.stdout.write(`orch ${VERSION}\n`);
+    return 0;
+  }
+  if (words[0] === "classify") return classifyCommand(argv.slice(1));
+  if (words[0] === "budget-check") return budgetCheckCommand();
+  if (words[0] === "status") return statusCommand(argv.slice(1));
+  if (words[0] === "tail") return tailCommand(argv.slice(1));
+  if (words[0] === "wait") return waitCommand(argv.slice(1));
+  if (words[0] === "list") return listCommand();
   // `run (--profile P | <adapter>) <prompt>` and `start ...` spawn an adapter. They take the raw argv
   // (flags included). `run <verb>` stays with the run-state commands.
   const RUN_ADAPTERS = ["--profile", "claude", "claude-native", "cursor-agent", "local-llm", "opencode", "copilot", "pi"];
@@ -209,7 +246,7 @@ export async function main(argv: string[], opts: { direct?: boolean } = {}): Pro
   const resolved = resolveCommand(words);
   if (!resolved) {
     const key = `${words[0]} ${words[1] ?? ""}`.trim();
-    process.stderr.write(`orch: unknown command '${key}'\n${usage()}\n`);
+    process.stderr.write(`unknown subcommand: ${words[0]}\n${usage()}\n`);
     return 2;
   }
   const handler = COMMANDS[resolved.key];

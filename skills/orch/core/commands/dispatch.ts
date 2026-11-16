@@ -21,7 +21,7 @@ const RUN_STATUSES = ["done", "error", "cancelled"];
 export const VALID_HARNESSES = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
 export const ADAPTER_NAMES = ["claude-native", ...VALID_HARNESSES];
 
-const dispatchPath = () => process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.sh");
+const dispatchPath = () => process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
 
 export async function nodeOutDir(home: string, runId: string, nodeId: string, run?: RunState | null): Promise<string> {
   const r = run ?? (await loadRun(home, runId));
@@ -351,7 +351,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
 async function learningAfterFinish(home: string): Promise<void> {
   const doc = await loadProfilesDoc(home);
   if (String(doc.settings?.["learning.auto_scan_on_finish"] ?? "true") !== "true") return;
-  const p = Bun.spawn(["bash", dispatchPath(), "suggest", "scan"], { env: { ...process.env, ORCH_BASH: "1", HARNESS_ORCH_HOME: home }, stdout: "ignore", stderr: "ignore" });
+  const p = Bun.spawn([process.execPath, dispatchPath(), "suggest", "scan"], { env: { ...process.env, HARNESS_ORCH_HOME: home }, stdout: "ignore", stderr: "ignore" });
   await p.exited;
 }
 

@@ -461,8 +461,8 @@ function herdrBoot(home: string): void {
   const flag = env().ORCH_HERDR ?? "";
   if (["0", "false", "off"].includes(flag) || !Bun.which("herdr")) return;
   try {
-    const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.sh");
-    Bun.spawn(["bash", dispatch, "herdr", "ensure"], {
+    const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.ts");
+    Bun.spawn([process.execPath, dispatch, "herdr", "ensure"], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true, env: { ...env(), HARNESS_ORCH_HOME: home } as Record<string, string>,
     }).unref();
   } catch {}

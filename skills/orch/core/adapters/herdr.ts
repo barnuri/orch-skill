@@ -331,7 +331,7 @@ const launchTs = () => join(dirname(import.meta.dir), "commands", "herdr-launch.
 
 // Runs the job in its own tab of the run's workspace. Returns false when nothing runs there
 // (disabled, herdr missing, unreachable, pane cap), so the caller falls back to a detached job.
-export async function startJob(home: string, jobDir: string, startScript: string, argv: string[]): Promise<boolean> {
+export async function startJob(home: string, jobDir: string, argv: string[]): Promise<boolean> {
   if (!(await herdrEnabled(home))) return false;
   if ((await herdrOrch(home, "ensure")) !== 0) return false;
   const inst = instHome(home);
@@ -363,7 +363,7 @@ export async function startJob(home: string, jobDir: string, startScript: string
   const owner = ownerFile(home, tabId);
   mkdirSync(dirname(owner), { recursive: true });
   writeFileSync(owner, `${jobDir}\n`);
-  writeFileSync(join(jobDir, "argv.json"), JSON.stringify(["bash", "-c", startScript, "_", ...argv]));
+  writeFileSync(join(jobDir, "argv.json"), JSON.stringify(argv));
   const launcher = join(jobDir, "herdr-launch.sh");
   writeLauncher(launcher, jobDir, launchTs());
   await herdrCli(home, ["pane", "rename", paneId, title]);
@@ -484,8 +484,8 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
     // Internal verbs for the bash call sites that remain in dispatch.sh.
     case "enabled": return (await herdrEnabled(home)) ? 0 : 1;
     case "start-job": {
-      const [jobDir, script, ...argv] = args;
-      return (await startJob(home, jobDir, script, argv)) ? 0 : 1;
+      const [jobDir, ...argv] = args;
+      return (await startJob(home, jobDir!, argv)) ? 0 : 1;
     }
     case "close-tab": await closeJobTab(home, args[0] ?? ""); return 0;
     case "job-gone-note": process.stdout.write(jobGoneNote(args[0] ?? "") + "\n"); return 0;

@@ -1,15 +1,15 @@
-// spawnNode: starts one detached job for a node. Default is a bridge to `dispatch.sh start` (bash adapters);
+// spawnNode: starts one detached job for a node. Default is a bridge to `dispatch.ts start`;
 // the adapters port replaces it through setSpawnNode.
 import { join } from "node:path";
 import type { SpawnJob, SpawnNode, SpawnResult } from "./types.ts";
 
 const bridge: SpawnNode = async (job: SpawnJob): Promise<SpawnResult> => {
-  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.sh");
-  const argv = ["bash", dispatch, "start"];
+  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
+  const argv = [process.execPath, dispatch, "start"];
   if (job.target.kind === "profile") argv.push("--profile", job.target.name);
   else argv.push(job.target.name);
   argv.push(job.prompt, ...job.args);
-  const env: Record<string, string> = { ...(process.env as Record<string, string>), ...job.env, ORCH_BASH: "1", HARNESS_ORCH_HOME: job.home };
+  const env: Record<string, string> = { ...(process.env as Record<string, string>), ...job.env, HARNESS_ORCH_HOME: job.home };
   if (job.resumeSession) env.ORCH_RESUME_SESSION = job.resumeSession;
   const p = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);

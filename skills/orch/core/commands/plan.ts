@@ -192,9 +192,9 @@ Before you start, read the handoff files in: ${inputs}
 When you finish, write your handoff (what you did, what changed, anything the next task must know or read) to $ORCH_NODE_OUT/handoff.md.
 Running in parallel with you: ${parallel || "none"}. Stay inside your own task's files.
 Talk to the coordinator or another task through the run mailbox:
-  bash "$ORCH_DISPATCH" msg send ${runId} --to orch "<text>"          # blockers, questions, scope changes
-  bash "$ORCH_DISPATCH" msg send ${runId} --to <task-id>|all "<text>" # a heads-up another task needs
-  bash "$ORCH_DISPATCH" msg read ${runId}                            # messages for you
+  bun "$ORCH_DISPATCH" msg send ${runId} --to orch "<text>"          # blockers, questions, scope changes
+  bun "$ORCH_DISPATCH" msg send ${runId} --to <task-id>|all "<text>" # a heads-up another task needs
+  bun "$ORCH_DISPATCH" msg read ${runId}                            # messages for you
 Read your messages before you start and again before you finish.
 `;
 }
