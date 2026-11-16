@@ -389,7 +389,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
     return (
       <div className="graph-shell">
         <div className="graph graph-empty">
-          <div className="empty">No nodes yet. Add some with dispatch.sh node add.</div>
+          <div className="empty">No nodes yet. Add some with dispatch.ts node add.</div>
         </div>
       </div>
     );

@@ -1,7 +1,7 @@
 export type ActiveKind = "loop" | "watch";
 export type ActiveStatus = "running" | "failed" | "lost";
 
-/** One running (or needs-attention) loop or watch, as `dispatch.sh active --json` reports it. */
+/** One running (or needs-attention) loop or watch, as `dispatch.ts active --json` reports it. */
 export interface ActiveItem {
   kind: ActiveKind;
   id: string;

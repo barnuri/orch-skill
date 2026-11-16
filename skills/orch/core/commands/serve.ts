@@ -16,13 +16,13 @@ const STOP_WAIT_TICKS = 50;
 export const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi";
 export const VALID_OUTCOMES = "success failure partial";
 
-export const SERVE_USAGE = "dispatch.sh serve [--host H] [--port P] | serve --stop";
-export const ARTIFACT_USAGE = "dispatch.sh artifact <run-id> [--out DIR]";
-export const SERVE_STATUS_USAGE = "dispatch.sh serve status [--json]";
-export const SERVE_RECOVER_USAGE = "dispatch.sh serve recover [--start|--no-start]";
+export const SERVE_USAGE = "dispatch.ts serve [--host H] [--port P] | serve --stop";
+export const ARTIFACT_USAGE = "dispatch.ts artifact <run-id> [--out DIR]";
+export const SERVE_STATUS_USAGE = "dispatch.ts serve status [--json]";
+export const SERVE_RECOVER_USAGE = "dispatch.ts serve recover [--start|--no-start]";
 export const SERVE_CONFIG_USAGE =
-  "dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]";
-export const UI_USAGE = "dispatch.sh ui [--stop]";
+  "dispatch.ts serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]";
+export const UI_USAGE = "dispatch.ts ui [--stop]";
 
 const ROOT = resolve(import.meta.dir, "../../../..");
 const SRC_DIR = join(ROOT, "src");
@@ -264,7 +264,7 @@ async function serveRunning(home: string): Promise<number> {
   }
   if (!port) return 1;
   if (await serveProbe(port)) return 0;
-  err(`ui: pid ${pid} is alive but nothing answers on 127.0.0.1:${port}; run dispatch.sh ui --stop to reset\n`);
+  err(`ui: pid ${pid} is alive but nothing answers on 127.0.0.1:${port}; run dispatch.ts ui --stop to reset\n`);
   return 3;
 }
 
@@ -461,8 +461,8 @@ function herdrBoot(home: string): void {
   const flag = env().ORCH_HERDR ?? "";
   if (["0", "false", "off"].includes(flag) || !Bun.which("herdr")) return;
   try {
-    const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.sh");
-    Bun.spawn(["bash", dispatch, "herdr", "ensure"], {
+    const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.ts");
+    Bun.spawn([process.execPath, dispatch, "herdr", "ensure"], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true, env: { ...env(), HARNESS_ORCH_HOME: home } as Record<string, string>,
     }).unref();
   } catch {}
@@ -482,7 +482,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   const f = serveFiles(home);
   const rc = await serveRunning(home);
   if (rc === 0) {
-    err(`serve: already running on ${readText(f.host)}:${readText(f.port)} (pid ${readText(f.pid)}); use dispatch.sh serve --stop first\n`);
+    err(`serve: already running on ${readText(f.host)}:${readText(f.port)} (pid ${readText(f.pid)}); use dispatch.ts serve --stop first\n`);
     return 1;
   }
   if (rc === 3) return 1;

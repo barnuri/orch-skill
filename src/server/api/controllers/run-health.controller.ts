@@ -22,7 +22,7 @@ export class RunHealthController {
   @Get("/health/summary", {
     summary: "Node-health counts",
     description:
-      "Stalled, dead, unowned, no-report and ready node counts over the running runs, from the health watcher's in-memory results, plus `herdr`: the orch herdr instance's latest `dispatch.sh herdr health --json` (the server re-checks it every minute with --nudge; the first read runs one check). The dashboard header polls it.",
+      "Stalled, dead, unowned, no-report and ready node counts over the running runs, from the health watcher's in-memory results, plus `herdr`: the orch herdr instance's latest `dispatch.ts herdr health --json` (the server re-checks it every minute with --nudge; the first read runs one check). The dashboard header polls it.",
   })
   @ResponseSchema(HealthSummaryDto.schema, { description: "The counts." })
   getHealthSummary(c: ApiContext): Promise<Response> {
@@ -32,7 +32,7 @@ export class RunHealthController {
   @Get("/runs/{id}/health", {
     summary: "A run's node health",
     description:
-      "The latest `dispatch.sh run health <id> --json` result, kept in memory by the server's health watcher (or read from the run's `health:<id>` monitor): a verdict per node (ok, stalled, unowned, dead, no-report), the free slots and the nodes ready to start. Runs one check when nothing is cached yet; `health` is null until a check succeeds. Answers 404 for an unknown run.",
+      "The latest `dispatch.ts run health <id> --json` result, kept in memory by the server's health watcher (or read from the run's `health:<id>` monitor): a verdict per node (ok, stalled, unowned, dead, no-report), the free slots and the nodes ready to start. Runs one check when nothing is cached yet; `health` is null until a check succeeds. Answers 404 for an unknown run.",
   })
   @Param(RunIdParamsDto.schema)
   @ResponseSchema(RunHealthEnvelopeDto.schema, { description: "The latest check." })

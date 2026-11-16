@@ -1,5 +1,5 @@
 /**
- * Node run time, from the timing fields `dispatch.sh` writes (lib/runs/timing.sh):
+ * Node run time, from the timing fields `dispatch.ts` writes (lib/runs/timing.sh):
  * `dispatched_at` (trigger), `started_at` (first real activity), `finished_at`, the open segment
  * flag `seg_open`, and `run_segments` (one closed {dispatched, start, end} per earlier attempt).
  * Duration counts only time actually running, summed over attempts, minus the run's paused or

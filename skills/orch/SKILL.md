@@ -16,9 +16,9 @@ allowed-tools: Bash(bash *), Monitor, TaskOutput, Read, AskUserQuestion
 The agent running this skill is the coordinator. It decides *what* runs *where*, records every
 state change with one short script call, and reports results. The dispatched harnesses do the work.
 
-All mechanics live in `<skill-dir>/scripts/dispatch.sh` (`<skill-dir>` is this skill's base
+All mechanics live in `<skill-dir>/scripts/dispatch.ts` (`<skill-dir>` is this skill's base
 directory, stated by the harness when it loads the skill). Below, `orch <sub>` is shorthand for
-`bash <skill-dir>/scripts/dispatch.sh <sub>`. Never re-implement what the script does, and never
+`bun <skill-dir>/scripts/dispatch.ts <sub>`. Never re-implement what the script does, and never
 hand-edit the files it owns — every mutation goes through a subcommand so the dashboard stays true.
 
 Everything user-facing lives in `~/.harness-orch/` (override with `HARNESS_ORCH_HOME`):
@@ -27,10 +27,10 @@ subcommand grammar: [state-and-config.md](references/state-and-config.md).
 
 ## Step 0 — Bootstrap (once per machine, idempotent)
 
-orch requires Bun. Check it first: `command -v bun`. If it prints nothing, tell the user: "orch requires bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again", and stop. `dispatch.sh` exits 127 with the same message when bun is missing.
+orch requires Bun. Check it first: `command -v bun`. If it prints nothing, tell the user: "orch requires bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again", and stop. `dispatch.ts` exits 127 with the same message when bun is missing.
 
 ```bash
-dispatch.sh doctor    # bun version, home path, herdr availability
+dispatch.ts doctor    # bun version, home path, herdr availability
 orch init            # creates ~/.harness-orch with template profiles.json and an empty memory.json
 orch profile list    # name, harness, model — `*` marks settings.default_profile
 orch memory list -n 20
@@ -101,10 +101,10 @@ If the choice materially changes cost or risk and none of the three sources sett
 
 ### llm-hub native mode (the hub picks every model)
 
-When `dispatch.sh hub status` prints `mode: smart-auto`, do not pick models or profiles. llm-hub is
+When `dispatch.ts hub status` prints `mode: smart-auto`, do not pick models or profiles. llm-hub is
 the model brain. orch runs the graph, loops and monitors.
 
-- Setup, once: `dispatch.sh hub setup [--harness opencode|claude|copilot|pi]` (default opencode).
+- Setup, once: `dispatch.ts hub setup [--harness opencode|claude|copilot|pi]` (default opencode).
   It checks `$LLM_HUB_URL/healthz`, enables the harness, makes `<harness>-smart-auto` the default
   and planner profile, and turns the mode on. `hub off` turns it off.
 - Give every node a `--role` (planning, investigation, implementation, validation, conversation)
@@ -388,7 +388,7 @@ fix the cause in the skill or the dispatcher, not only in the run. Record each l
 
 Speed rules for the coordinator:
 - Run deterministic work (tests, typecheck, commits, restarts, status reads, file checks) as plain
-  commands in the coordinator, not through an agent. Use `dispatch.sh` subcommands for state changes.
+  commands in the coordinator, not through an agent. Use `dispatch.ts` subcommands for state changes.
 - Start every node whose dependencies are done at once. Never wait on a node that does not block the next one.
 - Read `state.json` fresh before reporting a status. Keep `run wait --follow` running so a finished node is
   acted on within a minute, not at the next user prompt.
@@ -493,7 +493,7 @@ text ends the turn and stalls every parallel node until the user happens to repl
 
 ## Offline mode (dashboard down)
 
-**The CLI is the source of truth.** Every mutation goes through `dispatch.sh` straight to
+**The CLI is the source of truth.** Every mutation goes through `dispatch.ts` straight to
 `~/.harness-orch/` — runs, jobs, profiles, memory and suggestions. If the dashboard server is
 down, stopped, or unreachable, **keep orchestrating exactly as above** (`run start`, `node add`,
 `node dispatch`, `run sync`, `run finish`, `profile pick`, `memory add`, …). Nothing in Step 3–4
@@ -670,7 +670,7 @@ orch schedule next "<cron>"     # check an expression before saving it
   A prompt run is a normal `start` job, so it shows in the run list and honours the profile.
 - One run at a time per schedule: a tick that finds the previous run still going skips it.
   A time missed while the server was down fires once on the next tick, not once per missed minute.
-- State is `<home>/schedules/<id>/schedule.json`. Only `dispatch.sh schedule …` writes it.
+- State is `<home>/schedules/<id>/schedule.json`. Only `dispatch.ts schedule …` writes it.
 - Dashboard: the Schedules page (`#/schedules`) lists them with run history and output, and creates,
   pauses, runs and deletes them (`/api/schedules`). With no server running, nothing fires: use
   `orch schedule tick` from your own cron, or start the service.

@@ -23,7 +23,7 @@ interface Spawned {
 }
 
 export async function dispatchSchedule(ctx: ServerContext, args: readonly string[]): Promise<Spawned> {
-  const proc = Bun.spawn(["bash", dispatchPath(), "schedule", ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), "schedule", ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
     stderr: "pipe",
@@ -65,7 +65,7 @@ function text(value: unknown, max: number): string | null {
   return typeof value === "string" && value.length > 0 && value.length <= max ? value : null;
 }
 
-// Every value reaches dispatch.sh as its own argv entry, never through a shell string.
+// Every value reaches dispatch.ts as its own argv entry, never through a shell string.
 function createArgs(body: Record<string, unknown>): string[] | string {
   const name = text(body["name"], MAX_SHORT);
   const cron = text(body["cron"], MAX_SHORT);
@@ -164,7 +164,7 @@ function editArgs(id: string, body: ScheduleEdit): string[] | string {
   return args.length === 2 ? "nothing to change" : args;
 }
 
-/** Changes a schedule through `dispatch.sh schedule edit`, from an already-validated body (see ScheduleEditDto). */
+/** Changes a schedule through `dispatch.ts schedule edit`, from an already-validated body (see ScheduleEditDto). */
 export async function editSchedule(ctx: ServerContext, id: string, body: ScheduleEdit): Promise<Response> {
   if (!SCHEDULE_ID.test(id)) {
     return badRequest("invalid schedule id");

@@ -1,4 +1,4 @@
-// `dispatch.sh doctor`: prints the runtime facts a caller needs to diagnose orch on this host.
+// `dispatch.ts doctor`: prints the runtime facts a caller needs to diagnose orch on this host.
 // Bun built-ins only. Reads no state files and needs no jq.
 
 import { existsSync } from "node:fs";

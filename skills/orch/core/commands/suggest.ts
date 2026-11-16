@@ -7,12 +7,12 @@ import { modelIdResolve, modelSlugResolve, type Catalog } from "../adapters/rout
 import { ensureHome, serveDiagnose, serveRecover, VALID_OUTCOMES } from "./serve.ts";
 import { quietStderr } from "../io.ts";
 
-export const SCAN_USAGE = "dispatch.sh suggest scan";
-export const LIST_USAGE = "dispatch.sh suggest list [--pending]";
-export const APPLY_USAGE = "dispatch.sh suggest apply <id> | apply --all | apply --id ID [--id ID...] [--json]";
-export const DISMISS_USAGE = "dispatch.sh suggest dismiss <id>";
-export const SYNC_USAGE = "dispatch.sh sync [--no-serve]";
-export const MEMORY_ADD_USAGE = 'dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]';
+export const SCAN_USAGE = "dispatch.ts suggest scan";
+export const LIST_USAGE = "dispatch.ts suggest list [--pending]";
+export const APPLY_USAGE = "dispatch.ts suggest apply <id> | apply --all | apply --id ID [--id ID...] [--json]";
+export const DISMISS_USAGE = "dispatch.ts suggest dismiss <id>";
+export const SYNC_USAGE = "dispatch.ts sync [--no-serve]";
+export const MEMORY_ADD_USAGE = 'dispatch.ts memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]';
 
 type Sug = Record<string, any>;
 type SugFile = { generated_at?: string; suggestions: Sug[] };
@@ -413,8 +413,8 @@ export async function suggestCommand(args: string[]): Promise<number> {
 }
 
 export async function dispatchSh(args: string[]): Promise<{ code: number; stdout: string }> {
-  const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.sh");
-  const p = Bun.spawn(["bash", dispatch, ...args], {
+  const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.ts");
+  const p = Bun.spawn([process.execPath, dispatch, ...args], {
     stdin: "ignore", stdout: "pipe", stderr: "inherit",
     env: { ...env(), HARNESS_ORCH_HOME: ioHome() } as Record<string, string>,
   });

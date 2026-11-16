@@ -27,7 +27,7 @@ export class NodeHealthDto extends ZodDto {
   note!: string | null;
 }
 
-@ZodObject({ description: "The output of `dispatch.sh run health <id> --json`." })
+@ZodObject({ description: "The output of `dispatch.ts run health <id> --json`." })
 export class RunHealthDto extends ZodDto {
   @ZodField(z.string(), { description: "Run id." })
   run!: string;
@@ -68,7 +68,7 @@ export class RunHealthEnvelopeDto extends ZodDto {
   health!: RunHealthDto | null;
 }
 
-@ZodObject({ description: "The orch skill's own herdr instance and its herdr web env (`dispatch.sh herdr health --json`)." })
+@ZodObject({ description: "The orch skill's own herdr instance and its herdr web env (`dispatch.ts herdr health --json`)." })
 export class HerdrHealthDto extends ZodDto {
   @ZodField(z.enum(["ok", "degraded", "down", "off"]), {
     description: "`ok`; `degraded`: up, but its herdr web registry file is missing or wrong, or herdr web does not list it; `down`: the instance does not answer; `off`: herdr is disabled.",

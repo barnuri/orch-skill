@@ -74,7 +74,7 @@ export class SchedulesController {
 
   @Put("/schedules/{id}", {
     summary: "Change a schedule",
-    description: "Changes the name, timetable, prompt, profile, command, working directory or time limit through `dispatch.sh schedule edit`. Omitted fields stay as they are; the id, creation time, paused state and run history are kept, and the next run is recomputed only when the timetable changes. Answers 400 with the CLI's message for an invalid value and 404 for a schedule that does not exist.",
+    description: "Changes the name, timetable, prompt, profile, command, working directory or time limit through `dispatch.ts schedule edit`. Omitted fields stay as they are; the id, creation time, paused state and run history are kept, and the next run is recomputed only when the timetable changes. Answers 400 with the CLI's message for an invalid value and 404 for a schedule that does not exist.",
   })
   @Param(ScheduleIdParamsDto.schema)
   @Body(ScheduleEditDto.schema)

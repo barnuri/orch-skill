@@ -18,7 +18,7 @@ const SANITY_TIMEOUT_MS: number = 210_000;
  * the 2 s poll and every other request until the last probe returned.
  */
 async function dispatchSanity(args: readonly string[]): Promise<Response> {
-  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",

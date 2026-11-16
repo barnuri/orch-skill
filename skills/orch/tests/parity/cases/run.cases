@@ -1,8 +1,0 @@
-# Adapter run (sync). No harness binary is needed: the cases cover claude-native, usage and profile errors.
-run claude-native "hello"
-run claude-native @/no/such/prompt-file
-run --profile
-run --profile nope "hi"
-run --profile opencode-haiku-exec
-run local-llm "hi"
-run pi "hi"

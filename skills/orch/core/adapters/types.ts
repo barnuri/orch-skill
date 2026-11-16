@@ -1,6 +1,6 @@
 // Contract between the node commands and the harness adapters. The commands call spawnNode(job) and
 // know nothing else about a harness. The adapters port (take-adapters) supplies the real function with
-// setSpawnNode(); until then spawn.ts bridges to `dispatch.sh start`.
+// setSpawnNode(); until then spawn.ts bridges to `dispatch.ts start`.
 export interface SpawnJob {
   home: string;
   runId: string;

@@ -219,7 +219,7 @@ export function RunsPage() {
       {all.length === 0 ? (
         <EmptyState title="No runs yet">
           <span>
-            Start one with <code>dispatch.sh run start "&lt;title&gt;"</code>, then add nodes and dispatch them.
+            Start one with <code>dispatch.ts run start "&lt;title&gt;"</code>, then add nodes and dispatch them.
           </span>
         </EmptyState>
       ) : (

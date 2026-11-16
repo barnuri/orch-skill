@@ -32,7 +32,7 @@ import { RunEngine, type Starter } from "../runs/auto-dispatch";
  *    It links each dispatched job to its opencode session and fills model, tier, usage and cost.
  * Every action appends one JSON line to `<home>/watchdog/actions.log`. Once-only markers are
  * exclusive-create claim files under `<home>/watchdog/<run>/claims/`, so a restart or a second
- * server never repeats an action. Run state changes only through `dispatch.sh`.
+ * server never repeats an action. Run state changes only through `dispatch.ts`.
  */
 
 export const LOST_AFTER_MS: number = 120_000;
@@ -89,7 +89,7 @@ interface WatchRun {
 }
 
 export interface WatchdogOptions {
-  /** Spawns `dispatch.sh <args>` for the watchdog's own actions; exit code back. */
+  /** Spawns `dispatch.ts <args>` for the watchdog's own actions; exit code back. */
   run?: Starter;
   /** Passed to the RunEngine as its starter (tests). */
   engineStart?: Starter;
@@ -115,7 +115,7 @@ export function isInfraError(error: string | null | undefined): boolean {
 }
 
 export const spawnWatchdogDispatch: Starter = async (args, home) => {
-  const proc = Bun.spawn(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "watchdog", ORCH_NO_ANNOUNCE: "1" },
     stdin: "ignore",
     stdout: "ignore",

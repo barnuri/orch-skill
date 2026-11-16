@@ -7,8 +7,8 @@ import { loadRun } from "../state/store.ts";
 import { findNode } from "../runs/node.ts";
 import { errLine, resolveRun } from "./node.ts";
 
-export const MSG_SEND_USAGE = 'dispatch.sh msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"';
-export const MSG_READ_USAGE = "dispatch.sh msg read <run-id> [--for orch|<node-id>] [--since N] [--all]";
+export const MSG_SEND_USAGE = 'dispatch.ts msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"';
+export const MSG_READ_USAGE = "dispatch.ts msg read <run-id> [--for orch|<node-id>] [--since N] [--all]";
 const MSG_MAX_BYTES = 4000;
 
 const messagesFile = (home: string, run: string) => join(home, "runs", run, "messages.jsonl");

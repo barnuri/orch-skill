@@ -65,7 +65,7 @@ test('the orch skill and run commands trigger the pane', async () => {
   expect(isOrchSkill('orch:orch')).toBe(true)
   expect(isOrchSkill('orch')).toBe(true)
   expect(isOrchSkill('orchestra')).toBe(false)
-  expect(isOrchCommand('bash skills/orch/scripts/dispatch.sh start r1 n1')).toBe(true)
+  expect(isOrchCommand('bun skills/orch/scripts/dispatch.ts start r1 n1')).toBe(true)
   expect(isOrchCommand('orch plan apply plan.json')).toBe(true)
   expect(isOrchCommand('orch profile list')).toBe(false)
   expect(isOrchCommand('ls orchard')).toBe(false)

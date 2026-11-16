@@ -18,7 +18,7 @@ export class OrchRunSource {
   private static readonly STATUS_TIMEOUT_MS = 5_000
 
   private readonly home = process.env['HARNESS_ORCH_HOME'] || join(process.env['HOME'] ?? '', '.harness-orch')
-  private readonly dispatchPath = join(import.meta.dir, '..', '..', '..', 'skills', 'orch', 'scripts', 'dispatch.sh')
+  private readonly dispatchPath = join(import.meta.dir, '..', '..', '..', 'skills', 'orch', 'scripts', 'dispatch.ts')
   private dashboardBase: string | null = null
   private dashboardCheckedAt = 0
   private activeCheckedAt = 0
@@ -147,7 +147,7 @@ export class OrchRunSource {
   }
 
   private dispatch(args: readonly string[], timeoutMs: number, env: Record<string, string> = {}): Promise<ProcessResult | null> {
-    return this.spawn(['bash', this.dispatchPath, ...args], timeoutMs, { HARNESS_ORCH_HOME: this.home, ...env })
+    return this.spawn(['bun', this.dispatchPath, ...args], timeoutMs, { HARNESS_ORCH_HOME: this.home, ...env })
   }
 
   private async spawn(argv: readonly string[], timeoutMs: number, env: Record<string, string> = {}): Promise<ProcessResult | null> {

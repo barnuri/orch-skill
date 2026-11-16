@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPath } from "../dispatch-path";
 
-/** Pauses one run (`dispatch.sh run pause <run>`); resolves with its exit code. */
+/** Pauses one run (`dispatch.ts run pause <run>`); resolves with its exit code. */
 export type PauseRun = (runId: string) => Promise<number>;
 
 /** How long the SIGTERM handler waits for the pauses before it stops the server anyway. */
@@ -10,7 +10,7 @@ export const SHUTDOWN_PAUSE_TIMEOUT_MS: number = 5_000;
 
 /**
  * Run ids under `<home>/runs` that are running: `status: "running"`, not paused and not stopped.
- * A run a user stopped (`dispatch.sh run stop`) is never paused here, so it never auto-resumes.
+ * A run a user stopped (`dispatch.ts run stop`) is never paused here, so it never auto-resumes.
  */
 export function runningRunIds(home: string): string[] {
   const runsDir = join(home, "runs");
@@ -39,7 +39,7 @@ export function runningRunIds(home: string): string[] {
 
 function homePauseRun(home: string): PauseRun {
   return async (runId) => {
-    const proc = Bun.spawn(["bash", dispatchPath(), "run", "pause", runId], {
+    const proc = Bun.spawn([process.execPath, dispatchPath(), "run", "pause", runId], {
       env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "shutdown-pause" },
       stdin: "ignore",
       stdout: "ignore",
@@ -58,7 +58,7 @@ function errorText(err: unknown): string {
 }
 
 /**
- * On SIGTERM (PC restart or logout), pauses every running run with `dispatch.sh run pause`, which
+ * On SIGTERM (PC restart or logout), pauses every running run with `dispatch.ts run pause`, which
  * sets `auto_resume` under the run lock, so boot-resume resumes it on the next start. Node jobs
  * are left alone. The pauses run in parallel; the promise settles after all of them or after
  * `timeoutMs`, whichever comes first. Never rejects: every failure is logged. Resolves with the

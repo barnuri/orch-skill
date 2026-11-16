@@ -19,10 +19,10 @@ config and would load the herdr-folders sidebar, project manager and notificatio
 Orch notifies through its announce daemon and `msg` mailbox.
 
 ## Lifecycle
-- `dispatch.sh herdr ensure` (also called by `start`): starts `herdr server` headless through
+- `dispatch.ts herdr ensure` (also called by `start`): starts `herdr server` headless through
   `run_detached` (own session, never a child of the dashboard). Single flight (lock `herdr-ensure`),
   idempotent. A stale socket from a crashed server is moved aside, not deleted.
-- `dispatch.sh herdr stop`: `herdr server stop`. `herdr status` / `herdr attach`: print state, home, log and
+- `dispatch.ts herdr stop`: `herdr server stop`. `herdr status` / `herdr attach`: print state, home, log and
   the attach command: `env -u HERDR_ENV ... HOME=<inst> herdr` in a separate terminal.
 - Jobs: `herdr_start_job` creates the pane (workspace `orch`, tab = run id or `jobs`), renames it
   `<run> <node> <job-id>`, and types `bash <job_dir>/herdr-launch.sh`. The launcher restores the real

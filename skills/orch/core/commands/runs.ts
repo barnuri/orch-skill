@@ -23,11 +23,11 @@ import { loopCommands } from "./loops.ts";
 import { captured } from "../io.ts";
 
 const RUN_STATUSES = ["done", "error", "cancelled"];
-const RUN_START_USAGE = 'dispatch.sh run start "<title>" [--id <run-id>]';
-const RUN_SYNC_USAGE = "dispatch.sh run sync <run-id> [--no-retry]";
-const RUN_STOP_USAGE = "dispatch.sh run stop <run-id>";
-const RUN_RETRY_USAGE = "dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]";
-const PRUNE_USAGE = "dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]";
+const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>]';
+const RUN_SYNC_USAGE = "dispatch.ts run sync <run-id> [--no-retry]";
+const RUN_STOP_USAGE = "dispatch.ts run stop <run-id>";
+const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
+const PRUNE_USAGE = "dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]";
 const LOG_TAIL_LINES = 20;
 const RETENTION_DEFAULT_DAYS = 7;
 
@@ -207,8 +207,8 @@ export async function runSync(args: string[]): Promise<number> {
   if (runId === null) return 1;
   if (runId) {
     const pre = await loadRun(home, runId);
-    if (pre?.stopped === true) return (out(`run stopped: ${runId} (dispatch.sh run resume ${runId} --stopped)\n`), 0);
-    if (pre?.paused === true) return (out(`run paused: ${runId} (dispatch.sh run resume ${runId})\n`), 0);
+    if (pre?.stopped === true) return (out(`run stopped: ${runId} (dispatch.ts run resume ${runId} --stopped)\n`), 0);
+    if (pre?.paused === true) return (out(`run paused: ${runId} (dispatch.ts run resume ${runId})\n`), 0);
   }
   if (lock && runId) {
     const l = await acquireLock(home, `sync-${runId}`, 0, 0);

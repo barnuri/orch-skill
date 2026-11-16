@@ -13,14 +13,14 @@ import type { ChatStore } from "../store";
 import type { MessageRow } from "../types";
 
 /**
- * Shared setup for the chat-resume suites. The suites that drive the real dispatch.sh are split
+ * Shared setup for the chat-resume suites. The suites that drive the real dispatch.ts are split
  * one file per harness so `bun test --parallel` runs them side by side: each turn costs about
- * 1-2 s of dispatch.sh start-up, and in one file they ran back to back for about two minutes.
+ * 1-2 s of dispatch.ts start-up, and in one file they ran back to back for about two minutes.
  * They cannot run concurrently inside one file, because every turn reads process.env.
  */
 export const TESTING: string = import.meta.dir;
-export const REAL_DISPATCH: string = resolve(import.meta.dir, "../../../../skills/orch/scripts/dispatch.sh");
-export const PROMPT_DISPATCH: string = join(TESTING, "fake-dispatch-prompt.sh");
+export const REAL_DISPATCH: string = resolve(import.meta.dir, "../../../../skills/orch/scripts/dispatch.ts");
+export const PROMPT_DISPATCH: string = join(TESTING, "fake-dispatch-prompt.ts");
 export const HARNESSES: readonly string[] = ["opencode", "cursor-agent", "pi", "copilot", "local-llm"];
 /** A real-dispatch test runs several turns of 1-2 s each; under machine load they take far longer. */
 export const REAL_TURN_TIMEOUT_MS: number = 300_000;

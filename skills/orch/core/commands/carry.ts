@@ -1,12 +1,12 @@
 // `run carry`: move the unfinished part of a run into a new run. Port of lib/runs/carry.sh.
-// The new run is created by `dispatch.sh run start` (still bash); the state edits are done here.
+// The new run is created by `dispatch.ts run start` (still bash); the state edits are done here.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
 import { dispatchSh } from "../state/proc.ts";
 import { mutateRun } from "./node.ts";
 
-export const RUN_CARRY_USAGE = "dispatch.sh run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]";
+export const RUN_CARRY_USAGE = "dispatch.ts run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]";
 
 export async function runCarry(args: string[]): Promise<number> {
   const home = orchHome();

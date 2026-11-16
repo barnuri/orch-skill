@@ -13,15 +13,15 @@ import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
 import { pauseGuard } from "./pause.ts";
 
-export const NODE_DISPATCH_USAGE = "dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
-export const NODE_RETRY_USAGE = "dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]";
-export const RUN_FINISH_USAGE = "dispatch.sh run finish <run-id> [--status done|error|cancelled]";
-export const RUN_RETRY_USAGE = "dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]";
+export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
+export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]";
+export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled]";
+export const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
 const RUN_STATUSES = ["done", "error", "cancelled"];
 export const VALID_HARNESSES = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
 export const ADAPTER_NAMES = ["claude-native", ...VALID_HARNESSES];
 
-const dispatchPath = () => process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.sh");
+const dispatchPath = () => process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
 
 export async function nodeOutDir(home: string, runId: string, nodeId: string, run?: RunState | null): Promise<string> {
   const r = run ?? (await loadRun(home, runId));
@@ -53,7 +53,7 @@ export async function nodeLiveJob(home: string, runId: string, nodeId: string): 
 async function inboxRulesBlock(run: RunState, runId: string, node: string): Promise<string> {
   const rules = ((run.rules ?? []) as any[]).map((r) => `- ${r.text}`).join("\n");
   let s = rules ? `## Run rules\n\n${rules}\n\n` : "";
-  s += `Messages: the coordinator can send you messages. Read them with \`dispatch.sh node inbox ${runId} ${node}\` between steps. Ask the coordinator with \`dispatch.sh node ask ${runId} ${node} "<question>"\`.\n`;
+  s += `Messages: the coordinator can send you messages. Read them with \`dispatch.ts node inbox ${runId} ${node}\` between steps. Ask the coordinator with \`dispatch.ts node ask ${runId} ${node} "<question>"\`.\n`;
   return s;
 }
 
@@ -351,7 +351,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
 async function learningAfterFinish(home: string): Promise<void> {
   const doc = await loadProfilesDoc(home);
   if (String(doc.settings?.["learning.auto_scan_on_finish"] ?? "true") !== "true") return;
-  const p = Bun.spawn(["bash", dispatchPath(), "suggest", "scan"], { env: { ...process.env, ORCH_BASH: "1", HARNESS_ORCH_HOME: home }, stdout: "ignore", stderr: "ignore" });
+  const p = Bun.spawn([process.execPath, dispatchPath(), "suggest", "scan"], { env: { ...process.env, HARNESS_ORCH_HOME: home }, stdout: "ignore", stderr: "ignore" });
   await p.exited;
 }
 

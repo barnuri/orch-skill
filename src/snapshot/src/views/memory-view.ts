@@ -70,7 +70,7 @@ function renderList(state: AppState, entries: readonly MemoryEntry[]): HTMLEleme
   if (entries.length === 0) {
     return el("div", { class: "empty" }, [
       "No entries yet. Record one here, or with ",
-      el("code", { text: "dispatch.sh memory add --profile <name> --outcome success" }),
+      el("code", { text: "dispatch.ts memory add --profile <name> --outcome success" }),
       ".",
     ]);
   }

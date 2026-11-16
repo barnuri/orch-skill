@@ -1,5 +1,5 @@
 // Adapter spawn: `run` (sync, stdio inherited) and `start` (detached job, stdio to job files).
-// Ported from lib/adapters/adapters.sh and the run/start part of dispatch.sh. Bun built-ins only.
+// Ported from lib/adapters/adapters.sh and the run/start part of dispatch.ts. Bun built-ins only.
 // ${VAR} references in a profile's env are resolved into the spawn env only, never written to state.
 import { existsSync, mkdirSync, readdirSync, symlinkSync, lstatSync, unlinkSync, writeFileSync, renameSync, openSync } from "node:fs";
 import { join } from "node:path";
@@ -398,7 +398,7 @@ export async function parseTarget(sub: string, args: string[]): Promise<Target |
   const name = (profile ? args[1] : args[0]) ?? "";
   const raw = (profile ? args[2] : args[1]) ?? "";
   const rest = args.slice(profile ? 3 : 2);
-  if (name === "" || raw === "") return (err(`usage: dispatch.sh ${sub} (--profile <name> | <adapter>) <prompt|@file> [args...]\n`), 2);
+  if (name === "" || raw === "") return (err(`usage: dispatch.ts ${sub} (--profile <name> | <adapter>) <prompt|@file> [args...]\n`), 2);
   const prompt = await resolvePrompt(raw);
   if (prompt === null) return 1;
   return { kind: profile ? "profile" : "adapter", name, prompt, rest };
@@ -437,13 +437,12 @@ export async function cmdJobRun(args: string[]): Promise<number> {
   return rc;
 }
 
-// Returns true when the job was handed to a herdr pane (hidden bash entry, until herdr is ported).
-function herdrStart(jobDir: string, t: Target, e: Env): boolean {
+// Returns true when the job was handed to a herdr pane.
+async function herdrStart(jobDir: string, t: Target, e: Env): Promise<boolean> {
   if (e.ORCH_HERDR === "0" || e.ORCH_HERDR === "false" || e.ORCH_HERDR === "off") return false;
-  const dispatch = join(import.meta.dir, "..", "..", "scripts", "dispatch.sh");
-  if (!existsSync(dispatch)) return false;
-  const r = Bun.spawnSync(["bash", dispatch, "herdr-start-job", jobDir, t.kind, t.name, t.prompt, ...t.rest], { env: e as Record<string, string>, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  return r.exitCode === 0;
+  const { startJob } = await import("./herdr.ts");
+  for (const [k, v] of Object.entries(e)) if (v !== undefined && /^(ORCH_|HARNESS_ORCH_)/.test(k)) process.env[k] = v;
+  return startJob(orchHome(), jobDir, [process.execPath, join(import.meta.dir, "..", "cli.ts"), "job-run", jobDir, t.kind, t.name, t.prompt, ...t.rest]);
 }
 
 // `start`: validates the profile, makes the job dir, then runs `job-run` detached (own session, unref).
@@ -483,7 +482,7 @@ export async function cmdStart(args: string[]): Promise<number> {
   w("session", session);
   e.ORCH_JOB_DIR = jobDir;
 
-  if (herdrStart(jobDir, t, e)) return (out(`${jobId}\n`), 0);
+  if (await herdrStart(jobDir, t, e)) return (out(`${jobId}\n`), 0);
 
   const log = openSync(join(jobDir, "log"), "a");
   const proc = Bun.spawn([process.execPath, join(import.meta.dir, "..", "cli.ts"), "job-run", jobDir, t.kind, t.name, t.prompt, ...t.rest], {

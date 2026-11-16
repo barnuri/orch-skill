@@ -33,9 +33,9 @@ const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".spli
 const ADAPTER_NAMES = ["claude-native", ...VALID_HARNESSES];
 
 export const LOOP_USAGE =
-  "dispatch.sh loop start --every <dur> [--max N] [--until CMD] [--max-runtime <dur>] [--session fresh|resume|<id>] [--when-idle|--no-when-idle] (--profile P | <adapter>) <prompt|@file> [args...] | list | stop <id> | resume <id> | tail <id> [-n N]";
+  "dispatch.ts loop start --every <dur> [--max N] [--until CMD] [--max-runtime <dur>] [--session fresh|resume|<id>] [--when-idle|--no-when-idle] (--profile P | <adapter>) <prompt|@file> [args...] | list | stop <id> | resume <id> | tail <id> [-n N]";
 export const WATCH_USAGE =
-  'dispatch.sh watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE] [--every DUR] [--max-runtime DUR] [--on-match PROMPT --profile P] | wait <id> [--timeout S] [--max-lines N] | events <id> [--since N] | list | stop <id>';
+  'dispatch.ts watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE] [--every DUR] [--max-runtime DUR] [--on-match PROMPT --profile P] | wait <id> [--timeout S] [--max-lines N] | events <id> [--since N] | list | stop <id>';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -175,7 +175,7 @@ async function loopStart(args: string[]): Promise<number> {
   let kind: string, name: string, rawPrompt: string, argc: number;
   if (rest[0] === "--profile") { kind = "profile"; name = rest[1] ?? ""; rawPrompt = rest[2] ?? ""; argc = 3; }
   else { kind = "adapter"; name = rest[0] ?? ""; rawPrompt = rest[1] ?? ""; argc = 2; }
-  if (!name || !rawPrompt) { err("usage: dispatch.sh loop start (--profile <name> | <adapter>) <prompt|@file> [args...]\n"); return 2; }
+  if (!name || !rawPrompt) { err("usage: dispatch.ts loop start (--profile <name> | <adapter>) <prompt|@file> [args...]\n"); return 2; }
   let prompt = rawPrompt;
   if (rawPrompt.startsWith("@")) {
     const f = rawPrompt.slice(1);
@@ -284,7 +284,7 @@ async function loopRun(args: string[]): Promise<number> {
     const prompt = `${readFileSync(join(dir, "prompt.txt"), "utf8")}\n\nTo end this loop, write STOP to the file at ${control}.`;
     const log = join(dir, `iter-${iter}.log`);
     const fd = openSync(log, "w");
-    const p = Bun.spawn(["bash", process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.sh"), "run", ...(kind === "profile" ? ["--profile", name] : [name]), prompt, ...targetArgs], {
+    const p = Bun.spawn([process.execPath, process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.ts"), "run", ...(kind === "profile" ? ["--profile", name] : [name]), prompt, ...targetArgs], {
       stdin: "ignore", stdout: fd, stderr: fd, env: env as any,
     });
     const rc = (await p.exited) ?? 1;
@@ -346,7 +346,7 @@ function loopList(): number {
 
 async function loopStop(args: string[]): Promise<number> {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh loop stop <loop-id>\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts loop stop <loop-id>\n"); return 2; }
   const f = join(loopsHome(), id, "state.json");
   if (!existsSync(f)) { err(`unknown loop: ${id}\n`); return 2; }
   stopGroup(readJsonSync(f).pid);
@@ -374,7 +374,7 @@ async function loopRespawn(id: string): Promise<boolean> {
 
 async function loopResume(args: string[]): Promise<number> {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh loop resume <loop-id>\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts loop resume <loop-id>\n"); return 2; }
   const dir = join(loopsHome(), id);
   if (!existsSync(join(dir, "state.json"))) { err(`unknown loop: ${id}\n`); return 2; }
   const status = loopAliveStatus(id);
@@ -388,7 +388,7 @@ async function loopResume(args: string[]): Promise<number> {
 
 function loopTail(args: string[]): number {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh loop tail <loop-id> [-n N]\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts loop tail <loop-id> [-n N]\n"); return 2; }
   let n = 20;
   for (let i = 1; i < args.length; i++) if (args[i] === "-n") n = Number(args[++i] ?? 20);
   const dir = join(loopsHome(), id);
@@ -717,7 +717,7 @@ async function watchRun(args: string[]): Promise<number> {
 
 function watchStop(args: string[]): number {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh watch stop <watch-id>\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts watch stop <watch-id>\n"); return 2; }
   const f = join(watchesHome(), id, "state.json");
   if (!existsSync(f)) { err(`unknown watch: ${id}\n`); return 2; }
   const pid = readJsonSync(f).pid;
@@ -741,7 +741,7 @@ function eventRows(id: string, since: number): string[] {
 
 async function watchWait(args: string[]): Promise<number> {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh watch wait <watch-id> [--timeout S] [--max-lines N] [--since N]\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts watch wait <watch-id> [--timeout S] [--max-lines N] [--since N]\n"); return 2; }
   let timeout = 300, maxLines = WATCH_MAX_LINES_DEFAULT, since = "";
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--timeout") timeout = Number(args[++i] ?? 300);
@@ -773,7 +773,7 @@ async function watchWait(args: string[]): Promise<number> {
 
 function watchEvents(args: string[]): number {
   const id = args[0] ?? "";
-  if (!id) { err("usage: dispatch.sh watch events <watch-id> [--since N] [--limit N]\n"); return 2; }
+  if (!id) { err("usage: dispatch.ts watch events <watch-id> [--since N] [--limit N]\n"); return 2; }
   let since = 0, limit = 50;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--since") since = Number(args[++i] ?? 0);

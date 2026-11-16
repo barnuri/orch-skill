@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Fake claude CLI for adapter cases: prints the JSON shape of `--output-format json`.
-printf '{"result":"fake claude ok","is_error":false,"total_cost_usd":0.01,"usage":{"input_tokens":3,"output_tokens":4}}\n'

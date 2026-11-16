@@ -8,7 +8,7 @@ export const TESTS_DIR = resolve(import.meta.dir, "..");
 export const ORCH_DIR = resolve(TESTS_DIR, "..");
 export const REPO_ROOT = resolve(ORCH_DIR, "../..");
 export const CLI_TS = join(ORCH_DIR, "core/cli.ts");
-export const DISPATCH = join(ORCH_DIR, "scripts/dispatch.sh");
+export const DISPATCH = join(ORCH_DIR, "scripts/dispatch.ts");
 
 const made: string[] = [];
 export function tempDir(prefix = "orch-t-"): string {
@@ -57,7 +57,7 @@ export async function runCmdAsync(cmd: string[], opts: { home?: string; env?: Re
 /** The Bun CLI (skills/orch/core/cli.ts). */
 export const cli = (home: string, ...args: string[]) => runCmd(["bun", CLI_TS, ...args], { home });
 /** The dispatcher (routes ported commands to the Bun CLI, the rest to bash until it is gone). */
-export const dispatch = (home: string, ...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home });
+export const dispatch = (home: string, ...args: string[]) => runCmd([process.execPath, DISPATCH, ...args], { home });
 
 let template: string | undefined;
 function templateHome(): string {
@@ -65,7 +65,7 @@ function templateHome(): string {
   if (template) return template;
   const d = join(tempDir("orch-tpl-"), "home");
   mkdirSync(d, { recursive: true });
-  runCmd(["bash", DISPATCH, "init"], { home: d });
+  runCmd([process.execPath, DISPATCH, "init"], { home: d });
   return (template = d);
 }
 /** A fresh initialised home (copy of a home that ran `init` once). */

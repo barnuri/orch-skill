@@ -28,7 +28,7 @@ you ──▶ your agent ──┬──▶ claude       (subscription, or via a
 |---|---|
 | Everything | `bash` + coreutils |
 | Installing the skill | the [`claude` CLI](https://docs.claude.com/en/docs/claude-code) |
-| The orch CLI and dashboard | [Bun](https://bun.sh) 1.2+ (required, no fallback; `ORCH_BUN` overrides the binary). Install: `curl -fsSL https://bun.sh/install \| bash`. `dispatch.sh doctor` prints the bun version and home path. |
+| The orch CLI and dashboard | [Bun](https://bun.sh) 1.2+ (required, no fallback; `ORCH_BUN` overrides the binary). Install: `curl -fsSL https://bun.sh/install \| bash`. `dispatch.ts doctor` prints the bun version and home path. |
 | `local-llm` adapter, budget check | `curl` and `jq` |
 | Recoverable deletes | `trash` (optional — falls back to a timestamped move) |
 | Each adapter | that harness's own CLI on `PATH` (`claude`, `cursor-agent`, `opencode`) |
@@ -55,7 +55,7 @@ Want the dashboard running permanently too? `./install.ts --with-service`.
 Then restart Claude Code and bootstrap the state directory once:
 
 ```bash
-bash skills/orch/scripts/dispatch.sh init
+bun skills/orch/scripts/dispatch.ts init
 ```
 
 Removing it: `./uninstall.ts` (add `--with-service` and/or `--purge-state`).
@@ -66,9 +66,9 @@ Before pointing orch at real work, seed a state dir with runs that look real and
 
 ```bash
 export HARNESS_ORCH_HOME=/tmp/orch-demo      # keeps your real ~/.harness-orch untouched
-bash skills/orch/scripts/dispatch.sh init
-bash skills/orch/scripts/dispatch.sh demo seed
-bash skills/orch/scripts/dispatch.sh ui      # dashboard on the seeded runs
+bun skills/orch/scripts/dispatch.ts init
+bun skills/orch/scripts/dispatch.ts demo seed
+bun skills/orch/scripts/dispatch.ts ui      # dashboard on the seeded runs
 ```
 
 That gives you four runs — one mid-flight, one clean, one failed, one with skipped work — across
@@ -99,7 +99,7 @@ Talk to your agent normally. It reaches for orch when you say things like:
 Underneath, everything is one script — usable on its own, without an agent:
 
 ```bash
-orch() { bash skills/orch/scripts/dispatch.sh "$@"; }
+orch() { bun skills/orch/scripts/dispatch.ts "$@"; }
 
 orch profile list                              # what's configured, * = default
 orch classify "rename a variable"              # -> which adapter should take this
@@ -128,7 +128,7 @@ orch memory add --profile cursor-default --outcome success --kind review --note 
 ## Dashboard
 
 ```bash
-bash skills/orch/scripts/dispatch.sh ui
+bun skills/orch/scripts/dispatch.ts ui
 ```
 
 Starts (or reuses) the Bun server and opens the tokenized URL. Runs are listed newest-first,
@@ -143,7 +143,7 @@ A request from any other address still needs the bearer token, read from
 carries when the server is bound to `0.0.0.0`. Trash that file and restart to rotate it.
 
 **Stop a run.** A running run's page has a **Stop run** button. After you confirm, it does the
-same as `dispatch.sh run stop <run-id>`: running jobs get `SIGTERM`, running nodes become errors
+same as `dispatch.ts run stop <run-id>`: running jobs get `SIGTERM`, running nodes become errors
 with the message `cancelled`, orch skips the waiting nodes, and the run status becomes `cancelled`.
 Automatic retries do not touch a cancelled run. Use it also to close a run whose coordinator
 stopped and left it on `running`.
@@ -160,9 +160,9 @@ every job that `start` starts (including each node of a run) runs in a pane of t
 session, so you watch its output live instead of tailing a log:
 
 ```bash
-bash skills/orch/scripts/dispatch.sh herdr on       # writes settings.herdr = true
-bash skills/orch/scripts/dispatch.sh herdr status   # the setting, and whether the herdr server runs
-bash skills/orch/scripts/dispatch.sh herdr off
+bun skills/orch/scripts/dispatch.ts herdr on       # writes settings.herdr = true
+bun skills/orch/scripts/dispatch.ts herdr status   # the setting, and whether the herdr server runs
+bun skills/orch/scripts/dispatch.ts herdr off
 ```
 
 - All jobs go to one workspace labeled `orch`, which orch creates when it is missing.
@@ -247,7 +247,7 @@ them back rather than assuming the defaults. On Linux, `loginctl enable-linger $
 service alive while you are logged out. A restart does not kill running jobs (launchd
 `AbandonProcessGroup`, systemd `KillMode=process`); `install` rewrites a unit written before that.
 
-With the service installed, `dispatch.sh ui` finds the running server and just opens the URL. One
+With the service installed, `dispatch.ts ui` finds the running server and just opens the URL. One
 caveat: `ui` restarts the server when it notices the skill's sources changed — after editing
 `src/`, prefer `scripts/service.ts restart` so the supervisor stays in charge.
 
@@ -334,8 +334,8 @@ the token can read job logs and rewrite `profiles.json`.
   reach `127.0.0.1` and would otherwise get in.
 - Every non-loopback peer presents the bearer token, always.
 - The background service binds `127.0.0.1` by default. Keep it that way unless you want LAN access.
-- `dispatch.sh ui` binds `0.0.0.0` (it was built to be opened from a phone on the same LAN). Use
-  `dispatch.sh serve --host 127.0.0.1` when that is not what you want.
+- `dispatch.ts ui` binds `0.0.0.0` (it was built to be opened from a phone on the same LAN). Use
+  `dispatch.ts serve --host 127.0.0.1` when that is not what you want.
 - Never expose the port to the internet.
 - Never put a secret **value** in `profiles.json` — only env-var names and `${VAR}` references.
 

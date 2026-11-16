@@ -22,9 +22,7 @@ profile-sanity  routing-claude profiles-overlay
 batch           done-verify
 timing          wait
 visibility      stop
-dispatch.sh     run-lifecycle classify-adapters lib-list
-announce.sh     announce announce-daemon
+dispatch.ts     run-lifecycle classify-adapters
 announce        announce
 plan            planned-runs
 inbox           inbox coordinator
-parity          parity

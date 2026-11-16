@@ -17,12 +17,12 @@ const DIGEST_LINES_MAX = 200;
 const NODE_NOTES_KEEP = 20;
 const ID_TEXT = "^[A-Za-z0-9][A-Za-z0-9._-]*$";
 
-const NODE_USAGE_USAGE = "dispatch.sh node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]";
-const NODE_COST_USAGE = "dispatch.sh node cost <run-id> <node-id> (--from-job <job-id> | --clear)";
-const NODE_OUT_USAGE = "dispatch.sh node out <run-id> <node-id>";
-const NODE_DIGEST_USAGE = "dispatch.sh node digest <run-id> <node-id> [--lines N]";
-const NODE_PING_USAGE = 'dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]';
-const NODE_REMOVE_USAGE = "dispatch.sh node remove <run-id> <node-id> [--force]";
+const NODE_USAGE_USAGE = "dispatch.ts node usage <run-id> <node-id> [--add c.name=N]... [--set c.name=N]... [--clear]";
+const NODE_COST_USAGE = "dispatch.ts node cost <run-id> <node-id> (--from-job <job-id> | --clear)";
+const NODE_OUT_USAGE = "dispatch.ts node out <run-id> <node-id>";
+const NODE_DIGEST_USAGE = "dispatch.ts node digest <run-id> <node-id> [--lines N]";
+const NODE_PING_USAGE = 'dispatch.ts node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]';
+const NODE_REMOVE_USAGE = "dispatch.ts node remove <run-id> <node-id> [--force]";
 
 const alt = (v: any, d: any) => (v === null || v === undefined || v === false ? d : v);
 const out = (s: string) => void process.stdout.write(s);

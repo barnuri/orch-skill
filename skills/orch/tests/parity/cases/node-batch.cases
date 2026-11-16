@@ -1,7 +1,0 @@
-# Phase 4 parity: node batch. Each line runs on a home holding run fx-run (fixtures/node-base.jsonl).
-# fixture: fx-run node-base.jsonl
-node batch fx-run --file "$ORCH_PARITY_FIXTURES/batch-ok.jsonl"
-node batch fx-run --file "$ORCH_PARITY_FIXTURES/batch-ok.jsonl" --dry-run
-node batch fx-run --file "$ORCH_PARITY_FIXTURES/batch-fail-mid.jsonl"
-node batch fx-run --file "$ORCH_PARITY_FIXTURES/missing.jsonl"
-node batch nope --file "$ORCH_PARITY_FIXTURES/batch-ok.jsonl"

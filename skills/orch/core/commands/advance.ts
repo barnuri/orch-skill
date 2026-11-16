@@ -1,5 +1,5 @@
 // `run advance`: one scheduler step (sync, apply a finished plan, dispatch ready nodes), optionally looped.
-// Ported from lib/runs/plan.sh (run_advance_once, cmd_run_advance). `run sync` still runs through dispatch.sh
+// Ported from lib/runs/plan.sh (run_advance_once, cmd_run_advance). `run sync` still runs through dispatch.ts
 // until it is ported.
 import { join } from "node:path";
 import { orchHome } from "../state/home.ts";
@@ -12,15 +12,15 @@ import { planApply } from "./plan.ts";
 import { runFinish } from "./dispatch.ts";
 import { resolveRun } from "./node.ts";
 
-export const RUN_ADVANCE_USAGE = "dispatch.sh run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]";
+export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]";
 const ADVANCE_INTERVAL_DEFAULT = 15;
 
 const out = (s: string) => void process.stdout.write(s);
 const err = (s: string) => void process.stderr.write(s);
 
 async function runSync(runId: string): Promise<boolean> {
-  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.sh");
-  const p = Bun.spawn(["bash", dispatch, "run", "sync", runId], { stdin: "ignore", stdout: "ignore", stderr: "inherit", env: process.env as Record<string, string> });
+  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
+  const p = Bun.spawn([process.execPath, dispatch, "run", "sync", runId], { stdin: "ignore", stdout: "ignore", stderr: "inherit", env: process.env as Record<string, string> });
   return (await p.exited) === 0;
 }
 

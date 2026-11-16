@@ -2,7 +2,7 @@ import { TOKEN_KEY } from "../lib/constants";
 
 const TOKEN_PARAM = "token";
 
-// `dispatch.sh ui` opens `/?token=<t>` once; the page keeps it in sessionStorage (per tab) and
+// `dispatch.ts ui` opens `/?token=<t>` once; the page keeps it in sessionStorage (per tab) and
 // scrubs it from the address bar so it never lands in history, bookmarks or screenshots.
 export function adoptTokenFromUrl(): void {
   const token = new URLSearchParams(location.search).get(TOKEN_PARAM);

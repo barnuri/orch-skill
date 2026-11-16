@@ -105,7 +105,7 @@ export function mountGraph(
   if (run.nodes.length === 0) {
     shell.appendChild(
       el("div", { class: "graph graph-empty" }, [
-        el("div", { class: "empty", text: "No nodes yet. Add some with dispatch.sh node add." }),
+        el("div", { class: "empty", text: "No nodes yet. Add some with dispatch.ts node add." }),
       ]),
     );
     return shell;

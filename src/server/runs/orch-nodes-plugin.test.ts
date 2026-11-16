@@ -5,7 +5,7 @@ import { TempHome } from "../test-support/temp-home.ts";
 
 // The repo copy; install.ts links it into ~/.config/opencode/plugins.
 const plugin = await import(resolve(import.meta.dir, "../../../mods/opencode/orch-nodes.js"));
-const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
+const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 
 describe("orch-nodes opencode plugin", () => {
   test("mapEvent maps idle, error and busy; ignores the rest", () => {
@@ -182,11 +182,11 @@ describe("orch-nodes opencode plugin", () => {
     expect(calls).toEqual([["/d.sh", "node", "inbox", "r1", "a", "--json", "--via", "plugin"]]);
   });
 
-  test("inbox and usage against the real dispatch.sh", () => {
+  test("inbox and usage against the real dispatch.ts", () => {
     const home = TempHome.create();
     try {
       const env = { ...process.env, HARNESS_ORCH_HOME: home.path, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0" };
-      const sh = (...args: string[]) => Bun.spawnSync(["bash", DISPATCH, ...args], { env }).stdout.toString().trim();
+      const sh = (...args: string[]) => Bun.spawnSync([process.execPath, DISPATCH, ...args], { env }).stdout.toString().trim();
       const run = sh("run", "start", "plugin inbox");
       sh("node", "add", run, "a", "Node a");
       sh("node", "tell", run, "a", "read the plan first");

@@ -14,7 +14,7 @@ import {
   type Catalog,
 } from "../adapters/routing.ts";
 
-export const PROFILE_USAGE = "dispatch.sh profile list | show <name> | pick \"<task>\" [--complexity …] [--kind K] | sanity [--profile NAME] | unset-env <name> <VAR>...";
+export const PROFILE_USAGE = "dispatch.ts profile list | show <name> | pick \"<task>\" [--complexity …] [--kind K] | sanity [--profile NAME] | unset-env <name> <VAR>...";
 
 async function loadCatalog(home: string): Promise<Catalog> {
   return readCatalog(paths.profiles(home));
@@ -53,7 +53,7 @@ const BUILTIN_PROFILE_DEFAULTS: Record<string, unknown> = { parallel_ok: true, m
 const EFFECTIVE_KEYS = ["parallel_ok", "max_parallel", "flags", "env", "timeout_min", "retry", "stall_min", "effort", "tier", "role", "cost", "quality", "speed", "risk"];
 export async function profileShow(args: string[]): Promise<number> {
   const name = args[0] ?? "";
-  if (name === "") return err("usage: dispatch.sh profile show <name> [--effective]\n", 2);
+  if (name === "") return err("usage: dispatch.ts profile show <name> [--effective]\n", 2);
   const cat = await loadCatalog(orchHome());
   const prof = cat.profiles?.[name];
   if (!prof) {

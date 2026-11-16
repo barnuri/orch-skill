@@ -12,7 +12,7 @@ import { parseJsonStrict } from "../validation/strict-json";
 
 
 function dispatchSubcommand(args: readonly string[]): Response {
-  const proc = Bun.spawnSync(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawnSync([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",
@@ -27,7 +27,7 @@ function dispatchSubcommand(args: readonly string[]): Response {
 }
 
 function dispatchApply(args: readonly string[]): Response {
-  const proc = Bun.spawnSync(["bash", dispatchPath(), ...args], {
+  const proc = Bun.spawnSync([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",

@@ -5,7 +5,7 @@ import type { RunState } from "../../shared/types/run-state";
 import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
 
-// Real dispatch.sh: `node tell` and `node answer` write the inbox under the test server's TempHome.
+// Real dispatch.ts: `node tell` and `node answer` write the inbox under the test server's TempHome.
 const RUN_ID: string = "20261115-120000-msgs";
 const servers: TestServerHandle[] = [];
 
@@ -71,7 +71,7 @@ function seedAsk(srv: TestServerHandle): void {
   );
 }
 
-describe.concurrent("node message routes (real dispatch.sh)", () => {
+describe.concurrent("node message routes (real dispatch.ts)", () => {
   test("tell stores a pending message from the user in the node's inbox", async () => {
     const srv = server();
     const res = await post(srv, `/api/runs/${RUN_ID}/nodes/a/tell`, { text: "  use sqlite  " });

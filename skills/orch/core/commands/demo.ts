@@ -12,7 +12,7 @@ import { mutateRun } from "./node.ts";
 import { dispatchSh, learningAfterFinish, memoryAdd } from "./suggest.ts";
 import { ensureHome } from "./serve.ts";
 
-export const DEMO_USAGE = "dispatch.sh demo seed [--graph] [--force] | demo reset [--force] | demo advance [--run <id>]";
+export const DEMO_USAGE = "dispatch.ts demo seed [--graph] [--force] | demo reset [--force] | demo advance [--run <id>]";
 const MARKER = "demo.marker";
 const LOG_TAIL_LINES = 20;
 

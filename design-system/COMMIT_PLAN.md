@@ -55,13 +55,13 @@ Message: `Show owner liveness and autofill the owner on runs and nodes`
 - `src/server/runs/owner-activity.ts`, `owner-activity.test.ts`, `owner-liveness.test.ts`, `src/server/runs/orch-nodes-plugin.test.ts`, `src/server/runs/run-reconciler.ts`, `src/server/active/active-reader.test.ts`, `src/server/routes/active-routes.ts`
 - `src/shared/dto/runs.ts`, `src/shared/types/run-node.ts`, `src/server/api/controllers/runs.controller.ts`, `src/server/routes/runs-routes.ts(+test)`, `src/server/artifact/*`
 - web: `src/web/lib/owner-activity.ts` and `src/web/lib/{run-activity,node-flags}.*`, `src/web/runs/RunActivity.tsx`, `NodePanel.tsx`, `node-activity.test.tsx`
-- Mixed: `skills/orch/scripts/dispatch.sh` (75 lines) and `lib/runs/runs.sh` (about 20 hunks: node add/update status, owner, sync). Hunks for owner/liveness here; lock hunks -> 03; herdr hunks -> wait (06). `git add -p`.
+- Mixed: `skills/orch/scripts/dispatch.ts` (75 lines) and `lib/runs/runs.sh` (about 20 hunks: node add/update status, owner, sync). Hunks for owner/liveness here; lock hunks -> 03; herdr hunks -> wait (06). `git add -p`.
 Verify: typecheck; `bash skills/orch/tests/run.sh owner`, `... liveness`; `bun test src/server/runs src/server/active src/server/routes`.
 
 ## 03 (c) announce daemon, locks, profiles tmp fix, suggest.sh one pass  (independent of the web)
 Message: `Add the announce daemon and run locks, fix the profiles tmp file and make suggest scan in one pass`
 - `skills/orch/scripts/announce.sh`, `announce.test.sh`, `announce-daemon.test.sh`, `lib/core/locks.sh`, `profiles-tmp.test.sh`, `tmp-leak.test.sh`, `lib/dashboard/suggest.sh`, `src/server/suggest/scan-cache.ts(+test)`, `src/server/routes/suggestions-routes.ts`, `lib/core/config.sh` (profiles tmp fix, 48 lines)
-- mixed: `dispatch.sh` (announce/lock hunks), `lib/runs/runs.sh` (lock hunks), `lib/adapters/adapters.sh`, `lib/adapters/hub.sh`, `lib/dashboard/serve.sh`, `SKILL.md` + `references/{state-and-config,adapter-contract,lessons}.md` (split the doc hunks by topic).
+- mixed: `dispatch.ts` (announce/lock hunks), `lib/runs/runs.sh` (lock hunks), `lib/adapters/adapters.sh`, `lib/adapters/hub.sh`, `lib/dashboard/serve.sh`, `SKILL.md` + `references/{state-and-config,adapter-contract,lessons}.md` (split the doc hunks by topic).
 Verify: `bash skills/orch/tests/run.sh announce`, `locks`, `profiles-tmp`, `tmp-leak`, `suggest`; typecheck.
 
 ## 04 (d) chats: harness-disabled fix, opencode session
@@ -85,7 +85,7 @@ Verify: `bash skills/orch/tests/run.sh service`, `schedules`; `bun test src/serv
 
 ## 07 (g) tests infrastructure (independent; commit FIRST of the shell ones if tests of 02/03 need it)
 Message: `Split the bash test suite into parallel files and add a shared fake dispatch and temp home`
-- `skills/orch/tests/run.sh` (runner), `test-lib.sh`, `scripts/test-all.sh`, split files: `carry, classify-adapters, cost-digest, demo-seeding, init-profiles, llm-hub-native, loops-watches, planned-runs, record, routing-claude, run-lifecycle, serve-ui, visibility`.test.sh, `lib/runs/carry.sh`, `lib/runs/visibility.sh` (these two are product code: check, if so into 03), `src/server/test-support/{fake-dispatch.sh,temp-home.ts}`
+- `skills/orch/tests/run.sh` (runner), `test-lib.sh`, `scripts/test-all.sh`, split files: `carry, classify-adapters, cost-digest, demo-seeding, init-profiles, llm-hub-native, loops-watches, planned-runs, record, routing-claude, run-lifecycle, serve-ui, visibility`.test.sh, `lib/runs/carry.sh`, `lib/runs/visibility.sh` (these two are product code: check, if so into 03), `src/server/test-support/{fake-dispatch.ts,temp-home.ts}`
 - Order: 07 before 02/03/06 (their tests reference test-lib.sh); can commit independently.
 Verify: `bash skills/orch/tests/run.sh` (0 failed), `bash scripts/typecheck.sh`.
 

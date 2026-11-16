@@ -12,7 +12,7 @@ export class OkDto extends ZodDto {
   @ZodField(z.boolean(), { description: "Always true; failures use ErrorDto." })
   ok!: boolean;
 
-  @ZodField(z.string().optional(), { description: "What `dispatch.sh` printed, when it printed anything." })
+  @ZodField(z.string().optional(), { description: "What `dispatch.ts` printed, when it printed anything." })
   output?: string;
 }
 

@@ -2,8 +2,8 @@
 import { closeSync, openSync, readFileSync, statSync, mkdirSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export const BIN_ORCH = join(import.meta.dir, "..", "..", "bin", "orch");
-export const DISPATCH_SH = process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.sh");
+export const BIN_ORCH = join(import.meta.dir, "..", "..", "scripts", "dispatch.ts");
+export const DISPATCH_SH = process.env.ORCH_DISPATCH || BIN_ORCH;
 export const HERDR_PID_WAIT_SECS = 15;
 
 export function pidAlive(pid: unknown): boolean {
@@ -71,9 +71,9 @@ export function spawnOrch(args: string[], log: string | null, env?: Record<strin
   return spawnDetached([process.execPath, BIN_ORCH, ...args], log, env);
 }
 
-// dispatch.sh for the commands that are still bash (run start, run finish, start, run, run cancel).
+// Runs the dispatch entry in a child process.
 export async function dispatchSh(args: string[], opts: { env?: Record<string, string | undefined>; inheritErr?: boolean; logFile?: string } = {}): Promise<{ code: number; out: string; err: string }> {
-  const p = Bun.spawn(["bash", DISPATCH_SH, ...args], {
+  const p = Bun.spawn([process.execPath, DISPATCH_SH, ...args], {
     stdin: "ignore",
     stdout: "pipe",
     stderr: opts.inheritErr ? "inherit" : "pipe",
@@ -122,7 +122,7 @@ export function ensureDir(d: string): void {
 }
 export { dirname, existsSync };
 
-// job_status of dispatch.sh: running | done exit=N | done exit=unknown (...), or null for an unknown job.
+// job_status of dispatch.ts: running | done exit=N | done exit=unknown (...), or null for an unknown job.
 export function jobStatus(jobsHome: string, id: string): string | null {
   const dir = join(jobsHome, id);
   if (!existsSync(dir)) return null;

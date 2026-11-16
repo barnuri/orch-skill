@@ -5,7 +5,7 @@ harness-neutral `orch owner event <id> <started|alive|finished|failed> [--note .
 It looks up `<home>/owners/<id>.json` (written when a node is set running with an owner) and ignores
 unknown ids. A `finished` event sets the node `done` with `auto`, `unverified` and
 `reported_by: owner-event:<harness>`: a finished owner is not a reviewed result.
-`dispatch.sh` stores its own path in `<home>/.dispatch-path` (on `init` and on every `node update --owner`).
+`dispatch.ts` stores its own path in `<home>/.dispatch-path` (on `init` and on every `node update --owner`).
 
 ## opencode: `mods/opencode/orch-nodes.js`, linked to `~/.config/opencode/plugins/orch-nodes.js`
 - `install.ts` links it (`scripts/install-opencode-plugin.ts`; a real file there is kept as `.orch-backup-<epoch>`).

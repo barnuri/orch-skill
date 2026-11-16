@@ -9,11 +9,11 @@ import type { RouteHandler } from "../http/route";
 import type { ServerContext } from "../types/server-context";
 
 const IF_NONE_MATCH: string = "if-none-match";
-// Ids are minted by dispatch.sh as <kind>-<date>-<time>-<hex>; anything else never reaches the shell.
+// Ids are minted by dispatch.ts as <kind>-<date>-<time>-<hex>; anything else never reaches the shell.
 const ACTIVE_ID: RegExp = /^(loop|watch)-\d{8}-\d{6}-[0-9a-f]{4}$/;
 
 // The loops and watches live under the state dir. `readActive` reads them directly; a recorded pid
-// that no longer exists is reported as "lost", exactly as `dispatch.sh active` does.
+// that no longer exists is reported as "lost", exactly as `dispatch.ts active` does.
 export function listActiveHandler(ctx: ServerContext): RouteHandler {
   return (req: Request): Response => {
     const items = readActive(ctx.paths.home);
@@ -34,7 +34,7 @@ export function stopActiveHandler(ctx: ServerContext): RouteHandler {
       const error: ApiError = { error: "invalid loop or watch id" };
       return jsonResponse(400, error);
     }
-    const proc = Bun.spawn(["bash", dispatchPath(), match[1] as string, "stop", id], {
+    const proc = Bun.spawn([process.execPath, dispatchPath(), match[1] as string, "stop", id], {
       env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
       stdout: "pipe",
       stderr: "pipe",

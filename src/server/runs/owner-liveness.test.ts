@@ -65,10 +65,10 @@ describe("reconciler schedule", () => {
 
 describe("reaper", () => {
   const ps = [
-    "  101   100  02:36:10 bash /x/dispatch.sh run sync abc --no-retry",
-    "  102   102     00:30 bash /x/dispatch.sh run sync abc --no-retry",
-    "  103   103  1-00:00:01 bash /x/dispatch.sh harness list --json",
-    "  104   104  05:00:00 vim dispatch.sh notes",
+    "  101   100  02:36:10 bun /x/dispatch.ts run sync abc --no-retry",
+    "  102   102     00:30 bun /x/dispatch.ts run sync abc --no-retry",
+    "  103   103  1-00:00:01 bun /x/dispatch.ts harness list --json",
+    "  104   104  05:00:00 vim dispatch.ts notes",
   ].join("\n");
   test("parseEtime", () => {
     expect(parseEtime("02:36:10")).toBe(9370);
@@ -79,7 +79,7 @@ describe("reaper", () => {
     expect(findStaleProcs(ps, 600, 1).map((p) => p.pid)).toEqual([101, 103]);
   });
   test("a stale probe in the server's own process group is killed alone, never by group", () => {
-    const own = ["  4242   500     05:00 bun src/server/main.ts", "  4300   500  01:00:00 bash /x/dispatch.sh harness list --json", "  4400   600  01:00:00 bash /x/dispatch.sh run sync"].join("\n");
+    const own = ["  4242   500     05:00 bun src/server/main.ts", "  4300   500  01:00:00 bun /x/dispatch.ts harness list --json", "  4400   600  01:00:00 bun /x/dispatch.ts run sync"].join("\n");
     const found = findStaleProcs(own, 600, 4242);
     expect(found.map((p) => [p.pid, p.pgid])).toEqual([[4300, 0], [4400, 600]]);
   });

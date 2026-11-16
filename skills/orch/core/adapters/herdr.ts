@@ -12,7 +12,7 @@ import { acquireLock } from "../state/lock.ts";
 import { trashPath } from "../state/trash.ts";
 import { readJson, writeJsonAtomic } from "../state/store.ts";
 
-export const HERDR_USAGE = "dispatch.sh herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]";
+export const HERDR_USAGE = "dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]";
 const NO_RUN_LABEL = "jobs";
 const PID_WAIT_SECS = 15;
 const PANE_CAP_DEFAULT = 20;
@@ -20,7 +20,7 @@ const LINGER_DEFAULT = 300;
 const ORPHAN_SECS = 60;
 const SOCK_MAX_BYTES = 100;
 const WEB_ENV_ID = "orch-skill";
-const CONFIG_TOML = `# Managed by orch (dispatch.sh herdr). No plugins, no notifications: the orch skill has its own.
+const CONFIG_TOML = `# Managed by orch (dispatch.ts herdr). No plugins, no notifications: the orch skill has its own.
 onboarding = false
 
 [ui.toast]
@@ -175,7 +175,7 @@ export async function herdrHealth(home: string, args: string[]): Promise<number>
   for (const a of args) {
     if (a === "--json") json = true;
     else if (a === "--nudge") nudge = true;
-    else { process.stderr.write("usage: dispatch.sh herdr health [--json] [--nudge]\n"); return 2; }
+    else { process.stderr.write("usage: dispatch.ts herdr health [--json] [--nudge]\n"); return 2; }
   }
   const collect = async () => {
     const pid = readTrim(join(herdrDir(home), "server.pid"));
@@ -331,7 +331,7 @@ const launchTs = () => join(dirname(import.meta.dir), "commands", "herdr-launch.
 
 // Runs the job in its own tab of the run's workspace. Returns false when nothing runs there
 // (disabled, herdr missing, unreachable, pane cap), so the caller falls back to a detached job.
-export async function startJob(home: string, jobDir: string, startScript: string, argv: string[]): Promise<boolean> {
+export async function startJob(home: string, jobDir: string, argv: string[]): Promise<boolean> {
   if (!(await herdrEnabled(home))) return false;
   if ((await herdrOrch(home, "ensure")) !== 0) return false;
   const inst = instHome(home);
@@ -363,7 +363,7 @@ export async function startJob(home: string, jobDir: string, startScript: string
   const owner = ownerFile(home, tabId);
   mkdirSync(dirname(owner), { recursive: true });
   writeFileSync(owner, `${jobDir}\n`);
-  writeFileSync(join(jobDir, "argv.json"), JSON.stringify(["bash", "-c", startScript, "_", ...argv]));
+  writeFileSync(join(jobDir, "argv.json"), JSON.stringify(argv));
   const launcher = join(jobDir, "herdr-launch.sh");
   writeLauncher(launcher, jobDir, launchTs());
   await herdrCli(home, ["pane", "rename", paneId, title]);
@@ -452,7 +452,7 @@ export function jobGoneNote(jobDir: string): string {
   return note;
 }
 
-// ---- command: dispatch.sh herdr <verb> ----
+// ---- command: dispatch.ts herdr <verb> ----
 async function setSetting(home: string, key: string, value: boolean | null): Promise<boolean> {
   try {
     const file = paths.profiles(home);
@@ -481,11 +481,11 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
     case "stop": if ((await herdrOrch(home, "stop")) !== 0) return 1; break;
     case "health": return herdrHealth(home, args);
     case "sweep": process.stdout.write(`${await sweep(home)}\n`); return 0;
-    // Internal verbs for the bash call sites that remain in dispatch.sh.
+    // Internal verbs for the bash call sites that remain in dispatch.ts.
     case "enabled": return (await herdrEnabled(home)) ? 0 : 1;
     case "start-job": {
-      const [jobDir, script, ...argv] = args;
-      return (await startJob(home, jobDir, script, argv)) ? 0 : 1;
+      const [jobDir, ...argv] = args;
+      return (await startJob(home, jobDir!, argv)) ? 0 : 1;
     }
     case "close-tab": await closeJobTab(home, args[0] ?? ""); return 0;
     case "job-gone-note": process.stdout.write(jobGoneNote(args[0] ?? "") + "\n"); return 0;

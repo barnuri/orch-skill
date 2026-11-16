@@ -7,7 +7,7 @@ import { nowIso } from "../state/clock.ts";
 import { OrchLock } from "../state/lock.ts";
 import { readCatalog } from "./routing.ts";
 
-export const HARNESS_LIST_USAGE = "dispatch.sh harness list [--json]";
+export const HARNESS_LIST_USAGE = "dispatch.ts harness list [--json]";
 const HARNESS_IDS = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 const DETECTED_CLI_IDS = "codex aider gemini".split(" ");
 type Env = Record<string, string | undefined>;

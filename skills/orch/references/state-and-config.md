@@ -139,7 +139,7 @@ Flat array, appended by `memory add`, listed newest-first by `memory list`:
 
 ## schedules/<id>/schedule.json
 
-Written only by `dispatch.sh schedule`. `{id, name, cron, kind: "prompt"|"command", enabled, created_at,
+Written only by `dispatch.ts schedule`. `{id, name, cron, kind: "prompt"|"command", enabled, created_at,
 updated_at, prompt, profile, model, command, workdir, timeout, next_at, last_run_at, runs[]}`. `model` is a
 catalog model id the profile allows (`--model`), or null for the profile's default; a run passes it as
 `ORCH_MODEL_ID`, the same override a chat turn uses. `updated_at` appears
@@ -263,7 +263,7 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 ## chats.db (chat history)
 
 Projects, chats, messages and attachment rows live in `<home>/chats.db` (SQLite, WAL, foreign keys on),
-written **only by the dashboard server** through `bun:sqlite`, never by `dispatch.sh`. History is kept
+written **only by the dashboard server** through `bun:sqlite`, never by `dispatch.ts`. History is kept
 forever: nothing prunes or deletes it; chats and projects are archived (`archived_at`), not removed.
 Schema changes are numbered migrations recorded in `schema_migrations` and run at startup.
 
@@ -285,9 +285,9 @@ Schema changes are numbered migrations recorded in `schema_migrations` and run a
 - Harness, profile and model of a chat are fixed once it has a message. One live agent session per
   active chat is kept for 30 minutes of idleness; the stored `session_id` resumes it afterwards.
   Only `claude` is persistent (one `claude -p --input-format stream-json` process per chat); other
-  harnesses run `dispatch.sh run --profile P` per message with `ORCH_RESUME_SESSION`.
+  harnesses run `dispatch.ts run --profile P` per message with `ORCH_RESUME_SESSION`.
 - Test hooks (tests only): `ORCH_CHAT_CLAUDE_BIN` replaces the `claude` binary, `ORCH_CHAT_DISPATCH` the
-  `dispatch.sh` path used by the per-message fallback.
+  `dispatch.ts` path used by the per-message fallback.
 
 API: `GET /api/chat-options`, `/api/projects*`, `/api/chats*`, `/api/attachments/{id}`. The request and
 response schemas are the zod classes in `src/shared/dto/chats.ts` and the OpenAPI document at
@@ -311,7 +311,7 @@ hostname nor `localhost` is refused with 400.
 | `/api/runs/:id/retry` | POST | dispatches `run retry <id>` |
 | `/api/runs/:id/nodes/:node/retry` | POST | dispatches `node retry <id> <node>` |
 | `/api/profiles` | GET, PUT | envelope adds `harnesses`, `issues`, `limits`; PUT validates before writing |
-| `/api/harnesses` | GET | live probe per adapter (`dispatch.sh harness list --json`); `enabled` reflects `settings.disabled_harnesses` |
+| `/api/harnesses` | GET | live probe per adapter (`dispatch.ts harness list --json`); `enabled` reflects `settings.disabled_harnesses` |
 | `/api/memory` | GET, PUT | same shape with `outcomes` |
 
 Every GET carries a strong `ETag` over the payload only (never `generated_at`), so the 2 s poll
@@ -322,27 +322,27 @@ capped at 4 MiB (413) and must be `application/json` (415).
 ## Subcommand grammar
 
 ```
-dispatch.sh init
-dispatch.sh profile list | show <name>
-dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]
-dispatch.sh memory list [--profile P] [-n N]
+dispatch.ts init
+dispatch.ts profile list | show <name>
+dispatch.ts memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]
+dispatch.ts memory list [--profile P] [-n N]
 
-dispatch.sh classify "<task>" [--complexity trivial|small|medium|large] [--prefer-local]
-dispatch.sh budget-check
+dispatch.ts classify "<task>" [--complexity trivial|small|medium|large] [--prefer-local]
+dispatch.ts budget-check
 
-dispatch.sh run   (--profile <name> | <adapter>) <prompt|@file> [pass-through args…]
-dispatch.sh start (--profile <name> | <adapter>) <prompt|@file> [pass-through args…]
-dispatch.sh status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S] [--interval S] | list
+dispatch.ts run   (--profile <name> | <adapter>) <prompt|@file> [pass-through args…]
+dispatch.ts start (--profile <name> | <adapter>) <prompt|@file> [pass-through args…]
+dispatch.ts status <job-id> | tail <job-id> [-n N] | wait <job-id> [--timeout S] [--interval S] | list
 
-dispatch.sh run start "<title>" [--id <run-id>]
-dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]
-dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]
-dispatch.sh node selections <run-id> <node-id>
-dispatch.sh node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
-dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
-dispatch.sh node update <run-id> <node-id> [<status>] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]
-dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]
-dispatch.sh node batch <run-id> [--file F] [--dry-run]   # NDJSON ops on stdin or in F, one per line:
+dispatch.ts run start "<title>" [--id <run-id>]
+dispatch.ts node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]
+dispatch.ts node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]
+dispatch.ts node selections <run-id> <node-id>
+dispatch.ts node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
+dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
+dispatch.ts node update <run-id> <node-id> [<status>] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]
+dispatch.ts node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]
+dispatch.ts node batch <run-id> [--file F] [--dry-run]   # NDJSON ops on stdin or in F, one per line:
     {"op":"add","id":X,"goal"|"label":T,"after":"a,b"|[..],"profile","role","tier","model","plan_backed":bool,"acceptance"}
     {"op":"report","id":X,"model","input_tokens","output_tokens","cache_read_tokens","usd","note"}
     {"op":"update","id":X,"status":S (optional),"job","error","at","owner","force":bool,
@@ -352,27 +352,27 @@ dispatch.sh node batch <run-id> [--file F] [--dry-run]   # NDJSON ops on stdin o
     # and prints `line N: <error>` (exit 2); one `line N: … ok` summary per op; unknown fields rejected.
     # Common ops run as one jq program (a few process starts per batch); an op it cannot check
     # (a dependency finished in a continued-from run) falls back to the per-op path. ORCH_BATCH_FAST=0 forces it.
-dispatch.sh node remove <run-id> <node-id> [--force]
-dispatch.sh run sync <run-id> [--no-retry]
-dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]
-dispatch.sh run status <run-id> [--json]
-dispatch.sh plan <run-id> "<goal>|@file" [--profile P] [--node ID]
-dispatch.sh plan apply <run-id> [--file plan.json]
-dispatch.sh run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]
-dispatch.sh run retry <run-id> [--profile P] [--no-dispatch]
-dispatch.sh run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]
-dispatch.sh msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
-dispatch.sh msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
-dispatch.sh run finish <run-id> [--status done|error]
-dispatch.sh run list
+dispatch.ts node remove <run-id> <node-id> [--force]
+dispatch.ts run sync <run-id> [--no-retry]
+dispatch.ts run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]
+dispatch.ts run status <run-id> [--json]
+dispatch.ts plan <run-id> "<goal>|@file" [--profile P] [--node ID]
+dispatch.ts plan apply <run-id> [--file plan.json]
+dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]
+dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]
+dispatch.ts run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]
+dispatch.ts msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
+dispatch.ts msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
+dispatch.ts run finish <run-id> [--status done|error]
+dispatch.ts run list
 
-dispatch.sh serve [--host H] [--port P] | serve --stop
-dispatch.sh serve status [--json]
-dispatch.sh serve recover [--start|--no-start]
-dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
-dispatch.sh ui [--stop]
-dispatch.sh sync [--no-serve]
-dispatch.sh prune [--older-than <N>d|<N>h|<N>] [--dry-run]
+dispatch.ts serve [--host H] [--port P] | serve --stop
+dispatch.ts serve status [--json]
+dispatch.ts serve recover [--start|--no-start]
+dispatch.ts serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
+dispatch.ts ui [--stop]
+dispatch.ts sync [--no-serve]
+dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 ```
 
 `run` is overloaded: `run start|finish|list|sync|advance` is run-state; any other second word is the v1

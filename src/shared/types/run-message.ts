@@ -1,4 +1,4 @@
-/** One message of a run's inbox (`runs/<id>/inbox/<to>/<seq>.json`), written by `dispatch.sh node tell|ask|answer`. */
+/** One message of a run's inbox (`runs/<id>/inbox/<to>/<seq>.json`), written by `dispatch.ts node tell|ask|answer`. */
 export interface RunMessage {
   id: string;
   seq: number;

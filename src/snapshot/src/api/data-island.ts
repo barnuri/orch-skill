@@ -1,7 +1,7 @@
 import { islandElementId } from "../../../shared/island-id";
 import type { IslandHost } from "./island-host";
 
-// A published artifact has no network access, so `dispatch.sh artifact` embeds each API document
+// A published artifact has no network access, so `dispatch.ts artifact` embeds each API document
 // the dashboard would otherwise fetch as a `<script type="application/json">` block. The blocks
 // are data, not script, so they render under the artifact CSP's `script-src` unchanged.
 

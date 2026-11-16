@@ -1,4 +1,4 @@
-// test-tier: slow (real dispatch.sh harness probes)
+// test-tier: slow (real dispatch.ts harness probes)
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { resolve } from "node:path";
@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
 
-const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
+const FAKE_DISPATCH: string = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 const previousDispatch = process.env["ORCH_DISPATCH"];
 process.env["ORCH_DISPATCH"] = FAKE_DISPATCH;
 
@@ -81,7 +81,7 @@ describe.concurrent("GET /api/harnesses", () => {
   }, 300_000);
 });
 
-describe("GET /api/harnesses with the real dispatch.sh", () => {
+describe("GET /api/harnesses with the real dispatch.ts", () => {
   test("probes every wired harness", async () => {
     const previous = process.env["ORCH_DISPATCH"];
     delete process.env["ORCH_DISPATCH"];

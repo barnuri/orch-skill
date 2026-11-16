@@ -14,9 +14,9 @@ export interface RunState {
   edges: [string, string][];
   /** Present on runs started through `orch plan`; absent on hand-built runs. */
   plan?: RunPlan | null;
-  /** Set by `dispatch.sh run stop`: never auto-resumes; the run page Resume button resumes it. */
+  /** Set by `dispatch.ts run stop`: never auto-resumes; the run page Resume button resumes it. */
   stopped?: boolean;
-  /** Set by `dispatch.sh run pause`: starts no node until `run resume`. */
+  /** Set by `dispatch.ts run pause`: starts no node until `run resume`. */
   paused?: boolean;
   /** Added by GET /api/runs/<id>: the coordinator's reachability and pending asks. */
   coordinator_state?: import("../../server/runs/coordinator-state").CoordinatorState | null;

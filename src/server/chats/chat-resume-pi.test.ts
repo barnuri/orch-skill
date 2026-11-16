@@ -1,4 +1,4 @@
-// test-tier: slow (each turn runs the real dispatch.sh)
+// test-tier: slow (each turn runs the real dispatch.ts)
 import { describe, expect, test } from "bun:test";
 
 import { chatRow, installChatResumeCleanup, REAL_DISPATCH, REAL_TURN_TIMEOUT_MS, say, setup } from "./testing/chat-resume-support";

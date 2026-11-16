@@ -1,4 +1,4 @@
-// test-tier: slow (real dispatch.sh schedule commands and runs)
+// test-tier: slow (real dispatch.ts schedule commands and runs)
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { startTestServer } from "../test-support/test-server";

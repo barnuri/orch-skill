@@ -120,7 +120,7 @@ export class RunsController {
 
   @Post("/runs/{id}/retry", {
     summary: "Retry a run",
-    description: "Retries the failed or cancelled nodes of a run through `dispatch.sh`.",
+    description: "Retries the failed or cancelled nodes of a run through `dispatch.ts`.",
   })
   @Param(RunIdParamsDto.schema)
   @ResponseSchema(OkDto.schema, { description: "Retry started." })

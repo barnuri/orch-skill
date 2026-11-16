@@ -5,7 +5,7 @@ repo root is packaging (install + optional service + docs).
 
 ## Language: Bun and TypeScript only
 
-All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed. When it is missing, `dispatch.sh` exits 127 with "orch needs bun: install it from https://bun.sh (...)", `install.ts` refuses to install, and SKILL.md Step 0 tells the user the same. `dispatch.sh doctor` prints the bun version, home path and herdr availability. There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
+All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed. When it is missing, `dispatch.ts` exits 127 with "orch needs bun: install it from https://bun.sh (...)", `install.ts` refuses to install, and SKILL.md Step 0 tells the user the same. `dispatch.ts doctor` prints the bun version, home path and herdr availability. There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). `dispatch.ts` is the single entry (there is no dispatch.ts and no bin/orch).
 
 ## Layout
 
@@ -22,17 +22,17 @@ src/                              the dashboard code, kept OUT of the skill so l
     build/                        GET /api/build (is the running server older than the sources?) and POST /api/build/restart
                                   (runs `service.ts restart`; cooldown, log cap)
     chats/                        chat store (bun:sqlite), service, sessions/ (claude, opencode, turn-session, turn-files)
-    schedules/                    ticker (runs `dispatch.sh schedule tick`, claim files) + reader
+    schedules/                    ticker (runs `dispatch.ts schedule tick`, claim files) + reader
     suggest/                      scan-cache for the suggestions page
-    runs/ active/ artifact/ ...   readers and the reconciler; dispatch-path.ts resolves dispatch.sh
-    test-support/                 fake-dispatch.sh, temp-home.ts, test-server.ts (tests never touch real state)
+    runs/ active/ artifact/ ...   readers and the reconciler; dispatch-path.ts resolves dispatch.ts
+    test-support/                 fake-dispatch.ts, temp-home.ts, test-server.ts (tests never touch real state)
   web/                            React 19 dashboard served at / (/next answers 301 -> /)
     shell/                        AppShell, Rail (nav), Header, BuildBanner ("Server out of date"), connection/freshness
     runs/                         runs list, run inspector (graph, node panel, activity)
     chats/                        chat pages, composer, pickers, virtualized thread
     pages/                        profiles, memory, harnesses, schedules, suggestions, settings
     lib/ api/ forms/ components/  shared logic; imports src/shared DTO schemas and types
-  snapshot/                       vanilla client, ONLY the renderer of `dispatch.sh artifact` snapshots (island mode);
+  snapshot/                       vanilla client, ONLY the renderer of `dispatch.ts artifact` snapshots (island mode);
                                   also owns tokens.css, styles.css, fonts and favicon, which web/ reuses
   shared/                         dto/ (zod), types/, build-commands.ts — must stay Bun-free
 design-system/                    makeover exploration: tokens.A/B.css, proto/, audit, plans, RESTART_SAFETY.md
@@ -40,15 +40,12 @@ tsconfig.json                     type config for src/server, src/shared and the
 mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.ts)
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
-  scripts/dispatch.sh             the CLI; every state mutation goes through it
-  core/commands/announce.ts       status announcer (`dispatch.sh announce`)
-  scripts/lib/<category>/*.sh     sourced by dispatch.sh in the order of its ORCH_LIB_FILES list, never executed:
-                                  core/ (config, locks), adapters/ (adapters, harness, herdr, hub, routing, profile-sanity),
-                                  runs/ (runs, batch, health, owners, pause, wait, ...), 
-                                  dashboard/ (serve, suggest, demo). A new lib file must be added to ORCH_LIB_FILES.
+  scripts/dispatch.ts             the CLI (executable TypeScript, `#!/usr/bin/env bun`); every state mutation goes through it
+  core/                           the TypeScript CLI: cli.ts (command table), commands/, adapters/, runs/, state/
+  core/commands/announce.ts       status announcer (`dispatch.ts announce`)
   tests/run.ts                    the test runner: fast tier (tests/unit/) by default, --changed, --full
   tests/helpers/                  shared TypeScript helpers (seedHome, orch, fakeBin, fakeHerdrBin, fakeHub, ...)
-  tests/<category>/*.test.ts      unit/, runs/, adapters/, config/, dashboard/, announce/, automation/, runner/, parity/
+  tests/<category>/*.test.ts      unit/, runs/, adapters/, config/, dashboard/, announce/, automation/, runner/
   references/                     adapter contract + state/config schemas
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
 ```
@@ -65,24 +62,24 @@ loaded.
 
 ## Invariants
 
-**`dispatch.sh` owns every mutation.** The dashboard reads `~/.harness-orch` live and assumes the
+**`dispatch.ts` owns every mutation.** The dashboard reads `~/.harness-orch` live and assumes the
 files are only ever written through a subcommand. Never hand-edit `runs/<id>/state.json`,
 `jobs/<id>/*`, `profiles.json` or `memory.json` from a script or a test, and never add a code
 path that writes them directly — add or extend a subcommand instead. Callers (including SKILL.md)
 must not re-implement what the script already does.
 
-**Exception: chat history.** Chat history in `<home>/chats.db` (with uploads under `<home>/chats/files/`) is written only by the dashboard server, through `bun:sqlite`. This is an explicit exception to "`dispatch.sh` owns every mutation": no subcommand writes it. It is never pruned, `prune` and the retention settings do not touch it, and nothing deletes a row (archive and hide only).
+**Exception: chat history.** Chat history in `<home>/chats.db` (with uploads under `<home>/chats/files/`) is written only by the dashboard server, through `bun:sqlite`. This is an explicit exception to "`dispatch.ts` owns every mutation": no subcommand writes it. It is never pruned, `prune` and the retention settings do not touch it, and nothing deletes a row (archive and hide only).
 
 **Claim files.** The schedule ticker (server) writes `<home>/schedules/<id>/claims/<next_at>` with an
 exclusive create before it fires a schedule (fire id `id@next_at`), so a double tick or a second server
-fires once. Like chat history, these are server-written, not `dispatch.sh`-written.
+fires once. Like chat history, these are server-written, not `dispatch.ts`-written.
 
 **Owner registry.** `<home>/owners/<session-id>.json` maps an owner session to its run and node. It is
-written by `owners.sh` (`owner_registry_write`), filled by `dispatch.sh node bind-owners`, and checked by
+written by `owners.sh` (`owner_registry_write`), filled by `dispatch.ts node bind-owners`, and checked by
 `node verify-owners`. Go through those subcommands.
 
 **Restart spares jobs.** A dashboard restart must not kill job processes. The launchd plist sets
-`AbandonProcessGroup`, the systemd unit `KillMode=process`, and `dispatch.sh start` jobs are detached.
+`AbandonProcessGroup`, the systemd unit `KillMode=process`, and `dispatch.ts start` jobs are detached.
 `service.ts install` now rewrites a unit that lacks these (`unit_installed_for_checkout`), so re-run it
 after pulling. Design and audit: `design-system/RESTART_SAFETY.md`. Status of its parts: the dedicated
 herdr instance runner (`lib/adapters/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
@@ -90,7 +87,7 @@ is on disk; chat turn files (`chats/sessions/turn-files.ts`, boot re-attach in `
 `interrupted:` rows) are on disk. Both were uncommitted and still in progress when this was written:
 check `git status` and the design doc before relying on them.
 
-**Sourcing is side-effect free.** `dispatch.sh` defines functions when sourced and only runs
+**Sourcing is side-effect free.** `dispatch.ts` defines functions when sourced and only runs
 `main` when executed directly (`BASH_SOURCE[0] == $0`). Backgrounded `start` jobs depend on this:
 they re-source the same file by its resolved real path in a fresh `bash -c`. Anything added at
 file scope that *does* something breaks them.
@@ -135,7 +132,7 @@ bun scripts/service.ts restart             # pick up the change
 bun scripts/service.ts status              # confirm: state = running, listener answering
 ```
 
-Do not use `dispatch.sh ui` for this when the service is installed: it stops the server and starts its
+Do not use `dispatch.ts ui` for this when the service is installed: it stops the server and starts its
 own `nohup` copy, which the supervisor then races. If the unit is not installed there is nothing to
 restart; the next `ui` picks the change up.
 
@@ -163,7 +160,7 @@ Use the `verify` repo skill (`.claude/skills/verify/SKILL.md`: browser, herdr an
 
 ## Tests
 
-The skill tests are TypeScript: `skills/orch/tests/<category>/*.test.ts` (unit, runs, adapters, config, dashboard, announce, automation, runner, parity), run by `bun skills/orch/tests/run.ts`. Each file runs as its own `bun test` process in a parallel pool. Shared helpers (`seedHome`, `tempHome`, `orch`, `cli`, `dispatch`, `fakeBin`, `fakeAdapter`, `fakeHerdrBin` (a TypeScript fake herdr), `fakeHub`, `opencodeFixture`, `waitUntil`, `normState`) are in `skills/orch/tests/helpers/index.ts`. Tests drive the CLI as a black box in a temp home (`dispatch.sh` routes to `bun skills/orch/core/cli.ts`), so they stay valid while the bash libs are removed. The `parity/` cases now run every case line on two fresh homes and require identical output and home tree.
+The skill tests are TypeScript: `skills/orch/tests/<category>/*.test.ts` (unit, runs, adapters, config, dashboard, announce, automation, runner, parity), run by `bun skills/orch/tests/run.ts`. Each file runs as its own `bun test` process in a parallel pool. Shared helpers (`seedHome`, `tempHome`, `orch`, `cli`, `dispatch`, `fakeBin`, `fakeAdapter`, `fakeHerdrBin` (a TypeScript fake herdr), `fakeHub`, `opencodeFixture`, `waitUntil`, `normState`) are in `skills/orch/tests/helpers/index.ts`. Tests drive the CLI as a black box in a temp home (`dispatch.ts` routes to `bun skills/orch/core/cli.ts`), so they stay valid while the bash libs are removed. The `parity/` cases now run every case line on two fresh homes and require identical output and home tree.
 
 ```bash
 bun skills/orch/tests/run.ts               # FAST tier (default, under 30 s): tests/unit/*.test.ts only
@@ -209,15 +206,15 @@ once pushed the load to 17-50 and made every run several times slower. Full runs
 A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fast, changed
 and fragment runs and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
 
-For a home that only needs to be initialised, call `seedHome()` (`tests/helpers`) instead of `dispatch.sh init`. It copies a template home (built once per process, or `ORCH_TEST_HOME_TEMPLATE`) and skips the 2-4 s first-run migrations. Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds of the last run, in `${TMPDIR}/orch-ts-test-timings.json`), and `ORCH_TEST_JOBS=N` is a real pool.
+For a home that only needs to be initialised, call `seedHome()` (`tests/helpers`) instead of `dispatch.ts init`. It copies a template home (built once per process, or `ORCH_TEST_HOME_TEMPLATE`) and skips the 2-4 s first-run migrations. Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds of the last run, in `${TMPDIR}/orch-ts-test-timings.json`), and `ORCH_TEST_JOBS=N` is a real pool.
 
 Process start latency, not CPU, is the cost, so concurrency is the lever. Route and reader tests that
-spawn `dispatch.sh` use `describe.concurrent` with an `afterAll` that stops the servers, and spawn
+spawn `dispatch.ts` use `describe.concurrent` with an `afterAll` that stops the servers, and spawn
 asynchronously (never `Bun.spawnSync`). Under heavy machine load, timing-based tests can flake
 (timeouts, SSE waits): rerun the single file before suspecting your change.
 
-Env seams for tests: `ORCH_DISPATCH` (dispatch.sh path, read per call in `src/server/dispatch-path.ts`;
-tests point it at `test-support/fake-dispatch.sh`), `ORCH_SERVICE_SH` (so restart tests never touch the
+Env seams for tests: `ORCH_DISPATCH` (dispatch.ts path, read per call in `src/server/dispatch-path.ts`;
+tests point it at `test-support/fake-dispatch.ts`), `ORCH_SERVICE_SH` (so restart tests never touch the
 real supervisor), `ORCH_CHAT_DISPATCH` (dispatch used by chat turn sessions),
 `ORCH_CHAT_OPENCODE_DISPATCH=1` (opt the opencode chat harness into the dispatch path), and
 `ORCH_HERDR=0|1` (force herdr off/on). Suites use temporary `HARNESS_ORCH_HOME`s, never real state.
@@ -245,7 +242,7 @@ so do not commit or revert it. Sources and prototypes live in `design-system/`.
 ## The optional service
 
 `scripts/service.ts` generates a supervisor unit that runs `bun dispatch.ts serve` (bun directly, no shell) — the same
-foreground server `dispatch.sh ui` starts on demand. Points worth remembering when changing it:
+foreground server `dispatch.ts ui` starts on demand. Points worth remembering when changing it:
 
 - It resolves `bun` to an **absolute path** at install time; launchd and systemd start with a
   minimal `PATH`, so a bare `bun` would fail with a confusing log.
@@ -253,7 +250,7 @@ foreground server `dispatch.sh ui` starts on demand. Points worth remembering wh
   them back so `status`/`logs`/`restart`/`uninstall` describe the installed service.
 - It binds `127.0.0.1` by default, unlike `ui` (which binds `0.0.0.0` for LAN access).
 - The plist/unit spares job processes on restart (see Invariants); `install` rewrites outdated units.
-- `dispatch.sh ui` will stop and restart a running server when it detects newer sources — with
+- `dispatch.ts ui` will stop and restart a running server when it detects newer sources — with
   the service installed, use `service.ts restart` instead so the supervisor stays in charge.
 
 ## Cross-harness note

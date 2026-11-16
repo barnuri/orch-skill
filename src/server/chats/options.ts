@@ -173,7 +173,7 @@ export function resolveLaunch(home: string, harness: string, profileName: string
   if (problem !== null) {
     return { ok: false, error: `profile "${profileName}": ${problem}` };
   }
-  // Like dispatch.sh (orch_load_env_file + llm_hub_derive_v1_url), the agent also gets the `<home>/env`
+  // Like dispatch.ts (orch_load_env_file + llm_hub_derive_v1_url), the agent also gets the `<home>/env`
   // names and LLM_HUB_V1_URL the server process lacks: a profile can reference them inside a value
   // (opencode's `{env:LLM_HUB_V1_URL}` in OPENCODE_CONFIG_CONTENT), not only as a whole `${VAR}`.
   const env: Record<string, string> = {};

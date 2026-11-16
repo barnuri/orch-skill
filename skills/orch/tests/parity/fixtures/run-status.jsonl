@@ -1,7 +1,0 @@
-{"op":"add","id":"n1","label":"one"}
-{"op":"add","id":"n2","label":"two","after":["n1"]}
-{"op":"add","id":"n3","label":"three"}
-{"op":"add","id":"n4","label":"four"}
-{"op":"update","id":"n1","status":"done"}
-{"op":"update","id":"n3","status":"running"}
-{"op":"update","id":"n4","status":"error","error":"boom"}

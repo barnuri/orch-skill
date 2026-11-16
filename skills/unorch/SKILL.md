@@ -24,7 +24,7 @@ bun <orch-skill repo>/scripts/unorch.ts [run-id]   # repo: /Users/barnu/sandbox/
 
 ## Step 2: Order the work
 
-1. Read each report entry. A node with a live job and a growing log is still working: leave it, or ask the user whether to cancel it (`dispatch.sh node cancel <run> <node>`), before you touch its files.
+1. Read each report entry. A node with a live job and a growing log is still working: leave it, or ask the user whether to cancel it (`dispatch.ts node cancel <run> <node>`), before you touch its files.
 2. For a stuck or errored node, read its handoff and `git status` for the files it already changed. Finish from there, not from scratch.
 3. Do the nodes in dependency order (the report prints `waiting on`). Independent nodes can run in parallel through subagents of the main session, never through orch.
 
@@ -35,9 +35,9 @@ bun <orch-skill repo>/scripts/unorch.ts [run-id]   # repo: /Users/barnu/sandbox/
 
 - Follow the repo rules (`CLAUDE.md`): touched tests only, a 5 minute cap, commit by path, no push, restart the service after a `src/` change.
 - Answer a node's pending ask yourself when you take its work over. Ask the user only for a user decision, through the question tool.
-- After each task: merge its branch, tick its box in `tasks.md`, commit its files, and record it with `dispatch.sh node update <run> <node> done --force` and a handoff written into the node's out folder (`runs/<run>/out/<node>/handoff.md`), so the run page and `run status` stay true.
+- After each task: merge its branch, tick its box in `tasks.md`, commit its files, and record it with `dispatch.ts node update <run> <node> done --force` and a handoff written into the node's out folder (`runs/<run>/out/<node>/handoff.md`), so the run page and `run status` stay true.
 
 ## Step 4: Close
 
-- When no node is left, run `dispatch.sh run finish <run>`.
-- To hand the run back to orch: `dispatch.sh run resume <run>` and `dispatch.sh run set <run> auto_dispatch true`.
+- When no node is left, run `dispatch.ts run finish <run>`.
+- To hand the run back to orch: `dispatch.ts run resume <run>` and `dispatch.ts run set <run> auto_dispatch true`.

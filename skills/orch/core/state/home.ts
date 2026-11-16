@@ -1,4 +1,4 @@
-// Orch home resolution. Bun built-ins only. Matches dispatch.sh: HARNESS_ORCH_HOME, else $HOME/.harness-orch.
+// Orch home resolution. Bun built-ins only. Matches dispatch.ts: HARNESS_ORCH_HOME, else $HOME/.harness-orch.
 import { join } from "node:path";
 import { homedir } from "node:os";
 

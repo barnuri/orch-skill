@@ -17,7 +17,7 @@ const CMD_TIMEOUT_DEFAULT = 3600;
 const NEXT_DAYS = 366;
 const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 export const SCHEDULE_USAGE =
-  'dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"';
+  'dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -265,7 +265,7 @@ async function add(args: string[]): Promise<number> {
     const rc = await profileOk(profile);
     if (rc) return rc;
     if (model && !(await modelOk(profile, model))) {
-      err(`schedule add: model ${model} is not allowed for profile ${profile} (see: dispatch.sh model list --profile ${profile})\n`);
+      err(`schedule add: model ${model} is not allowed for profile ${profile} (see: dispatch.ts model list --profile ${profile})\n`);
       return 2;
     }
     const p = await resolvePrompt(prompt, "schedule add");
@@ -349,7 +349,7 @@ async function edit(args: string[]): Promise<number> {
     const eff = has.has("profile") ? v.profile! : (s.profile ?? "");
     if (hasModel) {
       if (model && !(await modelOk(eff, model))) {
-        err(`schedule edit: model ${model} is not allowed for profile ${eff} (see: dispatch.sh model list --profile ${eff})\n`);
+        err(`schedule edit: model ${model} is not allowed for profile ${eff} (see: dispatch.ts model list --profile ${eff})\n`);
         return 2;
       }
     } else if (has.has("profile")) {

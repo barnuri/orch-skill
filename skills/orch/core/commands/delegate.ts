@@ -5,12 +5,12 @@ import { loadRun, readJson } from "../state/store.ts";
 import { OpError, ID_PATTERN } from "../runs/node.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 
-export const DELEGATE_USAGE = `dispatch.sh delegate <run-id> plan "<text>|@file"
-       dispatch.sh delegate <run-id> task add <id> --stage plan|implement|review|fix --profile P [--label L]
-       dispatch.sh delegate <run-id> task set <id> todo|doing|done|blocked
-       dispatch.sh delegate <run-id> finding add <task-id> "<text>"
-       dispatch.sh delegate <run-id> finding close <F-id>
-       dispatch.sh delegate <run-id> show [--json]`;
+export const DELEGATE_USAGE = `dispatch.ts delegate <run-id> plan "<text>|@file"
+       dispatch.ts delegate <run-id> task add <id> --stage plan|implement|review|fix --profile P [--label L]
+       dispatch.ts delegate <run-id> task set <id> todo|doing|done|blocked
+       dispatch.ts delegate <run-id> finding add <task-id> "<text>"
+       dispatch.ts delegate <run-id> finding close <F-id>
+       dispatch.ts delegate <run-id> show [--json]`;
 const STAGES = ["plan", "implement", "review", "fix"];
 const TASK_STATUSES = ["todo", "doing", "done", "blocked"];
 const PLAN_MAX = 20000;

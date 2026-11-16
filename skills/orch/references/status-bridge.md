@@ -24,13 +24,13 @@ Session id: `agent_session_id` from `hooks/agent-env.sh` when present, else `$CL
 
 ## Automatic wiring
 
-`dispatch.sh` calls `orch announce --quiet` in the background from an EXIT trap after `run start|finish|sync|carry` and `node update|report|ping|dispatch`. The caller's exit code and output do not change. Rules:
+`dispatch.ts` calls `orch announce --quiet` in the background from an EXIT trap after `run start|finish|sync|carry` and `node update|report|ping|dispatch`. The caller's exit code and output do not change. Rules:
 
 1. Debounce: skipped when the last announce started under 5 s ago (`<home>/.announce-ts`, written atomically). The last change inside a window shows at the next mutation or the next refresh; the TTL covers the rest.
 2. No-op when neither `HERDR_ENV=1` nor `CLAUDE_CODE_SESSION_ID`/`OPENCODE_SESSION_ID` is set.
 3. No-op when `ORCH_NO_ANNOUNCE=1`. The dashboard reconciler (`src/server/runs/run-reconciler.ts`) sets it, because the server is not in a Herdr pane. The `*.test.sh` suites export it so they never touch a real pane.
 
-`dispatch.sh announce [--clear|--dry-run|--quiet|--run <id>|--ttl-sec N]` runs it by hand.
+`dispatch.ts announce [--clear|--dry-run|--quiet|--run <id>|--ttl-sec N]` runs it by hand.
 
 ## TTL refresh
 

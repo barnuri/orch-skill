@@ -83,8 +83,8 @@ function withResolvedRuns(home: string, schedule: Schedule): Schedule {
 
 /**
  * Every schedule, newest first. A direct read of `<home>/schedules/<id>/schedule.json`: the list
- * took 0.2 to 0.8 s through `dispatch.sh schedule list --json`, and the page re-polls every 2 s.
- * Writes still go through `dispatch.sh schedule`, the only writer.
+ * took 0.2 to 0.8 s through `dispatch.ts schedule list --json`, and the page re-polls every 2 s.
+ * Writes still go through `dispatch.ts schedule`, the only writer.
  */
 export function readSchedules(home: string): Schedule[] {
   let ids: string[];

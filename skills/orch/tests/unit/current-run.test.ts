@@ -6,7 +6,7 @@ autoCleanup();
 
 test("use and the . run id", () => {
   const home = seedHome();
-  const o = (...a: string[]) => runCmd(["bash", DISPATCH, ...a], { home, env: { ORCH_OWNER_FILL: "0" } });
+  const o = (...a: string[]) => runCmd([process.execPath, DISPATCH, ...a], { home, env: { ORCH_OWNER_FILL: "0" } });
   let r = o("node", "update", ".", "a", "running");
   expect(r.rc).toBe(1);
   expect(r.all).toMatch(/no current run/);
@@ -22,7 +22,7 @@ test("use and the . run id", () => {
   const st = () => readJson(join(home, "runs", R, "state.json")).nodes;
   expect(st().find((n: any) => n.id === "a").status).toBe("running");
 
-  const b = runCmd(["bash", DISPATCH, "node", "batch", "."], { home, env: { ORCH_OWNER_FILL: "0" }, stdin: '{"op":"add","id":"b","goal":"node b"}\n' });
+  const b = runCmd([process.execPath, DISPATCH, "node", "batch", "."], { home, env: { ORCH_OWNER_FILL: "0" }, stdin: '{"op":"add","id":"b","goal":"node b"}\n' });
   expect(b.rc).toBe(0);
   expect(st().some((n: any) => n.id === "b")).toBe(true);
   expect(o("run", "sync", ".").rc).toBe(0);

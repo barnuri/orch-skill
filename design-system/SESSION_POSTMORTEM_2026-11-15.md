@@ -37,7 +37,7 @@ sessions, and orch run `20261115-114006-0bff` (94 nodes, continued from `2026111
 | Model generation (thinking + writing) | 1.16 | 69 | 405 assistant messages. p50 6.8 s, p90 21 s, max 134 s (seq 3330). M |
 | Blocked on **foreground** subagent follow-ups | 1.20 | 72 | 4 calls: 1833 s, 881 s, 866 s, 682 s. M |
 | Blocked in `question` tool (user deciding) | 0.60 | 36 | 5 calls. One took 2015 s (13:08). M |
-| Orch bookkeeping shell (`dispatch.sh ...`) | 0.59 | 35.5 | 86 calls, p50 14 s, p90 72 s, max 149 s. 49 used `timeout 150`, total 18.5 min, one hit the limit. M |
+| Orch bookkeeping shell (`dispatch.ts ...`) | 0.59 | 35.5 | 86 calls, p50 14 s, p90 72 s, max 149 s. 49 used `timeout 150`, total 18.5 min, one hit the limit. M |
 | Tests run by the coordinator | 0.44 | 26.3 | 39 calls, p90 158 s, max 234 s. M |
 | Typecheck run by the coordinator | 0.20 | 12.2 | 35 calls, p50 15 s. M |
 | `service.sh` restart/install/status | 0.16 | 9.8 | 24 calls (22 restart/install). M |
@@ -58,7 +58,7 @@ inside a tool: a foreground subagent, the question tool, or a test.
 | `bun test` | 209 | 194 calls, p50 18 s, p90 120 s, max 880 s |
 | `sleep` / poll loops waiting for a background run | 125 | 138 calls, max 1470 s (test-speed waiting for a baseline) |
 | Browser / screenshot checks | 85 | 259 calls |
-| `dispatch.sh` calls (node update, report, ping) | 56 | 239 calls, p90 38 s |
+| `dispatch.ts` calls (node update, report, ping) | 56 | 239 calls, p90 38 s |
 | Typecheck | 30 | 79 calls, p50 19 s |
 | Other shell (edits by python/sed, grep, cat) | 47 | 852 calls, p50 0.7 s |
 | Model generation | 241 | 4.0 h |
@@ -108,7 +108,7 @@ tokens.
 | 3 | Sleep and poll loops in children waiting for their own background test runs | **125 agent-min** | M | 138 calls. `ses_e210b00aaffd` `while pgrep ... sleep 10` 1470 s. `ses_e207ab71fffe` 901 s |
 | 4 | User wait on a question: prose question, then a blocking `question` call. 3-4 queued nodes held 81 min. | **12.7 + 33.6 = 46** (plus 243 node-min held) | M | idle 12:53-13:05, `question` 13:08 2015 s |
 | 5 | Coordinator blocked on foreground subagent follow-ups | **72** | M | seq 4244 (1833 s), and 881 s, 866 s, 682 s |
-| 6 | Coordinator and children `dispatch.sh` bookkeeping. `run status` takes 10 s on the 142 kB `state.json` | **35.5 coordinator + 56 children = 91** | M | 86 + 239 calls |
+| 6 | Coordinator and children `dispatch.ts` bookkeeping. `run status` takes 10 s on the 142 kB `state.json` | **35.5 coordinator + 56 children = 91** | M | 86 + 239 calls |
 | 7 | Coordinator model time at 287k-850k context per call | **69** (about 35 of it avoidable) | M / E | p50 context 287k. Gen time grows with context (top 8 calls 50-134 s, all at 130k-690k) |
 | 8 | Coordinator running tests and typecheck itself, again after children had run them | **38.5** | M | 39 test + 35 typecheck calls |
 | 9 | Browser and screenshot checks in children, including one respawn | **85 agent-min** | M | 259 calls. `ses_e1fbe2330ffe` skipped its browser check, so `ses_e1fbd2666ffe` (9.5 min) redid it |
