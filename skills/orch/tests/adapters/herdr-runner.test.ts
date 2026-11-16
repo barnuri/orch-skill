@@ -35,7 +35,7 @@ test("ensure, status, web env file, health", async () => {
   expect(existsSync(wf)).toBe(true);
   const env = readJson(wf);
   expect(`${env.id} ${env.label}`).toBe("orch-skill orch-skill");
-  expect(env.socket).toMatch(/^\/tmp\/orch-herdr-\d+-\d+\/\.config\/herdr\/herdr\.sock$/);
+  expect(env.socket).toMatch(/^\/tmp\/orch-herdr-\d+-[0-9a-f]+\/\.config\/herdr\/herdr\.sock$/);
   expect(env.home).toMatch(/^\/tmp\/orch-herdr-/);
   expect(existsSync(env.socket)).toBe(true);
   expect(readdirSync(t.webdir)).toEqual(["orch-skill.json"]);
@@ -82,11 +82,11 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   expect(d("status", job).out.trim()).toBe("done exit=0");
   expect(readText(join(jd, "exit_code")).trim()).toBe("0");
   expect(readText(join(jd, "herdr_pane")).trim()).toBe("w1:p2");
-  expect(readText(join(jd, "herdr_sock"))).toMatch(/herdr\.sock$/);
+  expect(readText(join(jd, "herdr_sock")).trim()).toMatch(/herdr\.sock$/);
   expect(readText(join(jd, "log"))).toContain(`shim HOME=${t.realhome} marker=m1`);
   expect(readText(join(jd, "herdr-launch.sh"))).not.toMatch(/live-session/);
   expect(readText(join(jd, "herdr-launch.sh"))).toMatch(/exec bun .*\/core\/commands\/herdr-launch\.ts/);
-  expect(readText(join(jd, "argv.json"))).toMatch(/"bash","-c"/);
+  expect(readText(join(jd, "argv.json"))).toMatch(/"job-run"/);
   expect(t.fakeState().tabs.map((x: any) => x.label).join(" ")).toMatch(new RegExp(`(^|\\] )${job}$`));
   expect(t.fakeState().workspaces.map((w: any) => w.label)).toEqual(["jobs"]);
   expect(t.calls()).not.toMatch(/pane split/);

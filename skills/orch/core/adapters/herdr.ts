@@ -315,13 +315,17 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 // The pane shell inherits the instance HOME, so the launcher restores the real HOME and the job's
 // env first. It carries only the orch env, PATH and a short allow-list, so no other secret lands on disk.
-function writeLauncher(file: string, jobDir: string, launcherTs: string): void {
+function writeLauncher(file: string, jobDir: string, launcherTs: string, close: { tab: string; owner: string; inst: string; linger: number }): void {
   let s = "#!/bin/sh\n";
   s += `command -v bun >/dev/null 2>&1 || { echo "orch needs bun: install it from https://bun.sh" >&2; exit 127; }\n`;
   s += "unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID\n";
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && LAUNCH_ENV.test(k)) s += `export ${k}=${shq(v)}\n`;
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
-  s += `printf %s "$$" > ${shq(join(jobDir, "pid"))}\n`;
+  s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
+  s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  sleep ${close.linger}\n`;
+  s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
+  s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
+  s += ") >/dev/null 2>&1 </dev/null &\n";
   s += `exec bun ${shq(launcherTs)} ${shq(jobDir)}\n`;
   writeFileSync(file, s);
   chmodSync(file, 0o700);
@@ -365,7 +369,7 @@ export async function startJob(home: string, jobDir: string, argv: string[]): Pr
   writeFileSync(owner, `${jobDir}\n`);
   writeFileSync(join(jobDir, "argv.json"), JSON.stringify(argv));
   const launcher = join(jobDir, "herdr-launch.sh");
-  writeLauncher(launcher, jobDir, launchTs());
+  writeLauncher(launcher, jobDir, launchTs(), { tab: tabId, owner, inst, linger: await lingerSec(home) });
   await herdrCli(home, ["pane", "rename", paneId, title]);
   if (!(await herdrCli(home, ["pane", "run", paneId, `sh ${shq(launcher)}`])).ok) {
     await herdrCli(home, ["tab", "close", tabId]);
