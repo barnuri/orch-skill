@@ -268,8 +268,8 @@ fi
 # SCRIPT_DIR so the nohup child that re-sources this file by SELF_REAL finds them through the same
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
-ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
-  dashboard/demo adapters/harness runs/health adapters/hub runs/inbox core/locks
+ORCH_LIB_FILES="runs/batch runs/carry core/config runs/current-run
+  dashboard/demo runs/health runs/inbox core/locks
   automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
   automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
@@ -290,6 +290,48 @@ herdr_start_job() { herdr_orch_bun start-job "$@"; }
 herdr_close_job_tab() { herdr_orch_bun close-tab "$1" >/dev/null 2>&1 || true; }
 herdr_job_gone_note() { herdr_orch_bun job-gone-note "$1"; }
 herdr_serve_boot() { ( herdr_orch_bun serve-boot ) </dev/null >/dev/null 2>&1 & disown $! 2>/dev/null || true; }
+# Bash shims for the libs that still call the ported adapter code (core/adapters/*.ts through the hidden
+# `adapter-util` command). They go away as those libs are ported.
+HUB_USAGE='dispatch.sh hub setup [--harness H] | hub off | hub status | hub resolve <tier> [<role>]'
+_au() { "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" adapter-util "$@"; }
+resolve_prompt() { _au resolve-prompt "$1"; }
+harness_find_binary() { _au find-binary "$1"; }
+hub_mode_on() { _au hub-mode-on; }
+hub_profile() { _au hub-profile; }
+hub_role_tier() { _au hub-role-tier "$1"; }
+hub_api() { _au hub-api "$@"; }
+hub_node_expect() { _au hub-node-expect "$@"; }
+hub_node_settle() { _au hub-node-settle "$@"; }
+dispatch_with_profile() { _au dispatch-with-profile "$@"; }
+# The herdr job start and the herdr pane command both run the ported run command.
+target_dispatch() {
+  local kind="$1" name="$2" prompt="$3"
+  shift 3
+  if [ "$kind" = profile ]; then
+    "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" run --profile "$name" "$prompt" "$@"
+  else
+    "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" run "$name" "$prompt" "$@"
+  fi
+}
+
+# Hidden entry used by the Bun `start`: hands one job to a herdr pane. Exit 0 = started, 1 = not (use the detached path).
+herdr_start_entry() {
+  local job_dir="$1" kind="$2" name="$3" prompt="$4" start_script
+  shift 4
+  herdr_enabled || return 1
+  start_script=$(printf '%s\n' \
+    'self="$1"; shift' \
+    "write_exit() { printf '%s' \"\$1\" > \"$job_dir/exit_code.tmp\" && mv \"$job_dir/exit_code.tmp\" \"$job_dir/exit_code\"; }" \
+    "trap 'write_exit 130; exit 130' INT" \
+    "trap 'write_exit 143; exit 143' TERM" \
+    "trap 'write_exit 129; exit 129' HUP" \
+    '. "$self"' \
+    'target_dispatch "$@"' \
+    'rc=$?' \
+    'write_exit "$rc"' \
+    'exit "$rc"')
+  herdr_start_job "$job_dir" "$start_script" "$SELF_REAL" "$kind" "$name" "$prompt" "$@"
+}
 
 # Converts a `date -u +%Y-%m-%dT%H:%M:%SZ`-shaped timestamp to epoch seconds, trying BSD date
 # (macOS) then GNU date, since usage-snapshot.sh's captured_at must be readable on both.
@@ -425,22 +467,18 @@ parse_target() {
   TARGET_PROMPT=$(resolve_prompt "$raw_prompt") || return 1
 }
 
-# target_dispatch <kind> <name> <prompt> [args…] — the one place profile vs adapter branches;
-# used by the foreground `run` and by the backgrounded `start` child alike.
-target_dispatch() {
-  local kind="$1" name="$2" prompt="$3"
-  shift 3
-  if [ "$kind" = profile ]; then
-    dispatch_with_profile "$name" "$prompt" "$@"
-  else
-    adapter_dispatch "$name" "$prompt" "$@"
+# Runs "$@" in a new session, so a job outlives the harness that dispatched it: quitting or
+# Ctrl-C-ing that harness signals its whole process group, and nohup alone only ignores SIGHUP.
+# macOS ships no setsid binary, so perl's POSIX::setsid is the fallback. exec keeps the pid, so
+# the caller's $! is still the job's pid.
+run_detached() {
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
   fi
-}
-
-cmd_run() {
-  parse_target run "$@" || return $?
-  shift "$TARGET_ARGC"
-  target_dispatch "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@"
+  if command -v perl >/dev/null 2>&1; then
+    exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or die "exec: $!\n"' -- "$@"
+  fi
+  exec nohup "$@"
 }
 
 job_status() {
@@ -471,94 +509,6 @@ job_status() {
   fi
   # No exit code and no process: killed with an untrappable signal (SIGKILL) or the host rebooted.
   printf 'done exit=unknown (job process gone without an exit code: killed?)\n'
-}
-
-# Runs "$@" in a new session, so a job outlives the harness that dispatched it: quitting or
-# Ctrl-C-ing that harness signals its whole process group, and nohup alone only ignores SIGHUP.
-# macOS ships no setsid binary, so perl's POSIX::setsid is the fallback. exec keeps the pid, so
-# the caller's $! is still the job's pid.
-run_detached() {
-  if command -v setsid >/dev/null 2>&1; then
-    exec setsid "$@"
-  fi
-  if command -v perl >/dev/null 2>&1; then
-    exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or die "exec: $!\n"' -- "$@"
-  fi
-  exec nohup "$@"
-}
-
-# Self-backgrounds in a new session (run_detached), re-sourcing this same file (by its resolved real path, so a
-# symlinked skill directory still finds the real source) inside a fresh bash -c process to reach
-# adapter_dispatch — that keeps the adapters in one place instead of duplicating them into a
-# standalone wrapper script.
-cmd_start() {
-  parse_target start "$@" || return $?
-  shift "$TARGET_ARGC"
-
-  # A bad profile must fail here, synchronously, before anything is backgrounded.
-  local adapter="$TARGET_NAME"
-  if [ "$TARGET_KIND" = profile ]; then
-    profile_load "$TARGET_NAME" || return $?
-    adapter="$PROFILE_HARNESS"
-  fi
-
-  mkdir -p "$JOBS_HOME" || { printf 'cmd_start: cannot create %s\n' "$JOBS_HOME" >&2; return 1; }
-  local job_id job_dir start_script
-  job_id="$(date -u +%Y%m%d%H%M%S)-$(agent_session_id)-$$-$RANDOM"
-  job_dir="$JOBS_HOME/$job_id"
-  mkdir -p "$job_dir"
-  printf '%s\n' "$adapter" > "$job_dir/adapter"
-  if [ "$TARGET_KIND" = profile ]; then
-    printf '%s\n' "$TARGET_NAME" > "$job_dir/profile"
-    printf '%s\n' "${PROFILE_MODEL:-}" > "$job_dir/model"
-    printf '%s\n' "${PROFILE_MODEL_ID:-}" > "$job_dir/model_id"
-  fi
-
-  # The harness is told which session id to use, rather than being asked afterwards what it
-  # chose — that is the only way the id is knowable to us, and it makes the run resumable
-  # (`claude --resume <id>`). Exported, so the backgrounded child and its adapter both see it.
-  # `run` has no job dir to record it in, so this is deliberately start-only.
-  ORCH_SESSION_ID="${ORCH_RESUME_SESSION:-$(new_uuid)}"
-  export ORCH_SESSION_ID
-  [ -z "${ORCH_RESUME_SESSION:-}" ] || export ORCH_RESUME_SESSION
-  printf '%s\n' "$ORCH_SESSION_ID" > "$job_dir/session"
-
-  # An adapter's stdout is this job's log, so anything else it wants to report — the claude
-  # adapter's token/cost usage — needs somewhere else to put it. Start-only for the same reason
-  # as the session id: `run` has no job dir.
-  ORCH_JOB_DIR="$job_dir"
-  export ORCH_JOB_DIR
-
-  # Single quotes are deliberate: these lines must reach the child bash unexpanded. The child
-  # re-resolves the profile itself — that is how it gets the profile's exported env.
-  # shellcheck disable=SC2016
-  # A signal that kills the wrapper still records an exit code (128+N), so `status` can tell an
-  # interrupted job from one whose process vanished without a trace.
-  # exit_code is written to a temp file and renamed, so a poller never reads it half-written.
-  start_script=$(printf '%s\n' \
-    'self="$1"; shift' \
-    "write_exit() { printf '%s' \"\$1\" > \"$job_dir/exit_code.tmp\" && mv \"$job_dir/exit_code.tmp\" \"$job_dir/exit_code\"; }" \
-    "trap 'write_exit 130; exit 130' INT" \
-    "trap 'write_exit 143; exit 143' TERM" \
-    "trap 'write_exit 129; exit 129' HUP" \
-    '. "$self"' \
-    'target_dispatch "$@"' \
-    'rc=$?' \
-    'write_exit "$rc"' \
-    'exit "$rc"')
-
-  if herdr_enabled \
-    && herdr_start_job "$job_dir" "$start_script" "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@"; then
-    printf '%s\n' "$job_id"
-    return 0
-  fi
-
-  run_detached bash -c "$start_script" _ "$SELF_REAL" "$TARGET_KIND" "$TARGET_NAME" "$TARGET_PROMPT" "$@" \
-    >"$job_dir/log" 2>&1 </dev/null &
-  local bg_pid=$!
-  disown "$bg_pid" 2>/dev/null || true
-  printf '%s\n' "$bg_pid" > "$job_dir/pid"
-  printf '%s\n' "$job_id"
 }
 
 cmd_status() {
@@ -640,24 +590,6 @@ announce_hook() {
   return 0
 }
 
-# harness list is slow (it probes every CLI): one at a time. A caller that arrives meanwhile gets the
-# last finished answer, or exit 75 when there is none.
-harness_list_locked() {
-  local last rc tmp
-  last="$(locks_dir)/harness-list.last"
-  if ! orch_lock_acquire harness-list; then
-    if [ -s "$last" ]; then cat "$last"; return 0; fi
-    printf 'harness list: another probe is running\n' >&2
-    return 75
-  fi
-  tmp="$last.tmp.$$"
-  cmd_harness "$@" > "$tmp"; rc=$?
-  cat "$tmp"
-  [ "$rc" -ne 0 ] || mv -f "$tmp" "$last" 2>/dev/null
-  orch_lock_release harness-list
-  return $rc
-}
-
 # run_create_with_monitor <fn> [args] - creates a run (start or carry) and starts its health:<run>
 # monitor (lib/runs/health.sh). The run id is the first line the function prints.
 run_create_with_monitor() {
@@ -702,6 +634,27 @@ PORTED_COMMANDS=(
   "herdr job-gone-note"
   "herdr serve-boot"
   "herdr cli"
+  "harness list"
+  "hub setup"
+  "hub off"
+  "hub status"
+  "hub resolve"
+  "run --profile"
+  "run claude"
+  "run claude-native"
+  "run cursor-agent"
+  "run local-llm"
+  "run opencode"
+  "run copilot"
+  "run pi"
+  "start --profile"
+  "start claude"
+  "start claude-native"
+  "start cursor-agent"
+  "start local-llm"
+  "start opencode"
+  "start copilot"
+  "start pi"
 )
 
 is_ported() {
@@ -756,7 +709,7 @@ main() {
           exit $rc ;;
         finish|list|advance|retry|wait|health|broadcast|rule|messages|repoint) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         backfill-timing) shift 2; cmd_run_backfill_timing "$@" ;;
-        *) shift; cmd_run "$@" ;;
+        *) printf 'usage: dispatch.sh run (start|finish|sync|status|... | --profile <name> | <adapter>) ...\n' >&2; exit 2 ;;
       esac
       ;;
     node)
@@ -773,7 +726,6 @@ main() {
     owner) shift; cmd_owner_event "$@" ;;
     plan) shift; cmd_plan "$@" ;;
     msg) shift; cmd_msg "$@" ;;
-    start) shift; cmd_start "$@" ;;
     status) shift; cmd_status "$@" ;;
     tail) shift; cmd_tail "$@" ;;
     wait) shift; cmd_wait "$@" ;;
@@ -795,11 +747,10 @@ main() {
     profile) shift; cmd_profile "$@" ;;
     settings) shift; cmd_settings "$@" ;;
     model) shift; cmd_model "$@" ;;
-    harness)
-      shift
-      if [ "${1:-}" = list ]; then harness_list_locked "$@"; else cmd_harness "$@"; fi ;;
+    harness) printf 'usage: dispatch.sh harness list [--json]\n' >&2; exit 2 ;;
+    herdr-start-job) shift; herdr_start_entry "$@"; exit $? ;;
     herdr) herdr_orch_bun "${@:2}" ;;
-    hub) shift; cmd_hub "$@" ;;
+    hub) printf 'usage: %s\n' "$HUB_USAGE" >&2; exit 2 ;;
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;
     demo) shift; cmd_demo "$@" ;;
