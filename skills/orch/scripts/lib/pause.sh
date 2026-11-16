@@ -60,6 +60,23 @@ cmd_run_pause() {
   printf 'paused: %s\n' "$run_id"
 }
 
+RUN_SET_USAGE="dispatch.sh run set <run-id> auto_dispatch true|false"
+
+# run set <run> <key> <value>: sets one run-level flag. Only auto_dispatch exists: when true, the
+# dashboard server starts each ready node of the run itself (src/server/runs/auto-dispatch.ts).
+# A run without the key counts as false, so nothing starts by surprise.
+cmd_run_set() {
+  local run_id="${1:-}" key="${2:-}" value="${3:-}"
+  [ -n "$run_id" ] && [ $# -eq 3 ] || { printf 'usage: %s\n' "$RUN_SET_USAGE" >&2; return 2; }
+  [ "$key" = auto_dispatch ] || { printf 'run set: unknown key %s\n  usage: %s\n' "$key" "$RUN_SET_USAGE" >&2; return 2; }
+  case "$value" in true|false) ;; *) printf 'run set: auto_dispatch must be true or false\n' >&2; return 2 ;; esac
+  require_jq "run set"
+  run_require "$run_id" >/dev/null || return $?
+  state_write "$run_id" '.auto_dispatch = $v' --argjson v "$value" || return 1
+  run_event "$run_id" note "" "" "" "auto_dispatch $value" 2>/dev/null || true
+  printf 'auto_dispatch: %s %s\n' "$run_id" "$value"
+}
+
 # pause_job_alive <job-id>: exit 0 when the job's recorded pid is a live process.
 pause_job_alive() {
   local job_id="$1" pid

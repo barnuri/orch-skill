@@ -11,6 +11,7 @@ import { startHerdrWatcher } from "./health/herdr-watcher";
 import { digestToken } from "./http/auth";
 import { orchPaths } from "./files/paths";
 import { startBootResume } from "./runs/boot-resume";
+import { startRunEngine } from "./runs/auto-dispatch";
 import { startReconciler } from "./runs/run-reconciler";
 import { pauseRunsOnShutdown } from "./runs/shutdown-pause";
 import { startTicker } from "./schedules/ticker";
@@ -151,6 +152,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   startReconciler(args.home, orchPaths(args.home));
   startHealthWatcher(args.home);
   startHerdrWatcher(args.home);
+  // Event-driven: starts the ready nodes of every run with auto_dispatch true, pushes done/error changes.
+  startRunEngine(args.home);
   // A run paused with auto_resume (a PC restart) resumes by itself; never blocks or crashes boot.
   startBootResume(args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.

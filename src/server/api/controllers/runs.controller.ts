@@ -1,6 +1,9 @@
 import { Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
+import { jsonResponse } from "../../http/responses";
 import type { RouteHandler } from "../../http/route";
+import { isRunId } from "../../runs/run-id";
+import { runLiveStream } from "../../runs/run-live-sse";
 import {
   cancelNodeHandler,
   listRunsHandler,
@@ -81,6 +84,17 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   events_(c: ApiContext): Promise<Response> {
     return call(this.events, c);
+  }
+
+  @Get("/runs/{id}/live", {
+    summary: "Follow a run live (Server-Sent Events)",
+    description: "A `text/event-stream` with one `node` event (`{run, node, from, to, at}`) each time a node of the run turns done or error. The server's run engine sends it within about 200 ms of the state.json write. No replay: refetch the run after a reconnect.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "Malformed run id." })
+  live_(c: ApiContext): Response {
+    const id = c.req.param("id") ?? "";
+    return isRunId(id) ? runLiveStream(id, c.req.raw.signal) : jsonResponse(404, { error: "no such run" });
   }
 
   @Get("/runs/{id}/nodes/{node}/activity", {
