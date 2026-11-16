@@ -7,6 +7,7 @@
 @import "./chats/chats-start.css";
 @import "./chats/working-indicator.css";
 @import "./chats/question.css";
+@import "./chats/conversation.css";
 @import "./chats/queue.css";
 @import "./chats/artifacts/artifacts.css";
 @import "./chats/chat-design.css";

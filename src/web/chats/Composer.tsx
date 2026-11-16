@@ -8,7 +8,7 @@ import { AttachmentTile } from "./Attachments";
 import { useNow } from "./use-chat-thread";
 import { browserVoice, useDictation } from "./use-voice";
 import type { Conversation, VoiceDeps } from "./use-voice";
-import { appendTranscript, formatElapsed, PHASE_LABEL } from "../lib/voice-logic";
+import { appendTranscript, formatElapsed } from "../lib/voice-logic";
 
 interface Pending {
   key: number;
@@ -225,7 +225,7 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
       {problems.length > 0 || voiceErrors.length > 0 ? (
         <ul className="composer-problems" role="alert">
           {[...problems, ...voiceErrors].map((p) => (
-            <li key={p}>{p}</li>
+            <li key={p}>{p}{p.includes("/trust page") ? <> <a href="/trust">Open /trust</a></> : null}</li>
           ))}
         </ul>
       ) : null}
@@ -241,23 +241,13 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
               <LevelMeter level={dictation.level} />
             </>
           ) : null}
+          {dictation.partial !== "" ? <span className="voice-partial" data-testid="dictation-partial" dir="auto">{dictation.partial}</span> : null}
           <span className="voice-spacer" />
           <button type="button" className="btn" onClick={dictation.cancel}>
             Cancel
           </button>
           <button type="button" className="btn primary" disabled={dictation.state !== "recording"} onClick={dictation.finish}>
             Done
-          </button>
-        </div>
-      ) : null}
-      {voice !== undefined && talking ? (
-        <div className="voice-bar is-conversation" data-testid="conversation-bar" role="status">
-          <span className={`voice-dot${voice.phase === "listening" ? " is-live" : ""}`} aria-hidden="true" />
-          <span className="voice-label" data-testid="conversation-phase">{PHASE_LABEL[voice.phase]}</span>
-          {voice.phase === "listening" ? <LevelMeter level={voice.level} /> : null}
-          <span className="voice-spacer" />
-          <button type="button" className="btn danger" onClick={voice.stop}>
-            Stop voice
           </button>
         </div>
       ) : null}
@@ -359,14 +349,12 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
           <button
             type="button"
             className={`icon-btn composer-voice${talking ? " is-on" : ""}`}
-            aria-label={talking ? "Stop voice conversation" : "Start voice conversation"}
-            title={talking ? "Stop voice conversation" : "Voice conversation: talk hands-free, replies are read aloud"}
+            aria-label={talking ? "Open voice conversation" : "Start voice conversation"}
+            title={talking ? "Voice conversation is open" : "Voice conversation: talk hands-free, replies are read aloud"}
             aria-pressed={talking}
             disabled={blocked !== null || recording}
             onClick={() => {
-              if (talking) {
-                voice.stop();
-              } else {
+              if (!talking) {
                 dictation.clearError();
                 voice.start();
               }

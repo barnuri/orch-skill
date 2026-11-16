@@ -48,59 +48,6 @@ export function rmsLevel(frame: ArrayLike<number>): number {
   return Math.sqrt(sum / frame.length);
 }
 
-export interface SilenceOptions {
-  /** Level above which a frame counts as speech. */
-  threshold: number;
-  /** Quiet time after speech that ends the utterance. */
-  silenceMs: number;
-  /** Speech shorter than this (a click, a cough) does not count. */
-  minSpeechMs: number;
-}
-
-export const DEFAULT_SILENCE: SilenceOptions = { threshold: 0.02, silenceMs: 1200, minSpeechMs: 250 };
-
-export type SilenceEvent = "speech-start" | "speech-end" | null;
-
-/**
- * End-of-speech detector fed with (level, time) samples. Says "speech-start" once enough speech was heard and
- * "speech-end" once, after `silenceMs` of quiet following that speech. Silence before anyone spoke never ends it.
- */
-export class SilenceDetector {
-  private speechSince: number | null = null;
-  private quietSince: number | null = null;
-  private started = false;
-  private ended = false;
-
-  constructor(private readonly options: SilenceOptions = DEFAULT_SILENCE) {}
-
-  get heardSpeech(): boolean {
-    return this.started;
-  }
-
-  push(level: number, now: number): SilenceEvent {
-    if (this.ended) return null;
-    if (level >= this.options.threshold) {
-      this.quietSince = null;
-      this.speechSince ??= now;
-      if (!this.started && now - this.speechSince >= this.options.minSpeechMs) {
-        this.started = true;
-        return "speech-start";
-      }
-      return null;
-    }
-    if (!this.started) {
-      this.speechSince = null;
-      return null;
-    }
-    this.quietSince ??= now;
-    if (now - this.quietSince >= this.options.silenceMs) {
-      this.ended = true;
-      return "speech-end";
-    }
-    return null;
-  }
-}
-
 /** BCP-47 language of a reply by script: Hebrew, Arabic, Russian, Greek, CJK; else the browser's own language. */
 export function detectLanguage(text: string, fallback: string): string {
   const letters = text.replace(/[^\p{L}]/gu, "");

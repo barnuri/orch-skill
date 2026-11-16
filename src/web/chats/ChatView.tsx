@@ -15,6 +15,7 @@ import type { SettingsBadge } from "./ChatSettings";
 import { ArtifactBar, ArtifactLayout } from "./artifacts/ArtifactLayout";
 import { useArtifacts } from "./artifacts/use-artifacts";
 import { Composer } from "./Composer";
+import { ConversationView } from "./ConversationView";
 import { QueueBubbles, QueueCounter, QueueTray } from "./MessageQueue";
 import { EMPTY_QUEUE, waiting } from "./queue-logic";
 import type { QueueSnapshot } from "./queue-logic";
@@ -193,8 +194,17 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const projects = useProjects(false);
   const thread = useChatThread(chatId);
   const artifacts = useArtifacts(chatId);
+  const [lightbox, setLightbox] = useState<Attachment | null>(null);
+  const chat = chatQuery.data;
+  const rows = thread.messages;
+  const todos = latestTodos(rows);
+  const asking = pendingQuestion(rows);
+  const answerQuestion = useAnswerQuestion(chatId);
+  const running = thread.running || rows.some(isLive);
   const voice = useVoiceConversation({
     messages: thread.messages,
+    running,
+    question: asking === null ? null : { part: asking.part, answer: answerQuestion },
     send: async (text) => {
       const failure = await thread.send(text, []);
       if (failure === null) {
@@ -206,13 +216,6 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const stopVoice = voice.stop;
   // Another chat opened in the same view: the loop belongs to the old thread, so end it.
   useEffect(() => stopVoice, [chatId, stopVoice]);
-  const [lightbox, setLightbox] = useState<Attachment | null>(null);
-  const chat = chatQuery.data;
-  const rows = thread.messages;
-  const todos = latestTodos(rows);
-  const asking = pendingQuestion(rows);
-  const answerQuestion = useAnswerQuestion(chatId);
-  const running = thread.running || rows.some(isLive);
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
 
@@ -275,6 +278,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
       <ArtifactBar state={artifacts} />
       <QueueTray chatId={chat.id} snapshot={thread.queue} running={running} runningText={[...rows].reverse().find((m) => m.role === "user")?.content ?? null} onStop={() => void thread.stop()} onChange={thread.setQueue} />
       <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} lastFailed={lastReply?.status === "error"} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
+      {voice.phase !== "off" ? <ConversationView voice={voice} /> : null}
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>
     </ArtifactLayout>

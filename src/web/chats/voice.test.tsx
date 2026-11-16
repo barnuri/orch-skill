@@ -3,7 +3,8 @@ import { useState } from "react";
 import { installDom } from "../test/dom";
 import type { Message } from "../lib/chat-types";
 import type { RecordOptions } from "./voice";
-import type { VoiceDeps } from "./use-voice";
+import type { ConversationQuestion, VoiceDeps } from "./use-voice";
+import type { TtsHandlers } from "./voice";
 
 const uninstall = installDom();
 const { render, screen, fireEvent, cleanup, act } = await import("@testing-library/react");
@@ -27,22 +28,40 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 /** Fake microphone, recorder, transcriber and speech, with a log of what happened. */
 function fakeVoice(over: Partial<VoiceDeps> = {}) {
   const log: string[] = [];
-  let options: RecordOptions = {};
+  const recorders: RecordOptions[] = [];
+  let ttsHandlers: TtsHandlers | null = null;
   const deps: VoiceDeps = {
     openMic: async () => { log.push("open"); return { getTracks: () => [] } as unknown as MediaStream; },
     closeMic: () => { log.push("close"); },
     record: (_s, o) => {
-      options = o;
+      recorders.push(o);
       log.push("record");
-      return { mime: "audio/mp4", heardSpeech: true, stop: async () => { log.push("stop"); return new Blob(["x"], { type: "audio/mp4" }); }, cancel: () => { log.push("cancel"); } };
+      return {
+        heardSpeech: true,
+        stop: async () => { log.push("stop"); o.onSegment?.({ blob: new Blob(["x"], { type: "audio/mp4" }), mime: "audio/mp4", seconds: 2, hadSpeech: true, overlapped: false }); },
+        cancel: () => { log.push("cancel"); },
+      };
     },
     transcribe: async (_b, mime) => { log.push(`transcribe ${mime}`); return { ok: true, text: "hello world" }; },
-    speak: async (text) => { log.push(`speak ${text}`); },
+    makeTts: (h) => {
+      ttsHandlers = h;
+      let n = 0;
+      return {
+        enqueue: (s) => { log.push(`say ${s.text}`); if (n++ === 0) h.onStart(); h.onActive(s); },
+        stop: () => { log.push("tts-stop"); n = 0; },
+        speaking: false,
+      };
+    },
+    speak: async () => undefined,
     stopSpeaking: () => { log.push("stopSpeaking"); },
     primeSpeech: () => { log.push("prime"); },
+    wakeLock: { acquire: async () => { log.push("wake-lock"); return true; }, reacquire: async () => undefined, release: async () => { log.push("wake-release"); } },
+    origin: () => null,
+    storage: () => store(),
     ...over,
   };
-  return { deps, log, speechEnd: () => options.onSpeechEnd?.(), level: (l: number) => options.onLevel?.(l) };
+  const last = () => recorders[recorders.length - 1] as RecordOptions;
+  return { deps, log, recorders, speechEnd: () => last().onSpeechEnd?.(), speechStart: () => last().onSpeechStart?.(), ttsIdle: () => ttsHandlers?.onIdle(), level: (l: number) => last().onLevel?.(l) };
 }
 
 function composer(deps: VoiceDeps, sent: string[] = []) {
@@ -66,8 +85,44 @@ describe("dictation (mode 1)", () => {
     await flush();
     expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("draft hello world");
     expect(screen.queryByTestId("dictation-bar")).toBeNull();
-    expect(v.log).toEqual(["open", "record", "stop", "close", "transcribe audio/mp4"]);
+    expect(v.log).toEqual(["open", "record", "stop", "transcribe audio/mp4", "close"]);
     expect(sent).toEqual([]);
+  });
+
+  test("a recording is never stopped by a timer: three minutes later it is still recording until Done", async () => {
+    cleanup();
+    const real = globalThis.setTimeout;
+    const delays: number[] = [];
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => { delays.push(ms ?? 0); return real(fn, ms); }) as unknown as typeof setTimeout;
+    try {
+      const v = fakeVoice();
+      composer(v.deps);
+      fireEvent.click(screen.getByLabelText("Dictate"));
+      await flush();
+      expect(delays.some((d) => d >= 60_000)).toBe(false);
+      expect(screen.getByTestId("dictation-bar").textContent).toContain("Recording");
+      fireEvent.click(screen.getByText("Cancel"));
+      await flush();
+    } finally {
+      globalThis.setTimeout = real;
+    }
+  });
+
+  test("text of finished pieces shows live while the recording goes on, in order", async () => {
+    cleanup();
+    const v = fakeVoice({ transcribe: async (b) => ({ ok: true, text: await b.text() }) });
+    composer(v.deps);
+    fireEvent.click(screen.getByLabelText("Dictate"));
+    await flush();
+    const seg = (t: string, overlapped = false) => ({ blob: new Blob([t]), mime: "audio/webm", seconds: 30, hadSpeech: true, overlapped });
+    await act(async () => { v.recorders[0]?.onSegment?.(seg("first part of the talk")); });
+    await flush();
+    expect(screen.getByTestId("dictation-partial").textContent).toBe("first part of the talk");
+    await act(async () => { v.recorders[0]?.onSegment?.(seg("second part")); });
+    await flush();
+    expect(screen.getByTestId("dictation-partial").textContent).toBe("first part of the talk second part");
+    fireEvent.click(screen.getByText("Cancel"));
+    await flush();
   });
 
   test("Cancel drops the recording without transcribing", async () => {
@@ -83,13 +138,19 @@ describe("dictation (mode 1)", () => {
     expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
   });
 
-  test("a denied microphone and a failed transcription are shown", async () => {
+  test("a denied microphone, an insecure page and a failed transcription are shown", async () => {
     cleanup();
     const denied = fakeVoice({ openMic: () => Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" })) });
     composer(denied.deps);
     fireEvent.click(screen.getByLabelText("Dictate"));
     await flush();
     expect(screen.getByRole("alert").textContent).toContain("Microphone permission was denied");
+    cleanup();
+    const http = fakeVoice({ origin: () => "Voice needs https or localhost: open this page over https (see the /trust page to set up the certificate) or use localhost." });
+    composer(http.deps);
+    fireEvent.click(screen.getByLabelText("Dictate"));
+    await flush();
+    expect(screen.getByRole("alert").textContent).toContain("https or localhost");
     cleanup();
     const broken = fakeVoice({ transcribe: async () => ({ ok: false, error: "Transcription failed: whisper/whisper-large-v3: FFmpeg conversion failed." }) });
     composer(broken.deps);
@@ -103,21 +164,28 @@ describe("dictation (mode 1)", () => {
 });
 
 describe("voice conversation (mode 2)", () => {
-  function Harness({ deps, sent, first = "earlier reply" }: { deps: VoiceDeps; sent: string[]; first?: string }) {
+  function Harness({ deps, sent, first = "earlier reply", question = null }: { deps: VoiceDeps; sent: string[]; first?: string; question?: ConversationQuestion | null }) {
     const [messages, setMessages] = useState<Message[]>([msg("msg-01", { content: first })]);
-    const voice = useVoiceConversation({ messages, send: async (text) => { sent.push(text); setMessages((m) => [...m, msg("msg-02", { role: "user", content: text }), msg("msg-03", { status: "streaming" })]); return null; } }, deps);
+    const voice = useVoiceConversation({ messages, question, send: async (text) => { sent.push(text); setMessages((m) => [...m, msg("msg-02", { role: "user", content: text }), msg("msg-03", { status: "streaming" })]); return null; } }, deps);
     return (
       <div>
         <span data-testid="phase">{voice.phase}</span>
         <span data-testid="err">{voice.error ?? ""}</span>
+        <span data-testid="heard">{voice.heard}</span>
+        <span data-testid="reply">{voice.reply.map((r) => r.text).join("|")}</span>
         <button type="button" onClick={voice.start}>go</button>
         <button type="button" onClick={voice.stop}>halt</button>
-        <button type="button" onClick={() => { setMessages((m) => m.map((x) => (x.id === "msg-03" ? { ...x, status: "done", content: "the **answer**" } : x))); }}>finish</button>
+        <button type="button" onClick={voice.pause}>pause</button>
+        <button type="button" onClick={voice.resume}>resume</button>
+        <button type="button" onClick={voice.tap}>tap</button>
+        <button type="button" onClick={() => { setMessages((m) => m.map((x) => (x.id === "msg-03" ? { ...x, status: "streaming", content: "First sentence is here. Second one comes" } : x))); }}>stream</button>
+        <button type="button" onClick={() => { setMessages((m) => m.map((x) => (x.id === "msg-03" ? { ...x, status: "done", content: "First sentence is here. Second one comes now.\n```ts\nx\n```" } : x))); }}>finish</button>
       </div>
     );
   }
+  const talk = async (v: ReturnType<typeof fakeVoice>) => { await act(async () => { v.speechEnd(); }); await flush(); await flush(); };
 
-  test("listen → silence → transcribe → send → wait for the reply → read it → listen again; Stop ends it", async () => {
+  test("listen → silence → send → speak sentence by sentence while it streams → listen again; End stops everything", async () => {
     cleanup();
     const v = fakeVoice();
     const sent: string[] = [];
@@ -126,22 +194,72 @@ describe("voice conversation (mode 2)", () => {
     expect(v.log[0]).toBe("prime");
     await flush();
     expect(screen.getByTestId("phase").textContent).toBe("listening");
-    await act(async () => { v.speechEnd(); });
-    await flush();
-    await flush();
+    expect(v.log).toContain("wake-lock");
+    await talk(v);
     expect(sent).toEqual(["hello world"]);
-    expect(screen.getByTestId("phase").textContent).toBe("waiting");
-    expect(v.log.some((l) => l.startsWith("speak"))).toBe(false);
+    expect(screen.getByTestId("phase").textContent).toBe("thinking");
+    fireEvent.click(screen.getByText("stream"));
+    await flush();
+    expect(v.log).toContain("say First sentence is here.");
+    expect(v.log.some((l) => l.startsWith("say Second"))).toBe(false);
+    expect(screen.getByTestId("phase").textContent).toBe("speaking");
     fireEvent.click(screen.getByText("finish"));
     await flush();
+    expect(v.log).toContain("say Second one comes now.");
+    expect(v.log).toContain("say code block");
+    await act(async () => { v.ttsIdle(); });
     await flush();
-    expect(v.log).toContain("speak the **answer**");
     expect(screen.getByTestId("phase").textContent).toBe("listening");
-    expect(v.log.filter((l) => l === "record").length).toBe(2);
     fireEvent.click(screen.getByText("halt"));
     await flush();
     expect(screen.getByTestId("phase").textContent).toBe("off");
-    expect(v.log.slice(-3)).toEqual(["cancel", "close", "stopSpeaking"]);
+    expect(v.log).toContain("tts-stop");
+    expect(v.log.at(-1)).toBe("wake-release");
+  });
+
+  test("barge-in: speech while the assistant speaks stops the voice at once, keeps the recorder and skips the rest of the reply", async () => {
+    cleanup();
+    const v = fakeVoice();
+    render(<Harness deps={v.deps} sent={[]} />);
+    fireEvent.click(screen.getByText("go"));
+    await flush();
+    await talk(v);
+    fireEvent.click(screen.getByText("stream"));
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("speaking");
+    const recordsBefore = v.log.filter((l) => l === "record").length;
+    await act(async () => { v.speechStart(); });
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("listening");
+    expect(v.log).toContain("tts-stop");
+    expect(v.log.filter((l) => l === "record").length).toBe(recordsBefore);
+    fireEvent.click(screen.getByText("finish"));
+    await flush();
+    expect(v.log.some((l) => l.startsWith("say Second"))).toBe(false);
+    fireEvent.click(screen.getByText("halt"));
+    await flush();
+  });
+
+  test("tapping the orb while it speaks interrupts; pause silences, resume listens", async () => {
+    cleanup();
+    const v = fakeVoice();
+    render(<Harness deps={v.deps} sent={[]} />);
+    fireEvent.click(screen.getByText("go"));
+    await flush();
+    await talk(v);
+    fireEvent.click(screen.getByText("stream"));
+    await flush();
+    fireEvent.click(screen.getByText("tap"));
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("listening");
+    fireEvent.click(screen.getByText("pause"));
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("paused");
+    fireEvent.click(screen.getByText("resume"));
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("listening");
+    fireEvent.click(screen.getByText("halt"));
+    await flush();
   });
 
   test("the clip goes out with the last reply's language as the hint (he after a Hebrew reply)", async () => {
@@ -151,38 +269,60 @@ describe("voice conversation (mode 2)", () => {
     render(<Harness deps={v.deps} sent={[]} first="שלום, מה שלומך היום?" />);
     fireEvent.click(screen.getByText("go"));
     await flush();
-    await act(async () => { v.speechEnd(); });
-    await flush();
-    await flush();
+    await talk(v);
     expect(hints).toEqual(["he"]);
     fireEvent.click(screen.getByText("halt"));
     await flush();
   });
 
-  test("a transcription failure stops the loop with the error", async () => {
+  test("a transcription failure ends the mode with the error", async () => {
     cleanup();
     const v = fakeVoice({ transcribe: async () => ({ ok: false, error: "Transcription failed: HTTP 502" }) });
     render(<Harness deps={v.deps} sent={[]} />);
     fireEvent.click(screen.getByText("go"));
     await flush();
-    await act(async () => { v.speechEnd(); });
-    await flush();
-    await flush();
+    await talk(v);
     expect(screen.getByTestId("phase").textContent).toBe("off");
     expect(screen.getByTestId("err").textContent).toBe("Transcription failed: HTTP 502");
   });
 
-  test("the composer shows the conversation bar and its Stop button", async () => {
+  test("a denied microphone and an http page end the mode with a clear sentence and never open the mic", async () => {
+    cleanup();
+    const denied = fakeVoice({ openMic: () => Promise.reject(Object.assign(new Error("x"), { name: "NotAllowedError" })) });
+    render(<Harness deps={denied.deps} sent={[]} />);
+    fireEvent.click(screen.getByText("go"));
+    await flush();
+    expect(screen.getByTestId("err").textContent).toContain("permission was denied");
+    cleanup();
+    const http = fakeVoice({ origin: () => "Voice needs https or localhost: open this page over https (see the /trust page to set up the certificate) or use localhost." });
+    render(<Harness deps={http.deps} sent={[]} />);
+    fireEvent.click(screen.getByText("go"));
+    await flush();
+    expect(screen.getByTestId("err").textContent).toContain("/trust");
+    expect(http.log).not.toContain("open");
+  });
+
+  test("a pending question is read with its options and a spoken answer picks the option", async () => {
     cleanup();
     const v = fakeVoice();
-    let stopped = 0;
-    render(<Composer chatId="chat-v" blocked={null} running={false} onSend={async () => null} onStop={() => {}} onOpenImage={() => {}} storage={store()} voiceDeps={v.deps}
-      voice={{ phase: "listening", level: 0.4, error: null, start: () => {}, stop: () => { stopped += 1; }, clearError: () => {} }} />);
-    expect(screen.getByTestId("conversation-phase").textContent).toBe("Listening…");
-    expect(screen.getByLabelText("Stop voice conversation").getAttribute("aria-pressed")).toBe("true");
-    expect((screen.getByLabelText("Dictate") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByText("Stop voice"));
-    expect(stopped).toBe(1);
+    const answers: Array<[string, string[][] | null]> = [];
+    const part = { type: "question", id: "q1", state: "pending", asked_at: "", questions: [{ header: "H", question: "Ship it?", options: [{ label: "Yes ship", description: "" }, { label: "No wait", description: "" }], multiple: false, allowCustom: false }] } as unknown as ConversationQuestion["part"];
+    render(<Harness deps={v.deps} sent={[]} question={{ part, answer: async (qid, a) => { answers.push([qid, a]); return null; } }} />);
+    fireEvent.click(screen.getByText("go"));
+    await flush();
+    await talk(v);
+    fireEvent.click(screen.getByText("finish"));
+    await flush();
+    expect(v.log).toContain("say Ship it? The options are: 1, Yes ship.");
+    expect(v.log).toContain("say 2, No wait.");
+    v.deps.transcribe = async () => ({ ok: true, text: "the second one" });
+    await act(async () => { v.ttsIdle(); });
+    await flush();
+    expect(screen.getByTestId("phase").textContent).toBe("listening");
+    await talk(v);
+    expect(answers).toEqual([["q1", [["No wait"]]]]);
+    fireEvent.click(screen.getByText("halt"));
+    await flush();
   });
 });
 

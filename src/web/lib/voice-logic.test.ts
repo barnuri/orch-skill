@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "./chat-types";
 import {
   appendTranscript, detectLanguage, finishedReplyAfter, formatElapsed, lastAssistantId, micErrorMessage, pickRecorderMime, pickVoice,
-  recordingFilename, rmsLevel, SilenceDetector, speakableText, speechChunks, transcribeLanguage,
+  recordingFilename, rmsLevel, speakableText, speechChunks, transcribeLanguage,
 } from "./voice-logic";
 
 const msg = (id: string, over: Partial<Message> = {}): Message => ({ id, chat_id: "c", role: "assistant", content: "hi", status: "done", error: null, model_used: null, input_tokens: 0, output_tokens: 0, cost_usd: null, started_at: null, finished_at: null, created_at: "", attachments: [], ...over });
@@ -31,27 +31,6 @@ describe("end of speech", () => {
   test("rms of a silent frame is 0, of a loud one is high", () => {
     expect(rmsLevel(new Uint8Array(64).fill(128))).toBe(0);
     expect(rmsLevel(Uint8Array.from({ length: 64 }, (_, i) => (i % 2 === 0 ? 0 : 255)))).toBeGreaterThan(0.9);
-  });
-
-  test("ends 1.2 s after speech, never on leading silence, ignores a short click", () => {
-    const d = new SilenceDetector({ threshold: 0.02, silenceMs: 1200, minSpeechMs: 250 });
-    const events: Array<[number, string]> = [];
-    const feed = (level: number, from: number, to: number): void => {
-      for (let t = from; t < to; t += 50) {
-        const e = d.push(level, t);
-        if (e !== null) events.push([t, e]);
-      }
-    };
-    feed(0, 0, 3000); // long silence first: nothing
-    feed(0.5, 3000, 3100); // a click
-    feed(0, 3100, 5000);
-    expect(events).toEqual([]);
-    feed(0.3, 5000, 6000); // speech
-    feed(0.005, 6000, 6500); // a pause shorter than 1.2 s
-    feed(0.3, 6500, 7000);
-    feed(0, 7000, 9000);
-    expect(events).toEqual([[5250, "speech-start"], [8200, "speech-end"]]);
-    expect(d.heardSpeech).toBe(true);
   });
 });
 

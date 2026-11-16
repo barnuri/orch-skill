@@ -6,12 +6,18 @@
  * are read by the browser's own speechSynthesis, with a voice picked for the reply's language.
  */
 import { useSyncExternalStore } from "react";
+import { TtsQueue } from "./tts-queue";
+import type { TtsQueueOptions, UtteranceLike } from "./tts-queue";
 import { authHeaders } from "../api/chats";
 import { API_BASE } from "../lib/constants";
-import { DEFAULT_SILENCE, SilenceDetector, detectLanguage, pickRecorderMime, pickVoice, recordingFilename, rmsLevel, speakableText, speechChunks, transcribeLanguage } from "../lib/voice-logic";
-import type { SilenceOptions } from "../lib/voice-logic";
+import { detectLanguage, pickRecorderMime, pickVoice, recordingFilename, rmsLevel, speakableText, speechChunks, transcribeLanguage } from "../lib/voice-logic";
+import type { Sentence } from "../lib/speech-text";
+import { halvesOf, encodeWav, PCM_RATE } from "../lib/voice-pcm";
+import { EnergyVad, SegmentPolicy } from "../lib/voice-vad";
+import type { VadOptions } from "../lib/voice-vad";
 
-export type TranscribeOutcome = { ok: true; text: string } | { ok: false; error: string };
+export type { TranscribeOutcome } from "../lib/voice-chunks";
+import type { TranscribeOutcome } from "../lib/voice-chunks";
 /** `language` is a two-letter hint (`he` picks the Hebrew model); undefined means the browser's language. */
 export type Transcriber = (clip: Blob, mime: string, language?: string | null) => Promise<TranscribeOutcome>;
 
@@ -61,72 +67,149 @@ export function closeMic(stream: MediaStream | null): void {
   }
 }
 
+/** One recorded piece of a long recording; every piece is a complete file the hub can decode. */
+export interface Segment {
+  blob: Blob;
+  mime: string;
+  seconds: number;
+  hadSpeech: boolean;
+  /** Starts with audio the previous piece ended with (a cut with no pause): the texts are joined by `mergeOverlap`. */
+  overlapped: boolean;
+}
+
 export interface RecordOptions {
   /** Called about 20 times a second with the input level (0..1). */
   onLevel?: (level: number) => void;
-  /** Hands-free mode: called once when speech was heard and then ~1.2 s of silence followed. */
+  /** Called once when speech was heard (after the noise floor was measured). */
+  onSpeechStart?: () => void;
+  /** Hands-free mode: called once when speech was heard and then `vad.endSilenceMs` of quiet followed. Without it, only `stop()` ends a recording. */
   onSpeechEnd?: () => void;
-  silence?: SilenceOptions;
+  /** Called with each piece as it completes: at pauses while recording, and the last one on `stop()`. */
+  onSegment?: (segment: Segment) => void;
+  vad?: Partial<VadOptions>;
 }
 
 type AudioContextCtor = typeof AudioContext;
 
-/** One clip from an open microphone stream. `stop()` resolves the recording; `cancel()` drops it. */
+/** Time the old recorder keeps running after a forced cut, so the word at the cut is whole in the next piece too. */
+const FORCED_CUT_OVERLAP_MS = 800;
+
+interface Live {
+  recorder: MediaRecorder;
+  chunks: Blob[];
+  startedAt: number;
+  hadSpeech: boolean;
+  overlapped: boolean;
+  stopped: Promise<void>;
+}
+
+/**
+ * Records from an open microphone stream until `stop()`: nothing else ends it (no timer). Long recordings are cut into
+ * pieces, ported from the voice-notes app: at sentence pauses (never mid-word), restart-free (the next MediaRecorder starts
+ * before the old one stops) and with an overlap when no pause came for a minute. Each piece is a complete container file.
+ */
 export class ClipRecorder {
-  readonly mime: string;
-  private readonly recorder: MediaRecorder;
-  private readonly chunks: Blob[] = [];
-  private readonly detector: SilenceDetector;
+  private mimeType: string = "";
+  private live: Live | null = null;
+  private readonly vad: EnergyVad;
+  private readonly policy = new SegmentPolicy();
   private audio: AudioContext | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private done: Promise<Blob>;
+  private startedSpeech = false;
+  private ended = false;
+  private cancelled = false;
+  private pending: Promise<void>[] = [];
 
-  constructor(stream: MediaStream, private readonly options: RecordOptions = {}) {
-    const mime = pickRecorderMime((t) => MediaRecorder.isTypeSupported(t));
-    this.recorder = mime === "" ? new MediaRecorder(stream) : new MediaRecorder(stream, { mimeType: mime });
-    this.mime = this.recorder.mimeType || mime;
-    this.detector = new SilenceDetector(options.silence ?? DEFAULT_SILENCE);
-    this.recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) this.chunks.push(e.data);
-    };
-    this.done = new Promise<Blob>((resolve) => {
-      this.recorder.onstop = () => {
-        resolve(new Blob(this.chunks, { type: this.mime || this.chunks[0]?.type || "audio/webm" }));
-      };
-    });
-    // A timeslice makes Safari deliver data reliably; the chunks join into one valid file.
-    this.recorder.start(250);
+  constructor(private readonly stream: MediaStream, private readonly options: RecordOptions = {}) {
+    this.vad = new EnergyVad(options.vad);
+    this.mimeType = pickRecorderMime((t) => MediaRecorder.isTypeSupported(t));
+    this.live = this.begin(false);
+    this.policy.reset(performance.now());
     this.meter(stream);
   }
 
+  get mime(): string {
+    return this.live?.recorder.mimeType || this.mimeType || "audio/webm";
+  }
+
   get heardSpeech(): boolean {
-    return this.detector.heardSpeech;
+    return this.vad.heardSpeech;
+  }
+
+  private begin(overlapped: boolean): Live {
+    const recorder = this.mimeType === "" ? new MediaRecorder(this.stream) : new MediaRecorder(this.stream, { mimeType: this.mimeType });
+    const live: Live = { recorder, chunks: [], startedAt: performance.now(), hadSpeech: false, overlapped, stopped: Promise.resolve() };
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) live.chunks.push(e.data);
+    };
+    live.stopped = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve();
+    });
+    // A timeslice makes Safari deliver data reliably; the pieces join into one valid file.
+    recorder.start(1000);
+    return live;
+  }
+
+  private finish(live: Live): Promise<void> {
+    if (live.recorder.state !== "inactive") {
+      live.recorder.requestData?.();
+      live.recorder.stop();
+    }
+    return live.stopped.then(() => {
+      if (this.cancelled) return;
+      const mime = live.recorder.mimeType || this.mimeType || "audio/webm";
+      const blob = new Blob(live.chunks, { type: mime });
+      if (blob.size === 0) return;
+      this.options.onSegment?.({ blob, mime, seconds: (performance.now() - live.startedAt) / 1000, hadSpeech: live.hadSpeech, overlapped: live.overlapped });
+    });
+  }
+
+  private rotate(forced: boolean): void {
+    const old = this.live;
+    if (old === null) return;
+    this.live = this.begin(forced);
+    this.policy.reset(performance.now());
+    this.pending.push(forced ? new Promise<void>((r) => setTimeout(r, FORCED_CUT_OVERLAP_MS)).then(() => this.finish(old)) : this.finish(old));
   }
 
   private meter(stream: MediaStream): void {
-    const Ctor = (globalThis as { AudioContext?: AudioContextCtor; webkitAudioContext?: AudioContextCtor }).AudioContext
-      ?? (globalThis as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
-    if (Ctor === undefined || (this.options.onLevel === undefined && this.options.onSpeechEnd === undefined)) return;
+    const Ctor = (globalThis as { AudioContext?: AudioContextCtor }).AudioContext ?? (globalThis as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
+    if (Ctor === undefined) return;
     try {
       const audio = new Ctor();
       this.audio = audio;
+      // Safari starts a context suspended: without this the level stays 0 and the recording is never cut or ended.
       void audio.resume().catch(() => undefined);
       const analyser = audio.createAnalyser();
       analyser.fftSize = 1024;
       audio.createMediaStreamSource(stream).connect(analyser);
       const frame = new Uint8Array(analyser.fftSize);
-      // setInterval, not requestAnimationFrame: rAF pauses in a background tab and the loop must keep hearing silence.
-      this.timer = setInterval(() => {
-        analyser.getByteTimeDomainData(frame);
-        const level = rmsLevel(frame);
-        this.options.onLevel?.(Math.min(1, level * 4));
-        if (this.detector.push(level, performance.now()) === "speech-end") {
-          this.options.onSpeechEnd?.();
-        }
-      }, 50);
+      // setInterval, not requestAnimationFrame: rAF pauses in a background tab and the loop must keep hearing the room.
+      this.timer = setInterval(() => this.tick(analyser, frame), 50);
     } catch {
       this.audio = null;
     }
+  }
+
+  private tick(analyser: AnalyserNode, frame: Uint8Array<ArrayBuffer>): void {
+    analyser.getByteTimeDomainData(frame);
+    const level = rmsLevel(frame);
+    const now = performance.now();
+    this.options.onLevel?.(Math.min(1, level * 4));
+    const event = this.vad.push(level, now);
+    const loud = !this.vad.calibrating && level >= this.vad.stopThreshold;
+    if (loud && this.live !== null) this.live.hadSpeech = true;
+    if (event === "speech-start" && !this.startedSpeech) {
+      this.startedSpeech = true;
+      this.options.onSpeechStart?.();
+    }
+    if (event === "speech-end" && !this.ended) {
+      this.ended = true;
+      this.options.onSpeechEnd?.();
+      return;
+    }
+    const cut = this.policy.observe(loud, now);
+    if (cut !== "none" && !this.ended) this.rotate(cut === "forced");
   }
 
   private release(): void {
@@ -136,19 +219,39 @@ export class ClipRecorder {
     this.audio = null;
   }
 
-  stop(): Promise<Blob> {
+  /** Ends the recording; resolves after the last piece went to `onSegment`. */
+  async stop(): Promise<void> {
     this.release();
-    if (this.recorder.state !== "inactive") {
-      this.recorder.requestData?.();
-      this.recorder.stop();
-    }
-    return this.done;
+    const last = this.live;
+    this.live = null;
+    if (last !== null) this.pending.push(this.finish(last));
+    await Promise.all(this.pending);
   }
 
   cancel(): void {
+    this.cancelled = true;
     this.release();
-    this.recorder.ondataavailable = null;
-    if (this.recorder.state !== "inactive") this.recorder.stop();
+    for (const live of [this.live]) {
+      if (live !== null && live.recorder.state !== "inactive") {
+        live.recorder.ondataavailable = null;
+        live.recorder.stop();
+      }
+    }
+    this.live = null;
+  }
+}
+
+/** Decodes a recorded piece and cuts it into two overlapping 16 kHz wav halves, for a piece the hub refused. */
+export async function splitClip(blob: Blob): Promise<[Blob, Blob] | null> {
+  const Ctor = (globalThis as { AudioContext?: AudioContextCtor }).AudioContext ?? (globalThis as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
+  if (Ctor === undefined) return null;
+  const ctx = new Ctor({ sampleRate: PCM_RATE });
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const halves = halvesOf(decoded.getChannelData(0), decoded.sampleRate);
+    return halves === null ? null : [encodeWav(halves[0], decoded.sampleRate), encodeWav(halves[1], decoded.sampleRate)];
+  } finally {
+    void ctx.close().catch(() => undefined);
   }
 }
 
@@ -246,4 +349,39 @@ export async function speak(markdown: string, key: string = "speech"): Promise<v
     });
   }
   if (token === speakToken) setSpeaking(null);
+}
+
+// ---- conversation mode speech: a TtsQueue over the browser engine ----
+
+
+/** The conversation mode's speaker; swappable in tests. */
+export interface TtsPort {
+  enqueue: (sentence: Sentence) => void;
+  stop: () => void;
+  readonly speaking: boolean;
+}
+
+export interface TtsHandlers {
+  onActive: (sentence: Sentence | null) => void;
+  onStart: () => void;
+  onIdle: () => void;
+  onNoVoice: (lang: string) => void;
+  voiceFor: (langBase: string) => string | undefined;
+  rate: () => number;
+}
+
+export function makeBrowserTts(h: TtsHandlers): TtsPort | null {
+  const s = synth();
+  if (s === null || typeof SpeechSynthesisUtterance === "undefined") return null;
+  const options: TtsQueueOptions = {
+    synth: s as unknown as TtsQueueOptions["synth"],
+    makeUtterance: (text) => new SpeechSynthesisUtterance(text) as unknown as UtteranceLike,
+    ...h,
+  };
+  return new TtsQueue(options);
+}
+
+/** Installed voices, for the settings sheet. */
+export function installedVoices(): SpeechSynthesisVoice[] {
+  return synth()?.getVoices() ?? [];
 }

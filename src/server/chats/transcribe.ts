@@ -13,7 +13,18 @@ export const DEFAULT_STT_MODEL: string = "whisper/whisper-large-v3";
 export const DEFAULT_STT_MODELS: readonly string[] = [DEFAULT_STT_MODEL, "parakeet/mlx-community/parakeet-tdt-0.6b-v2"];
 /** Fine-tuned for Hebrew: faster than whisper and exact on Hebrew speech. Tried first when the client hints `he`. */
 export const HEBREW_STT_MODEL: string = "ivrit/ivrit-large-v3-turbo";
-const UPSTREAM_TIMEOUT_MS: number = 120_000;
+/** Floor of the hub wait: the whole clip is decoded and transcribed before the hub answers. */
+export const MIN_UPSTREAM_TIMEOUT_MS: number = 120_000;
+export const MAX_UPSTREAM_TIMEOUT_MS: number = 600_000;
+
+/**
+ * How long to wait for the hub for a clip of `bytes`. A flat 120 s cut off long dictation: a 16 kHz wav is 32 KB per
+ * second of speech and a slow model needs about twice that in wall time, so the wait grows with the clip, up to 10 minutes.
+ */
+export function upstreamTimeoutMs(bytes: number): number {
+  const seconds = Math.max(0, bytes) / 32_000;
+  return Math.min(MAX_UPSTREAM_TIMEOUT_MS, Math.max(MIN_UPSTREAM_TIMEOUT_MS, Math.round(30_000 + seconds * 2_000)));
+}
 const MAX_ERROR_CHARS: number = 300;
 
 /** Containers browsers record (webm on Chrome/Edge/Firefox, mp4 on Safari) plus the usual audio files. */
@@ -165,7 +176,7 @@ async function callModel(config: SttConfig, model: string, audio: AudioInput, si
       method: "POST",
       headers: { Authorization: `Bearer ${config.apiKey}` },
       body: form,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(upstreamTimeoutMs(audio.file.size))]),
     });
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";
