@@ -195,6 +195,13 @@ export function deleteUnattached(store: ChatStore, home: string, id: string): bo
   return true;
 }
 
+/** Deletes the uploads a queue row holds (the row was cancelled): their rows, links and, when nothing else uses them, their blobs. */
+export function deleteHeldBy(store: ChatStore, home: string, queueId: string): number {
+  const held = store.heldByQueue(queueId);
+  store.releaseQueue(queueId);
+  return held.filter((row) => deleteUnattached(store, home, row.id)).length;
+}
+
 export const SWEEP_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Startup sweep: uploads nobody sent within 24 hours. Returns how many were removed. */

@@ -376,8 +376,8 @@ export class ChatStore {
 
   // ---- attachments ----
 
-  addAttachment(input: Omit<AttachmentRow, "id" | "created_at" | "message_id">): AttachmentRow {
-    const row: AttachmentRow = { ...input, id: newId("att"), message_id: null, created_at: now() };
+  addAttachment(input: Omit<AttachmentRow, "id" | "created_at" | "message_id" | "queue_id">): AttachmentRow {
+    const row: AttachmentRow = { ...input, id: newId("att"), message_id: null, queue_id: null, created_at: now() };
     this.db.query("INSERT INTO attachments (id, chat_id, message_id, filename, mime, size, sha256, rel_path, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)")
       .run(row.id, row.chat_id, row.filename, row.mime, row.size, row.sha256, row.rel_path, row.created_at);
     return row;
@@ -396,18 +396,52 @@ export class ChatStore {
     return (this.db.query("SELECT COALESCE(SUM(size), 0) AS n FROM attachments WHERE chat_id = ? AND message_id IS NULL").get(chatId) as { n: number }).n;
   }
 
-  /** Removes the row of an attachment no message owns. Returns the row, or null when it is unknown or already attached. */
+  /** Removes the row of an attachment no message owns. Returns the row, or null when it is unknown, already attached or held by a queued message. */
   dropUnattached(id: string): AttachmentRow | null {
     const row = this.getAttachment(id);
-    if (row === null || row.message_id !== null) {
+    if (row === null || row.message_id !== null || (row.queue_id !== null && this.queueHoldLive(row.queue_id))) {
       return null;
     }
     this.db.query("DELETE FROM attachments WHERE id = ? AND message_id IS NULL").run(id);
     return row;
   }
 
+  /** Old uploads the startup sweep may remove. An upload held by a message that still waits in the queue is never listed. */
   unattachedBefore(cutoffIso: string): AttachmentRow[] {
-    return this.db.query("SELECT * FROM attachments WHERE message_id IS NULL AND created_at < ? ORDER BY id").all(cutoffIso) as AttachmentRow[];
+    return this.db.query(
+      `SELECT * FROM attachments WHERE message_id IS NULL AND created_at < ?1
+         AND (queue_id IS NULL OR NOT EXISTS (SELECT 1 FROM chat_queue q WHERE q.id = attachments.queue_id AND q.state IN ('queued','running')))
+       ORDER BY id`,
+    ).all(cutoffIso) as AttachmentRow[];
+  }
+
+  /** Makes the queue row `queueId` the holder of these uploads, and lets go of the ones it held before and no longer lists. */
+  holdForQueue(queueId: string, ids: readonly string[]): void {
+    this.db.transaction(() => {
+      for (const row of this.db.query("SELECT id FROM attachments WHERE queue_id = ? AND message_id IS NULL").all(queueId) as Array<{ id: string }>) {
+        if (!ids.includes(row.id)) {
+          this.db.query("UPDATE attachments SET queue_id = NULL WHERE id = ?").run(row.id);
+        }
+      }
+      for (const id of ids) {
+        this.db.query("UPDATE attachments SET queue_id = ? WHERE id = ? AND message_id IS NULL").run(queueId, id);
+      }
+    })();
+  }
+
+  /** True while the queue row still waits or runs: its uploads are not to be removed. */
+  private queueHoldLive(queueId: string): boolean {
+    return this.db.query("SELECT 1 FROM chat_queue WHERE id = ? AND state IN ('queued','running')").get(queueId) !== null;
+  }
+
+  /** Uploads a queue row holds. */
+  heldByQueue(queueId: string): AttachmentRow[] {
+    return this.db.query("SELECT * FROM attachments WHERE queue_id = ? AND message_id IS NULL ORDER BY id").all(queueId) as AttachmentRow[];
+  }
+
+  /** Ends the hold: the uploads become plain pending ones again. */
+  releaseQueue(queueId: string): void {
+    this.db.query("UPDATE attachments SET queue_id = NULL WHERE queue_id = ? AND message_id IS NULL").run(queueId);
   }
 
   sha256InUse(sha: string): boolean {
@@ -416,7 +450,7 @@ export class ChatStore {
 
   linkAttachments(ids: readonly string[], messageId: string): void {
     for (const id of ids) {
-      this.db.query("UPDATE attachments SET message_id = ? WHERE id = ?").run(messageId, id);
+      this.db.query("UPDATE attachments SET message_id = ?, queue_id = NULL WHERE id = ?").run(messageId, id);
     }
   }
 

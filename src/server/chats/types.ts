@@ -35,6 +35,8 @@ export interface MessageRow {
 export interface AttachmentRow {
   id: string; chat_id: string; message_id: string | null; filename: string; mime: string; size: number;
   sha256: string; rel_path: string; created_at: string;
+  /** The queue row (`chat_queue.id`) that holds this upload until its message is sent; null for a plain pending upload. */
+  queue_id: string | null;
 }
 
 export interface Page<T> { items: T[]; next_cursor: string | null }

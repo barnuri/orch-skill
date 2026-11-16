@@ -102,4 +102,8 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE chats ADD COLUMN unread INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  ALTER TABLE attachments ADD COLUMN queue_id TEXT;
+  CREATE INDEX attachments_queue ON attachments(queue_id);
+  `,
 ];

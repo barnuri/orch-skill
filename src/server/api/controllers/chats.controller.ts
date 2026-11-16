@@ -18,7 +18,7 @@ import type { ApiContext } from "../pipeline";
 import { failure, idOf } from "./projects.controller";
 import { valid } from "./support";
 
-const publicAttachment = ({ rel_path: _rel, ...rest }: AttachmentRow): Omit<AttachmentRow, "rel_path"> => rest;
+const publicAttachment = ({ rel_path: _rel, queue_id: _queue, ...rest }: AttachmentRow): Omit<AttachmentRow, "rel_path" | "queue_id"> => rest;
 
 function publicMessage(row: MessageRow & { attachments: AttachmentRow[] }): unknown {
   return { ...row, parts: parseParts(row.parts), attachments: row.attachments.map(publicAttachment) };
@@ -324,7 +324,7 @@ export class ChatsController {
       return jsonResponse(404, { error: "no such attachment" });
     }
     if (!deleteUnattached(this.service.store, this.service.home, id)) {
-      return jsonResponse(409, { error: "attachment belongs to a message and cannot be removed" });
+      return jsonResponse(409, { error: row.queue_id !== null && row.message_id === null ? "attachment is held by a queued message: edit or cancel that message first" : "attachment belongs to a message and cannot be removed" });
     }
     return jsonResponse(200, { ok: true });
   }

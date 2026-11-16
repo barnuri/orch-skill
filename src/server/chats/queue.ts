@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { QUEUE_MAX_ITEMS, QUEUE_MAX_TEXT_BYTES } from "../../shared/dto/chat-queue";
 import { newId } from "./ids";
 import type { ChatStore } from "./store";
-import { blobPath } from "./uploads";
+import { blobPath, deleteHeldBy } from "./uploads";
 import { existsSync } from "node:fs";
 
 export { QUEUE_MAX_ITEMS, QUEUE_MAX_TEXT_BYTES };
@@ -173,6 +173,7 @@ export class ChatQueue {
     const id = newId("que");
     this.db.query("INSERT INTO chat_queue (id, chat_id, text, attachments, position, state, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)")
       .run(id, chatId, input.content, JSON.stringify(ids), count + 1, now());
+    this.store.holdForQueue(id, ids);
     this.publish(chatId);
     return item(this.row(chatId, id) as Raw);
   }
@@ -198,6 +199,7 @@ export class ChatQueue {
     if (res.changes === 0) {
       throw this.stateError(this.row(chatId, qid));
     }
+    this.store.holdForQueue(qid, ids);
     this.publish(chatId);
     return item(this.row(chatId, qid) as Raw);
   }
@@ -207,6 +209,7 @@ export class ChatQueue {
     if (res.changes === 0) {
       throw this.stateError(this.row(chatId, qid));
     }
+    deleteHeldBy(this.store, this.home, qid);
     this.renumber(chatId);
     if (!this.hasQueued(chatId)) {
       this.setPause(chatId, false, null);

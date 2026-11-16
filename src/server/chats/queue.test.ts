@@ -1,117 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { hostname } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { digestToken } from "../http/auth";
-import { orchPaths } from "../files/paths";
-import { TempHome } from "../test-support/temp-home";
-import type { ServerContext } from "../types/server-context";
 import { ALREADY_STARTED, QUEUE_MAX_ITEMS, QUEUE_MAX_TEXT_BYTES, QueueError } from "./queue";
-import { ChatService, type ChatEvent } from "./service";
-import type { AgentEvent, AgentSession, SessionFactory } from "./sessions/types";
+import { type ChatService, type ChatEvent } from "./service";
+import { cleanup, runCleanup, setup, until } from "./testing/queue-harness";
 import { blobPath } from "./uploads";
 
-const PROFILES = {
-  models: { "m-a": { slug: "alpha", harnesses: ["claude"] } },
-  profiles: { main: { harness: "claude", model: "m-a" } },
-};
-
-interface FakeTurn { prompt: string; finish: () => void; fail: () => void; stopped: boolean }
-
-/** A harness whose turns end only when the test says so: `finish()`, `fail()` or a stop. */
-class Harness {
-  readonly turns: FakeTurn[] = [];
-  auto = false;
-  readonly factory: SessionFactory = () => {
-    const owner = this;
-    let stopper: ((how: "done" | "fail" | "stop" | "detach") => void) | null = null;
-    const session: AgentSession = {
-      persistent: true,
-      sessionId: "fake-session",
-      async start() {},
-      send(prompt: string): AsyncIterable<AgentEvent> {
-        let resolveTurn!: (how: "done" | "fail" | "stop" | "detach") => void;
-        const ended = new Promise<"done" | "fail" | "stop" | "detach">((resolve) => {
-          resolveTurn = resolve;
-        });
-        const turn: FakeTurn = { prompt, stopped: false, finish: () => resolveTurn("done"), fail: () => resolveTurn("fail") };
-        owner.turns.push(turn);
-        stopper = resolveTurn;
-        if (owner.auto) {
-          setTimeout(() => resolveTurn("done"), 5);
-        }
-        return (async function* () {
-          yield { type: "text-delta", text: `partial of ${prompt.split("\n")[0]}` } as AgentEvent;
-          const how = await ended;
-          if (how === "stop") {
-            turn.stopped = true;
-            return;
-          }
-          if (how === "detach") {
-            return;
-          }
-          if (how === "fail") {
-            yield { type: "error", message: "model exploded" } as AgentEvent;
-            return;
-          }
-          yield { type: "done", session_id: "fake-session" } as AgentEvent;
-        })();
-      },
-      async stop() {
-        stopper?.("stop");
-      },
-      async dispose() {
-        stopper?.("detach");
-      },
-    };
-    return session;
-  };
-
-  get prompts(): string[] {
-    return this.turns.map((t) => t.prompt.split("\n")[0] as string);
-  }
-
-  current(): FakeTurn {
-    return this.turns[this.turns.length - 1] as FakeTurn;
-  }
-}
-
-const cleanup: Array<() => Promise<void>> = [];
-afterEach(async () => {
-  for (const fn of cleanup.splice(0)) {
-    await fn();
-  }
-});
-
-function ctxFor(home: string): ServerContext {
-  return {
-    paths: orchPaths(home), bindHost: "127.0.0.1", hostname: hostname(), tokenDigest: digestToken("t"), requireToken: true,
-    requireRemoteToken: true, harnesses: ["claude"], outcomes: [],
-  };
-}
-
-function setup(existing?: TempHome): { service: ChatService; home: TempHome; h: Harness; chatId: string } {
-  const home = existing ?? TempHome.create();
-  if (existing === undefined) {
-    home.write("profiles.json", JSON.stringify(PROFILES));
-  }
-  const h = new Harness();
-  const service = new ChatService(ctxFor(home.path), { factory: h.factory });
-  cleanup.push(() => service.dispose());
-  const chatId = existing === undefined ? service.createChat({ harness: "claude", profile: "main" }).id : (service.store.listChats({}).items[0]?.id as string);
-  return { service, home, h, chatId };
-}
-
-async function until(check: () => boolean, ms = 5000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > end) {
-      throw new Error("timed out waiting");
-    }
-    await Bun.sleep(5);
-  }
-}
+afterEach(runCleanup);
 
 const texts = (service: ChatService, chatId: string): string[] => service.queue.snapshot(chatId).items.map((i) => i.text);
 
