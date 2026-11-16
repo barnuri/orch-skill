@@ -65,18 +65,23 @@ function orchArgs(cmd: string[]): string[] | null {
   return target === DISPATCH || target === CLI_TS ? cmd.slice(2) : null;
 }
 
+/** A bare `bun` in a test command is this very bun, so a test that sets a bare PATH still finds it. */
+function resolveBun(cmd: string[]): string[] {
+  return cmd[0] === "bun" ? [process.execPath, ...cmd.slice(1)] : cmd;
+}
+
 export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string; stdin?: string; spawn?: boolean } = {}): Result {
   const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const oargs = orchArgs(cmd);
   if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs, { ...opts.env })) return inProcess(oargs, env, opts.stdin);
-  const p = Bun.spawnSync(cmd, { env, cwd: opts.cwd, stdin: opts.stdin !== undefined ? Buffer.from(opts.stdin) : undefined });
+  const p = Bun.spawnSync(resolveBun(cmd), { env, cwd: opts.cwd, stdin: opts.stdin !== undefined ? Buffer.from(opts.stdin) : undefined });
   const out = p.stdout.toString(), err = p.stderr.toString();
   return { rc: p.exitCode ?? 1, out, err, all: out + err };
 }
 
 export async function runCmdAsync(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string } = {}): Promise<Result> {
   const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
-  const p = Bun.spawn(cmd, { env, cwd: opts.cwd, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn(resolveBun(cmd), { env, cwd: opts.cwd, stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { rc: await p.exited, out, err, all: out + err };
 }
@@ -175,7 +180,7 @@ export const ndjson = (rows: object[]) => rows.map((r) => JSON.stringify(r)).joi
 /** State with volatile timestamps removed, for comparing two runs. */
 export function normState(home: string, run: string): string {
   const strip = (v: any): any => Array.isArray(v) ? v.map(strip) : v && typeof v === "object"
-    ? Object.fromEntries(Object.entries(v).filter(([k]) => !["created", "updated", "started", "finished", "at", "next_retry_at", "owner_checked", "run_id", "title"].includes(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, strip(x)])) : v;
+    ? Object.fromEntries(Object.entries(v).filter(([k]) => !["created", "updated", "started", "finished", "at", "next_retry_at", "owner_checked", "run_id", "title", "dispatched_at", "started_at", "finished_at", "run_segments"].includes(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, strip(x)])) : v;
   return JSON.stringify(strip(runState(home, run)));
 }
 export const eventKeys = (home: string, run: string) => JSON.stringify(events(home, run).map((e) => [e.kind, e.node, e.from, e.to, e.note, e.by]));
