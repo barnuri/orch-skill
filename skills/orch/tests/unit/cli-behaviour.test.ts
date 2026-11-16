@@ -1,0 +1,137 @@
+import { test, expect } from "bun:test";
+import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { orch, seedHome, tempHome, tempDir, fakeBin, editJson, readJson, readText, runState, nodeOf, events, ndjson, writeJson, autoCleanup } from "../helpers";
+autoCleanup();
+
+test("harness, profile pick, model list, profile sanity", () => {
+  const home = seedHome(), o = orch(home);
+  expect(o("harness").rc).toBe(2);
+  expect(o("harness", "list", "--bogus").rc).toBe(2);
+  const bin = fakeBin({ opencode: "exit 0" });
+  const out = JSON.parse(orch(home, { ORCH_BIN_DIRS: bin, PATH: "/usr/bin:/bin" })("harness", "list", "--json").out);
+  expect(out.harnesses.map((h: any) => h.id).slice(0, 6).join(" ")).toBe("claude cursor-agent opencode local-llm copilot pi");
+  expect(out.harnesses.find((h: any) => h.id === "opencode").available).toBe(true);
+  expect(o("profile", "pick").rc).toBe(2);
+  editJson(join(home, "profiles.json"), (p) => {
+    p.settings.default_profile = "p-claude"; p.settings.disabled_harnesses = ["copilot"];
+    p.models = { "m-sonnet": { slug: "sonnet", harnesses: ["claude"], behaves_as: "sonnet" }, "m-opus": { slug: "opus", harnesses: ["claude"] },
+      "m-gw": { slug: "gw/lfm", harnesses: ["claude", "opencode"], behaves_as: "haiku" }, "m-oc": { slug: "oc/model", harnesses: ["opencode"] } };
+    p.profiles = { "p-claude": { harness: "claude", model: "m-sonnet", flags: ["--x", "--y"], env: {}, priority: 9 },
+      "p-allow": { harness: "claude", model: "opus", allowed_models: ["m-op*", "gw/*"] }, "p-oc": { harness: "opencode", model: "oc/model", cost: "free", max_complexity: "small" },
+      "p-cop": { harness: "copilot" }, "p-bad": { harness: "nope" }, "p-auth": { harness: "claude", auth: ["ORCH_T_TOKEN"] }, "p-off": { harness: "claude", enabled: false } };
+  });
+  const oo = orch(home, { CLAUDE_USAGE_SNAPSHOT: "/nonexistent/usage-snapshot.json" });
+  expect(oo("model", "list", "--harness", "opencode").out).toMatch(/^m-gw\tgw\/lfm\nm-oc\toc\/model/);
+  expect(oo("model", "list", "--bogus").rc).toBe(2);
+  expect(oo("model", "list", "--profile", "p-allow").out.split("\n").filter(Boolean).map((l) => l.split("\t")[0]).join(" ")).toBe("m-opus m-gw");
+  expect(oo("model", "list", "--profile", "p-claude").out.split("\n").filter(Boolean).map((l) => l.split("\t")[0]).join(" ")).toBe("m-sonnet m-opus m-gw");
+  let r = oo("profile", "pick", "fix the typo");
+  expect(r.rc).toBe(0); expect(r.out.trim()).toBe("profile=p-claude\nmodel=m-sonnet\nreason=complexity=small");
+  writeJson(join(home, "memory.json"), [{ profile: "p-oc", outcome: "success", task_kind: "docs" }]);
+  expect(oo("profile", "pick", "write docs", "--kind", "docs", "--complexity", "small").out.replace(/\n/g, " ")).toMatch(/^profile=p-oc.*reason=complexity=small kind=docs/);
+  expect(oo("profile", "pick", "write docs", "--kind", "docs", "--complexity", "large").out).toMatch(/^profile=p-claude/m);
+  expect(oo("memory", "add", "--profile", "p-claude", "--outcome", "maybe").rc).toBe(2);
+  expect(oo("memory", "list", "-n", "x").rc).toBe(2);
+  const sh = fakeBin({ claude: `printf '{"result":"OK","is_error":false,"total_cost_usd":0}'` });
+  const os = orch(home, { PATH: `${sh}:${process.env.PATH}`, ORCH_BIN_DIRS: "" });
+  let row = JSON.parse(os("profile", "sanity", "--profile", "p-cop").out).results[0];
+  expect([row.harness, row.error]).toEqual(["copilot", "harness disabled"]);
+  row = JSON.parse(os("profile", "sanity", "--profile", "p-auth").out).results[0];
+  expect([row.status, row.exit_code]).toEqual(["unconfigured", 3]); expect(row.error).toMatch(/ORCH_T_TOKEN is not set/);
+  row = JSON.parse(orch(home, { PATH: `${sh}:${process.env.PATH}`, ORCH_BIN_DIRS: "", ORCH_T_SRC: "s" })("profile", "sanity", "--profile", "p-claude").out).results[0];
+  expect([row.ok, row.status, row.model_id, row.slug, row.bytes]).toEqual([true, "ok", "m-sonnet", "sonnet", 2]);
+  expect(os("profile", "sanity", "--bogus").rc).toBe(2);
+  const many = JSON.parse(os("profile", "sanity", "--profile", "p-off", "--profile", "nobody").out).results;
+  expect(many.map((x: any) => `${x.profile}:${x.status}`).join(" ")).toBe("p-off:disabled nobody:unknown");
+  expect(many[1].exit_code).toBe(2);
+  const bad = os("run", "--profile", "p-bad", "x"); expect(bad.rc).toBe(2); expect(bad.all).toMatch(/harness "nope" must be one of/);
+  expect(os("run", "--profile", "nobody", "x").all).toMatch(/Available: .*p-claude/);
+  expect(os.env({ ORCH_MODEL_ID: "m-sonnet" }, "run", "--profile", "p-allow", "x").rc).toBe(2);
+});
+
+test("run/node argument errors and node started", () => {
+  const home = seedHome(), o = orch(home);
+  expect(o("run", "start").rc).toBe(2);
+  expect(o("run", "start", "t", "--bogus").rc).toBe(2);
+  const R = o("run", "start", "Demo", "--id", "r1").out.trim();
+  o("node", "add", R, "a", "A");
+  expect(o("node", "add", R, "b").rc).toBe(2);
+  expect(o("node", "add", R, "b", "B", "--role", "chef").rc).toBe(2);
+  expect(o("run", "finish").rc).toBe(2);
+  expect(o("node", "add", "nope", "b", "B").rc).toBe(2);
+  expect(o("node", "add", R, "b", "B", "--after", "b").rc).toBe(2);
+  expect(o("node", "add", R, "b", "B", "--after", "a", "--role", "implementation").rc).toBe(0);
+  const s = runState(home, R);
+  expect([JSON.stringify(s.edges), s.nodes[1].status, s.nodes[1].role]).toEqual(['[["a","b"]]', "waiting", "implementation"]);
+  const cyc = o("node", "update", R, "a", "--after", "b");
+  expect(cyc.rc).toBe(2); expect(cyc.all).toMatch(/would make a cycle/);
+  o("node", "update", R, "a", "running"); o("node", "update", R, "a", "done");
+  const a = nodeOf(home, R, "a");
+  expect([a.seg_open, a.run_segments.length, a.started != null, a.finished != null]).toEqual([false, 1, true, true]);
+  expect(o("run", "carry", "--bogus").rc).toBe(2);
+  expect(o("node", "started").rc).toBe(2);
+  expect(o("node", "started", R, "a", "--bogus").rc).toBe(2);
+  expect(o("node", "started", R, "nope").rc).toBe(2);
+  expect(o("node", "batch").rc).toBe(2);
+  expect(o("node", "batch", R, "--bogus").rc).toBe(2);
+  expect(o("node", "batch", R, "--file", join(home, "nope.jsonl")).rc).toBe(2);
+  const bad = o.in('{"op":"add","id":"x","goal":"X","colour":"red"}\n{"op":"add","id":"y","goal":"Y"}\n', "node", "batch", R);
+  expect(bad.rc).toBe(2); expect(bad.all).toMatch(/unknown field\(s\) for add: colour/);
+  expect(runState(home, R).nodes.length).toBe(2);
+  const ok = o.in(ndjson([{ op: "add", id: "p", goal: "P" }, { op: "add", id: "q", goal: "Q", after: "p" }]), "node", "batch", R);
+  expect(ok.rc).toBe(0);
+  expect(runState(home, R).nodes.map((n: any) => n.id).slice(2).join(",")).toBe("p,q");
+});
+
+test("hub, loop, serve config, schedule validation, plan apply", () => {
+  const home = seedHome(), o = orch(home, { LLM_HUB_URL: undefined });
+  expect(o("hub", "resolve", "bogus").all).toMatch(/tier must be one of: efficiency balance intelligence fast/);
+  expect(o("hub", "bogus").rc).toBe(2);
+  expect(o("hub", "setup", "--harness", "cursor-agent").rc).toBe(2);
+  const noUrl = o("hub", "setup");
+  expect(noUrl.rc).toBe(2); expect(noUrl.all).toMatch(new RegExp(`set LLM_HUB_URL .* in ${home}/env`));
+  editJson(join(home, "profiles.json"), (p) => { p.settings.llm_hub = { mode: "smart-auto", harness: "claude", role_tiers: { planning: "fast" } }; });
+  expect(o("hub", "off").rc).toBe(0);
+  expect(readJson(join(home, "profiles.json")).settings.llm_hub.mode).toBe("off");
+  expect(o("loop").rc).toBe(2);
+  const l = o("loop", "start", "--profile", "claude-default", "x");
+  expect(l.rc).toBe(2); expect(l.all).toMatch(/every is required/);
+  expect(o("loop", "start", "--every", "9s", "--profile", "claude-default", "x").rc).toBe(2);
+  expect(o("serve", "config", "get").rc).toBe(2);
+  expect(o("serve", "config", "get", "port").out.trim()).toBe("6724");
+  const set = JSON.parse(o("serve", "config", "set", "--host", "127.0.0.1", "--port", "7000").out);
+  expect([set.host, set.port]).toEqual(["127.0.0.1", 7000]);
+  expect(o("ui", "--host", "1.2.3.4").rc).toBe(2);
+  const sch = (...a: string[]) => o("schedule", ...a);
+  expect(sch("add", "--cron", "* * * * *", "--command", "true").rc).toBe(2);
+  expect(sch("add", "--name", "n", "--cron", "* * * * *", "--command", "true", "--model", "x").rc).toBe(2);
+  expect(sch("add", "--name", "n", "--cron", "99 * * * *", "--command", "true").rc).toBe(2);
+  expect(sch("add", "--name", "n", "--cron", "* * * * *", "--command", "true", "--timeout", "soon").rc).toBe(2);
+  expect(sch("add", "--name", "n", "--cron", "* * * * *", "--command", "true", "--workdir", "/no/such").rc).toBe(2);
+  expect(existsSync(join(home, "schedules"))).toBe(false);
+  const id = sch("add", "--name", "n", "--cron", "* * * * *", "--command", "true", "--timeout", "5m").out.trim();
+  const s = readJson(join(home, "schedules", id, "schedule.json"));
+  expect([s.kind, s.timeout, s.command, typeof s.next_at]).toEqual(["command", 300, "true", "number"]);
+  const next = (cron: string, from?: string) => sch("next", cron).out.trim();
+  expect(next("*/15 * * * *")).toMatch(/:(00|15|30|45)$/);
+  expect(o("demo", "bogus").rc).toBe(2);
+});
+
+test("ask dedupe and unread answers", () => {
+  const home = seedHome(), o = orch(home, { ORCH_OWNER_INDEX: "0" });
+  o("run", "start", "Demo", "--id", "r1"); o("node", "add", "r1", "a", "A"); o("node", "update", "r1", "a", "running");
+  const first = o("node", "ask", "r1", "a", "Which DB?");
+  expect(first.rc).toBe(0); expect(first.out).toMatch(/^m\d+ asked$/m);
+  const count = () => readdirSync(join(home, "runs/r1/inbox/orch")).length;
+  const before = count();
+  const dup = o("node", "ask", "r1", "a", "  which   DB?  ");
+  expect(dup.rc).toBe(0); expect(dup.all).toMatch(/duplicate of an open question/);
+  expect(count()).toBe(before);
+  o("node", "answer", "r1", "a", "Use Postgres");
+  const refused = o("node", "ask", "r1", "a", "A new question");
+  expect(refused.rc).toBe(3); expect(refused.all).toMatch(/read your answers first/); expect(refused.all).toMatch(/Use Postgres/);
+  const read = o("node", "inbox", "r1", "a").out;
+  expect(read).toMatch(/Use Postgres/);
+  expect(o("node", "inbox", "r1", "a").out.trim()).toBe("");
+});

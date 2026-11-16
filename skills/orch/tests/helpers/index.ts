@@ -179,3 +179,6 @@ export function pathWithout(...names: string[]): string {
   }
   return parts.join(":");
 }
+
+/** Directory holding a fake `herdr` (TypeScript, run by bun) — see helpers/fake-herdr.ts. */
+export const fakeHerdrBin = () => fakeBin({ herdr: `exec bun "${join(import.meta.dir, "fake-herdr.ts")}" "$@"` });
