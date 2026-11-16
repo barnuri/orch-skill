@@ -7,15 +7,20 @@
 # "settled" (nothing running or ready while the run is still open).
 #
 # Nothing between two polls is missed: the run's events.jsonl is read from a cursor first, then the
-# state is diffed against the snapshot kept in the same cursor (runs/<run>/wait.cursor, written
-# only here). The stall check is a read-only HEALTH_JQ pass (health.sh) over the opencode session
+# state is diffed against the snapshot kept in the same cursor (runs/<run>/wait.cursor, or
+# wait.follow.cursor for --follow; written only here). The stall check is a read-only HEALTH_JQ pass (health.sh) over the opencode session
 # index (owners.sh), so it needs no health snapshot and no sqlite3 CLI.
 
 RUN_WAIT_USAGE='dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]'
 RUN_WAIT_POLL_SECS_DEFAULT=2
 WAIT_WAKE_HEALTH='"stalled","dead","no-report"'
 
-wait_cursor_file() { printf '%s/%s/wait.cursor\n' "$RUNS_HOME" "$1"; }
+# A follower (--follow) keeps its own cursor, so a one-shot `run wait` beside it cannot consume its
+# events; a restarted follower resumes from that cursor and neither repeats nor skips a change.
+wait_cursor_file() { printf '%s/%s/wait%s.cursor\n' "$RUNS_HOME" "$1" "${2:+.$2}"; }
+# Upper bound on the gap between two full scans (and two job syncs), so a change is printed within
+# 30 seconds even when the file stamps did not move (same second, same size) or a job ended silently.
+RUN_WAIT_RESCAN_SECS_DEFAULT=15
 
 # Number of nodes that are running, and waiting with every dependency done.
 run_live_counts() {
@@ -128,7 +133,7 @@ wait_check_monitor() {
 
 cmd_run_wait() {
   local run_id="" timeout=0 stall_min="" json=0 follow=0 notes=0 file evf cursor cur poll every
-  local deadline=0 next_health=0 key last_key="" total n hm events out now extra
+  local deadline=0 next_health=0 next_sync=0 next_scan=0 rescan key last_key="" total n hm events out now extra newcur
   while [ $# -gt 0 ]; do
     case "$1" in
       --timeout) shift; timeout="${1:-}" ;;
@@ -148,7 +153,15 @@ cmd_run_wait() {
   require_jq "run wait"
   file=$(run_require "$run_id") || return $?
   evf=$(run_events_file "$run_id")
-  cursor=$(wait_cursor_file "$run_id")
+  if [ "$follow" = 1 ]; then
+    cursor=$(wait_cursor_file "$run_id" follow)
+    # First follower: start from the shared cursor, so changes since the last wait are kept.
+    [ -f "$cursor" ] || [ ! -f "$(wait_cursor_file "$run_id")" ] || cp "$(wait_cursor_file "$run_id")" "$cursor" 2>/dev/null || true
+  else
+    cursor=$(wait_cursor_file "$run_id")
+  fi
+  rescan="${ORCH_WAIT_RESCAN_SECS:-$RUN_WAIT_RESCAN_SECS_DEFAULT}"
+  is_uint "$rescan" && [ "$rescan" -ge 1 ] || rescan=$RUN_WAIT_RESCAN_SECS_DEFAULT
   poll="${ORCH_WAIT_POLL_SECS:-$RUN_WAIT_POLL_SECS_DEFAULT}"
   every="${ORCH_WAIT_HEALTH_SECS:-$(health_every_sec)}"
   now=$(date +%s)
@@ -161,12 +174,16 @@ cmd_run_wait() {
   while :; do
     now=$(date +%s)
     hm=null extra='[]'
-    if [ "$now" -ge "$next_health" ]; then
-      next_health=$((now + every))
+    if [ "$now" -ge "$next_sync" ]; then
+      next_sync=$((now + rescan))
       # A job-backed node flips only through run sync; the dashboard does this too, but may be down.
       if jq -e 'any(.nodes[]; .status == "running" and (.job_id // "") != "")' "$file" >/dev/null 2>&1; then
         cmd_run_sync "$run_id" --no-retry >/dev/null 2>&1 || true
       fi
+    fi
+    if [ "$now" -ge "$next_scan" ]; then next_scan=$((now + rescan)); last_key=""; fi
+    if [ "$now" -ge "$next_health" ]; then
+      next_health=$((now + every))
       hm=$(wait_health_map "$run_id" "$stall_min") || hm=null
       [ -n "$hm" ] || hm=null
       extra=$(wait_check_monitor "$run_id")
@@ -183,15 +200,22 @@ cmd_run_wait() {
       out=$( { [ "$total" -le "$n" ] || sed -n "$((n + 1)),${total}p" "$evf"; } \
         | jq -c -n -R --slurpfile st "$file" --argjson cur "$cur" --argjson hm "$hm" --argjson notes "$notes" \
             '[inputs | try fromjson catch null] as $ev | '"$WAIT_SCAN_JQ" 2>/dev/null) || out=""
+      newcur=""
       if [ -n "$out" ]; then
-        cur=$(printf '%s' "$out" | jq -c --argjson n "$total" '.cursor + {n: $n}')
-        printf '%s\n' "$cur" > "$cursor.tmp.$$" && mv -f "$cursor.tmp.$$" "$cursor"
+        newcur=$(printf '%s' "$out" | jq -c --argjson n "$total" '.cursor + {n: $n}')
         events=$(printf '%s' "$out" | jq -c --argjson x "$extra" '$x + .events')
       else
         events="$extra"
+        last_key=""   # the scan failed (a half-written file): try again on the next poll
+      fi
+      # Print first, then move the cursor: a follower killed in between repeats nothing it did not
+      # print, and a change is never marked seen before it reached the output.
+      [ "$events" = '[]' ] || printf '%s' "$events" | wait_render "$run_id" "$json"
+      if [ -n "$newcur" ]; then
+        cur="$newcur"
+        printf '%s\n' "$cur" > "$cursor.tmp.$$" && mv -f "$cursor.tmp.$$" "$cursor"
       fi
       if [ "$events" != '[]' ]; then
-        printf '%s' "$events" | wait_render "$run_id" "$json"
         if printf '%s' "$events" | jq -e 'any(.[]; .kind == "run-ended")' >/dev/null; then return 0; fi
         if [ "$follow" = 0 ]; then
           printf '%s' "$events" | jq -e 'all(.[]; .kind == "settled")' >/dev/null && return 3

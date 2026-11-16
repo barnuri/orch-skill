@@ -3,7 +3,7 @@
 # state_write_raw / node_patch (runs.sh) or appends to runs/<run>/events.jsonl.
 
 NODE_PING_USAGE='dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]'
-RUN_STATUS_USAGE='dispatch.sh run status <run-id> [--json]'
+RUN_STATUS_USAGE='dispatch.sh run status <run-id> [--json] [--fresh]'
 STALE_MINUTES_DEFAULT=10
 NODE_NOTES_KEEP=20
 
@@ -155,13 +155,24 @@ run_link() {
   printf 'http://127.0.0.1:%s/#/run/%s\n' "$port" "$1"
 }
 
+# run_fresh_line <run> - one line built from a read of state.json made now, never from a cache or an
+# earlier check: the read time, the run status, and every node id grouped by its status.
+run_fresh_line() {
+  local file
+  file=$(run_state_file "$1")
+  jq -r --arg at "$(now_iso)" --arg f "$file" '
+    "fresh \($at) [\(.status)] " + ([.nodes | group_by(.status)[] | "\(.[0].status)=\(map(.id) | join(","))"] | join(" "))
+    + " (read \($f))"' "$file"
+}
+
 cmd_run_status() {
-  local run_id="${1:-}" json=0 owner_lines file now stale rows=""
+  local run_id="${1:-}" json=0 fresh=0 owner_lines file now stale rows=""
   [ -n "$run_id" ] || { printf 'usage: %s\n' "$RUN_STATUS_USAGE" >&2; return 2; }
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
       --json) json=1 ;;
+      --fresh) fresh=1 ;;
       *) printf 'run status: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
@@ -192,7 +203,15 @@ cmd_run_status() {
        errors: [$r.nodes[] | select(.status == "error") | {id, error}],
        link: $link,
        owner_events: ($o | split("\n") | map(select(length > 0)))}')
-  if [ "$json" = 1 ]; then printf '%s\n' "$summary"; return 0; fi
+  if [ "$json" = 1 ]; then
+    if [ "$fresh" = 1 ]; then
+      printf '%s' "$summary" | jq -c --arg l "$(run_fresh_line "$run_id")" '. + {fresh: $l}'
+    else
+      printf '%s\n' "$summary"
+    fi
+    return 0
+  fi
+  [ "$fresh" = 0 ] || run_fresh_line "$run_id"
   printf '%s' "$summary" | jq -r '
     def age: if . == null then "?" elif . < 60 then "\(.)s" elif . < 3600 then "\(. / 60 | floor)m" else "\(. / 3600 | floor)h\(. % 3600 / 60 | floor)m" end;
     "\(.title) [\(.status)] \(.done)/\(.total) done",

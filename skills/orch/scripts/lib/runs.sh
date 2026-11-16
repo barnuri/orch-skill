@@ -576,6 +576,7 @@ cmd_node_update() {
     [ "$epoch" -le "$(date -u +%s)" ] || { printf 'node update: --at is in the future\n' >&2; return 2; }
   fi
   NODE_EVENT_AT="$at" NODE_OWNER="$owner" node_set_status "$run_id" "$node_id" "$status" "$job" "$err" || return $?
+  [ "$status" != done ] || [ "$old" = done ] || node_done_verify "$run_id" "$node_id" || true
   if [ "$deps_set" = 1 ] || [ "$needs_set" = 1 ] || [ "$hold_set" = 1 ]; then
     node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs" "$hold_set" "$hold" || return 1
   fi
@@ -1153,6 +1154,18 @@ node_out_dir() {
   if [ -n "$recorded" ]; then printf '%s\n' "$recorded"; else printf '%s/%s/out/%s\n' "$RUNS_HOME" "$1" "$2"; fi
 }
 
+# node_done_verify <run> <node> - called right after a node turns done (node update, run sync). A done
+# node must leave a non-empty handoff.md in its output dir; when it did not, print one warning line
+# on stderr and mark the node `unverified`, so "done" is never reported on trust alone.
+node_done_verify() {
+  local run_id="$1" node_id="$2" handoff
+  handoff="$(node_out_dir "$run_id" "$node_id")/handoff.md"
+  [ -s "$handoff" ] && return 0
+  printf 'done without handoff: %s (%s missing or empty), marked unverified\n' "$node_id" "$handoff" >&2
+  node_patch "$run_id" "$node_id" '.unverified = true' || return 1
+  run_event "$run_id" note "$node_id" "" "" "done without handoff: marked unverified" || true
+}
+
 # The handoff channel between nodes: a node writes what the next one must read here, and the
 # orchestrator passes the path rather than the contents.
 cmd_node_out() {
@@ -1326,7 +1339,8 @@ run_sync_body() {
     tail_json=$(tail -n "$LOG_TAIL_LINES" "$JOBS_HOME/$job/log" 2>/dev/null | jq -R -s 'split("\n") | map(select(length > 0))')
     case "$st" in
       running) ;;
-      "done exit=0") node_set_status "$run_id" "$node" "done"; hub_node_settle "$run_id" "$node" done || true ;;
+      "done exit=0") node_set_status "$run_id" "$node" "done"; node_done_verify "$run_id" "$node" || true
+        hub_node_settle "$run_id" "$node" done || true ;;
       done*)
         case "$st" in "done exit=unknown"*) run_event "$run_id" note "$node" "" "" "$(herdr_job_gone_note "$JOBS_HOME/$job")" ;; esac
         node_set_status "$run_id" "$node" error "" "${st#done }"; hub_node_settle "$run_id" "$node" error || true ;;
