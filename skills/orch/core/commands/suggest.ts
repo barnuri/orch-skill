@@ -12,7 +12,7 @@ export const LIST_USAGE = "dispatch.sh suggest list [--pending]";
 export const APPLY_USAGE = "dispatch.sh suggest apply <id> | apply --all | apply --id ID [--id ID...] [--json]";
 export const DISMISS_USAGE = "dispatch.sh suggest dismiss <id>";
 export const SYNC_USAGE = "dispatch.sh sync [--no-serve]";
-const MEMORY_ADD_USAGE = 'dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]';
+export const MEMORY_ADD_USAGE = 'dispatch.sh memory add --profile P --outcome success|failure|partial [--kind K] [--note "…"]';
 
 type Sug = Record<string, any>;
 type SugFile = { generated_at?: string; suggestions: Sug[] };

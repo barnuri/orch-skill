@@ -270,7 +270,7 @@ fi
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="runs/batch runs/carry core/config runs/current-run
   runs/health runs/inbox core/locks
-  runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
+  runs/pause runs/runs
   runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
@@ -609,6 +609,7 @@ owner_write_dispatch_path() {
 
 # Ported `<group> <verb>` pairs that run in bin/orch (Bun) instead of this bash file. Phase 0: empty.
 PORTED_COMMANDS=(
+  "init" "settings" "memory" "profile" "model" "run advance"
   "node tell"
   "node ask"
   "node inbox"
@@ -738,7 +739,7 @@ main() {
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_paused "${1:-}" || printf 'paused: true\n' ;; esac
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_stopped "${1:-}" || printf 'stopped: true\n' ;; esac
           exit $rc ;;
-        finish|list|advance|retry|wait|health|broadcast|rule|messages|repoint) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        finish|list|retry|wait|health|broadcast|rule|messages|repoint) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         backfill-timing) shift 2; cmd_run_backfill_timing "$@" ;;
         *) printf 'usage: dispatch.sh run (start|finish|sync|status|... | --profile <name> | <adapter>) ...\n' >&2; exit 2 ;;
       esac
@@ -752,23 +753,16 @@ main() {
         *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|cancel|usage|cost|out|digest|selections|brief|activity|started|verify-owners|bind-owners|tell|ask|answer|inbox ...\n' >&2; exit 2 ;;
       esac
       ;;
-    plan) shift; cmd_plan "$@" ;;
-    msg) shift; cmd_msg "$@" ;;
     status) shift; cmd_status "$@" ;;
     tail) shift; cmd_tail "$@" ;;
     wait) shift; cmd_wait "$@" ;;
     list) cmd_list ;;
-    init) cmd_init; owner_write_dispatch_path ;;
     prune) shift; cmd_prune "$@" ;;
     __loops-recover) loops_recover ;;
-    profile) shift; cmd_profile "$@" ;;
-    settings) shift; cmd_settings "$@" ;;
-    model) shift; cmd_model "$@" ;;
     harness) printf 'usage: dispatch.sh harness list [--json]\n' >&2; exit 2 ;;
     herdr-start-job) shift; herdr_start_entry "$@"; exit $? ;;
     herdr) herdr_orch_bun "${@:2}" ;;
     hub) printf 'usage: %s\n' "$HUB_USAGE" >&2; exit 2 ;;
-    memory) shift; cmd_memory "$@" ;;
     loop|watch|schedule|active|announce) exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" "$@" ;;
     __run-cancel) shift; run_cancel "$@" ;;
     ""|-h|--help) usage ;;

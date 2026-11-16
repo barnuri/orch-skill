@@ -1,0 +1,30 @@
+# Config commands: init, settings, memory, profile unset-env / sanity error paths. No harness is started.
+init
+settings get defaults.max_parallel
+settings get defaults.nope
+settings get
+settings set defaults.max_parallel 7
+settings set defaults.max_parallel 0
+settings set defaults.max_parallel 33
+settings set defaults.parallel_ok maybe
+settings set defaults.other 1
+settings set defaults.max_parallel
+settings bogus
+memory list
+memory list -n 3
+memory list -n x
+memory list --bogus
+memory add
+memory add --profile nope --outcome success
+memory add --profile claude-default --outcome weird
+memory add --bogus
+memory bogus
+profile unset-env
+profile unset-env nope VAR
+profile sanity --bogus
+profile sanity --profile nope
+profile bogus
+run advance
+run advance nope
+run advance nope --bogus
+run advance nope --interval 0
