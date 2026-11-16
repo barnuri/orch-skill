@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";
-import { TESTS_DIR, tempDir, runCmd, autoCleanup } from "../helpers";
+import { TESTS_DIR, tempDir, runCmd, autoCleanup, templateHome } from "../helpers";
 autoCleanup();
 
 // Fake tree: three unit files (slow, mid, fast) and one failing file elsewhere.
@@ -12,6 +12,7 @@ function fakeTree() {
   mkdirSync(join(tests, "other"), { recursive: true });
   mkdirSync(join(tests, "helpers"), { recursive: true });
   copyFileSync(join(TESTS_DIR, "run.ts"), join(tests, "run.ts"));
+  copyFileSync(join(TESTS_DIR, "helpers/template.ts"), join(tests, "helpers/template.ts"));
   for (const n of ["slow", "mid", "fast"]) {
     writeFileSync(join(tests, "unit", `${n}.test.ts`), `import {test} from "bun:test";
 import {appendFileSync} from "node:fs";
@@ -21,7 +22,7 @@ test("${n}", async () => { appendFileSync(${JSON.stringify(join(T, "ran.log"))},
 import {appendFileSync} from "node:fs";
 test("bad", () => { appendFileSync(${JSON.stringify(join(T, "ran.log"))}, "other/bad\\n"); expect(1).toBe(2); });\n`);
   writeFileSync(join(T, "timings.json"), JSON.stringify({ "unit/slow": 50, "unit/mid": 10, "unit/fast": 5, "other/bad": 1 }));
-  const env = { ORCH_TEST_TIMINGS: join(T, "timings.json"), ORCH_TEST_PROGRESS: join(T, "progress.json"), ORCH_TEST_BUDGET_GRACE: "3", ORCH_TEST_JOBS: "2" };
+  const env = { ORCH_TEST_HOME_TEMPLATE: templateHome(), ORCH_TEST_TIMINGS: join(T, "timings.json"), ORCH_TEST_PROGRESS: join(T, "progress.json"), ORCH_TEST_BUDGET_GRACE: "3", ORCH_TEST_JOBS: "2" };
   const run = (args: string[], extra: Record<string, string> = {}) => runCmd(["bun", join(tests, "run.ts"), ...args], { env: { ...env, ...extra } });
   return { T, run, progress: join(T, "progress.json"), ran: () => (existsSync(join(T, "ran.log")) ? readFileSync(join(T, "ran.log"), "utf8") : "") };
 }
@@ -30,7 +31,7 @@ test("budget cut, partial record, resume", () => {
   const { T, run, progress, ran } = fakeTree();
   let r = run(["--fast", "--budget", "2"], { FAKE_SLEEP_slow: "60", FAKE_SLEEP_mid: "3" });
   expect(r.rc).toBe(75);
-  expect(r.all.trim().split("\n").pop()).toMatch(/PARTIAL: 1 of 3 files, run again with --resume$/);
+  expect(r.out.trim().split("\n").pop()).toMatch(/PARTIAL: 1 of 3 files, run again with --resume$/);
   const rec = JSON.parse(readFileSync(progress, "utf8"));
   expect(rec.mode).toBe("fast");
   expect(rec.files["unit/mid"]).toBe("passed");
@@ -85,18 +86,21 @@ test("test-budget: chunks, budget cut, resume, failing chunk", () => {
   for (const n of ["a/one", "a/two", "three", "four"]) writeFileSync(join(B, "src", `${n}.test.ts`), "");
   writeFileSync(join(B, "src/five.test.tsx"), ""); writeFileSync(join(B, "src/node_modules/x/skip.test.ts"), "");
   const fakebin = join(T, "fakebun");
-  writeFileSync(fakebin, `#!/usr/bin/env bash
-for f in "$@"; do
-  echo "$f" >> "${T}/bun-ran.log"
-  case "$f" in *three*) sleep "\${FAKE_BUN_SLOW:-0}" ;; *four*) [ -n "\${FAKE_BUN_FAIL:-}" ] && exit 1 ;; esac
-done
-echo " $# pass"
+  writeFileSync(fakebin, `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+const files = process.argv.slice(2);
+for (const f of files) {
+  appendFileSync("${T}/bun-ran.log", f + "\\n");
+  if (f.includes("three")) await Bun.sleep(Number(process.env.FAKE_BUN_SLOW ?? 0) * 1000);
+  else if (f.includes("four") && process.env.FAKE_BUN_FAIL) process.exit(1);
+}
+console.log(" " + files.length + " pass");
 `); chmodSync(fakebin, 0o755);
   const progress = join(T, "bun-progress.json");
-  const run = (args: string[], extra: Record<string, string> = {}) => runCmd([...scriptCmd(B, "test-budget"), ...args], { cwd: B, env: { ORCH_TEST_LOCK: "0", ORCH_BUN_TEST_CMD: fakebin, ORCH_BUN_TEST_PROGRESS: progress, ...extra } });
+  const run = (args: string[], extra: Record<string, string> = {}) => runCmd([...scriptCmd(B, "test-budget"), ...args], { cwd: B, env: { ORCH_TEST_LOCK: "0", ORCH_BUN_TEST_CMD: fakebin, ORCH_BUN_TEST_PROGRESS: progress, ORCH_TEST_BUDGET_GRACE: "1", ...extra } });
   let r = run(["--chunk", "1", "--budget", "1"], { FAKE_BUN_SLOW: "60" });
   expect(r.rc).toBe(75);
-  expect(r.all.trim().split("\n").pop()).toMatch(/PARTIAL: \d+ of 5 files, run again with --resume$/);
+  expect(r.out.trim().split("\n").pop()).toMatch(/PARTIAL: \d+ of 5 files, run again with --resume$/);
   const rec = readFileSync(progress, "utf8");
   expect(rec).not.toMatch(/skip\.test/);
   expect(rec).toMatch(/"\.\/src\/three\.test\.ts": "not_run"/);
@@ -124,16 +128,16 @@ if (a.includes("--resume")) { console.log("3 passed, 0 failed"); process.exit(0)
 console.log("1 passed, 0 failed"); console.log("PARTIAL: 1 of 3 files, run again with --resume"); process.exit(75);
 `);
   // stub the other suites in place of the real scripts
-  for (const [n, body] of [["test-budget", `echo "bun $*" >> "${log}"; echo "bun: 5 passed"; exit 0`], ["typecheck", `echo types >> "${log}"; echo "typecheck: ok"`], ["lint-optional", `echo lint >> "${log}"`]]) {
-    for (const ext of ["ts", "sh"]) if (existsSync(join(A, "scripts", `${n}.${ext}`))) Bun.spawnSync(["trash", join(A, "scripts", `${n}.${ext}`)]);
-    writeFileSync(join(A, "scripts", `${n}.sh`), body + "\n");
-  }
+  const stub = (n: string, body: string) => writeFileSync(join(A, "scripts", `${n}.ts`), `import { appendFileSync } from "node:fs";\nconst log = ${JSON.stringify(log)};\n${body}\n`);
+  stub("test-budget", `appendFileSync(log, "bun " + process.argv.slice(2).join(" ") + "\\n"); console.log("bun: 5 passed");`);
+  stub("typecheck", `appendFileSync(log, "types\\n"); console.log("typecheck: ok");`);
+  stub("lint-optional", `appendFileSync(log, "lint\\n");`);
   const progress = join(T, "all-progress");
   const run = (args: string[] = []) => runCmd([...scriptCmd(A, "test-all"), ...args], { cwd: A, env: { ORCH_TEST_LOCK: "0", ORCH_TEST_ALL_PROGRESS: progress } });
   writeFileSync(log, "");
   let r = run();
   expect(r.rc).toBe(75);
-  expect(r.all.trim().split("\n").pop()).toMatch(/PARTIAL: suites left: bash, run again with --resume$/);
+  expect(r.out.trim().split("\n").pop()).toMatch(/PARTIAL: suites left: bash, run again with --resume$/);
   writeFileSync(log, "");
   r = run(["--resume"]);
   expect(r.rc).toBe(0);
