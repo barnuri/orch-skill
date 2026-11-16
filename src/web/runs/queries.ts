@@ -1,11 +1,12 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "../api/chats";
-import { followSse } from "../lib/sse";
+import { followSse, type ConnState } from "../lib/sse";
 import type { RunEvent } from "../../shared/types/run-event";
 import { mergeEvents } from "../lib/run-activity";
 import type { HealthSummary, RunHealth } from "../../shared/types/run-health";
-import { eventsSchema, healthSummarySchema, runHealthSchema } from "./schemas";
+import { eventsSchema, healthSummarySchema, runHealthSchema, watchdogStatusSchema } from "./schemas";
+import type { WatchdogStatus } from "../../shared/types/watchdog";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { api } from "../api/client";
 import { ApiFailure, conditionalGet, queryClient, useDocument } from "../api/queries";
@@ -22,6 +23,7 @@ export const runKeys = {
   nodeActivity: (run: string, node: string): string => `node-activity:${run}:${node}`,
   health: (id: string): string => `run-health:${id}`,
   healthSummary: "health-summary",
+  watchdog: "watchdog",
 } as const;
 
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -34,30 +36,61 @@ export function useRuns() {
   });
 }
 
+/** While the run's live stream is down, the run page falls back to this slower poll. */
+export const OFFLINE_POLL_MS = 5000;
+
+/** `live`: the stream is open. `connecting`: first connect. `offline`: the stream dropped, polling every 5 s. */
+export type LiveState = "connecting" | "live" | "offline";
+
+export function liveStateOf(conn: ConnState): LiveState {
+  return conn === "open" ? "live" : conn === "connecting" ? "connecting" : "offline";
+}
+
+/** The poll interval for a run: POLL_MS while the stream is up (it only pushes done/error), else OFFLINE_POLL_MS. */
+export function runPollMs(live: LiveState): number {
+  return live === "live" ? POLL_MS : OFFLINE_POLL_MS;
+}
+
 /** A 404 is "pruned", not a failure to retry: the page shows its own notice. */
 export function useRun(runId: string) {
+  const [live, setLive] = useState<LiveState>("connecting");
   // Event-driven refresh: the server pushes a `node` event when a node turns done or error, and the
-  // run and its activity feed refetch at once instead of on the next poll.
+  // run and its activity feed refetch at once instead of on the next poll. The stream has no replay,
+  // so a reconnect refetches too.
   useEffect(() => {
     const abort = new AbortController();
+    const refresh = (): void => {
+      void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
+      void queryClient.invalidateQueries({ queryKey: [runKeys.events(runId)] });
+      void queryClient.invalidateQueries({ queryKey: [runKeys.runs] });
+    };
+    let wasDown = false;
     void followSse({
       url: `${API_BASE}/runs/${encodeURIComponent(runId)}/live`,
       headers: authHeaders,
       resumeId: () => null,
       signal: abort.signal,
-      onEvents: () => {
-        void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
-        void queryClient.invalidateQueries({ queryKey: [runKeys.events(runId)] });
-        void queryClient.invalidateQueries({ queryKey: [runKeys.runs] });
+      onState: (conn) => {
+        if (abort.signal.aborted) {
+          return;
+        }
+        const next = liveStateOf(conn);
+        if (next === "live" && wasDown) {
+          refresh();
+        }
+        wasDown = next === "offline";
+        setLive(next);
       },
+      onEvents: refresh,
     });
     return () => abort.abort();
   }, [runId]);
-  return useQuery({
+  const query = useQuery({
     queryKey: [runKeys.run(runId)],
     queryFn: () => conditionalGet(runKeys.run(runId), (etag) => api.getRun(runId, etag)),
-    refetchInterval: POLL_MS,
+    refetchInterval: runPollMs(live),
   });
+  return { ...query, live };
 }
 
 export function isNotFound(error: unknown): boolean {
@@ -221,6 +254,25 @@ export function useHealthSummary(): HealthSummary | null {
     queryKey: [runKeys.healthSummary],
     queryFn: async () => {
       const result = await api.request("GET", `${API_BASE}/health/summary`, healthSummarySchema, { quiet: true });
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body;
+    },
+    refetchInterval: HEALTH_SUMMARY_POLL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  return query.data ?? null;
+}
+
+/** The header's watchdog pill: one in-memory read every 10 s, paused while the tab is hidden. */
+export function useWatchdog(): WatchdogStatus | null {
+  const query = useQuery({
+    queryKey: [runKeys.watchdog],
+    queryFn: async () => {
+      const result = await api.request("GET", `${API_BASE}/watchdog`, watchdogStatusSchema, { quiet: true });
       if (result.kind !== "ok") {
         throw new ApiFailure(result as NonOk);
       }

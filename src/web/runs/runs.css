@@ -112,3 +112,33 @@ main:has(.run-page) { max-width: none; }
 .run-long-row .btn { margin-left: 0; }
 .run-page .model-icon-frame { fill: var(--panel2); stroke: var(--border-strong); stroke-width: 1; }
 .run-page .model-icon-shape { fill: var(--tx2); stroke: var(--tx2); stroke-width: 1.2; stroke-linejoin: round; }
+.run-page .node-panel .model-icon, .inspector .model-icon { margin-right: 6px; vertical-align: -2px; }
+/* Run summary bar, node filter and live indicator (status colours only from --status-* tokens). */
+.run-summary { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
+.run-summary-item { display: inline-flex; gap: 4px; align-items: baseline; padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--r-pill); background: transparent; color: var(--tx2); font: inherit; font-size: var(--fs-meta); cursor: pointer; }
+.run-summary-item b { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--tx); }
+.run-summary-item.is-zero { opacity: 0.6; }
+.run-summary-item.is-done b { color: var(--status-done); }
+.run-summary-item.is-running b { color: var(--status-running); }
+.run-summary-item.is-waiting b { color: var(--status-waiting); }
+.run-summary-item.is-paused b { color: var(--status-stale); }
+.run-summary-item.is-error b { color: var(--status-error); }
+.run-summary-item.is-skipped b { color: var(--status-skipped); }
+.run-summary-item.is-on { border-color: var(--border-strong); background: var(--panel2); color: var(--tx); }
+.run-summary-item.is-done.is-on { border-color: var(--status-done-bd); background: var(--status-done-bg); }
+.run-summary-item.is-running.is-on { border-color: var(--status-running-bd); background: var(--status-running-bg); }
+.run-summary-item.is-waiting.is-on { border-color: var(--status-waiting-bd); background: var(--status-waiting-bg); }
+.run-summary-item.is-paused.is-on { border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
+.run-summary-item.is-error.is-on { border-color: var(--status-error-bd); background: var(--status-error-bg); }
+.run-summary-item.is-skipped.is-on { border-color: var(--status-skipped-bd); background: var(--status-skipped-bg); }
+.run-summary-key::after { content: ":"; }
+.run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin-top: var(--s2); }
+.run-filter .input { width: auto; min-width: 0; font-size: var(--fs-meta); }
+.run-filter .run-filter-q { flex: 1 1 220px; max-width: 360px; }
+.run-filter-count { font-size: var(--fs-meta); }
+.run-live { display: inline-flex; gap: 5px; align-items: center; font-size: var(--fs-micro); color: var(--tx2); }
+.run-live-dot { width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--status-waiting); }
+.run-live.is-live .run-live-dot { background: var(--status-done); }
+.run-live.is-live { color: var(--status-done); }
+.run-live.is-offline .run-live-dot { background: var(--status-error); }
+.run-live.is-offline { color: var(--status-error); }

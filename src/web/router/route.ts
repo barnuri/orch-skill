@@ -58,8 +58,10 @@ export function parseRoute(hash: string): Route {
     const projectId = project[1] === undefined ? null : decodeRunId(project[1]);
     return projectId === null || projectId === "" ? { kind: "chats", chatId: null } : { kind: "project", projectId };
   }
+  // `?status=…&q=…` after the run id is the run page's node filter, not part of the id.
   const match = RUN_HASH.exec(hash);
-  const runId = match?.[1] === undefined ? null : decodeRunId(match[1]);
+  const rawId = match?.[1]?.split("?")[0];
+  const runId = rawId === undefined ? null : decodeRunId(rawId);
   if (runId === null || runId === "") {
     return { kind: "list" };
   }

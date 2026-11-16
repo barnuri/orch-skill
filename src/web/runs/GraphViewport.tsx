@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { RunState } from "../../shared/types/run-state";
+import type { RunNode } from "../../shared/types/run-node";
 import { NODE_H, NODE_W, layoutDag } from "../lib/dag-layout";
 import { followView } from "../lib/follow-view";
 import type { Box } from "../lib/follow-view";
@@ -75,10 +76,12 @@ interface Props {
   onSelect: (nodeId: string) => void;
   harnessByProfile: Record<string, string>;
   maxAttempts: number;
+  /** The run page's node filter; nodes it rejects are left out of the graph (the selected one stays). */
+  match?: ((node: RunNode) => boolean) | null;
 }
 
 /** Toolbar (follow, zoom, fit, 100%) and a pannable viewport that fits the DAG to the screen by default. */
-export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, maxAttempts }: Props) {
+export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, maxAttempts, match = null }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const view = viewStateFor(run.run_id);
@@ -87,13 +90,15 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
   const calm = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const shown = useMemo((): RunState => {
-    if (!view.hideDone) {
+    if (!view.hideDone && match === null) {
       return run;
     }
-    const nodes = run.nodes.filter((node) => !isHiddenByToggle(node.status) || node.id === selectedId);
+    const nodes = run.nodes.filter(
+      (node) => node.id === selectedId || ((!view.hideDone || !isHiddenByToggle(node.status)) && (match === null || match(node))),
+    );
     const ids = new Set(nodes.map((node) => node.id));
     return { ...run, nodes, edges: run.edges.filter(([from, to]) => ids.has(from) && ids.has(to)) };
-  }, [run, selectedId, view.hideDone]);
+  }, [run, selectedId, view.hideDone, match]);
   const hiddenCount = run.nodes.filter((node) => isHiddenByToggle(node.status)).length;
   const layout = useMemo(() => layoutDag(shown.nodes, shown.edges), [shown]);
   const target = useMemo(() => focusTarget(run), [run]);

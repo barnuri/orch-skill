@@ -138,7 +138,7 @@ function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxA
       <Row k="status" value={node.status} />
       {wait === null ? null : <Row k="why" value={wait.text} cls={`wait-reason wait-${wait.kind}`} title={wait.title} />}
       <ActivityRows node={node} />
-      <Row k="model" value={<><ModelIcon family={familyOf(iconModelOf(node))} /> {modelMetric(node).text}</>} cls={`mono${modelMetric(node).present ? "" : " missing"}`} title={modelMetric(node).title} />
+      <Row k="model" value={<><ModelIcon family={familyOf(iconModelOf(node))} />{modelMetric(node).text}</>} cls={`mono${modelMetric(node).present ? "" : " missing"}`} title={modelMetric(node).title} />
       <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" />
       <MetricRow k="duration" metric={duration} />
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />

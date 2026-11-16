@@ -1,13 +1,12 @@
 import "./runs.css";
-import { useEffect, useRef, useState } from "react";
-import type { NodeStatus } from "../../shared/types/node-status";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RunState } from "../../shared/types/run-state";
+import type { RunNode } from "../../shared/types/run-node";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { Chip } from "../components/Chip";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
-import { STATUS_ORDER } from "../lib/constants";
 import { fmtTime } from "../lib/format";
 import { runTotals } from "../lib/node-metrics";
 import { runUpdatedAt } from "../lib/run-activity";
@@ -17,7 +16,9 @@ import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
 import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
 import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
-import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth } from "./queries";
+import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth, type LiveState } from "./queries";
+import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
+import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
 import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
@@ -44,10 +45,6 @@ function RunMeta({ run, events }: { run: RunState; events: readonly RunEvent[] }
   useNow(live);
   const totals = runTotals(run);
   const updatedAt = runUpdatedAt(run, events);
-  const counts = new Map<NodeStatus, number>();
-  for (const node of run.nodes) {
-    counts.set(node.status, (counts.get(node.status) ?? 0) + 1);
-  }
   return (
     <div className="meta run-meta" role="list">
       <Stat k="run" value={run.run_id} cls="mono" />
@@ -64,10 +61,6 @@ function RunMeta({ run, events }: { run: RunState; events: readonly RunEvent[] }
         </span>
       )}
       <Stat k="nodes" value={`${totals.done}/${totals.total} done`} cls="run-stat-done" />
-      {STATUS_ORDER.map((status) => {
-        const count = counts.get(status) ?? 0;
-        return count > 0 && status !== "done" ? <Stat key={status} k={status} value={String(count)} cls={`run-stat-${status}`} /> : null;
-      })}
       {run.harness_session === "" ? null : <Stat k="session" value={run.harness_session} cls="mono" />}
     </div>
   );
@@ -173,8 +166,35 @@ function RunActions({ run }: { run: RunState }) {
   );
 }
 
-function RunBody({ run }: { run: RunState }) {
+/** The node filter, read from and written back to the hash query (`#/run/<id>?status=error`) with replaceState. */
+function useNodeFilter(): [NodeFilter, (next: NodeFilter) => void] {
+  const [filter, setState] = useState<NodeFilter>(() => parseFilter(location.hash));
+  useEffect(() => {
+    const onHash = (): void => setState(parseFilter(location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const setFilter = useCallback((next: NodeFilter): void => {
+    setState(next);
+    const hash = hashWithFilter(location.hash, next);
+    if (hash !== location.hash) {
+      history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
+    }
+  }, []);
+  return [filter, setFilter];
+}
+
+function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const facts = useProfileFacts();
+  const [filter, setFilter] = useNodeFilter();
+  const summary = useMemo(() => runSummary(run), [run]);
+  const harnessKey = JSON.stringify(facts.harnessByProfile);
+  const harnessByProfile = useMemo(() => JSON.parse(harnessKey) as Record<string, string>, [harnessKey]);
+  const match = useMemo(
+    () => (isFilterActive(filter) ? (node: RunNode) => matchesFilter(run, node, filter, harnessByProfile) : null),
+    [run, filter, harnessByProfile],
+  );
+  const shownCount = match === null ? run.nodes.length : run.nodes.filter(match).length;
   const [selected, setSelected] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const events = useRunEvents(run.run_id);
@@ -199,8 +219,11 @@ function RunBody({ run }: { run: RunState }) {
             ← all runs
           </a>
           <RunActions run={run} />
+          <LiveIndicator state={live} />
         </div>
         <RunMeta run={run} events={events} />
+        <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
+        <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
         <RunStateNotice run={run} />
         <FailureBanner run={run} />
         <LongRunningBanner run={run} nowMs={nowMs} />
@@ -230,6 +253,7 @@ function RunBody({ run }: { run: RunState }) {
           }}
           harnessByProfile={facts.harnessByProfile}
           maxAttempts={facts.maxAttempts}
+          match={match}
         />
         <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
       </div>
@@ -260,5 +284,5 @@ export function RunPage({ runId }: { runId: string }) {
       </>
     );
   }
-  return <RunBody key={run.run_id} run={run} />;
+  return <RunBody key={run.run_id} run={run} live={query.isError ? "offline" : query.live} />;
 }

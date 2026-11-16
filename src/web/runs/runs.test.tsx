@@ -89,7 +89,7 @@ describe("node panel placeholders", () => {
     expect(row("usage").textContent).toBe("no usage reported");
     expect(row("usage").getAttribute("title")).toContain("inline");
     expect(row("attempt").textContent).toBe("attempt 1/5");
-    expect(row("role · tier").textContent).toBe("not set");
+    expect(screen.queryByText("role · tier")).toBeNull();
   });
 
   test("a waiting node's panel says why it waits, in the card's priority", () => {
