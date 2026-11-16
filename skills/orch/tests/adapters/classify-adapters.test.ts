@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { orch, seedHome, tempDir, fakeBin, fakeHub, runCmd, DISPATCH, readText, pathWithout, autoCleanup } from "../helpers";
+import { orch, seedHome, tempDir, fakeBin, fakeHub, runCmd, runCmdAsync, DISPATCH, readText, pathWithout, autoCleanup } from "../helpers";
 autoCleanup();
 
 const d = (env: Record<string, string | undefined>, ...a: string[]) => runCmd(["bun", DISPATCH, ...a], { env });
@@ -49,8 +49,8 @@ test("budget-check", () => {
 });
 
 test("run/start argument errors and missing harnesses", () => {
-  let r = d({}, "run"); expect(r.all).toMatch(/usage: dispatch.sh run/); expect(r.rc).toBe(2);
-  r = d({}, "start", "claude-native"); expect(r.all).toMatch(/usage: dispatch.sh start/); expect(r.rc).toBe(2);
+  let r = d({}, "run"); expect(r.all).toMatch(/usage: dispatch.ts run/); expect(r.rc).toBe(2);
+  r = d({}, "start", "claude-native"); expect(r.all).toMatch(/usage: dispatch.ts start/); expect(r.rc).toBe(2);
   r = d({}, "run", "claude-native", "@/no/such/promptfile"); expect(r.all).toMatch(/prompt file not found/); expect(r.rc).toBe(1);
   for (const h of ["cursor-agent", "opencode", "copilot"]) {
     r = d({ ORCH_BIN_DIRS: "", PATH: pathWithout(h) }, "run", h, "hi");
@@ -90,14 +90,14 @@ test("claude-native sentinel, jobs, local-llm timing", async () => {
   r = o("status", "no-such-job"); expect(r.all).toMatch(/unknown job/); expect(r.rc).toBe(2);
   r = o("tail", "no-such-job"); expect(r.all).toMatch(/no log for job/); expect(r.rc).toBe(2);
 
-  const hub = fakeHub(8000);
+  const hub = fakeHub(3000);
   const pf = join(tempDir(), "prompt.txt"); writeFileSync(pf, "hello from a file");
   const oh = orch(home, { LLM_HUB_URL: hub.url });
   const lj = oh("start", "local-llm", `@${pf}`).out.trim();
-  await Bun.sleep(500);
   expect(oh("status", lj).out).toMatch(/^running$/m);
-  expect(oh("wait", lj, "--timeout", "1", "--interval", "1").rc).toBe(124);
-  r = oh("wait", lj, "--timeout", "60", "--interval", "1");
+  const ow = (...a: string[]) => runCmdAsync(["bun", DISPATCH, ...a], { home, env: { LLM_HUB_URL: hub.url } });
+  expect((await ow("wait", lj, "--timeout", "1", "--interval", "1")).rc).toBe(124);
+  r = await ow("wait", lj, "--timeout", "60", "--interval", "1");
   expect(r.out).toMatch(/^done exit=0$/m); expect(r.rc).toBe(0);
   expect(oh("tail", lj).all).toMatch(/echo:hello from a file/);
   hub.stop();

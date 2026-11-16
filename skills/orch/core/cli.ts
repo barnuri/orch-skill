@@ -207,7 +207,7 @@ async function mainInner(argv: string[], opts: { direct?: boolean }): Promise<nu
   // `run (--profile P | <adapter>) <prompt>` and `start ...` spawn an adapter. They take the raw argv
   // (flags included). `run <verb>` stays with the run-state commands.
   const RUN_ADAPTERS = ["--profile", "claude", "claude-native", "cursor-agent", "local-llm", "opencode", "copilot", "pi"];
-  if (words[0] === "start" || (words[0] === "run" && RUN_ADAPTERS.includes(argv[1] ?? ""))) {
+  if (words[0] === "start" || (words[0] === "run" && (words.length === 1 || RUN_ADAPTERS.includes(argv[1] ?? "")))) {
     const rest = argv.slice(1);
     return words[0] === "start" ? cmdStart(rest) : cmdRun(rest);
   }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 export const PROFILE_PICK_USAGE = 'dispatch.ts profile pick "<task>" [--complexity trivial|small|medium|large] [--kind K]';
 export const MODEL_LIST_USAGE = "dispatch.ts model list [--profile P] [--harness H]";
 export const DEFAULT_BUDGET_THRESHOLD = 85;
-export const SNAPSHOT_MAX_AGE_SECS = Number(process.env.HARNESS_ORCH_SNAPSHOT_MAX_AGE ?? 900);
+export const snapshotMaxAgeSecs = (): number => Number(process.env.HARNESS_ORCH_SNAPSHOT_MAX_AGE ?? 900);
 
 export type Catalog = { profiles?: Record<string, any>; models?: Record<string, any>; settings?: Record<string, any> };
 
@@ -128,22 +128,27 @@ export function profilePick(cat: Catalog, mem: any[], complexity: string, kind: 
 // budget_check (dispatch.ts): true when every rate-limit window is below the threshold, or when
 // no gating applies (no snapshot, stale snapshot, not a subscription account). False = avoid Claude.
 export async function budgetCheck(cat: Catalog): Promise<boolean> {
+  return (await budgetVerdict(cat)).ok;
+}
+
+export async function budgetVerdict(cat: Catalog): Promise<{ ok: boolean; reason: string }> {
   const threshold = Number(process.env.HARNESS_ORCH_BUDGET_THRESHOLD ?? setting(cat, "budget_threshold", String(DEFAULT_BUDGET_THRESHOLD)));
   const snapFile = process.env.CLAUDE_USAGE_SNAPSHOT ?? join(process.env.HOME || homedir(), ".claude", "usage-snapshot.json");
   let snap: any;
   try {
     snap = JSON.parse(await readFile(snapFile, "utf8"));
   } catch {
-    return true;
+    return { ok: true, reason: `no snapshot at ${snapFile}, assuming safe` };
   }
-  if (snap?.api?.type !== "subscription") return true;
+  if (snap?.api?.type !== "subscription") return { ok: true, reason: "account is not subscription, no rate-limit gating" };
   let snapMs = Date.parse(snap.captured_at ?? "");
   if (Number.isNaN(snapMs)) snapMs = (await stat(snapFile)).mtimeMs;
-  if ((Date.now() - snapMs) / 1000 > SNAPSHOT_MAX_AGE_SECS) return true;
+  const age = Math.round((Date.now() - snapMs) / 1000);
+  if (age > snapshotMaxAgeSecs()) return { ok: true, reason: `snapshot is old (${age}s), assuming safe` };
   for (const w of ["five_hour", "day", "week", "seven_day"]) {
     const pct = snap.rate_limits?.[w]?.used_percentage;
     if (pct === undefined || pct === null || pct === "") continue;
-    if (Number(pct) >= threshold) return false;
+    if (Number(pct) >= threshold) return { ok: false, reason: `${w.replace("_", "-")} window at ${pct}% (threshold ${threshold}%)` };
   }
-  return true;
+  return { ok: true, reason: `all windows below ${threshold}%` };
 }

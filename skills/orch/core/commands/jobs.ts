@@ -3,16 +3,16 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { jobStatus, sleep } from "../state/proc.ts";
-import { budgetCheck, readCatalog } from "../adapters/routing.ts";
+import { budgetCheck, budgetVerdict, readCatalog } from "../adapters/routing.ts";
 
 const out = (s: string) => void process.stdout.write(s);
 const err = (s: string) => void process.stderr.write(s);
-const onPath = (bin: string) => Bun.which(bin) !== null;
+const onPath = (bin: string) => Bun.which(bin, { PATH: process.env.PATH ?? "" }) !== null;
 
 export async function budgetCheckCommand(): Promise<number> {
   const cat = await readCatalog(paths.profiles(orchHome()));
-  const ok = await budgetCheck(cat);
-  err(ok ? "budget-check: safe to route to Claude\n" : "budget-check: a rate-limit window is at the threshold, avoid routing more to Claude\n");
+  const { ok, reason } = await budgetVerdict(cat);
+  err(`budget-check: ${ok ? "safe to route to Claude" : "avoid routing more to Claude"}: ${reason}\n`);
   return ok ? 0 : 1;
 }
 
