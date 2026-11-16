@@ -10,6 +10,7 @@ Orch exists for visibility, the right model per task, lower cost and tokens, and
 ## 0. Files in this folder
 
 - `SKILL.md` (this file, committed): generic weak spots, backlog and method. No personal data.
+- `analysis.md` (committed): the deep analysis of why orch was slow and gave worse results than opencode subagents, with the evidence and a build list. Read it before changing the architecture.
 - `learnings.md` (ignored by git): the dated metric blocks that `scripts/orch-perf.ts` appends. They contain run ids, costs and paths, so they stay on this machine.
 - `local.md` (ignored by git): paths of llm-hub, herdr, herdr-web and the other projects orch depends on, plus open upstream issues. Copy `local.example.md` to create it on a new machine. **Read it first.** When a problem comes from one of those projects, fix it in that project's own repo.
 
