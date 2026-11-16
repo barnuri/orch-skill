@@ -9,6 +9,7 @@ import { orchHome, paths } from "../state/home.ts";
 import { loadRun, type RunState } from "../state/store.ts";
 import { nowIso } from "../state/clock.ts";
 import { loadProfilesDoc } from "../state/settings.ts";
+import { acquireLock } from "../state/lock.ts";
 import { archiveAttempt, ev, findNode, OpError, setStatus, SMART_AUTO_TIERS } from "../runs/node.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
@@ -16,7 +17,7 @@ import { pauseGuard } from "./pause.ts";
 import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
-export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]";
+export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [--force] [--early-end] [<prompt|@file>]";
 export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled]";
 export const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
 const RUN_STATUSES = ["done", "error", "cancelled"];
@@ -33,6 +34,33 @@ export async function nodeOutDir(home: string, runId: string, nodeId: string, ru
 
 async function readTrim(file: string): Promise<string> {
   return (await Bun.file(file).text().catch(() => "")).trim();
+}
+
+const NODE_LOCK_TRIES = 600;
+const NODE_LOCK_SLEEP_MS = 50;
+const nodeChains = new Map<string, Promise<unknown>>();
+
+// One dispatch or retry per node at a time: an in-process chain (the lock file is per pid, so two callers in one
+// process would both pass it) and a lock file (two processes). A caller that waits finds the node already running
+// and the live job, and refuses; so a node never gets two jobs.
+export async function withNodeLock<T>(home: string, runId: string, nodeId: string, fn: () => Promise<T>): Promise<T> {
+  const key = `${home}\0${runId}/${nodeId}`;
+  const prev = nodeChains.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(async () => {
+    const lock = await acquireLock(home, `node-${runId}-${nodeId}`, NODE_LOCK_TRIES, NODE_LOCK_SLEEP_MS);
+    if (!lock) throw new OpError(`node ${nodeId}: another dispatch or retry holds its lock`);
+    try {
+      return await fn();
+    } finally {
+      await lock.release();
+    }
+  });
+  nodeChains.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (nodeChains.get(key) === run) nodeChains.delete(key);
+  }
 }
 
 // node_live_job: the job id of a live job bound to this node, or null.
@@ -89,10 +117,23 @@ export function smartAutoTierOf(model: string): string {
 export interface DispatchOpts {
   force?: boolean;
   resume?: string;
+  /** The caller already holds the node lock (retry). */
+  locked?: boolean;
 }
 
 // Starts a waiting node. rest = (--profile P | adapter) <prompt> [args...], or <prompt> alone (the node's profile).
 export async function dispatchNodeJob(home: string, runId: string, nodeId: string, restIn: string[], o: DispatchOpts = {}): Promise<{ rc: number; jobId: string }> {
+  if (o.locked) return dispatchNodeJobLocked(home, runId, nodeId, restIn, o);
+  try {
+    return await withNodeLock(home, runId, nodeId, () => dispatchNodeJobLocked(home, runId, nodeId, restIn, { ...o, locked: true }));
+  } catch (e) {
+    if (!(e instanceof OpError)) throw e;
+    errLine(e.message);
+    return { rc: 2, jobId: "" };
+  }
+}
+
+async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string, restIn: string[], o: DispatchOpts): Promise<{ rc: number; jobId: string }> {
   const fail = (m: string, rc = 2) => (errLine(m), { rc, jobId: "" });
   let rest = [...restIn];
   const run = await loadRun(home, runId);
@@ -222,7 +263,21 @@ export async function nodeDispatchStored(home: string, runId: string, nodeId: st
   return dispatchNodeJob(home, runId, nodeId, [...(target ?? []), prompt, ...extra]);
 }
 
-const resumeOk = (adapter: string, session: string) => ["claude", "copilot", "opencode"].includes(adapter) || (adapter === "cursor-agent" && session.startsWith("cursor:"));
+// opencode resumes only a real `ses_` session id (adapterOpencode ignores any other value and starts a new session).
+const resumeOk = (adapter: string, session: string) =>
+  ["claude", "copilot"].includes(adapter) || (adapter === "opencode" && session.startsWith("ses")) || (adapter === "cursor-agent" && session.startsWith("cursor:"));
+
+// The session id a retry resumes: the job's own `session` (claude, copilot, cursor), and for opencode the `ses_` id the owner bind found.
+export function resumeSessionOf(n: Record<string, any>, adapter: string): string {
+  const own = String(n.session ?? "");
+  if (adapter !== "opencode") return own;
+  const owner = String(n.owner_id ?? "");
+  if (owner.startsWith("ses_") && (n.owner_kind ?? "session") === "session") return owner;
+  return own;
+}
+
+export const EARLY_END_MESSAGE = "You ended early. Read your task and handoff notes, continue, and write handoff.md in $ORCH_NODE_OUT before you finish";
+export const MAX_EARLY_END_RESUMES = 2;
 
 function errorSummary(n: Record<string, any>): string {
   const t = n.error ? String(n.error) : ((n.log_tail ?? []) as string[]).join(" | ");
@@ -243,11 +298,31 @@ export async function profileRequire(home: string, name: string): Promise<boolea
   return false;
 }
 
-export async function retryDispatch(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean): Promise<{ rc: number; jobId: string; out?: string }> {
+export async function retryDispatch(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean, earlyEnd = false): Promise<{ rc: number; jobId: string; out?: string }> {
+  try {
+    return await withNodeLock(home, runId, nodeId, () => retryDispatchLocked(home, runId, nodeId, override, noDispatch, reason, supplied, force, earlyEnd));
+  } catch (e) {
+    if (!(e instanceof OpError)) throw e;
+    errLine(e.message);
+    return { rc: 2, jobId: "" };
+  }
+}
+
+async function retryDispatchLocked(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean, earlyEnd: boolean): Promise<{ rc: number; jobId: string; out?: string }> {
   const fail = (m: string) => (errLine(m), { rc: 2, jobId: "" });
-  const run = (await loadRun(home, runId))!;
-  const n = findNode(run, nodeId)!;
-  if (!["error", "skipped", "stopped"].includes(n.status)) return fail(`node retry: ${nodeId} is ${n.status}, not error or skipped`);
+  const run = await loadRun(home, runId);
+  const n = run ? findNode(run, nodeId) : undefined;
+  if (!run || !n) return fail(`node ${nodeId}: not in this run`);
+  const retryable = earlyEnd ? ["done", "error", "skipped", "stopped"] : ["error", "skipped", "stopped"];
+  if (!retryable.includes(n.status)) return fail(`node retry: ${nodeId} is ${n.status}, not error or skipped`);
+  if (!force) {
+    const live = await nodeLiveJob(home, runId, nodeId);
+    if (live) return fail(`node retry: ${nodeId} already has live job ${live}; pass --force to start another`);
+  }
+  const resumesSoFar = Number(n.resumes ?? 0);
+  if (earlyEnd && resumesSoFar >= MAX_EARLY_END_RESUMES && !force) {
+    return fail(`node retry: ${nodeId} was already resumed ${resumesSoFar} times after an early end (max ${MAX_EARLY_END_RESUMES}); pass --force`);
+  }
   const prompt = String(n.prompt ?? "") || supplied;
   const doc = await loadProfilesDoc(home);
   const harnessOf = (p: string) => String(doc.profiles?.[p]?.harness ?? "");
@@ -255,8 +330,8 @@ export async function retryDispatch(home: string, runId: string, nodeId: string,
   let adapter = String(n.adapter ?? "");
   const oldProfile = profile;
   let oldAdapter = adapter;
-  const prevSession = String(n.session ?? "");
   if (!oldAdapter && oldProfile) oldAdapter = harnessOf(oldProfile);
+  const prevSession = resumeSessionOf(n, oldAdapter);
   if (override) {
     if (ADAPTER_NAMES.includes(override)) {
       profile = "";
@@ -276,7 +351,7 @@ export async function retryDispatch(home: string, runId: string, nodeId: string,
   if (!noDispatch && prompt && prevSession && target === oldAdapter && resumeOk(target, prevSession)) {
     mode = "resumed";
     resume = prevSession;
-    dispatchPrompt = supplied || `The previous attempt stopped with: ${summary || "unknown error"}.\nContinue the same task from where you left off; check $ORCH_NODE_OUT for any partial handoff or notes from the previous attempt.\n`;
+    dispatchPrompt = supplied || (earlyEnd ? EARLY_END_MESSAGE : "") || `The previous attempt stopped with: ${summary || "unknown error"}.\nContinue the same task from where you left off; check $ORCH_NODE_OUT for any partial handoff or notes from the previous attempt.\n`;
   } else if (!noDispatch && prompt) {
     mode = "restarted";
     let original = prompt;
@@ -288,12 +363,19 @@ export async function retryDispatch(home: string, runId: string, nodeId: string,
       }
       original = await f.text();
     }
-    dispatchPrompt = `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${original}\n`;
+    dispatchPrompt = earlyEnd
+      ? `${supplied || EARLY_END_MESSAGE}\nThe previous attempt on ${oldProfile || "unknown profile"} ended without a handoff. Partial work may already exist in the repo and in $ORCH_NODE_OUT.\n\n${original}\n`
+      : `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${original}\n`;
   }
   const now = nowIso();
   await mutateRun(home, runId, (r, ctx) => {
     const x = findNode(r, nodeId)!;
     archiveAttempt(x, reason, mode, resume);
+    if (earlyEnd) {
+      x.resumes = Number(x.resumes ?? 0) + 1;
+      x.unverified = null;
+      ev(ctx, "resumed", nodeId, String(x.status ?? ""), "waiting", `early end, ${mode === "resumed" ? `resumed session ${resume}` : "restarted (no resumable session)"}, ${x.resumes} of ${MAX_EARLY_END_RESUMES}`);
+    }
     Object.assign(x, { status: "waiting", job_id: null, adapter: adapter || null, profile: profile || null, session: null, started: null, finished: null, error: null, log_tail: [], cost: null, actual_model: null, updated: now, next_retry_at: null });
     ev(ctx, "retry", nodeId, "", "waiting", "");
     if (r.finished != null) {
@@ -306,7 +388,7 @@ export async function retryDispatch(home: string, runId: string, nodeId: string,
   const target2 = targetArgs(override, profile, adapter);
   if (!target2) return fail(`node retry: ${nodeId} has no profile or adapter; pass --profile or an adapter`);
   const extra = ((n.dispatch_args ?? []) as string[]).filter((a) => a !== "");
-  const res = await dispatchNodeJob(home, runId, nodeId, [...target2, dispatchPrompt, ...extra], { force, resume });
+  const res = await dispatchNodeJob(home, runId, nodeId, [...target2, dispatchPrompt, ...extra], { force, resume, locked: true });
   if (res.rc !== 0) return res;
   await mutateRun(home, runId, (r) => {
     findNode(r, nodeId)!.prompt = prompt;
@@ -326,6 +408,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
   let override = "";
   let noDispatch = false;
   let force = false;
+  let earlyEnd = false;
   let prompt = "";
   const rest = args.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -333,6 +416,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
     if (a === "--profile") override = rest[++i] ?? "";
     else if (a === "--no-dispatch") noDispatch = true;
     else if (a === "--force") force = true;
+    else if (a === "--early-end") earlyEnd = true;
     else if (a.startsWith("--")) {
       errLine(`node retry: unknown argument ${a}\n  usage: ${NODE_RETRY_USAGE}`);
       return 2;
@@ -346,11 +430,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
   const run = await loadRun(home, runId);
   if (!run) return (errLine(`run ${runId}: unknown run`), 2);
   if (!findNode(run, nodeId)) return (errLine(`node ${nodeId}: not in this run`), 2);
-  if (!force) {
-    const live = await nodeLiveJob(home, runId, nodeId);
-    if (live) return (errLine(`node retry: ${nodeId} already has live job ${live}; pass --force to start another`), 2);
-  }
-  const res = await retryDispatch(home, runId, nodeId, override, noDispatch, "manual retry", prompt, force);
+  const res = await retryDispatch(home, runId, nodeId, override, noDispatch, earlyEnd ? "early end, resumed" : "manual retry", prompt, force, earlyEnd);
   if (res.out) process.stdout.write(res.out);
   if (res.rc === 0 && res.jobId) process.stdout.write(res.jobId + "\n");
   return res.rc;

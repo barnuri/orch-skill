@@ -61,5 +61,6 @@ describe("run activity", () => {
     expect(describeEvent(ev(1, { kind: "status", from: "waiting", to: "running", note: null }))).toBe("waiting → running");
     expect(describeEvent(ev(1, { kind: "ping", note: "3/10" }))).toBe("progress 3/10");
     expect(describeEvent(ev(1, { kind: "retry" }))).toBe("reset for retry");
+    expect(describeEvent(ev(1, { kind: "resumed", note: "early end, resumed session ses_a, 1 of 2" }))).toBe("resumed: early end, resumed session ses_a, 1 of 2");
   });
 });

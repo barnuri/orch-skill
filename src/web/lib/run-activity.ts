@@ -21,6 +21,8 @@ export function describeEvent(e: RunEvent): string {
       return "removed";
     case "retry":
       return "reset for retry";
+    case "resumed":
+      return `resumed${e.note !== null ? `: ${e.note}` : ""}`;
     case "run":
       return `run ${e.to ?? ""}`.trim();
     default:
