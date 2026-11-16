@@ -78,7 +78,7 @@ async function loopRunOpen(id: string, label: string): Promise<void> {
 }
 
 async function loopRunTickStart(id: string, iter: number): Promise<void> {
-  const a = await dispatchSh(["node", "add", id, `i${iter}`, `Tick ${iter}`]);
+  const a = await dispatchSh(["node", "add", id, `i${iter}`, `Tick ${iter}`, "--origin", "loop"]);
   if (a.code !== 0) return;
   await dispatchSh(["node", "update", id, `i${iter}`, "running"]);
   const lock = await acquireLock(home(), `run-${id}`, 600, 50);

@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import type { RunHealth } from "../../shared/types/run-health";
 import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
-import { actionsLog, isInfraError, WatchdogService } from "./watchdog-service";
+import { actionsLog, EARLY_END_MESSAGE, isInfraError, WatchdogService } from "./watchdog-service";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
@@ -26,8 +26,8 @@ type Node = Record<string, unknown> & { id: string; status: string };
 
 const T0 = Date.parse("2026-11-16T10:00:00Z");
 
-function stateOf(nodes: Node[], patch: Record<string, unknown> = {}): string {
-  return JSON.stringify({ run_id: "r1", status: "running", auto_dispatch: false, nodes, edges: [], ...patch });
+function stateOf(nodes: Node[], patch: Record<string, unknown> = {}, runId = "r1"): string {
+  return JSON.stringify({ run_id: runId, status: "running", auto_dispatch: false, nodes, edges: [], ...patch });
 }
 
 interface Fixture {
@@ -41,7 +41,8 @@ interface Fixture {
   log(): WatchdogAction[];
 }
 
-function fixture(opts: { health?: RunHealth | null; alive?: boolean } = {}): Fixture {
+function fixture(opts: { health?: RunHealth | null; alive?: boolean; run?: string } = {}): Fixture {
+  const runId = opts.run ?? "r1";
   const home = TempHome.create();
   const clock = { ms: T0 };
   const dog = new WatchdogService(home.path, {
@@ -58,9 +59,9 @@ function fixture(opts: { health?: RunHealth | null; alive?: boolean } = {}): Fix
     home,
     dog,
     clock,
-    set: (nodes, patch) => home.write("runs/r1/state.json", stateOf(nodes, patch)),
+    set: (nodes, patch) => home.write(`runs/${runId}/state.json`, stateOf(nodes, patch, runId)),
     tick: async () => {
-      dog.engine.evaluate("r1");
+      dog.engine.evaluate(runId);
       await Promise.all([...dog.inflight, ...dog.engine.inflight]);
     },
     actions: () => lines("fake-dispatch.actions"),
@@ -98,11 +99,11 @@ describe("watchdog", () => {
 
   test("an unverified flag clears once handoff.md exists, without a new state change", async () => {
     const f = fixture();
-    f.home.write("watchdog/r1/claims/requeue-a", "x\n");
     f.set([{ id: "a", status: "running" }]);
     await f.tick();
-    f.set([{ id: "a", status: "done", attempts: [] }]);
+    f.set([{ id: "a", status: "done", attempts: [], resumes: 2 }]);
     await f.tick();
+    f.set([{ id: "a", status: "error", attempts: [], resumes: 2, error: "ended early without handoff" }]);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:unverified"]);
     f.home.write("runs/r1/out/a/handoff.md", "done\n");
     expect(f.dog.status().flags).toEqual([]);
@@ -262,25 +263,72 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
-  test("rule 3: done without handoff.md is re-queued once; with a handoff nothing happens", async () => {
+  test("rule 3: done without handoff.md resumes the same session twice, then errors and flags; a handoff means nothing happens", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "running" }, { id: "b", status: "running" }]);
     await f.tick();
     f.home.write("runs/r1/out/b/handoff.md", "# done\n");
     f.set([{ id: "a", status: "done", attempts: [] }, { id: "b", status: "done" }]);
     await f.tick();
-    expect(f.actions()).toEqual(["node update r1 a error --force --error done without handoff", "node retry r1 a You ended early. Read your handoff and the task, continue, and write handoff.md"]);
-    // The re-queued attempt again ends without a handoff: flagged, not re-queued.
-    f.set([{ id: "a", status: "running", attempts: [{}] }, { id: "b", status: "done" }]);
+    expect(f.actions()).toEqual([`node retry r1 a --early-end ${EARLY_END_MESSAGE}`]);
+    expect(f.log().at(-1)?.detail).toMatch(/resume 1 of 2 \(same session\)/);
+    // The resumed attempt ends early again: one more resume (the node now counts 1).
+    f.set([{ id: "a", status: "running", attempts: [{}], resumes: 1 }, { id: "b", status: "done" }]);
     await f.tick();
-    f.set([{ id: "a", status: "done", attempts: [{}] }, { id: "b", status: "done" }]);
+    f.set([{ id: "a", status: "done", attempts: [{}], resumes: 1 }, { id: "b", status: "done" }]);
     await f.tick();
     expect(f.actions()).toHaveLength(2);
+    expect(f.log().at(-1)?.detail).toMatch(/resume 2 of 2/);
+    // The third early end: no resume left, the node is marked error and flagged.
+    f.set([{ id: "a", status: "running", attempts: [{}, {}], resumes: 2 }, { id: "b", status: "done" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "done", attempts: [{}, {}], resumes: 2 }, { id: "b", status: "done" }]);
+    await f.tick();
+    expect(f.actions()).toHaveLength(3);
+    expect(f.actions()[2]).toBe("node update r1 a error --force --error ended early without handoff");
+    f.set([{ id: "a", status: "error", attempts: [{}, {}], resumes: 2, error: "ended early without handoff" }, { id: "b", status: "done" }]);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:unverified"]);
     // The handoff shows up later: the stale flag clears on the next sweep, with no status change.
     f.home.write("runs/r1/out/a/handoff.md", "# late handoff\n");
     await f.tick();
     expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("a loop tick node is exempt: done without handoff, error, dead job and stalls cause no action", async () => {
+    const run = "loop-20261116-100000-ab12";
+    const f = fixture({ run, alive: false });
+    f.home.write(`loops/${run}/state.json`, JSON.stringify({ id: run, status: "running" }));
+    f.set([{ id: "i1", label: "Tick 1", status: "running", origin: "loop" }, { id: "i2", label: "Tick 2", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "i1", status: "done", origin: "loop", attempts: [] }, { id: "i2", status: "error", error: "exit=unknown", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toEqual([]);
+    expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("a stopped loop: nothing in its run is retried, whatever the node looks like", async () => {
+    const run = "loop-20261116-100500-cd34";
+    const f = fixture({ run, alive: false });
+    f.home.write(`loops/${run}/state.json`, JSON.stringify({ id: run, status: "stopped", reason: "stopped" }));
+    f.set([{ id: "work", status: "running", job_id: "job-gone" }]);
+    await f.tick();
+    f.clock.ms += 300_000;
+    await f.tick();
+    f.set([{ id: "work", status: "error", error: "process died", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("a node of a normal run carrying loop_id is exempt too, and the same node without it is verified", async () => {
+    const f = fixture();
+    f.set([{ id: "a", status: "running", loop_id: "loop-x" }, { id: "b", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "done", loop_id: "loop-x", attempts: [] }, { id: "b", status: "done", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toEqual([`node retry r1 b --early-end ${EARLY_END_MESSAGE}`]);
     f.home.dispose();
   });
 

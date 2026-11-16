@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { paths } from "../state/home.ts";
 import { readJson, type RunState } from "../state/store.ts";
+import { ENGINE_ORIGINS, isEngineNode } from "../../../../src/shared/engine-node.ts";
 
 export const NODE_STATUSES = ["waiting", "running", "done", "error", "skipped", "stopped"];
 export const WORK_ROLES = ["planning", "investigation", "implementation", "validation", "conversation"];
@@ -25,7 +26,7 @@ const HUB_ROLE_TIERS_DEFAULT: Record<string, string> = {
 };
 
 export const USAGE = {
-  add: 'dispatch.ts node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]',
+  add: 'dispatch.ts node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"] [--origin loop|watch]',
   report: "dispatch.ts node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note \"text\"]",
   update: `dispatch.ts node update <run-id> <node-id> [${NODE_STATUSES.join("|")}] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]`,
   batch: "dispatch.ts node batch <run-id> [--file F] [--dry-run]   (one JSON op per line on stdin or in F)",
@@ -182,11 +183,14 @@ export interface AddArgs {
   model: string;
   planBacked: boolean;
   acceptance: string;
+  /** Set by an engine that makes nodes itself (the loop runner): the watchdog never retries or verifies these. */
+  origin?: string;
 }
+
 
 // argv after `node add <run>`: <id> <label> [flags]. Checks the enumerations, as cmd_node_add does.
 export function parseAddArgs(args: string[]): AddArgs {
-  const a: AddArgs = { id: args[0] ?? "", label: args[1] ?? "", after: "", profile: "", role: "", tier: "", model: "", planBacked: false, acceptance: "" };
+  const a: AddArgs = { id: args[0] ?? "", label: args[1] ?? "", after: "", profile: "", role: "", tier: "", model: "", planBacked: false, acceptance: "", origin: "" };
   let i = 2;
   while (i < args.length) {
     const k = args[i];
@@ -198,12 +202,14 @@ export function parseAddArgs(args: string[]): AddArgs {
       case "--model": a.model = nextValue(args, i); i++; break;
       case "--plan-backed": a.planBacked = true; break;
       case "--acceptance": a.acceptance = nextValue(args, i); i++; break;
+      case "--origin": a.origin = nextValue(args, i); i++; break;
       default: fail(`node add: unknown argument ${k}`);
     }
     i++;
   }
   if (a.role && !WORK_ROLES.includes(a.role)) fail(`node add: --role must be one of: ${WORK_ROLES.join(" ")}`);
   if (a.tier && !SMART_AUTO_TIERS.includes(a.tier)) fail(`node add: --tier must be one of: ${SMART_AUTO_TIERS.join(" ")}`);
+  if (a.origin && !ENGINE_ORIGINS.includes(a.origin)) fail(`node add: --origin must be one of: ${ENGINE_ORIGINS.join(" ")}`);
   return a;
 }
 
@@ -256,6 +262,7 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
     tier: nn(tier),
     plan_backed: a.planBacked,
     acceptance: nn(a.acceptance),
+    ...(a.origin ? { origin: a.origin } : {}),
   });
   run.edges = [...(run.edges ?? []), ...kept.map((d) => [d, a.id])];
   ev(ctx, "add", a.id, "", "waiting", a.label);
@@ -430,6 +437,7 @@ export function setStatus(run: RunState, id: string, status: string, job: string
 // `unverified` on the node.
 export function doneVerify(run: RunState, id: string, ctx: Ctx): void {
   const n = requireNode(run, id);
+  if (isEngineNode(ctx.runId, n)) return;
   const recorded = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : "";
   const handoff = join(recorded || paths.runOutDir(ctx.home, ctx.runId, id), "handoff.md");
   try {

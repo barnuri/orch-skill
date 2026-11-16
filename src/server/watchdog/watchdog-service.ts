@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import type { RunHealth } from "../../shared/types/run-health";
 import type { WatchdogAction, WatchdogCounters, WatchdogFlag, WatchdogRule, WatchdogStatus } from "../../shared/types/watchdog";
+import { isEngineNode, loopOfRun } from "../../shared/engine-node";
 import { dispatchPath } from "../dispatch-path";
 import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
@@ -20,8 +21,12 @@ import { RunEngine, type Starter } from "../runs/auto-dispatch";
  *    stall_minutes) is flagged amber and reported once per episode.
  *  - A node whose job pid answers, or whose job log grew since the last look or within the window,
  *    is never lost or stalled: the job folder wins over owner events and health verdicts.
- *  - unverified: a node seen turning done without a non-empty handoff.md is re-queued once
- *    (`node update ... error --force`, then `node retry`), then flagged.
+ *  - unverified: a node seen turning done without a non-empty handoff.md (the agent ended its turn early)
+ *    gets `node retry --early-end`: the same session is resumed with a "continue and write handoff.md" message
+ *    (an adapter without resume restarts with the original prompt). At most 2 resumes per node (`node.resumes`);
+ *    after that the node is marked error "ended early without handoff" and flagged.
+ *  - Loop and watch ticks (nodes the loop engine made, any node of a `loop-` run, any node whose loop is stopped)
+ *    are exempt from every rule above that retries or verifies: the loop decides whether another tick runs.
  *  - infra-retry: a node seen turning error with an infrastructure error (dispatch exit, model
  *    unavailable, process died, job vanished) gets one `node retry`. Test failures are never retried.
  *  - starting: a node dispatched (running, segment open) with no started_at for STARTING_AFTER_MS
@@ -43,6 +48,9 @@ const COORD_EVERY_MS = 20_000;
 /** A node still `starting` (dispatched, no real activity) after this long is retried once. */
 export const STARTING_AFTER_MS: number = 180_000;
 export const OWNERS_EVERY_MS: number = 30_000;
+/** Resumes of a node that ended early (done, no handoff.md) before the watchdog gives up. */
+export const MAX_EARLY_END_RESUMES: number = 2;
+export const EARLY_END_MESSAGE: string = "You ended early. Read your task and handoff notes, continue, and write handoff.md in $ORCH_NODE_OUT before you finish";
 const OWNERS_RECENT_MS: number = 600_000;
 const LAST_ACTIONS: number = 50;
 const LOG_TAIL_BYTES: number = 512 * 1024;
@@ -66,6 +74,11 @@ interface WatchNode {
   out_dir?: string | null;
   updated?: string | null;
   attempts?: unknown[] | null;
+  /** Set when the loop or watch engine made the node (`node add --origin`), or the loop that owns it. */
+  origin?: string | null;
+  loop_id?: string | null;
+  /** Early-end resumes done so far (`node retry --early-end` counts them). */
+  resumes?: number | null;
 }
 
 interface JobEvidence {
@@ -297,6 +310,10 @@ export class WatchdogService {
       if (this.busy.has(`${runId}/${node.id}`)) {
         continue;
       }
+      if (this.engineOwned(runId, node)) {
+        this.deadSince.delete(`${runId}/${node.id}`);
+        continue;
+      }
       const from = prev?.get(node.id);
       const turned = (to: string): boolean => node.status === to && from !== undefined && from !== to;
       const verdict = healthById.get(node.id)?.health ?? null;
@@ -319,6 +336,28 @@ export class WatchdogService {
     this.checkFinish(runId, state, nodes);
     this.syncOwners(runId, nodes);
     this.syncCoordinator(runId, state);
+  }
+
+  /** A node the loop engine made, or one whose loop is stopped: never verified, never retried. */
+  private engineOwned(runId: string, node: WatchNode): boolean {
+    if (isEngineNode(runId, node)) {
+      return true;
+    }
+    const loop = loopOfRun(runId);
+    return loop !== null && this.loopStopped(loop);
+  }
+
+  private loopStopped(loopId: string): boolean {
+    const st = readText(join(this.home, "loops", loopId, "state.json"));
+    if (st === null) {
+      return false;
+    }
+    try {
+      const status = (JSON.parse(st) as { status?: string }).status;
+      return status === "stopped" || status === "done" || status === "failed";
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -553,13 +592,22 @@ export class WatchdogService {
     if (!this.claim(runId, `unverified-${node.id}@${attempt}`)) {
       return;
     }
-    if (!this.claim(runId, `requeue-${node.id}`)) {
-      this.flag(runId, node.id, "unverified", "done without handoff.md again; re-queue already used", "done");
+    const resumes = typeof node.resumes === "number" ? node.resumes : 0;
+    if (resumes >= MAX_EARLY_END_RESUMES) {
+      this.chain(runId, node.id, async () => {
+        await this.act(runId, node.id, "unverified", ["node", "update", runId, node.id, "error", "--force", "--error", "ended early without handoff"], `${dir}/handoff.md missing or empty after ${resumes} resumes`);
+        this.flag(runId, node.id, "unverified", `ended early without handoff.md after ${resumes} resumes`, "error");
+      });
       return;
     }
     this.chain(runId, node.id, async () => {
-      await this.act(runId, node.id, "unverified", ["node", "update", runId, node.id, "error", "--force", "--error", "done without handoff"], `${dir}/handoff.md missing or empty`);
-      await this.act(runId, node.id, "unverified", ["node", "retry", runId, node.id, "You ended early. Read your handoff and the task, continue, and write handoff.md"], "re-queued once: resume the same session");
+      await this.act(
+        runId,
+        node.id,
+        "unverified",
+        ["node", "retry", runId, node.id, "--early-end", EARLY_END_MESSAGE],
+        `${dir}/handoff.md missing or empty: resume ${resumes + 1} of ${MAX_EARLY_END_RESUMES} (same session)`,
+      );
     });
   }
 

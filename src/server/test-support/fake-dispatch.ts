@@ -33,7 +33,7 @@ if ((a[0] === "run" || a[0] === "node") && a[1] === "retry") {
     console.error(`${a[0]} retry: run ${a[2] ?? ""} not found`);
     process.exit(1);
   }
-  if (!/"status":"(error|skipped)"/.test(compact(state))) {
+  if (!/"status":"(error|skipped)"/.test(compact(state)) && !(a.includes("--early-end") && /"status":"done"/.test(compact(state)))) {
     console.error(`node retry: ${a[3] ?? "run"} is not error or skipped`);
     process.exit(2);
   }
