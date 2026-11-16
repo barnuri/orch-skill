@@ -21,7 +21,7 @@ import {
   USAGE,
   type Ctx,
 } from "../runs/node.ts";
-import { errLine, flushStderr, resolveRun, writeOwners } from "./node.ts";
+import { errLine, finalFill, flushStderr, resolveRun, writeOwners } from "./node.ts";
 
 export const BATCH_LOCK_TRIES = 150; // 30 s at 200 ms: NODE_BATCH_LOCK_WAIT_SECS in batch.sh
 export const BATCH_LOCK_SLEEP_MS = 200;
@@ -232,6 +232,7 @@ export async function nodeBatch(args: string[]): Promise<number> {
     await appendEvents(home, runId, ctx.events);
     await writeOwners(home, ctx);
     flushStderr(ctx);
+    if (ctx.events.some((e: any) => ["done", "error", "skipped"].includes(e.to))) await finalFill(home, runId);
     for (const s of summaries) process.stdout.write(`line ${s.line}: ${s.summary} ok\n`);
     process.stdout.write(`node batch: applied ${summaries.length} op(s)\n`);
     return 0;

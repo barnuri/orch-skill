@@ -11,7 +11,7 @@ import { runLimited } from "../state/proc.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
-import { ev, findNode, ownerParse, setStatus, type Ctx } from "../runs/node.ts";
+import { applyReport, ev, findNode, ownerParse, parseReportArgs, setStatus, type Ctx } from "../runs/node.ts";
 import { loadEnvFile, nodeSelectionsText } from "./selections.ts";
 import { mutateRun, resolveRun } from "./node.ts";
 
@@ -259,6 +259,20 @@ async function ownerStateCached(home: string, kind: string, id: string, dl: numb
   return res;
 }
 
+// owner_children_cands: opencode's children of a session through the CLI; null when unreachable.
+async function childrenViaApi(parent: string): Promise<Cand[] | null> {
+  const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" });
+  if (!bin) return null;
+  const t = Number(process.env.ORCH_OWNER_CALL_TIMEOUT);
+  const r = await runLimited(t > 0 ? t : 3, [bin, "api", "GET", "/api/session", "--param", `parentID=${parent}`, "--param", "limit=100"]);
+  if (r.code !== 0) return null;
+  try {
+    const j = JSON.parse(r.out);
+    return (Array.isArray(j.data) ? j.data : []).filter((x: any) => x.parentID === parent && (x.id ?? "") !== "")
+      .map((x: any) => ({ child: x.id, title: x.title ?? "", created: (x.time?.created ?? 0) / 1000 }));
+  } catch { return null; }
+}
+
 // owner_probe: [state, note]; state alive | finished | gone | unknown.
 export async function ownerProbe(home: string, kind: string, id: string, tmo = 3): Promise<[string, string]> {
   if (kind === "process") return [alive(Number(id)) ? "alive" : "gone", ""];
@@ -391,7 +405,7 @@ function pendingCands(home: string, parent: string): Cand[] {
   return out;
 }
 
-function bindApply(run: RunState, ctx: Ctx, node: string, kind: string, id: string, how: string): void {
+export function bindApply(run: RunState, ctx: Ctx, node: string, kind: string, id: string, how: string): void {
   const n = findNode(run, node);
   if (!n) return;
   n.owner_kind = kind;
@@ -585,6 +599,7 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
   const pendN = pend.length;
   const taken = takenSessions(home);
   let kids: Cand[] | null = null;
+  let kidsOk = true;
   let idx: Cand[] | null = null;
   const ops: Op[] = [];
   for (const node of need) {
@@ -594,11 +609,19 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
     let how = m.how ?? "";
     let why = m.reason ?? "";
     if (child === "" && pendN === 0 && parent.startsWith("ses_")) {
-      kids ??= ix.filter((s) => s.parent === parent && !taken.includes(s.id)).map((s) => ({ child: s.id, title: s.title, created: s.created }));
+      if (kids === null) {
+        if (ix.length > 0) kids = ix.filter((s) => s.parent === parent && !taken.includes(s.id)).map((s) => ({ child: s.id, title: s.title, created: s.created }));
+        else {
+          const l = await childrenViaApi(parent);
+          kidsOk = l !== null;
+          kids = (l ?? []).filter((c) => !taken.includes(c.child));
+        }
+      }
       m = ownerBindMatch(nodesJson, node, kids, false);
       child = m.child ?? "";
       how = m.how ? `listing-${m.how}` : "";
       why = m.reason ?? "";
+      if (!kidsOk) why = "opencode session listing unavailable";
     } else if (child === "" && !parent.startsWith("ses_")) {
       why = `${why ? why + "; " : ""}run harness session '${parent || "none"}' is not an opencode session`;
     }
@@ -931,6 +954,49 @@ async function selectionsRun(home: string, runId: string, deadline: number): Pro
 }
 
 // owners_fill_run: stall rules and session figures, the actual model, then the hub selections.
+// Nodes the session table did not fill: one `opencode api GET /api/session/<id>` per node (at most 5), empty fields only.
+async function apiFillRun(home: string, runId: string, ix: Sess[], dl: number): Promise<void> {
+  const run = await loadRun(home, runId);
+  if (!run) return;
+  const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" });
+  if (!bin) return;
+  const known = new Set(ix.map((s) => s.id));
+  const t = Number(process.env.ORCH_OWNER_CALL_TIMEOUT);
+  let count = 0;
+  for (const n of running(run)) {
+    const id = String(n.owner_id ?? "");
+    if (n.owner_kind !== "session" || id === "" || known.has(id)) continue;
+    if (count >= FILL_MAX_NODES || Math.floor(Date.now() / 1000) >= dl) break;
+    if (!throttleOk(home, `fill-${runId}-${n.id}`, bindSecs())) continue;
+    count++;
+    const r = await runLimited(t > 0 ? t : 3, [bin, "api", "GET", `/api/session/${id}`]);
+    if (r.code !== 0) continue;
+    let d: any;
+    try { d = JSON.parse(r.out).data; } catch { continue; }
+    if (!d || typeof d !== "object") continue;
+    const haveModel = ((n.model ?? n.report?.model ?? "") !== "");
+    const haveTok = n.report?.input_tokens != null || n.report?.output_tokens != null || Object.keys(n.usage ?? {}).length > 0;
+    const haveUsd = n.report?.usd != null || n.cost != null;
+    const args = [n.id];
+    const num = (v: any) => (v === undefined || v === null || v === "" ? "" : String(Math.trunc(Number(v))));
+    if (!haveModel && d.model?.id) args.push("--model", String(d.model.id));
+    if (!haveTok && num(d.tokens?.input) !== "") args.push("--input-tokens", num(d.tokens.input));
+    if (!haveTok && num(d.tokens?.output) !== "") args.push("--output-tokens", num(d.tokens.output));
+    if (!haveUsd && d.cost != null && d.cost !== "") args.push("--usd", String(d.cost));
+    const created = Math.floor((d.time?.created ?? 0) / 1000), updated = Math.floor((d.time?.updated ?? 0) / 1000);
+    const iso = (e: number) => new Date(e * 1000).toISOString().replace(".000Z", "Z");
+    const node = n.id;
+    await commit(home, runId, [(rr, ctx) => {
+      if (args.length > 1) applyReport(rr, parseReportArgs(args), ctx);
+      const x = findNode(rr, node);
+      if (!x) return;
+      if ((x.harness ?? "") === "") x.harness = "opencode";
+      if (x.started == null && created > 0) x.started = iso(created);
+      if (updated > 0) x.last_activity = iso(updated);
+    }]);
+  }
+}
+
 export async function ownersFillRun(home: string, runId: string, deadline = 0): Promise<string[]> {
   if (process.env.ORCH_OWNER_FILL === "0") return [];
   if (!existsSync(paths.runState(home, runId))) return [];
@@ -939,6 +1005,7 @@ export async function ownersFillRun(home: string, runId: string, deadline = 0): 
   const dl = deadline || Math.floor(Date.now() / 1000) + 3600;
   await actualRun(home, runId, ix, dl).catch(() => undefined);
   await selectionsRun(home, runId, dl).catch(() => undefined);
+  await apiFillRun(home, runId, ix, dl).catch(() => undefined);
   return lines;
 }
 

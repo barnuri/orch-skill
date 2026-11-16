@@ -167,7 +167,6 @@ test("session index, stall, umbrella, refresh, final, backfill, co-owners", asyn
   expect([nf(R, "um").owner_kind, nf(R, "um").model, nf(R, "um").umbrella_status, nf(R, "mx").model]).toEqual(["umbrella", "prov/m1", "0/2 done", "mixed"]);
   expect(stalls()).toBe(1);
 
-  Bun.sleepSync(1100);
   const later = now + 60000;
   d.run("update session_v2 set cost = 2.5, model = ?, time_updated = ?, time_busy = ? where id = 'ses_chatXXXXXXXXXXXXXXXXXXXXXX'", [JSON.stringify({ id: "prov/changed" }), later, later]);
   clearCache(); o("node", "bind-owners", "--run", R);
@@ -216,7 +215,6 @@ test("session index, stall, umbrella, refresh, final, backfill, co-owners", asyn
   o.in(L({ op: "add", id: "seq1", label: "First in a row" }, { op: "add", id: "seq2", label: "Second in a row" }, { op: "update", id: "seq1", status: "running", owner: "ses_seqXXXXXXXXXXXXXXXXXXXXXXX" }), "node", "batch", R);
   o("node", "update", R, "seq1", "done");
   expect(nf(R, "seq1").session_stats.cost).toBe(4.11);
-  Bun.sleepSync(1100);
   o("node", "update", R, "seq2", "running", "--owner", "ses_seqXXXXXXXXXXXXXXXXXXXXXXX");
   d.run("update session_v2 set cost = 5.04, tokens_input = 500 where id = 'ses_seqXXXXXXXXXXXXXXXXXXXXXXX'"); clearCache();
   o("node", "bind-owners", "--run", R);
@@ -234,10 +232,9 @@ test("session index, stall, umbrella, refresh, final, backfill, co-owners", asyn
   expect(dupTotal()).toBe(300);
 
   // smart-auto alias resolved by the hub
-  const hub = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
-    const u = new URL(req.url);
-    return Response.json(u.searchParams.get("session") === "ses_autoXXXXXXXXXXXXXXXXXXXXXX" ? { selection: { main: { model: "copilot/claude-opus-5-5", stage: "solver" } } } : { selection: null });
-  } });
+  const hubSrc = `const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) { const u = new URL(req.url); return Response.json(u.searchParams.get("session") === "ses_autoXXXXXXXXXXXXXXXXXXXXXX" ? { selection: { main: { model: "copilot/claude-opus-5-5", stage: "solver" } } } : { selection: null }); } }); console.log(s.port);`;
+  const hubProc = Bun.spawn(["bun", "-e", hubSrc], { stdout: "pipe" });
+  const hub = { port: Number((await hubProc.stdout.getReader().read().then((r) => new TextDecoder().decode(r.value))).trim()), stop: (_?: boolean) => hubProc.kill() };
   insertSession(d, "ses_autoXXXXXXXXXXXXXXXXXXXXXX", "ses_root", "auto", "hub/smart-auto-balance", 0, now, now, true, [1, 1]); clearCache();
   o.in(L({ op: "add", id: "auto", label: "Smart Auto node" }, { op: "update", id: "auto", status: "running", owner: "ses_autoXXXXXXXXXXXXXXXXXXXXXX" }), "node", "batch", R);
   o.env({ LLM_HUB_URL: `http://127.0.0.1:${hub.port}` }, "node", "bind-owners", "--run", R);

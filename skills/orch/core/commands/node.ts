@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 // `node add | update | report` CLI handlers. Each call: one lock, one state read, one state write.
 // Output and exit codes match lib/runs/runs.sh (success prints nothing).
 import { mkdir, rename } from "node:fs/promises";
@@ -144,7 +145,16 @@ export async function nodeUpdate(args: string[]): Promise<number> {
     errLine((e as Error).message);
     return 2;
   }
-  return mutateRun(home, runId, (run, ctx) => applyUpdate(run, a, ctx));
+  const rc = await mutateRun(home, runId, (run, ctx) => applyUpdate(run, a, ctx));
+  if (rc === 0 && ["done", "error", "skipped"].includes(a.status)) await finalFill(home, runId);
+  return rc;
+}
+
+// A session-bound node that just ended takes its final session totals now (owners_fill_index_run).
+export async function finalFill(home: string, runId: string): Promise<void> {
+  const o = await import("./owners.ts");
+  if (process.env.ORCH_OWNER_FILL === "0" || !existsSync(o.opencodeDbPath())) return;
+  await o.ownersFillIndexRun(home, runId).catch(() => undefined);
 }
 
 export async function nodeReport(args: string[]): Promise<number> {

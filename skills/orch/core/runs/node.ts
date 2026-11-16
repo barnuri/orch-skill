@@ -332,6 +332,8 @@ export function ownerParse(text: string, jobsDir: string): [string, string] {
   return ["unknown", t];
 }
 
+import { bindApply, ownerLiteralId } from "../commands/owners.ts";
+
 // owner_register: stores owner_kind/owner_id on the node. A running node with a known id queues its
 // owners/<id>.json. Binding of unknown owner text (owner_bind_literal) is not ported yet.
 function ownerRegister(run: RunState, id: string, ctx: Ctx, explicit: boolean): void {
@@ -348,6 +350,10 @@ function ownerRegister(run: RunState, id: string, ctx: Ctx, explicit: boolean): 
       file: `${oid.replace(/[^A-Za-z0-9._-]/g, "_")}.json`,
       body: { run: ctx.runId, node: id, since: ctx.now },
     });
+  } else {
+    // The text often carries a real id after other words ("agent ses_x (spawned)"): bind it right away.
+    const [lk, li] = ownerLiteralId(owner);
+    if (lk !== "none") bindApply(run, ctx, id, lk, li, "literal");
   }
 }
 
