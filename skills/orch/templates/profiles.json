@@ -21,322 +21,262 @@
   "models": {
     "claude-opus": {
       "slug": "opus",
-      "harnesses": ["claude"],
+      "harnesses": [
+        "claude"
+      ],
       "description": "Hardest problems: architecture, subtle bugs, large refactors.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "max_complexity": "large",
-      "tags": ["architecture", "debug", "refactor"]
+      "tags": [
+        "architecture",
+        "debug",
+        "refactor"
+      ]
     },
     "claude-sonnet": {
       "slug": "sonnet",
-      "harnesses": ["claude"],
+      "harnesses": [
+        "claude"
+      ],
       "description": "Default workhorse: implement, review, most coding tasks.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "balanced",
       "max_complexity": "medium",
-      "tags": ["implement", "review"]
+      "tags": [
+        "implement",
+        "review"
+      ]
     },
     "claude-haiku": {
       "slug": "haiku",
-      "harnesses": ["claude"],
+      "harnesses": [
+        "claude"
+      ],
       "description": "Claude Haiku 5.5: fast small tasks — scoped edits, docs, tests for one function, boilerplate.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "fast",
       "max_complexity": "small",
-      "tags": ["trivial", "format", "docs"]
-    },
-    "local-qwen3.6-35b": {
-      "slug": "llama_swap/qwen3.6-35b",
-      "harnesses": ["claude", "copilot", "local-llm", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "Local default: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 44 s median; fastest Claude and Copilot pair.",
-      "cost": "free",
-      "quality": "standard",
-      "speed": "balanced",
-      "max_complexity": "medium",
-      "tags": ["local", "llama_swap", "bench-winner"]
-    },
-    "local-ornith-1.0-35b": {
-      "slug": "llama_swap/ornith-1.0-35b",
-      "harnesses": ["claude", "copilot", "local-llm", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "Local backup: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 48 s median.",
-      "cost": "free",
-      "quality": "standard",
-      "speed": "balanced",
-      "max_complexity": "medium",
-      "tags": ["local", "llama_swap", "bench-winner"]
-    },
-    "local-ornith-1.5-35b": {
-      "slug": "llama_swap/ornith-1.5-35b",
-      "harnesses": ["claude", "copilot", "local-llm", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "Local planning/general: 15/15 in the 2026-10-04 local-llm benchmark final matrix, 59 s median; with pi the fastest pair (17/40/32 s).",
-      "cost": "free",
-      "quality": "standard",
-      "speed": "balanced",
-      "max_complexity": "large",
-      "tags": ["local", "llama_swap", "bench-winner", "planning"]
-    },
-    "local-qwen3-coder-next": {
-      "slug": "llama_swap/qwen3-coder-next",
-      "harnesses": ["opencode", "claude", "copilot", "local-llm", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "Local coder: 14/14 in the 2026-10-04 local-llm benchmark final matrix, 60 s median; best opencode pair. Not fit for non-coding work.",
-      "cost": "free",
-      "quality": "standard",
-      "speed": "balanced",
-      "max_complexity": "medium",
-      "tags": ["local", "llama_swap", "bench-winner", "coding"]
-    },
-    "local-ornith-1.5-9b": {
-      "slug": "llama_swap/ornith-1.5-9b",
-      "harnesses": ["local-llm", "claude", "copilot", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "Smallest local model to pass 16/16 in the 2026-10-04 local-llm benchmark final matrix (143 s median); trivial text only.",
-      "cost": "free",
-      "quality": "draft",
-      "speed": "slow",
-      "max_complexity": "small",
-      "tags": ["local", "llama_swap", "bench-winner", "small"]
+      "tags": [
+        "trivial",
+        "format",
+        "docs"
+      ]
     },
     "cursor-auto": {
       "slug": "auto",
-      "harnesses": ["cursor-agent"],
+      "harnesses": [
+        "cursor-agent"
+      ],
       "description": "Cursor picks the model per request (Auto).",
       "cost": "metered",
       "quality": "standard",
       "speed": "fast",
-      "tags": ["cursor", "auto"]
+      "tags": [
+        "cursor",
+        "auto"
+      ]
     },
     "cursor-composer": {
       "slug": "composer-1",
-      "harnesses": ["cursor-agent"],
+      "harnesses": [
+        "cursor-agent"
+      ],
       "description": "Cursor default agent model.",
       "cost": "metered",
       "quality": "standard",
       "speed": "fast",
-      "tags": ["cursor"]
+      "tags": [
+        "cursor"
+      ]
     },
     "copilot-auto": {
       "slug": "auto",
-      "harnesses": ["copilot"],
+      "harnesses": [
+        "copilot"
+      ],
       "description": "Copilot CLI picks the model per request (auto routing).",
       "cost": "subscription",
       "quality": "standard",
       "speed": "fast",
-      "tags": ["copilot", "auto"]
+      "tags": [
+        "copilot",
+        "auto"
+      ]
     },
     "copilot-opus-5.5": {
       "slug": "claude-opus-5.5",
-      "harnesses": ["copilot"],
+      "harnesses": [
+        "copilot"
+      ],
       "description": "Claude Opus 5.5 through Copilot CLI; pair with --context long_context for the 1M window.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "max_complexity": "large",
-      "tags": ["copilot", "planning", "architecture", "long-context"]
+      "tags": [
+        "copilot",
+        "planning",
+        "architecture",
+        "long-context"
+      ]
     },
     "claude-opus-1m": {
       "slug": "opus[1m]",
-      "harnesses": ["claude"],
+      "harnesses": [
+        "claude"
+      ],
       "description": "Claude Opus with the 1M context window; the planner tier.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "max_complexity": "large",
-      "tags": ["planning", "architecture", "long-context"]
-    },
-    "hub-smart-auto-balance": {
-      "slug": "hub/smart-auto-balance",
-      "harnesses": ["claude", "copilot", "opencode", "pi"],
-      "behaves_as": "claude-haiku-4-5-20251001",
-      "description": "llm-hub Smart Auto, Balance tier: a role-fit solver picked per request, with bounded review.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "max_complexity": "large",
-      "tags": ["hub", "smart-auto"]
+      "tags": [
+        "planning",
+        "architecture",
+        "long-context"
+      ]
     }
   },
   "profiles": {
     "claude-haiku": {
       "harness": "claude",
       "model": "claude-haiku",
-      "allowed_models": ["claude-haiku"],
+      "allowed_models": [
+        "claude-haiku"
+      ],
       "description": "Claude Code on Anthropic subscription (Haiku 5.5). Small, well-scoped tasks: one-file edits, docs, format, boilerplate.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "fast",
       "risk": "low",
       "enabled": true,
-      "strengths": ["trivial", "small-edit", "format", "docs"],
-      "avoid_for": ["architecture", "security", "large-diff"],
+      "strengths": [
+        "trivial",
+        "small-edit",
+        "format",
+        "docs"
+      ],
+      "avoid_for": [
+        "architecture",
+        "security",
+        "large-diff"
+      ],
       "max_complexity": "small",
       "parallel_ok": true,
       "priority": 10,
-      "flags": ["--dangerously-skip-permissions"],
+      "flags": [
+        "--dangerously-skip-permissions"
+      ],
       "env": {},
       "auth": []
     },
     "claude-opus": {
       "harness": "claude",
       "model": "claude-opus",
-      "allowed_models": ["claude-opus"],
+      "allowed_models": [
+        "claude-opus"
+      ],
       "description": "Subscription CLI — architecture, subtle bugs, and large refactors.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "risk": "medium",
       "enabled": true,
-      "strengths": ["architecture", "debug", "refactor"],
-      "avoid_for": ["trivial", "format"],
+      "strengths": [
+        "architecture",
+        "debug",
+        "refactor"
+      ],
+      "avoid_for": [
+        "trivial",
+        "format"
+      ],
       "min_complexity": "large",
       "parallel_ok": false,
       "priority": 10,
-      "flags": ["--dangerously-skip-permissions"],
+      "flags": [
+        "--dangerously-skip-permissions"
+      ],
       "env": {},
       "auth": []
     },
     "claude-default": {
       "harness": "claude",
       "model": "claude-sonnet",
-      "allowed_models": ["claude-sonnet"],
+      "allowed_models": [
+        "claude-sonnet"
+      ],
       "description": "Claude Code on Anthropic subscription (Sonnet). Default Claude worker, the Claude twin of copilot-default.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "balanced",
       "risk": "medium",
       "enabled": true,
-      "strengths": ["implement", "review", "debug"],
+      "strengths": [
+        "implement",
+        "review",
+        "debug"
+      ],
       "parallel_ok": true,
       "priority": 9,
-      "flags": ["--dangerously-skip-permissions"],
+      "flags": [
+        "--dangerously-skip-permissions"
+      ],
       "env": {},
       "auth": []
     },
     "claude-planner": {
       "harness": "claude",
       "model": "claude-opus-1m",
-      "allowed_models": ["claude-opus-1m"],
+      "allowed_models": [
+        "claude-opus-1m"
+      ],
       "description": "Claude Code on Opus, 1M context, xhigh effort. Splits a goal into a task DAG: claude-haiku for small isolated tasks, claude-default for the rest.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "risk": "low",
       "enabled": true,
-      "strengths": ["planning", "architecture", "decomposition"],
-      "avoid_for": ["trivial", "format"],
+      "strengths": [
+        "planning",
+        "architecture",
+        "decomposition"
+      ],
+      "avoid_for": [
+        "trivial",
+        "format"
+      ],
       "min_complexity": "large",
       "parallel_ok": false,
       "priority": 8,
-      "flags": ["--effort", "xhigh", "--dangerously-skip-permissions"],
+      "flags": [
+        "--effort",
+        "xhigh",
+        "--dangerously-skip-permissions"
+      ],
       "env": {},
       "auth": []
-    },
-    "claude-llm-hub": {
-      "harness": "claude",
-      "model": "local-qwen3.6-35b",
-      "allowed_models": ["llama_swap*"],
-      "description": "Claude Code via llm-hub on qwen3.6-35b: 15/15 in the 2026-10-04 local-llm benchmark final matrix, the fastest Claude pair (23/38/55 s).",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "bulk"],
-      "avoid_for": ["architecture"],
-      "parallel_ok": false,
-      "priority": 7,
-      "fallback": "copilot-llm-hub",
-      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
-      "env": {
-        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
-        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
-        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_FABLE_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "claude-llm-hub-planner": {
-      "harness": "claude",
-      "model": "local-ornith-1.5-35b",
-      "allowed_models": ["local-ornith-1.5-35b"],
-      "description": "Claude Code via llm-hub on ornith-1.5-35b, the local planning tier: 15/15 in the 2026-10-04 local-llm benchmark final matrix.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "low",
-      "enabled": true,
-      "strengths": ["planning", "decomposition", "general"],
-      "avoid_for": ["trivial", "format"],
-      "min_complexity": "large",
-      "parallel_ok": false,
-      "priority": 6,
-      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
-      "env": {
-        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
-        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
-        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_FABLE_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "copilot-llm-hub": {
-      "harness": "copilot",
-      "model": "local-qwen3.6-35b",
-      "allowed_models": ["llama_swap*"],
-      "description": "Copilot CLI (BYOK) via llm-hub on qwen3.6-35b: 15/15 in the 2026-10-04 local-llm benchmark final matrix (27/44/51 s).",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "review", "bulk"],
-      "avoid_for": ["architecture"],
-      "parallel_ok": false,
-      "priority": 6,
-      "flags": ["--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot", "--no-auto-update", "--no-custom-instructions", "--disable-builtin-mcps"],
-      "env": {
-        "COPILOT_PROVIDER_BASE_URL": "${LLM_HUB_V1_URL}",
-        "COPILOT_PROVIDER_TYPE": "openai",
-        "COPILOT_PROVIDER_API_KEY": "${LLM_HUB_KEY}",
-        "COPILOT_MODEL": "${PROFILE_MODEL}",
-        "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "229376",
-        "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "32768",
-        "COPILOT_OFFLINE": "true"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
     },
     "cursor-default": {
       "harness": "cursor-agent",
       "model": "cursor-auto",
-      "allowed_models": ["cursor-auto"],
+      "allowed_models": [
+        "cursor-auto"
+      ],
       "description": "Cursor agent on Cursor subscription (api2.cursor.sh).",
       "cost": "metered",
       "quality": "standard",
       "speed": "fast",
       "risk": "medium",
       "enabled": true,
-      "strengths": ["review", "cursor-ui"],
+      "strengths": [
+        "review",
+        "cursor-ui"
+      ],
       "parallel_ok": true,
       "priority": 8,
       "flags": [],
@@ -346,17 +286,30 @@
     "copilot-default": {
       "harness": "copilot",
       "model": "copilot-auto",
-      "allowed_models": ["copilot-auto"],
+      "allowed_models": [
+        "copilot-auto"
+      ],
       "description": "GitHub Copilot CLI, Auto model routing, headless autopilot. Default worker for planned tasks.",
       "cost": "subscription",
       "quality": "standard",
       "speed": "balanced",
       "risk": "medium",
       "enabled": true,
-      "strengths": ["implement", "review", "debug"],
+      "strengths": [
+        "implement",
+        "review",
+        "debug"
+      ],
       "parallel_ok": true,
       "priority": 8,
-      "flags": ["--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
+      "flags": [
+        "--allow-all-tools",
+        "--allow-all-paths",
+        "--allow-all",
+        "--yolo",
+        "--no-ask-user",
+        "--autopilot"
+      ],
       "env": {},
       "auth": [],
       "fallback": "claude-default"
@@ -364,19 +317,39 @@
     "copilot-planner": {
       "harness": "copilot",
       "model": "copilot-opus-5.5",
-      "allowed_models": ["copilot-opus-5.5"],
+      "allowed_models": [
+        "copilot-opus-5.5"
+      ],
       "description": "Copilot CLI on Claude Opus 5.5, 1M context tier. Splits a goal into a task DAG for copilot-default workers.",
       "cost": "high",
       "quality": "best",
       "speed": "slow",
       "risk": "low",
       "enabled": true,
-      "strengths": ["planning", "architecture", "decomposition"],
-      "avoid_for": ["trivial", "format"],
+      "strengths": [
+        "planning",
+        "architecture",
+        "decomposition"
+      ],
+      "avoid_for": [
+        "trivial",
+        "format"
+      ],
       "min_complexity": "large",
       "parallel_ok": false,
       "priority": 8,
-      "flags": ["--context", "long_context", "--reasoning-effort", "xhigh", "--allow-all-tools", "--allow-all-paths", "--allow-all", "--yolo", "--no-ask-user", "--autopilot"],
+      "flags": [
+        "--context",
+        "long_context",
+        "--reasoning-effort",
+        "xhigh",
+        "--allow-all-tools",
+        "--allow-all-paths",
+        "--allow-all",
+        "--yolo",
+        "--no-ask-user",
+        "--autopilot"
+      ],
       "env": {},
       "auth": [],
       "fallback": "claude-planner"
@@ -390,176 +363,17 @@
       "speed": "fast",
       "risk": "medium",
       "enabled": false,
-      "strengths": ["implement"],
-      "avoid_for": ["large-diff"],
+      "strengths": [
+        "implement"
+      ],
+      "avoid_for": [
+        "large-diff"
+      ],
       "parallel_ok": true,
       "priority": 6,
       "flags": [],
       "env": {},
       "auth": []
-    },
-    "opencode-llm-hub": {
-      "harness": "opencode",
-      "model": "local-qwen3-coder-next",
-      "allowed_models": ["local-qwen3-coder-next"],
-      "description": "OpenCode via llm-hub on qwen3-coder-next: 14/14 in the 2026-10-04 local-llm benchmark final matrix, the best opencode pair (35/62/42 s). Coding only.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "tests"],
-      "avoid_for": ["architecture", "docs"],
-      "parallel_ok": false,
-      "priority": 6,
-      "flags": [],
-      "env": {
-        "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"llama_swap\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"qwen3-coder-next\":{\"id\":\"llama_swap/qwen3-coder-next\",\"limit\":{\"context\":262144,\"output\":32768}}}}}}"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "claude-smart-auto": {
-      "harness": "claude",
-      "model": "hub-smart-auto-balance",
-      "allowed_models": ["hub-smart-auto-balance"],
-      "description": "Claude Code via llm-hub Smart Auto (Balance): the hub picks the worker per request and reviews only where review adds value.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "planning", "general"],
-      "avoid_for": [],
-      "parallel_ok": false,
-      "priority": 6,
-      "flags": ["--dangerously-skip-permissions", "--bare", "--strict-mcp-config"],
-      "env": {
-        "ANTHROPIC_BASE_URL": "${LLM_HUB_URL}",
-        "ANTHROPIC_AUTH_TOKEN": "${LLM_HUB_KEY}",
-        "ANTHROPIC_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${PROFILE_MODEL}",
-        "ANTHROPIC_SMALL_FAST_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "${PROFILE_MODEL}",
-        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "copilot-smart-auto": {
-      "harness": "copilot",
-      "model": "hub-smart-auto-balance",
-      "allowed_models": ["hub-smart-auto-balance"],
-      "description": "Copilot CLI (BYOK) via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "review", "general"],
-      "avoid_for": [],
-      "parallel_ok": false,
-      "priority": 5,
-      "flags": [
-        "--allow-all-tools",
-        "--allow-all-paths",
-        "--allow-all",
-        "--yolo",
-        "--no-ask-user",
-        "--autopilot",
-        "--no-auto-update",
-        "--no-custom-instructions",
-        "--disable-builtin-mcps"
-      ],
-      "env": {
-        "COPILOT_PROVIDER_BASE_URL": "${LLM_HUB_V1_URL}",
-        "COPILOT_PROVIDER_TYPE": "openai",
-        "COPILOT_PROVIDER_API_KEY": "${LLM_HUB_KEY}",
-        "COPILOT_MODEL": "${PROFILE_MODEL}",
-        "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "32768",
-        "COPILOT_OFFLINE": "true"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "opencode-smart-auto": {
-      "harness": "opencode",
-      "model": "hub-smart-auto-balance",
-      "allowed_models": ["hub-smart-auto-balance"],
-      "description": "OpenCode via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "tests"],
-      "avoid_for": ["docs"],
-      "parallel_ok": false,
-      "priority": 5,
-      "flags": [],
-      "env": {
-        "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"hub\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"smart-auto-balance\":{\"id\":\"hub/smart-auto-balance\",\"limit\":{\"context\":131072,\"output\":32768}}}}}}"
-      },
-      "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
-    },
-    "pi-smart-auto": {
-      "harness": "pi",
-      "model": "hub-smart-auto-balance",
-      "allowed_models": ["hub-smart-auto-balance"],
-      "description": "pi via llm-hub Smart Auto (Balance): the hub picks the worker per request.",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "balanced",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "planning", "general"],
-      "avoid_for": [],
-      "parallel_ok": false,
-      "priority": 5,
-      "flags": ["--thinking", "off"],
-      "env": {
-        "LLM_HUB_MODEL": "${PROFILE_MODEL}"
-      },
-      "auth": ["LLM_HUB_URL"]
-    },
-    "pi-llm-hub": {
-      "harness": "pi",
-      "model": "local-ornith-1.5-35b",
-      "allowed_models": ["llama_swap*"],
-      "description": "pi via llm-hub on ornith-1.5-35b: the fastest pair in the 2026-10-04 local-llm benchmark final matrix (17/40/32 s, 15/15 for the model).",
-      "cost": "low",
-      "quality": "standard",
-      "speed": "fast",
-      "risk": "medium",
-      "enabled": true,
-      "strengths": ["implement", "planning", "general"],
-      "avoid_for": ["architecture"],
-      "parallel_ok": false,
-      "priority": 6,
-      "flags": ["--thinking", "off"],
-      "env": {
-        "LLM_HUB_MODEL": "${PROFILE_MODEL}"
-      },
-      "auth": ["LLM_HUB_URL"]
-    },
-    "local-llm-fast": {
-      "harness": "local-llm",
-      "model": "local-ornith-1.5-9b",
-      "allowed_models": ["local-ornith-1.5-9b", "local-qwen3.6-35b"],
-      "description": "Plain chat via llm-hub on ornith-1.5-9b, the smallest model to pass the 2026-10-04 local-llm benchmark final matrix. Trivial text, no tools.",
-      "cost": "free",
-      "quality": "draft",
-      "speed": "fast",
-      "risk": "low",
-      "enabled": true,
-      "strengths": ["trivial", "format", "classify"],
-      "avoid_for": ["architecture", "security"],
-      "max_complexity": "small",
-      "parallel_ok": true,
-      "priority": 4,
-      "flags": [],
-      "env": {},
-      "auth": ["LLM_HUB_URL"]
     }
   }
 }

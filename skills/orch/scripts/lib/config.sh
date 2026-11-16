@@ -17,6 +17,8 @@ MEMORY_FILE="$ORCH_HOME/memory.json"
 SUGGESTIONS_FILE="$ORCH_HOME/suggestions.json"
 TRASH_FALLBACK_DIR="$ORCH_HOME/.trash"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
+# Gitignored personal overlay: its settings, models and profiles win over the committed template.
+PROFILES_OVERLAY_FILE="${ORCH_PROFILES_OVERLAY:-$TEMPLATES_DIR/profiles.local.json}"
 VALID_HARNESSES="claude cursor-agent opencode local-llm copilot pi"
 VALID_OUTCOMES="success failure partial"
 MEMORY_LIST_DEFAULT=20
@@ -159,10 +161,33 @@ profiles_commit() {
   return 1
 }
 
+# The profiles template with the overlay merged over it: settings and models/profiles keys merge,
+# and an overlay entry replaces the template entry of the same name. Without an overlay it is the
+# template bytes. Every reader of the template goes through this function.
+profiles_template_merged() {
+  if [ ! -f "$PROFILES_OVERLAY_FILE" ]; then
+    cat "$TEMPLATES_DIR/profiles.json"
+    return
+  fi
+  command -v jq >/dev/null 2>&1 || { printf 'orch: jq is needed to merge %s\n' "$PROFILES_OVERLAY_FILE" >&2; return 1; }
+  jq -s '
+    .[0] as $t | .[1] as $o
+    | $t
+    | .settings = ($t.settings // {}) * ($o.settings // {})
+    | .models = ($t.models // {}) + ($o.models // {})
+    | .profiles = ($t.profiles // {}) + ($o.profiles // {})
+  ' "$TEMPLATES_DIR/profiles.json" "$PROFILES_OVERLAY_FILE"
+}
+
 ensure_home() {
   mkdir -p "$ORCH_HOME" "$JOBS_HOME" "$RUNS_HOME" \
     || { printf 'orch: cannot create %s\n' "$ORCH_HOME" >&2; return 1; }
-  [ -f "$PROFILES_FILE" ] || cp "$TEMPLATES_DIR/profiles.json" "$PROFILES_FILE" || return 1
+  if [ ! -f "$PROFILES_FILE" ]; then
+    local seed="$PROFILES_FILE.tmp.$$"
+    if profiles_template_merged > "$seed" && mv -f "$seed" "$PROFILES_FILE"; then :; else
+      profiles_tmp_discard "$seed"; return 1
+    fi
+  fi
   [ -f "$MEMORY_FILE" ] || printf '[]\n' > "$MEMORY_FILE"
   [ -f "$ORCH_HOME/serve.json" ] || cp "$TEMPLATES_DIR/serve.json" "$ORCH_HOME/serve.json" 2>/dev/null || true
   local marker="$ORCH_HOME/.migrations/profiles-main"
@@ -296,9 +321,9 @@ SMART_AUTO_PROFILE_NAMES='["claude-smart-auto","copilot-smart-auto","opencode-sm
 profiles_migrate_smart_auto() {
   local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.smart-auto-migrated"
   [ -e "$marker" ] && return 0
-  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" --argjson names "$SMART_AUTO_PROFILE_NAMES" '
-    .models["hub-smart-auto-balance"] //= $tpl[0].models["hub-smart-auto-balance"]
-    | reduce $names[] as $name (.; .profiles[$name] //= $tpl[0].profiles[$name])
+  if ! jq --argjson tpl "$(profiles_template_merged)" --argjson names "$SMART_AUTO_PROFILE_NAMES" '
+    (if $tpl.models["hub-smart-auto-balance"] then .models["hub-smart-auto-balance"] //= $tpl.models["hub-smart-auto-balance"] else . end)
+    | reduce $names[] as $name (.; if $tpl.profiles[$name] then .profiles[$name] //= $tpl.profiles[$name] else . end)
   ' "$PROFILES_FILE" > "$tmp"; then
     profiles_tmp_discard "$tmp"
     printf 'profiles migrate: could not update %s\n' "$PROFILES_FILE" >&2
@@ -430,17 +455,17 @@ profiles_migrate_claude_planner() {
 profiles_migrate_bench_local() {
   local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.bench-local-migrated"
   [ -e "$marker" ] && return 0
-  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" '
+  if ! jq --argjson tpl "$(profiles_template_merged)" '
     ["local-lfm-8b", "local-lfm-2.6b", "local-qwen3-4b"] as $notfit
     | ["local-qwen3.6-35b", "local-ornith-1.0-35b", "local-ornith-1.5-35b",
        "local-qwen3-coder-next", "local-ornith-1.5-9b"] as $new_models
     | ["claude-llm-hub-planner", "copilot-llm-hub", "opencode-llm-hub", "pi-llm-hub",
        "local-llm-fast"] as $new_profiles
-    | ($tpl[0].profiles["claude-llm-hub"].env
+    | (($tpl.profiles["claude-llm-hub"].env // {})
         | with_entries(select(.key | test("^ANTHROPIC_(MODEL|DEFAULT_.*_MODEL|SMALL_FAST_MODEL)$|^CLAUDE_CODE_")))) as $pins
     | def notfit_model: (.model // "") as $m | ($m == "" or ($notfit | index($m)) != null);
       def pattern_allows($slug): endswith("*") and ($slug | startswith(.[:-1]));
-    reduce $new_models[] as $id (.; .models[$id] //= $tpl[0].models[$id])
+    reduce $new_models[] as $id (.; if $tpl.models[$id] then .models[$id] //= $tpl.models[$id] else . end)
     | (if .profiles["claude-llm-hub"]
           and (.profiles["claude-llm-hub"] | (notfit_model and .model != "")
                or .model == "local-ornith-1.0-35b") then
@@ -471,7 +496,7 @@ profiles_migrate_bench_local() {
     | .profiles |= with_entries(if .value.fallback then .value.fallback |= retarget else . end)
     | .settings.default_profile |= (if . then retarget else . end)
     | .settings.planner_profile |= (if . then retarget else . end)
-    | reduce $new_profiles[] as $name (.; .profiles[$name] //= $tpl[0].profiles[$name])
+    | reduce $new_profiles[] as $name (.; if $tpl.profiles[$name] then .profiles[$name] //= $tpl.profiles[$name] else . end)
     | ([ .profiles[] | .model // empty ]) as $used
     | reduce ($notfit[] | select(. as $id | $used | index($id) | not)) as $id (.; del(.models[$id]))
     | .models as $catalog
@@ -502,8 +527,8 @@ profiles_migrate_bench_local() {
 profiles_migrate_claude_tiers() {
   local tmp="$PROFILES_FILE.tmp.$$" marker="$ORCH_HOME/.claude-tiers-migrated"
   [ -e "$marker" ] && return 0
-  if ! jq --slurpfile tpl "$TEMPLATES_DIR/profiles.json" "$PROFILES_MIGRATE_JQ_DEFS"'
-    $tpl[0] as $t
+  if ! jq --argjson tpl "$(profiles_template_merged)" "$PROFILES_MIGRATE_JQ_DEFS"'
+    $tpl as $t
     | (if (.models["claude-haiku"] | not)
           or .models["claude-haiku"].description == "Fast and cheap: typos, formatting, tiny edits, boilerplate." then
          .models["claude-haiku"] = $t.models["claude-haiku"] else . end)

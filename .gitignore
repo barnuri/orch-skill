@@ -26,3 +26,6 @@ __pycache__/
 *.pyc
 
 *.log
+
+# Personal profile overlay (llm-hub, local models, smart-auto): merged over templates/profiles.json, never committed.
+skills/orch/templates/profiles.local.json
