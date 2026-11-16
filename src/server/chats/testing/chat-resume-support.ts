@@ -60,7 +60,7 @@ export function setup(dispatch: string): { service: ChatService; home: TempHome;
   const bin = home.resolve("bin");
   mkdirSync(bin, { recursive: true });
   for (const name of ["opencode", "cursor-agent", "pi"]) {
-    copyFileSync(join(TESTING, "fake-harness.sh"), join(bin, name));
+    copyFileSync(join(TESTING, "fake-harness.ts"), join(bin, name));
     chmodSync(join(bin, name), 0o755);
   }
   const state = home.resolve("fake-state");

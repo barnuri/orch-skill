@@ -625,7 +625,7 @@ function defaultsIssues(defaults: unknown): Issue[] {
 /**
  * Validates one whole profiles.json document. Returns every issue, so the dashboard can attach
  * each one to its field. Pure: no file reads.
- * @param harnesses the harness ids valid for this build (from argv in config.sh).
+ * @param harnesses the harness ids valid for this build (from argv in core/adapters/spawn.ts).
  */
 export function profilesIssues(document: unknown, harnesses: readonly string[]): Issue[] {
   if (!isPlainObject(document)) {

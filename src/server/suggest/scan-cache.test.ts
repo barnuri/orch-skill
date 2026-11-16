@@ -17,8 +17,8 @@ beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "scan-cache-"));
   mkdirSync(join(home, "runs", "r1"), { recursive: true });
   writeFileSync(join(home, "runs", "r1", "state.json"), "{}");
-  fake = join(home, "fake.sh");
-  writeFileSync(fake, `#!/bin/bash\nsleep 0.2\nprintf x >> "$HARNESS_ORCH_HOME/count"\nprintf scanned\n`);
+  fake = join(home, "fake.ts");
+  writeFileSync(fake, `#!/usr/bin/env bun\nawait Bun.sleep(200);\nrequire("node:fs").appendFileSync(process.env.HARNESS_ORCH_HOME + "/count", "x");\nprocess.stdout.write("scanned");\n`);
   chmodSync(fake, 0o755);
   writeFileSync(join(home, "count"), "");
   prev = process.env["ORCH_DISPATCH"];

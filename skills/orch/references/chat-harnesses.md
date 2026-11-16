@@ -26,4 +26,4 @@ The reply row gets a `warning` (shown by the dashboard, also in the SSE `done` e
 
 ## Unverified assumption
 
-`opencode session list --format json` is assumed to print an array of `{ "id", "title" }` (or `{ "sessions": [...] }`). Not run against a real model; the fake in `src/server/chats/testing/fake-harness.sh` follows the same shape.
+`opencode session list --format json` is assumed to print an array of `{ "id", "title" }` (or `{ "sessions": [...] }`). Not run against a real model; the fake in `src/server/chats/testing/fake-harness.ts` follows the same shape.

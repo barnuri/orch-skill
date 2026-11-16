@@ -1,7 +1,7 @@
 # The dedicated orch herdr instance
 
 Orch runs jobs in panes of its **own** herdr server, never in the user's live herdr session.
-Code: `scripts/lib/adapters/herdr.sh`. Tests: `tests/adapters/herdr-runner.test.sh`.
+Code: `core/adapters/herdr.ts`. Tests: `core/adapters/herdr.test.ts`.
 
 ## Layout
 `<orch-home>/herdr/` holds `home/` (the instance's `HOME`), `server.pid` and `server.log`.
@@ -52,7 +52,7 @@ Detached (`run_detached`) whenever herdr is not on `PATH`, `ensure` fails, the p
 - `ORCH_HERDR=0` (or `off`) disables; `ORCH_HERDR=1` forces on; otherwise `settings.herdr`
   (`orch herdr on|off|auto`), and with neither set it is on exactly when the binary exists.
 - Other env: `ORCH_HERDR_CLOSE_AFTER`, `ORCH_HERDR_PANE_CAP`, `ORCH_HERDR_START_WAIT`, `ORCH_HERDR_CALL_TIMEOUT` (s).
-  Tests export `ORCH_HERDR=0` in `tests/test-lib.sh` so no test starts a server by accident.
+  Tests export `ORCH_HERDR=0` in `tests/helpers/index.ts` so no test starts a server by accident.
 - Not covered: schedule `command` runs (plain shell, no job dir) stay detached.
 
 ## Cost (measured, real herdr 0.9.5)

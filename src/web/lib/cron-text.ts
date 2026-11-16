@@ -1,5 +1,5 @@
 // Plain-text meaning of a 5-field cron expression. The grammar and the day rules follow
-// skills/orch/scripts/lib/automation/schedules.sh (sched_cron_next): fields `*`, `n`, `a-b`, `*/s`,
+// skills/orch/core/commands/schedules.ts: fields `*`, `n`, `a-b`, `*/s`,
 // `n/s`, `a-b/s` and comma lists; day of week 0 and 7 are Sunday; when neither day field is `*`,
 // a day matches when either field matches. The `@daily` style aliases are not supported here.
 

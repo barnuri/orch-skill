@@ -40,7 +40,7 @@ sessions, and orch run `20261115-114006-0bff` (94 nodes, continued from `2026111
 | Orch bookkeeping shell (`dispatch.ts ...`) | 0.59 | 35.5 | 86 calls, p50 14 s, p90 72 s, max 149 s. 49 used `timeout 150`, total 18.5 min, one hit the limit. M |
 | Tests run by the coordinator | 0.44 | 26.3 | 39 calls, p90 158 s, max 234 s. M |
 | Typecheck run by the coordinator | 0.20 | 12.2 | 35 calls, p50 15 s. M |
-| `service.sh` restart/install/status | 0.16 | 9.8 | 24 calls (22 restart/install). M |
+| `service.ts` restart/install/status | 0.16 | 9.8 | 24 calls (22 restart/install). M |
 | git, other shell, sleeps | 0.13 | 8 | git 2.6 min, sleep 1.3 min, other 4 min. M |
 | **Busy subtotal** | **4.47** | 268 | 54 busy turns. M |
 | Idle, ended by the user (user away or reading) | 1.43 | 86 | 32 gaps: max 19.4 min (16:48), 12.7 min (12:53, prose question), 9.4 min. M |

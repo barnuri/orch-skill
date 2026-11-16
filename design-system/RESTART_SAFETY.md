@@ -1,13 +1,13 @@
 # Restart safety audit and plan (read-only audit; no repo file edited)
 
 ## Findings
-- F1 (measured) launchd `kickstart -k` kills the server's whole process group. The plist (scripts/service.sh:239-243) has KeepAlive, ThrottleInterval and no AbandonProcessGroup/ProcessType. Probe with a throwaway label (bootstrapped, then booted out): a plain `sleep &` child died; a child started with POSIX::setsid survived. systemd unit (service.sh:340) sets Restart=always and no KillMode, so the default control-group applies and every child dies, setsid or not, unless `KillMode=process` is set. Gap on Linux.
+- F1 (measured) launchd `kickstart -k` kills the server's whole process group. The plist (scripts/service.ts:239-243) has KeepAlive, ThrottleInterval and no AbandonProcessGroup/ProcessType. Probe with a throwaway label (bootstrapped, then booted out): a plain `sleep &` child died; a child started with POSIX::setsid survived. systemd unit (service.sh:340) sets Restart=always and no KillMode, so the default control-group applies and every child dies, setsid or not, unless `KillMode=process` is set. Gap on Linux.
 - F2 `dispatch.ts start` jobs use run_detached (dispatch.ts:399-410, setsid or perl setsid), so they survive on macOS. They are not safe on systemd (cgroup kill).
 - F3 Schedule ticker (schedules/ticker.ts:20) spawns a short `dispatch.ts schedule tick`; the jobs it starts are detached through `start`. It dies mid-tick only. The tick must stay idempotent.
 - F4 Chat turns: claude-session.ts:73 `Bun.spawn` is NOT detached, so it dies on restart; stdout/stderr are pipes to the server, so even detached children (opencode-session.ts:99, turn-session.ts:198) get SIGPIPE/EPIPE on the next write and lose the answer. Nothing is persisted but the DB rows.
 - F5 Boot recovery of chats: store.ts:240 `recoverStreaming()` marks every streaming/pending message `error: server restarted` and sets all chats idle. Honest, but it destroys an answer that is still running (a lie in the other direction: the process may still live and finish). SSE does support Last-Event-ID (chats.controller.ts:283, sse.ts), replayed from the DB.
 - F6 Runs: the reconciler (runs/run-reconciler.ts:31) calls `dispatch run-reconcile` per run via spawn. It is read-only toward the work and flips finished jobs from status files, so it re-adopts surviving jobs. job_status (dispatch.ts:366) says `done exit=unknown` when the pid is gone with no exit_code, so a lost job after a reboot is reported honestly.
-- F7 Existing herdr support: lib/adapters/herdr.sh + `settings.herdr`. `herdr_main` (herdr.sh:13) unsets HERDR_* and talks to the USER's default socket, creating workspace "orch" in the user's live session. This violates the new requirement and must be repointed (see Design). It is opt-in and off by default. The launcher writes `pid` itself and the job writes exit_code through the start script, so the status contract is already wrapper-based. Pane id is stored in job_dir/herdr_pane. Fallback to detached already exists (herdr_start_job returns 1).
+- F7 Existing herdr support: core/adapters/herdr.ts + `settings.herdr`. `herdr_main` (herdr.sh:13) unsets HERDR_* and talks to the USER's default socket, creating workspace "orch" in the user's live session. This violates the new requirement and must be repointed (see Design). It is opt-in and off by default. The launcher writes `pid` itself and the job writes exit_code through the start script, so the status contract is already wrapper-based. Pane id is stored in job_dir/herdr_pane. Fallback to detached already exists (herdr_start_job returns 1).
 - F8 The announce daemon (announce.pid/announce.log in the orch home) was not audited. Check whether it is started with run_detached before relying on it (open risk).
 
 ## What survives a dashboard restart today
@@ -38,14 +38,14 @@ Isolation (measured, with a temp HOME): `env -i PATH=... HOME=<orch-home>/herdr/
 ## Plan (hours)
 | # | Task | Files | Area | Parallel-safe now | Test | Risk | h |
 |---|---|---|---|---|---|---|---|
-| 1 | systemd KillMode=process; plist AbandonProcessGroup=true | scripts/service.sh | service.sh | yes | fake supervisor test + the launchd probe above | low | 1 |
-| 2 | Repoint herdr to a dedicated instance: ensure/stop/status, HOME in launcher, caps, auto-close, herdr_sock file | skills/orch/scripts/lib/adapters/herdr.sh, dispatch.ts | bash scripts | NO, wait (others edit scripts/**) | fake herdr binary as in herdr-folders tests; assert the user's socket is never used | med | 5 |
+| 1 | systemd KillMode=process; plist AbandonProcessGroup=true | scripts/service.ts | service.sh | yes | fake supervisor test + the launchd probe above | low | 1 |
+| 2 | Repoint herdr to a dedicated instance: ensure/stop/status, HOME in launcher, caps, auto-close, herdr_sock file | skills/orch/scripts/core/adapters/herdr.ts, dispatch.ts | bash scripts | NO, wait (others edit scripts/**) | fake herdr binary as in herdr-folders tests; assert the user's socket is never used | med | 5 |
 | 3 | Ticker/`start` through the same path; ensure tick idempotency | src/server/schedules/ticker.ts, scripts | schedules + scripts | partly: ticker.ts is yes, scripts wait | fake dispatch | low | 2 |
 | 4 | Chat turns to turn files, tailer, boot re-attach, `interrupted` status | src/server/chats/**, store.ts | chats | NO, wait | fake harness writing jsonl; kill and boot the server in a test | high | 10 |
 | 5 | Reconciler: show a pane-gone/boot note | src/server/runs/run-reconciler.ts | runs | NO, wait | unit | low | 2 |
 | 6 | Verify announce daemon + loops detachment | skills/orch/scripts/lib | scripts | read-only audit yes | script | low | 1 |
 | 7 | Docs: SKILL.md, references (dedicated instance, config, forbidden plugins) | skills/orch/SKILL.md, references/ | docs | after 2 | n/a | low | 1 |
-| 8 | Full restart gate | scripts/test-all.sh | all | last | real: restart the service with a running job | low | 1 |
+| 8 | Full restart gate | scripts/test-all.ts | all | last | real: restart the service with a running job | low | 1 |
 
 Start NOW: 1 and 3 (ticker.ts only), 6. Wait: 2, 4, 5, 7.
 

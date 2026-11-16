@@ -10,7 +10,7 @@ Before each commit: `git reset -q` is NOT allowed to disturb others' work, so us
 (`git commit -m ... -- $(cat list)`) which ignores other staged paths. The script below uses
 `git commit --pathspec-from-file=LIST --only` for that reason (renames: list BOTH old and new path, see 01).
 
-Verify order for every commit: `bash scripts/typecheck.sh` (must print `typecheck: ok`) -> scoped tests -> commit.
+Verify order for every commit: `bun scripts/typecheck.ts` (must print `typecheck: ok`) -> scoped tests -> commit.
 Whole tree is shared, so typecheck of an intermediate commit only means something if checked out clean
 (`git stash` is banned: use `git worktree add $TMPDIR/chk <sha>` after committing, run there; optional).
 
@@ -24,7 +24,7 @@ Whole tree is shared, so typecheck of an intermediate commit only means somethin
 - `src/snapshot/fonts/ibm-plex-*.woff2` are duplicated in `design-system/fonts/` (rename staged from src/dashboard/fonts): fine, but Plex copies exist twice.
 - Excluded, other session: all `mods/orch-graph/**` (6 modified files). Never stage.
 
-## Group 00 - housekeeping (independent)  `.gitignore`, `bun.lock`, `package.json`, `tsconfig.json`, `scripts/typecheck.sh`
+## Group 00 - housekeeping (independent)  `.gitignore`, `bun.lock`, `package.json`, `tsconfig.json`, `scripts/typecheck.ts`
 Check `git diff HEAD package.json bun.lock`: if the new deps are used only by the React app, move these into 01 (they must be with 01 for 01 to typecheck). Recommended: fold into 01. Keep `.gitignore` alone with a message "Ignore the playwright-cli scratch folder" (independent).
 `CLAUDE.md` (+32/-10): mixes repo-notes for React swap (01) and restart rules (06). Commit with 01 unless it mentions the restart-safety; then `git add -p CLAUDE.md` and split.
 
@@ -35,7 +35,7 @@ Paths:
 - all `src/web/**` that are `A`/`AM` EXCEPT the visual files listed in 08
 - `src/snapshot/src/**` new files (focus-target, follow-view, node-metrics, node-flags, run-activity, refresh-plan, run-events, live-clock, format.ts)
 - `src/snapshot/{components,fonts,styles,tokens}.css` : `RM`/`M` = unstaged edits on top of renames. Split: rename part here; the token/Geist changes go to 08 (`git add -p`, hunks touching font-family, `--font-*`, Geist, tokens).
-- `package.json bun.lock tsconfig.json scripts/typecheck.sh .gitignore CLAUDE.md` (from 00)
+- `package.json bun.lock tsconfig.json scripts/typecheck.ts .gitignore CLAUDE.md` (from 00)
 - `src/shared/dto/{chats,runs}.ts`, `src/shared/types/run-node.ts` only if the web code imports the new fields; otherwise 02.
 Mixed files (the `AM` in `src/web`: staged part is the checkpoint, the worktree `M` is later work). The unstaged hunks need classification:
 - `src/web/runs/GraphSvg.tsx`: 3 hunks, three agents: (i) Hide-done / waiting-on nodes -> 01 or 02(b), (ii) activity tooltip -> 05 (uses owner-activity / run-activity), (iii) `stale` class -> 05(e) (stale indicator). `git add -p src/web/runs/GraphSvg.tsx`: answer y for the Hide-done hunk, n for the rest; then repeat per commit. Same for `RunPage.tsx`, `RunsPage.tsx`, `GraphViewport.tsx`, `runs.test.tsx`.
@@ -56,17 +56,17 @@ Message: `Show owner liveness and autofill the owner on runs and nodes`
 - `src/shared/dto/runs.ts`, `src/shared/types/run-node.ts`, `src/server/api/controllers/runs.controller.ts`, `src/server/routes/runs-routes.ts(+test)`, `src/server/artifact/*`
 - web: `src/web/lib/owner-activity.ts` and `src/web/lib/{run-activity,node-flags}.*`, `src/web/runs/RunActivity.tsx`, `NodePanel.tsx`, `node-activity.test.tsx`
 - Mixed: `skills/orch/scripts/dispatch.ts` (75 lines) and `lib/runs/runs.sh` (about 20 hunks: node add/update status, owner, sync). Hunks for owner/liveness here; lock hunks -> 03; herdr hunks -> wait (06). `git add -p`.
-Verify: typecheck; `bash skills/orch/tests/run.sh owner`, `... liveness`; `bun test src/server/runs src/server/active src/server/routes`.
+Verify: typecheck; `bun skills/orch/tests/run.ts owner`, `... liveness`; `bun test src/server/runs src/server/active src/server/routes`.
 
 ## 03 (c) announce daemon, locks, profiles tmp fix, suggest.sh one pass  (independent of the web)
 Message: `Add the announce daemon and run locks, fix the profiles tmp file and make suggest scan in one pass`
 - `skills/orch/scripts/announce.sh`, `announce.test.sh`, `announce-daemon.test.sh`, `lib/core/locks.sh`, `profiles-tmp.test.sh`, `tmp-leak.test.sh`, `lib/dashboard/suggest.sh`, `src/server/suggest/scan-cache.ts(+test)`, `src/server/routes/suggestions-routes.ts`, `lib/core/config.sh` (profiles tmp fix, 48 lines)
 - mixed: `dispatch.ts` (announce/lock hunks), `lib/runs/runs.sh` (lock hunks), `lib/adapters/adapters.sh`, `lib/adapters/hub.sh`, `lib/dashboard/serve.sh`, `SKILL.md` + `references/{state-and-config,adapter-contract,lessons}.md` (split the doc hunks by topic).
-Verify: `bash skills/orch/tests/run.sh announce`, `locks`, `profiles-tmp`, `tmp-leak`, `suggest`; typecheck.
+Verify: `bun skills/orch/tests/run.ts announce`, `locks`, `profiles-tmp`, `tmp-leak`, `suggest`; typecheck.
 
 ## 04 (d) chats: harness-disabled fix, opencode session
 Message: `Fix chats on a disabled harness and add the opencode chat session`
-- `src/server/chats/**` (`options.ts`, `service.ts(+test)`, `store.ts(+test)`, `sessions/{claude-session,turn-session,types}.ts`, new `sessions/opencode-session.ts`, `sessions/turn-files.ts`, `opencode-session.test.ts`, `chat-resume.test.ts`, `chats-api.test.ts`, `model-offer.test.ts`, `turn-session.test.ts`, `testing/fake-opencode-json.sh`, `testing/fake-claude-slow.sh`)
+- `src/server/chats/**` (`options.ts`, `service.ts(+test)`, `store.ts(+test)`, `sessions/{claude-session,turn-session,types}.ts`, new `sessions/opencode-session.ts`, `sessions/turn-files.ts`, `opencode-session.test.ts`, `chat-resume.test.ts`, `chats-api.test.ts`, `model-offer.test.ts`, `turn-session.test.ts`, `testing/fake-opencode-json.ts`, `testing/fake-claude-slow.ts`)
 - `src/server/api/controllers/chats.controller.ts`, `src/shared/dto/chats.ts`, `src/server/routes/harnesses-routes.ts(+test)`, `harnesses-cache.test.ts`, `src/web/pages/HarnessesPage.tsx`, `harnesses.test.ts`
 - WAIT: `src/server/chats/restart-safety.test.ts`, `testing/restart-probe.ts`, `testing/fake-dispatch-{load,tree}.sh` (chat turns + restart still being written) -> 06. Mixed: `service.ts` and `turn-session.ts` (opencode vs restart hunks): `git add -p`.
 Verify: `bun test src/server/chats src/server/routes`.
@@ -79,15 +79,15 @@ Verify: typecheck; `bun test src/server/build src/server/api src/web/shell`.
 
 ## 06 (f) restart safety  - PARTLY WAIT
 Message: `Keep schedules, chats and the service safe across a restart`
-- Ready: `scripts/service.sh`, `src/server/schedules/ticker.ts`, `ticker.test.ts`, `schedule-reader.test.ts`, `routes/schedule-routes.ts(+test)`, `skills/orch/tests/dashboard/service-restart.test.sh`, `schedules-service.test.sh`, `design-system/RESTART_SAFETY.md` (move to docs or keep)
-- WAIT (agents writing): `lib/adapters/herdr.sh` (243 lines), `herdr-runner.test.sh`, `references/herdr.md`, `identity-panes-stop.test.sh`, `src/server/chats/restart-safety.test.ts`, `testing/restart-probe.ts`, chat-turn files from 04.
-Verify: `bash skills/orch/tests/run.sh service`, `schedules`; `bun test src/server/schedules`.
+- Ready: `scripts/service.ts`, `src/server/schedules/ticker.ts`, `ticker.test.ts`, `schedule-reader.test.ts`, `routes/schedule-routes.ts(+test)`, `skills/orch/tests/dashboard/service-restart.test.sh`, `schedules-service.test.sh`, `design-system/RESTART_SAFETY.md` (move to docs or keep)
+- WAIT (agents writing): `core/adapters/herdr.ts` (243 lines), `herdr-runner.test.sh`, `references/herdr.md`, `identity-panes-stop.test.sh`, `src/server/chats/restart-safety.test.ts`, `testing/restart-probe.ts`, chat-turn files from 04.
+Verify: `bun skills/orch/tests/run.ts service`, `schedules`; `bun test src/server/schedules`.
 
 ## 07 (g) tests infrastructure (independent; commit FIRST of the shell ones if tests of 02/03 need it)
 Message: `Split the bash test suite into parallel files and add a shared fake dispatch and temp home`
-- `skills/orch/tests/run.sh` (runner), `test-lib.sh`, `scripts/test-all.sh`, split files: `carry, classify-adapters, cost-digest, demo-seeding, init-profiles, llm-hub-native, loops-watches, planned-runs, record, routing-claude, run-lifecycle, serve-ui, visibility`.test.sh, `lib/runs/carry.sh`, `lib/runs/visibility.sh` (these two are product code: check, if so into 03), `src/server/test-support/{fake-dispatch.ts,temp-home.ts}`
+- `skills/orch/tests/run.sh` (runner), `test-lib.sh`, `scripts/test-all.ts`, split files: `carry, classify-adapters, cost-digest, demo-seeding, init-profiles, llm-hub-native, loops-watches, planned-runs, record, routing-claude, run-lifecycle, serve-ui, visibility`.test.sh, `lib/runs/carry.sh`, `lib/runs/visibility.sh` (these two are product code: check, if so into 03), `src/server/test-support/{fake-dispatch.ts,temp-home.ts}`
 - Order: 07 before 02/03/06 (their tests reference test-lib.sh); can commit independently.
-Verify: `bash skills/orch/tests/run.sh` (0 failed), `bash scripts/typecheck.sh`.
+Verify: `bun skills/orch/tests/run.ts` (0 failed), `bun scripts/typecheck.ts`.
 
 ## 08 (h) visual makeover - HOLD until user says it looks good. Own commit, last of the code.
 Message: `Restyle the dashboard with the B tokens, Geist fonts and a shell rail`
@@ -112,7 +112,7 @@ Message: `Add the design-system audit, directions and recommendation docs`
 ## Script (commented, do not run unprompted)
 ```bash
 # L=$TMPDIR/orch-commits; mkdir -p $L   # fill each NN-*.txt from the lists above
-# gate() { bash scripts/typecheck.sh && bash skills/orch/tests/run.sh "$1" && bun test --timeout 300000 --parallel=6 "$2"; }
+# gate() { bun scripts/typecheck.ts && bun skills/orch/tests/run.ts "$1" && bun test --timeout 300000 --parallel=6 "$2"; }
 # --- 00
 # printf '.gitignore\n' > $L/00.txt
 # git commit --only --pathspec-from-file=$L/00.txt -m "Ignore the playwright-cli scratch folder"
@@ -141,7 +141,7 @@ Message: `Add the design-system audit, directions and recommendation docs`
 # git commit --only --pathspec-from-file=$L/06.txt -m "Keep schedules, chats and the service safe across a restart"
 # --- 08 HOLD: only after the user says it looks good
 # git commit --only --pathspec-from-file=$L/08.txt -m "Restyle the dashboard with the B tokens, Geist fonts and a shell rail"
-# After 01..08: bash scripts/service.sh restart && bash scripts/service.sh status
+# After 01..08: bun scripts/service.ts restart && bun scripts/service.ts status
 # NEVER: git push, --author/Co-authored-by, git add -A, mods/orch-graph, "    1405", __pycache__.
 ```
 Caveat: lists are built from status names and a few diffs; hunk assignment inside mixed files was not read line by line, so confirm with `git add -p` previews.

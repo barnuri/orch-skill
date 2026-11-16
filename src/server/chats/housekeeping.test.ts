@@ -12,7 +12,7 @@ import type { TestServerHandle } from "../types/test-server-handle";
 import { ChatService } from "./service";
 import { blobPath, deleteUnattached, sweepUnattached } from "./uploads";
 
-const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
+const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const PROFILES = { models: { "m-a": { slug: "alpha", harnesses: ["claude"] } }, profiles: { main: { harness: "claude", model: "m-a" } } };
 const DAY = 24 * 60 * 60 * 1000;
 

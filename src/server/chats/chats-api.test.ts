@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
 
-const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
+const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const PROFILES = {
   settings: { default_profile: "main", disabled_harnesses: ["pi"] },
   models: { "m-a": { slug: "alpha", harnesses: ["claude"] }, "m-b": { slug: "beta", harnesses: ["claude"] } },

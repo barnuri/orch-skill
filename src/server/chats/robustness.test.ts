@@ -5,7 +5,7 @@ import { startTestServer } from "../test-support/test-server";
 import type { TestServerHandle } from "../types/test-server-handle";
 import { ChatStore, ftsQuery } from "./store";
 
-const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
+const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const PROFILES = {
   models: { "m-a": { slug: "alpha", harnesses: ["claude"] } },
   profiles: { main: { harness: "claude", model: "m-a" } },

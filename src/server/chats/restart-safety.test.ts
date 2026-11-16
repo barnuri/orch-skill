@@ -12,7 +12,7 @@ import { type ChatEvent, ChatService } from "./service";
 import { INTERRUPTED_TEXT, isAlive, listTurns, sweepTurnFiles, turnPaths, writeMeta } from "./sessions/turn-files";
 import { ChatStore } from "./store";
 
-const FAKE = resolve(import.meta.dir, "testing/fake-claude-slow.sh");
+const FAKE = resolve(import.meta.dir, "testing/fake-claude-slow.ts");
 const PROBE = resolve(import.meta.dir, "testing/restart-probe.ts");
 const PROFILES = { models: { "m-a": { slug: "alpha", harnesses: ["claude"] } }, profiles: { main: { harness: "claude", model: "m-a" } } };
 

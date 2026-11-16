@@ -9,7 +9,7 @@ import { TempHome } from "../test-support/temp-home";
 import type { ServerContext } from "../types/server-context";
 import { ChatService } from "./service";
 
-const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
+const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const PROFILES = { models: { "m-a": { slug: "alpha", harnesses: ["claude"] } }, profiles: { main: { harness: "claude", model: "m-a" } } };
 
 const services: ChatService[] = [];

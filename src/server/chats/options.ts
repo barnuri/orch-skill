@@ -47,7 +47,7 @@ export function readProfiles(home: string): ProfilesDoc {
   }
 }
 
-/** Same rule as `model_allowed` in routing.sh: an exact catalog id or slug, or a `prefix*` pattern. */
+/** Same rule as `model_allowed` in core/adapters/routing.ts: an exact catalog id or slug, or a `prefix*` pattern. */
 function matches(id: string, slug: string, entry: string): boolean {
   if (entry.endsWith("*")) {
     const pre = entry.slice(0, -1);

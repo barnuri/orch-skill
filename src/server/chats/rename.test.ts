@@ -27,7 +27,7 @@ function service(): ChatService {
   home.write("profiles.json", JSON.stringify(PROFILES));
   const log = home.resolve("agent.log");
   writeFileSync(log, "");
-  process.env.ORCH_CHAT_CLAUDE_BIN = resolve(import.meta.dir, "testing/fake-claude.sh");
+  process.env.ORCH_CHAT_CLAUDE_BIN = resolve(import.meta.dir, "testing/fake-claude.ts");
   process.env.ORCH_CHAT_DISPATCH = resolve(import.meta.dir, "testing/fake-dispatch.ts");
   process.env.FAKE_AGENT_LOG = log;
   const ctx: ServerContext = {

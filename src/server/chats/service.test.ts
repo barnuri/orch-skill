@@ -12,7 +12,7 @@ import { ChatService, type ChatEvent, HttpError } from "./service";
 import { ChatStore } from "./store";
 import { blobPath } from "./uploads";
 
-const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.sh");
+const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const FAKE_DISPATCH = resolve(import.meta.dir, "testing/fake-dispatch.ts");
 
 const PROFILES = {

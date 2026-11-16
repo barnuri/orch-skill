@@ -58,7 +58,7 @@ interface WatchNode {
   owner_id?: string | null;
   /** "job": the session was linked from the node's own job; liveness stays with the job. */
   owner_bind?: string | null;
-  /** Timing (lib/runs/timing.sh): set at dispatch, at the first real activity, and an open segment. */
+  /** Timing (core/state/timing.ts): set at dispatch, at the first real activity, and an open segment. */
   dispatched_at?: string | null;
   started_at?: string | null;
   seg_open?: boolean | null;

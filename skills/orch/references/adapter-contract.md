@@ -1,20 +1,20 @@
 # Adapter Contract
 
 `scripts/dispatch.ts` dispatches to a target harness through a small set of shell functions named
-`adapter_<name>`, defined in `scripts/lib/adapters/adapters.sh`. This is the contract every adapter follows,
+`adapter_<name>`, defined in `core/adapters/*.ts`. This is the contract every adapter follows,
 how profiles feed into them, and the steps to add a new one.
 
 ## Script layout
 
 | File | Holds |
 |---|---|
-| `scripts/dispatch.ts` | Entrypoint: constants, symlink-safe self-resolution, `main`, classify, budget-check, job plumbing (`run`/`start`/`status`/`tail`/`wait`/`list`). Sources every `scripts/lib/<category>/*.sh` listed in `ORCH_LIB_FILES`. |
-| `scripts/lib/adapters/adapters.sh` | `resolve_prompt`, the `adapter_*` functions, `adapter_dispatch`, `dispatch_with_profile` |
-| `scripts/lib/core/config.sh` | Config home (`~/.harness-orch`), `init`, settings, `profile_load`, `profile`/`memory` subcommands |
-| `scripts/lib/runs/runs.sh` | Run/node state, `node dispatch`, `prune` |
-| `scripts/lib/dashboard/serve.sh` | Dashboard server lifecycle: `serve` (foreground `exec`) and `ui` (start-or-reuse, restart on newer sources, `--stop`) |
+| `scripts/dispatch.ts` | Entrypoint: constants, symlink-safe self-resolution, `main`, classify, budget-check, job plumbing (`run`/`start`/`status`/`tail`/`wait`/`list`). Dispatches to `core/commands/*.ts`. |
+| `core/adapters/*.ts` | `resolve_prompt`, the `adapter_*` functions, `adapter_dispatch`, `dispatch_with_profile` |
+| `core/state/*.ts`, `core/commands/config.ts` | Config home (`~/.harness-orch`), `init`, settings, `profile_load`, `profile`/`memory` subcommands |
+| `core/runs/*.ts`, `core/commands/run.ts` | Run/node state, `node dispatch`, `prune` |
+| `core/commands/serve.ts` | Dashboard server lifecycle: `serve` (foreground `exec`) and `ui` (start-or-reuse, restart on newer sources, `--stop`) |
 
-The dashboard server and browser client are not part of the skill: they live in `<repo>/src/` so loading the skill never pulls in their code. `lib/dashboard/serve.sh` finds them there.
+The dashboard server and browser client are not part of the skill: they live in `<repo>/src/` so loading the skill never pulls in their code. `core/commands/serve.ts` finds them there.
 
 | Path | Role |
 | --- | --- |
@@ -96,14 +96,14 @@ headers; other harnesses are not claimed to carry them until their header suppor
 
 ## Adding an adapter
 
-1. Write `adapter_<name>() { ... }` in `lib/adapters/adapters.sh` following the signature above. Guard
+1. Write `adapter_<name>() { ... }` in `core/adapters/` following the signature above. Guard
    required binaries with `require_bin adapter_<name> <binary> || return $?` — it emits the
    uniform `<caller>: <binary> not found on PATH` line and returns 127.
 2. Add one `case` arm in `adapter_dispatch()` mapping the name to the function, and add the name to
-   `VALID_HARNESSES` in `lib/core/config.sh` so profiles may target it.
+   `VALID_HARNESSES` in `core/adapters/spawn.ts` so profiles may target it.
 3. If the harness takes a model flag, add a `case` arm in `dispatch_with_profile()`.
 4. If `classify` should ever pick it, add a branch to `classify_cmd()` in `scripts/dispatch.ts`
    (and the adapter list in its `usage()`), then extend the `classify prints → Use` table in
    `SKILL.md`.
-5. Add tests under `tests/adapters/` (run with `tests/run.sh`): at minimum the "binary missing" path (strip its dir from
+5. Add tests under `tests/adapters/` (run with `tests/run.ts`): at minimum the "binary missing" path (strip its dir from
    `PATH` with `path_without`) and, via a fake CLI shim on a temp `PATH`, the exact argv shape.

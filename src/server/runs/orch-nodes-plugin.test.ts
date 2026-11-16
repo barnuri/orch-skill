@@ -24,7 +24,7 @@ describe("orch-nodes opencode plugin", () => {
 
   test("no registry file: nothing is spawned", () => {
     const calls: string[][] = [];
-    const h = plugin.createHandler({ exists: () => false, run: (c: string, a: string[]) => calls.push(a), env: { ORCH_DISPATCH: "/d.sh" } });
+    const h = plugin.createHandler({ exists: () => false, run: (c: string, a: string[]) => calls.push(a), env: { ORCH_DISPATCH: "/d.ts" } });
     expect(h({ type: "session.idle", properties: { sessionID: "ses_x" } })).toBe(false);
     expect(calls.length).toBe(0);
   });
@@ -32,9 +32,9 @@ describe("orch-nodes opencode plugin", () => {
   test("registered session: spawns owner event; alive throttled to 30 s", () => {
     const calls: string[][] = [];
     let t = 1_000_000;
-    const h = plugin.createHandler({ exists: () => true, run: (c: string, a: string[]) => calls.push(a), now: () => t, env: { ORCH_DISPATCH: "/d.sh" } });
+    const h = plugin.createHandler({ exists: () => true, run: (c: string, a: string[]) => calls.push(a), now: () => t, env: { ORCH_DISPATCH: "/d.ts" } });
     h({ type: "session.idle", properties: { sessionID: "ses_x" } });
-    expect(calls[0]).toEqual(["/d.sh", "owner", "event", "ses_x", "finished", "--harness", "opencode"]);
+    expect(calls[0]).toEqual(["/d.ts", "owner", "event", "ses_x", "finished", "--harness", "opencode"]);
     const busy = { type: "session.status", properties: { sessionID: "ses_x", status: { type: "busy" } } };
     expect(h(busy)).toBe(true);
     t += 10_000;
@@ -88,7 +88,7 @@ describe("orch-nodes opencode plugin", () => {
     const h = plugin.createHandler({
       exists: () => true,
       run: (_c: string, a: string[]) => calls.push(a),
-      env: { ORCH_DISPATCH: "/d.sh", HARNESS_ORCH_HOME: "/h" },
+      env: { ORCH_DISPATCH: "/d.ts", HARNESS_ORCH_HOME: "/h" },
       runIndex: () => new Map([["ses_p", "r1"]]),
       write: (path: string, text: string) => (files[path] = text),
     });
@@ -97,12 +97,12 @@ describe("orch-nodes opencode plugin", () => {
     expect(h(created("ses_c", "ses_p"))).toBe(true);
     const rec = JSON.parse(files["/h/owners/pending/ses_c.json"] ?? "{}");
     expect(rec).toMatchObject({ child: "ses_c", parent: "ses_p", title: "Fix tests", created_ms: 1_700_000_000_000 });
-    expect(calls).toEqual([["/d.sh", "node", "bind-owners", "--run", "r1"]]);
+    expect(calls).toEqual([["/d.ts", "node", "bind-owners", "--run", "r1"]]);
     h({ type: "session.updated", properties: { info: { id: "ses_c", parentID: "ses_p", title: "Better title" } } });
     expect(calls.length).toBe(1);
     expect(JSON.parse(files["/h/owners/pending/ses_c.json"] ?? "{}").title).toBe("Better title");
     h({ type: "session.status", properties: { sessionID: "ses_c", status: { type: "busy" } } });
-    expect(calls[1]).toEqual(["/d.sh", "owner", "event", "ses_c", "started", "--harness", "opencode"]);
+    expect(calls[1]).toEqual(["/d.ts", "owner", "event", "ses_c", "started", "--harness", "opencode"]);
     expect(calls[2]?.[4]).toBe("alive");
   });
 
@@ -134,23 +134,23 @@ describe("orch-nodes opencode plugin", () => {
   test("usage: counts batch into one node usage call, flushed after 30 s or on idle", () => {
     const calls: string[][] = [];
     let t = 0;
-    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.sh", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" }, now: () => t, run: (_c: string, a: string[]) => calls.push(a) });
+    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.ts", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" }, now: () => t, run: (_c: string, a: string[]) => calls.push(a) });
     u.count("ses_a", "bash", {});
     u.count("ses_a", "bash", {});
     u.count("ses_a", "read", {});
     expect(calls.length).toBe(0);
     t = 31_000;
     u.count("ses_a", "bash", {});
-    expect(calls).toEqual([["/d.sh", "node", "usage", "r1", "a", "--add", "tool.bash=3", "--add", "tool.read=1"]]);
+    expect(calls).toEqual([["/d.ts", "node", "usage", "r1", "a", "--add", "tool.bash=3", "--add", "tool.read=1"]]);
     u.count("ses_a", "edit", {});
     expect(u.flush("ses_a")).toBe(true);
-    expect(calls[1]).toEqual(["/d.sh", "node", "usage", "r1", "a", "--add", "tool.edit=1"]);
+    expect(calls[1]).toEqual(["/d.ts", "node", "usage", "r1", "a", "--add", "tool.edit=1"]);
     expect(u.flush("ses_a")).toBe(false);
   });
 
   test("usage: a session that is no orch node counts nothing", () => {
     const calls: string[][] = [];
-    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.sh", HARNESS_ORCH_HOME: "/nonexistent" }, run: (_c: string, a: string[]) => calls.push(a) });
+    const u = plugin.createUsage({ env: { ORCH_DISPATCH: "/d.ts", HARNESS_ORCH_HOME: "/nonexistent" }, run: (_c: string, a: string[]) => calls.push(a) });
     expect(u.count("ses_z", "bash", {})).toBe(false);
     expect(u.flush("ses_z")).toBe(false);
   });
@@ -160,7 +160,7 @@ describe("orch-nodes opencode plugin", () => {
     let t = 0;
     let files: string[] = [];
     const inbox = plugin.createInbox({
-      env: { ORCH_DISPATCH: "/d.sh", HARNESS_ORCH_HOME: "/h", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" },
+      env: { ORCH_DISPATCH: "/d.ts", HARNESS_ORCH_HOME: "/h", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "a" },
       now: () => t,
       readdir: () => files,
       read: (p: string) => {
@@ -179,7 +179,7 @@ describe("orch-nodes opencode plugin", () => {
     expect(inbox("ses_a")).toBeNull();
     t = 6_000;
     expect(inbox("ses_a")).toBe("[orch message m1 from orch] hi");
-    expect(calls).toEqual([["/d.sh", "node", "inbox", "r1", "a", "--json", "--via", "plugin"]]);
+    expect(calls).toEqual([["/d.ts", "node", "inbox", "r1", "a", "--json", "--via", "plugin"]]);
   });
 
   test("inbox and usage against the real dispatch.ts", () => {

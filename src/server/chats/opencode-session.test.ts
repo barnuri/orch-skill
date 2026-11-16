@@ -14,7 +14,7 @@ import { blobPath } from "./uploads";
 import { attachesNatively } from "./sessions/types";
 import { OpencodeServerPool, readServeRecord, SERVE_IDLE_MS, servePaths } from "./sessions/opencode-server";
 
-const FAKE = resolve(import.meta.dir, "testing/fake-opencode-json.sh");
+const FAKE = resolve(import.meta.dir, "testing/fake-opencode-json.ts");
 const PROFILES = {
   settings: { disabled_harnesses: ["claude"], default_profile: "oc" },
   models: { m: { slug: "prov/m", harnesses: ["claude", "opencode"] } },

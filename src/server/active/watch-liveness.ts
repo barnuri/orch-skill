@@ -32,7 +32,7 @@ function commandLine(pid: number): string | null {
 }
 
 /**
- * The same rule as `watch_pid_is` in lib/automation/loops.sh: a watch is alive when its recorded pid answers
+ * The same rule as `watch_pid_is` in core/commands/loops.ts: a watch is alive when its recorded pid answers
  * and that process's command line names the watch id (`watch_run <id>`). A missing pid is not
  * alive, and neither is a pid the OS has since given to another process.
  */

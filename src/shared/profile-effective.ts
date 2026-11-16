@@ -1,6 +1,6 @@
 /**
  * Effective profile values and where each one came from. Same rule as `profile_effective` in
- * skills/orch/scripts/lib/core/config.sh: node override, then profile, then defaults, then built-in.
+ * skills/orch/core/adapters/spawn.ts: node override, then profile, then defaults, then built-in.
  * env is merged key by key (defaults first, profile wins, node wins over both); flags are replaced.
  */
 

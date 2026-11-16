@@ -344,9 +344,9 @@ the token can read job logs and rewrite `profiles.json`.
 Tests and typechecking, no install step required:
 
 ```bash
-bash skills/orch/tests/run.sh               # bash fast tier (unit/, under 30 s)
-bash skills/orch/tests/run.sh --changed     # fast tier + tests of changed files
-bash skills/orch/tests/run.sh --full        # the full bash suite (final gate)
+bun skills/orch/tests/run.ts               # fast tier (unit/, under 30 s)
+bun skills/orch/tests/run.ts --changed     # fast tier + tests of changed files
+bun skills/orch/tests/run.ts --full        # the full suite (final gate)
 bun scripts/typecheck.ts        # bun bundle + tsc (skips cleanly if either is absent)
 bun test --timeout 300000 --parallel=6 src   # TypeScript suite
 bun scripts/test-all.ts         # all of the above at once

@@ -21,7 +21,7 @@ function repo(): string {
   mkdirSync(join(dir, "src"), { recursive: true });
   mkdirSync(join(dir, "skills/orch/scripts"), { recursive: true });
   writeFileSync(join(dir, "src/a.ts"), "a\n");
-  writeFileSync(join(dir, "skills/orch/scripts/s.sh"), "s\n");
+  writeFileSync(join(dir, "skills/orch/scripts/s.ts"), "s\n");
   git(dir, "init", "-q");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "first");
@@ -86,7 +86,7 @@ describe("BuildService", () => {
       writeFileSync(join(dir, `src/f${i}.ts`), "x");
       utimesSync(join(dir, `src/f${i}.ts`), future(), future());
     }
-    utimesSync(join(dir, "skills/orch/scripts/s.sh"), future(), future());
+    utimesSync(join(dir, "skills/orch/scripts/s.ts"), future(), future());
     git(dir, "add", ".");
     git(dir, "commit", "-q", "-m", "more");
     const r = await svc.check();
