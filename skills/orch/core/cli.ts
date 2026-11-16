@@ -3,6 +3,10 @@
 
 import { cmdNodeTell, cmdNodeAsk, cmdNodeInbox } from "./commands/inbox.ts";
 import { nodeAdd, nodeUpdate, nodeReport } from "./commands/node.ts";
+import { runWait } from "./commands/wait.ts";
+import { nodeStarted, runBackfillTiming } from "./commands/timing.ts";
+import { runCarry } from "./commands/carry.ts";
+import { useCommand } from "./commands/use.ts";
 import { nodeBatch } from "./commands/node-batch.ts";
 import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
@@ -47,6 +51,11 @@ export const COMMANDS: Record<string, Handler> = {
   "node update": nodeUpdate,
   "node report": nodeReport,
   "node batch": nodeBatch,
+  "node started": nodeStarted,
+  "run backfill-timing": runBackfillTiming,
+  "run wait": runWait,
+  "run carry": runCarry,
+  use: useCommand,
   "run status": runStatusCommand,
   "node selections": nodeSelections,
   "node verify-owners": nodeVerifyOwners,
@@ -84,7 +93,7 @@ export const COMMANDS: Record<string, Handler> = {
   announce,
 };
 
-const ONE_WORD = new Set(["serve", "ui", "artifact", "suggest", "demo", "sync"]);
+const ONE_WORD = new Set(["serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
 // Commands the dashboard server answers on its socket (same core function, in its process).
 const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
 

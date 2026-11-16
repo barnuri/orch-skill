@@ -268,10 +268,14 @@ fi
 # SCRIPT_DIR so the nohup child that re-sources this file by SELF_REAL finds them through the same
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
-ORCH_LIB_FILES="runs/batch runs/carry core/config runs/current-run
+NODE_BATCH_USAGE='dispatch.sh node batch <run-id> [--file F] [--dry-run]   (one JSON op per line on stdin or in F)'
+NODE_STARTED_USAGE="node started <run-id> <node-id> [--at ISO] [--source S]"
+RUN_BACKFILL_TIMING_USAGE="run backfill-timing [<run-id>]"
+RUN_WAIT_USAGE='dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]'
+ORCH_LIB_FILES="core/config
   runs/health runs/inbox core/locks
   runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
-  runs/timing runs/visibility runs/wait"
+  runs/timing runs/visibility"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
   [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
@@ -681,6 +685,7 @@ PORTED_COMMANDS=(
   "sync"
   "loop start" "loop list" "loop stop" "loop resume" "loop tail" "loop recover" "loop prune"
   "watch start" "watch wait" "watch events" "watch list" "watch stop" "watch status-of"
+  "node started" "run backfill-timing" "run wait" "run carry" "use"
   "schedule add" "schedule edit" "schedule list" "schedule show" "schedule enable" "schedule disable"
   "schedule remove" "schedule run" "schedule log" "schedule tick" "schedule next"
 )
@@ -717,12 +722,12 @@ main() {
   # A run id of `.` means the run saved by `dispatch.sh use` (lib/runs/current-run.sh).
   case "$sub ${2:-} ${3:-}" in
     "node update ."|"node report ."|"node batch ."|"run sync .")
-      rid=$(current_run_resolve .) || exit 1
+      rid=$(head -n1 "$ORCH_HOME/current-run" 2>/dev/null)
+      [ -n "$rid" ] || { printf 'run id ".": no current run; set one with: dispatch.sh use <run-id>\n' >&2; exit 1; }
       set -- "$1" "$2" "$rid" "${@:4}" ;;
   esac
   case "$sub" in
     --version|version) printf 'orch %s\n' "$ORCH_VERSION"; exit 0 ;;
-    use) shift; cmd_use "$@" ;;
     classify) shift; classify_cmd "$@" ;;
     budget-check) budget_check; exit $? ;;
     run)
