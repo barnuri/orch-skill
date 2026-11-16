@@ -7,6 +7,7 @@ import { nodeBatch } from "./commands/node-batch.ts";
 import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
+import { nodeVerifyOwners, nodeBindOwners, nodeBrief, nodeActivity, ownerEvent } from "./commands/owners.ts";
 import { doctor } from "./commands/doctor.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
@@ -25,6 +26,11 @@ export const COMMANDS: Record<string, Handler> = {
   "node batch": nodeBatch,
   "run status": runStatusCommand,
   "node selections": nodeSelections,
+  "node verify-owners": nodeVerifyOwners,
+  "node bind-owners": nodeBindOwners,
+  "node brief": nodeBrief,
+  "node activity": nodeActivity,
+  "owner event": ownerEvent,
   "profile list": profileList,
   "profile show": profileShow,
   "profile pick": profilePickCommand,

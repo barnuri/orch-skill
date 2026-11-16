@@ -131,7 +131,7 @@ export function chainIds(ctx: Ctx): string[] {
   return [ctx.runId, ...ctx.chain.map((c) => c.id)];
 }
 
-function ev(ctx: Ctx, kind: string, node: string, from: string, to: string, note: string): void {
+export function ev(ctx: Ctx, kind: string, node: string, from: string, to: string, note: string): void {
   ctx.events.push({
     at: ctx.now,
     kind,
@@ -354,7 +354,7 @@ function ownerRegister(run: RunState, id: string, ctx: Ctx, explicit: boolean): 
 // ---- status --------------------------------------------------------------------------------------
 
 // node_set_status: the one path every status change takes. Stamps timing, owner and retry fields.
-function setStatus(run: RunState, id: string, status: string, job: string, err: string, at: string, owner: string, ctx: Ctx): void {
+export function setStatus(run: RunState, id: string, status: string, job: string, err: string, at: string, owner: string, ctx: Ctx): void {
   const n = requireNode(run, id);
   const old = String(n.status ?? "");
   const eventAt = at || ctx.now;

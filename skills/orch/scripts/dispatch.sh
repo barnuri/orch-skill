@@ -270,7 +270,7 @@ fi
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
   dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
-  automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
+  automation/loops runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
   automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
@@ -657,6 +657,13 @@ run_create_with_monitor() {
   return $rc
 }
 
+owner_write_dispatch_path() {
+  local tmp="$ORCH_HOME/.dispatch-path.tmp.$$"
+  mkdir -p "$ORCH_HOME" 2>/dev/null || return 0
+  printf '%s\n' "$SELF_REAL" > "$tmp" 2>/dev/null && mv -f "$tmp" "$ORCH_HOME/.dispatch-path" 2>/dev/null
+  return 0
+}
+
 # Ported `<group> <verb>` pairs that run in bin/orch (Bun) instead of this bash file. Phase 0: empty.
 PORTED_COMMANDS=(
   "node tell"
@@ -666,6 +673,11 @@ PORTED_COMMANDS=(
   "node add"
   "node report"
   "node batch"
+  "node verify-owners"
+  "node bind-owners"
+  "node brief"
+  "node activity"
+  "owner event"
   "run status"
   "profile list"
   "profile show"
@@ -736,14 +748,11 @@ main() {
       case "${2:-}" in update|report|ping|dispatch|batch) trap announce_hook EXIT ;; esac
       case "${2:-}" in
         dispatch) shift 2; pause_guard "${1:-}" >&2 || exit 3; cmd_node_dispatch "$@" ;;
-        add|update|report|ping|remove|retry|usage|cost|out|digest|selections|brief|activity|batch|started|tell|ask|answer|inbox) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        add|update|report|ping|remove|retry|usage|cost|out|digest|selections|batch|started|tell|ask|answer|inbox) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
         cancel) shift 2; cmd_node_cancel "$@" ;;
-        verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
-        bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
         *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|cancel|usage|cost|out|digest|selections|brief|activity|started|verify-owners|bind-owners|tell|ask|answer|inbox ...\n' >&2; exit 2 ;;
       esac
       ;;
-    owner) shift; cmd_owner_event "$@" ;;
     plan) shift; cmd_plan "$@" ;;
     msg) shift; cmd_msg "$@" ;;
     start) shift; cmd_start "$@" ;;

@@ -1,0 +1,15 @@
+# Phase 4 parity: owner commands. Each line runs on a home holding run fx-status (fixtures/run-status.jsonl).
+# fixture: fx-status run-status.jsonl
+node verify-owners fx-status --no-apply
+node verify-owners fx-status --no-apply --json
+node verify-owners no-such-run
+node verify-owners fx-status --bogus
+node bind-owners --run fx-status
+node bind-owners --run fx-status --json
+node bind-owners --run no-such-run
+node bind-owners --bogus
+node brief fx-status n1
+node brief fx-status
+node brief fx-status no-such-node
+owner event ses_unknown alive
+owner event

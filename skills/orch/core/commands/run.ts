@@ -1,10 +1,11 @@
 // `orch run status <run-id> [--json] [--fresh]`. Ported from cmd_run_status (lib/runs/visibility.sh).
-// Owner verification (lib/runs/owners.sh owners_verify_run) is not ported yet: owner lines are empty.
+// Owner lines come from the read-only owner check (commands/owners.ts, apply=false).
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadRun } from "../state/store.ts";
 import { paths, orchHome } from "../state/home.ts";
 import { activityRows, staleMinutes, staleNodes, isoToEpoch } from "../state/timing.ts";
+import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
 
 // CLI handler: writes stdout/stderr and returns the exit code.
 export async function runStatusCommand(args: string[]): Promise<number> {
@@ -99,7 +100,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     ready: (run.nodes ?? []).filter((n: any) => n.status === "waiting" && nodeReady(run, n)).map((n: any) => n.id),
     errors: (run.nodes ?? []).filter((n: any) => n.status === "error").map((n: any) => ({ id: n.id, error: alt(n.error, null) })),
     link: `http://127.0.0.1:${await servePort(home)}/#/run/${runId}`,
-    owner_events: [] as string[],
+    owner_events: ownerReportLines(await ownersVerifyRun(home, runId, false)),
   };
 
   const freshLine = fresh ? freshLineOf(run, runId, nowIso, home) : "";
@@ -122,7 +123,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
   }
   if (summary.ready.length > 0) lines.push("ready: " + summary.ready.join(","));
   for (const e of summary.errors) lines.push(`error ${e.id}: ${String(alt(e.error, "unknown"))}`);
-  lines.push(summary.link);
+  lines.push(...summary.owner_events, summary.link);
   return { code: 0, out: lines.join("\n") + "\n", err: "" };
 }
 

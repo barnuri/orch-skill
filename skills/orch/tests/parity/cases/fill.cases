@@ -1,0 +1,8 @@
+# Phase 4 parity: the owner fill. ORCH_OWNER_FILL=0 is set by parity.sh, so the fill is a no-op and the
+# commands must print the same on both paths; a run without a database has nothing to fill.
+# fixture: fx-status run-status.jsonl
+node bind-owners --run fx-status
+node verify-owners fx-status
+node verify-owners fx-status --json
+node activity fx-status n1
+node activity fx-status no-such-node
