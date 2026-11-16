@@ -9,15 +9,16 @@ const SKILL_ROOT: string = join(import.meta.dir, "..", "..", "..");
 const SCRIPTS_DIR: string = join(import.meta.dir, "..", "..", "..", "..", "skills", "orch", "scripts");
 
 function shellList(source: string, name: string): string[] {
-  const match = new RegExp(`^${name}="([^"]*)"`, "m").exec(source);
+  // The lists are TypeScript now: `const NAME = "a b c".split(" ")`.
+  const match = new RegExp(`${name}\\s*=\\s*"([^"]*)"`, "m").exec(source);
   return (match?.[1] ?? "").split(/\s+/).filter((entry) => entry !== "");
 }
 
 describe("harness glyph coverage", () => {
-  // The two lists live in different files: the wired adapters in config.sh, the
-  // detected-only CLIs in harness.sh.
-  const configSh = readFileSync(join(SCRIPTS_DIR, "lib/core/config.sh"), "utf8");
-  const harnessSh = readFileSync(join(SCRIPTS_DIR, "lib/adapters/harness.sh"), "utf8");
+  // The two lists live in different files: the wired adapters in core/adapters/spawn.ts, the
+  // detected-only CLIs in core/adapters/harness.ts.
+  const configSh = readFileSync(join(SCRIPTS_DIR, "../core/adapters/spawn.ts"), "utf8");
+  const harnessSh = readFileSync(join(SCRIPTS_DIR, "../core/adapters/harness.ts"), "utf8");
   const adapters = shellList(configSh, "VALID_HARNESSES");
   const detected = shellList(harnessSh, "DETECTED_CLI_IDS");
 
