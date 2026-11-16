@@ -34,7 +34,11 @@ describe("memory across 3 turns, one session per chat", () => {
     const last = readFileSync(promptLog, "utf8").split("\n=====\n").filter(Boolean).pop() as string;
     expect(last).toContain("User: my name is Dana");
     expect(last).toContain("Assistant: chars=");
-    expect(last.endsWith("New message from the user:\nwhat is my name?")).toBe(true);
+    expect(last).toContain("New message from the user:\nwhat is my name?");
+    const [before, after] = last.split("New message from the user:\n") as [string, string];
+    expect(after.startsWith("what is my name?")).toBe(true);
+    expect(last.split("[Workspace").length - 1).toBe(1);
+    expect(before).not.toContain("[Workspace");
     expect(m.context_truncated).toBe(0);
   });
 });

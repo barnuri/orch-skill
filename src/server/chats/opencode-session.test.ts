@@ -134,7 +134,8 @@ describe("opencode as a chat harness", () => {
     service.sendMessage(chat.id, { content: "what is this", attachment_ids: ids });
     await service.settled(chat.id);
     const [, , prompt, , files] = (readFileSync(log, "utf8").split("\n")[0] ?? "").split("\t");
-    expect(prompt).toBe("what is this");
+    expect(prompt?.startsWith("what is this")).toBe(true);
+    expect(prompt).not.toContain("notes.txt");
     const paths = (files ?? "").split(",");
     expect(paths).toHaveLength(2);
     expect(paths[0]).toEndWith("/shot.png");

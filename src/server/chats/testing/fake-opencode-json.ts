@@ -62,7 +62,7 @@ async function run(): Promise<void> {
   }
   const file = join(state!, sid);
   appendFileSync(file, `@@@\n${prompt}\n`);
-  if (process.env.FAKE_AGENT_LOG) appendFileSync(process.env.FAKE_AGENT_LOG, `opencode\t${sid}\t${prompt}\t${mode}\t${files.join(",")}\t${argv.includes("-m") ? argv[argv.indexOf("-m") + 1] : ""}\n`);
+  if (process.env.FAKE_AGENT_LOG) appendFileSync(process.env.FAKE_AGENT_LOG, `opencode\t${sid}\t${prompt.replace(/\n/g, "\\n")}\t${mode}\t${files.join(",")}\t${argv.includes("-m") ? argv[argv.indexOf("-m") + 1] : ""}\n`);
   const n = readFileSync(file, "utf8").split("\n").filter((l) => l === "@@@").length;
   const ts = 1700000000000;
   const base = { timestamp: ts, sessionID: sid };
