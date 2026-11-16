@@ -56,7 +56,7 @@ test("schedules", async () => {
   const slow = sch("add", "--name", "slow", "--cron", "* * * * *", "--command", "sleep 60", "--timeout", "5m").out.trim();
   sch("run", slow);
   editJson(join(home, "schedules", slow, "schedule.json"), (s) => { s.next_at = 1; });
-  expect(sch("tick").all).toMatch(`skipped \\(still running\\): ${slow}`);
+  expect(sch("tick").all).toMatch(new RegExp(`skipped \\(still running\\): ${slow}`));
   sch("remove", slow);
   const kill = sch("add", "--name", "timeout", "--cron", "* * * * *", "--command", "sleep 60", "--timeout", "2s").out.trim();
   sch("run", kill); await finish(kill, 60);

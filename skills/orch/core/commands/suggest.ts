@@ -449,7 +449,7 @@ export async function syncCommand(args: string[]): Promise<number> {
     out(r.stdout);
   }
   await dispatchSh(["__loops-recover"]);
-  suggestScan(home);
+  suggestScan(home, true);
   if (learningGet(home, "auto_apply_safe", "true") === "true") applySafe(home);
   out("synced\n");
   return 0;

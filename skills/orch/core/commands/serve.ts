@@ -8,6 +8,14 @@ import { join, resolve } from "node:path";
 import { env, err, home as ioHome, out } from "../io.ts";
 import { ensureHome } from "../state/profiles.ts";
 
+// ORCH_BUN overrides the bun that runs the server; a path or name that does not resolve is an error (127).
+function bunBin(): string | null {
+  const want = env().ORCH_BUN;
+  if (!want) return process.execPath;
+  return want.includes("/") ? (existsSync(want) ? want : null) : Bun.which(want, { PATH: env().PATH ?? "" });
+}
+const NO_BUN = (): string => `serve: bun not found on PATH (ORCH_BUN=${env().ORCH_BUN ?? ""}) — install it from https://bun.sh\n`;
+
 export const SERVE_DEFAULT_HOST = "0.0.0.0";
 export const SERVE_DEFAULT_PORT = 6724;
 export const SERVE_MAX_PORT = 65535;
@@ -313,13 +321,15 @@ function serverArgs(home: string, host: string, port: string): string[] {
 }
 
 export async function serveStartBackground(home: string): Promise<number> {
+  const bun = bunBin();
+  if (!bun) return (err(NO_BUN()), 127);
   if (!(await ensureDeps())) return 1;
   if (!preparehome(home)) return 1;
   const f = serveFiles(home);
   const host = serveConfigGet(home, "host", SERVE_DEFAULT_HOST);
   const port = serveConfigGet(home, "port", String(SERVE_DEFAULT_PORT));
   const fd = openSync(f.log, "a");
-  const proc = Bun.spawn([process.execPath, ...serverArgs(home, host, port)], {
+  const proc = Bun.spawn([bun, ...serverArgs(home, host, port)], {
     stdin: "ignore", stdout: fd, stderr: fd, detached: true, env: { ...env() } as Record<string, string>,
   });
   proc.unref();
@@ -474,6 +484,8 @@ export async function serveCommand(args: string[]): Promise<number> {
   const o = parseServeOpts(home, "serve", args);
   if (typeof o === "number") return o;
   if (o.stop) return serveStop(home);
+  const bun = bunBin();
+  if (!bun) return (err(NO_BUN()), 127);
   if (!(await ensureDeps())) return 1;
   if (!existsSync(serveEntry())) {
     err(`serve: ${serveEntry()} missing\n`);
@@ -488,7 +500,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   if (rc === 3) return 1;
   if (!preparehome(home)) return 1;
   herdrBoot(home);
-  const p = Bun.spawn([process.execPath, ...serverArgs(home, o.host, o.port)], {
+  const p = Bun.spawn([bun, ...serverArgs(home, o.host, o.port)], {
     stdin: "inherit", stdout: "inherit", stderr: "inherit", env: { ...env() } as Record<string, string>,
   });
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => p.kill(sig));
