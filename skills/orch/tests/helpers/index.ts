@@ -167,3 +167,15 @@ export const handoff = (home: string, run: string, node: string) => {
 export const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 /** Run state of a node, shorthand. */
 export const jqNode = (home: string, run: string, id: string) => nodeOf(home, run, id);
+
+/** PATH with each named binary's directory removed (so `which <name>` fails), keeping everything else. */
+export function pathWithout(...names: string[]): string {
+  let parts = (process.env.PATH ?? "").split(":");
+  for (const n of names) for (;;) {
+    const hit = Bun.spawnSync(["sh", "-c", `PATH='${parts.join(":")}' command -v ${n}`]).stdout.toString().trim();
+    if (!hit) break;
+    const dir = hit.replace(/\/[^/]*$/, "");
+    parts = parts.filter((p) => p !== dir);
+  }
+  return parts.join(":");
+}
