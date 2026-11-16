@@ -11,6 +11,8 @@ Orch exists for visibility, the right model per task, lower cost and tokens, and
 
 - `SKILL.md` (this file, committed): generic weak spots, backlog and method. No personal data.
 - `analysis.md` (committed): the deep analysis of why orch was slow and gave worse results than opencode subagents, with the evidence and a build list. Read it before changing the architecture.
+- `problems.md` (committed): the numbered problem map P1 to P48 (symptom, evidence, root cause, status). Use the ids in commits and learnings; update the status column after each fix.
+- `checklist.md` (committed): one checkbox per fixed or open problem with the fix date, the commit and a `check:` command. `bun scripts/orch-perf.ts --recheck` runs the checks and turns a fixed row into `[!] REGRESSED <date>` when a bug comes back. Run it after every merge.
 - `learnings.md` (ignored by git): the dated metric blocks that `scripts/orch-perf.ts` appends. They contain run ids, costs and paths, so they stay on this machine.
 - `local.md` (ignored by git): paths of llm-hub, herdr, herdr-web and the other projects orch depends on, plus open upstream issues. Copy `local.example.md` to create it on a new machine. **Read it first.** When a problem comes from one of those projects, fix it in that project's own repo.
 

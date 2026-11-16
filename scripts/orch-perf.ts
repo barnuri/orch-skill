@@ -3,11 +3,41 @@
 // Self learning: every run adds one dated block with numbers; a metric that got worse than the
 // previous block is marked WORSE, and a recurring problem is marked REPEATED.
 // Usage: bun scripts/orch-perf.ts [run-id]
+//        bun scripts/orch-perf.ts --recheck   run every `check:` of .claude/skills/orch-perf/checklist.md, flag regressions
 import { existsSync, readdirSync, readFileSync, statSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 const home = process.env["HARNESS_ORCH_HOME"] ?? join(process.env["HOME"] ?? "", ".harness-orch");
 const runs = readdirSync(join(home, "runs")).filter((d) => existsSync(join(home, "runs", d, "state.json"))).sort();
+if (process.argv.includes("--recheck")) {
+  const { spawn } = await import("node:child_process");
+  const { readFileSync: rf, writeFileSync: wf } = await import("node:fs");
+  const repo = join(import.meta.dir, "..");
+  const file = join(repo, ".claude", "skills", "orch-perf", "checklist.md");
+  const lines = rf(file, "utf8").split("\n");
+  const today = new Date().toISOString().slice(0, 10);
+  const jobs = lines.map((line, i) => ({ line, i, m: /^- \[( |x|!)\] (P\d+) .*?\| check: (.+)$/.exec(line) })).filter((j) => j.m);
+  const results = await Promise.all(jobs.map((j) => new Promise<{ i: number; ok: boolean }>((res) => {
+    const child = spawn("sh", ["-c", j.m![3]!], { cwd: repo, stdio: "ignore" });
+    const timer = setTimeout(() => { child.kill("SIGKILL"); res({ i: j.i, ok: false }); }, 120_000);
+    child.on("exit", (code) => { clearTimeout(timer); res({ i: j.i, ok: code === 0 }); });
+  })));
+  const report: string[] = [];
+  for (const r of results) {
+    const l = lines[r.i]!;
+    const was = /^- \[(.)\]/.exec(l)![1]!;
+    const id = /(P\d+)/.exec(l)![1]!;
+    let now = was;
+    if (r.ok && (was === "!" || was === " ")) now = was === "!" ? "x" : " ";
+    if (!r.ok && was === "x") now = "!";
+    if (r.ok && was === " ") report.push(`${id} passes its check: tick it and add the commit`);
+    if (now !== was) lines[r.i] = l.replace(/^- \[.\]/, `- [${now}]`) + (now === "!" ? ` | REGRESSED ${today}` : "");
+    report.push(`${r.ok ? "PASS" : "FAIL"} ${id} [${now}]`);
+  }
+  wf(file, lines.join("\n"));
+  console.log(report.join("\n"));
+  process.exit(report.some((x) => x.startsWith("FAIL") && /\[!\]/.test(x)) ? 1 : 0);
+}
 const run = process.argv[2] ?? runs[runs.length - 1];
 if (run === undefined) throw new Error("no run");
 interface Node { id: string; status?: string; started?: string; finished?: string; dispatched_at?: string; started_at?: string; attempts?: unknown[]; cost?: { usd?: number }; profile?: string; error?: string; job_id?: string }
