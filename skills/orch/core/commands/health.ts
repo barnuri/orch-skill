@@ -120,7 +120,7 @@ export function classify(r: RunState, runId: string, now: number, stall: number,
   const hm = Object.fromEntries(rn.map((n) => [n.id, n.health]));
   const dues = [
     ...rn.map((n) => n._due).filter((d): d is number => d !== null),
-    ...rn.filter((n) => n.health === "stalled" && n._session !== null && nudged[n.id] != null).map((n) => nudged[n.id] + gap),
+    ...rn.filter((n) => n.health === "stalled" && n._session !== null && nudged[n.id] != null).map((n) => nudged[n.id]! + gap),
   ];
   return {
     run: runId, status: r.status, at: iso(now), max_parallel: maxp, running, slots,

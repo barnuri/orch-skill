@@ -139,7 +139,7 @@ export async function runWait(args: string[]): Promise<number> {
   const home = orchHome();
   let runId = "", timeoutS = "0", stallArg = "", json = false, follow = false, notes = false;
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--timeout") timeoutS = args[++i] ?? "";
     else if (a === "--stall-min") stallArg = args[++i] ?? "";
     else if (a === "--json") json = true;

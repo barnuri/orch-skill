@@ -128,7 +128,7 @@ export async function nodeSelectionsText(home: string, args: string[]): Promise<
       ["since_seq", String(since)],
       ["limit", String(SELECTION_PAGE_LIMIT)],
     ]
-      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)
       .join("&");
     let body: string;
     try {

@@ -325,9 +325,9 @@ export function ownerParse(text: string, jobsDir: string): [string, string] {
   if (t === "") return ["none", ""];
   if (t.toLowerCase() === "coordinator") return ["none", "coordinator"];
   const s = /^(agent[\s:]+)?(ses_[A-Za-z0-9]+)$/.exec(t);
-  if (s) return ["session", s[2]];
+  if (s) return ["session", s[2]!];
   const p = /^pid[:\s]+([0-9]+)$/i.exec(t);
-  if (p) return ["process", p[1]];
+  if (p) return ["process", p[1]!];
   if (isDir(join(jobsDir, t))) return ["job", t];
   return ["unknown", t];
 }
@@ -487,7 +487,7 @@ export function parseUpdateArgs(args: string[]): UpdateArgs {
       case "--force": a.force = true; break;
       case "--after":
         if (i + 1 >= args.length) fail('node update: --after expects a,b or "*" (or "" to clear)');
-        a.deps = args[i + 1];
+        a.deps = args[i + 1]!;
         a.depsSet = true;
         i++;
         break;

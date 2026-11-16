@@ -134,7 +134,7 @@ const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
 function resolveCommand(words: string[]): { key: string; skip: number } | null {
   const two = `${words[0]} ${words[1] ?? ""}`.trim();
   if (COMMANDS[two]) return { key: two, skip: 2 };
-  if (ONE_WORD.has(words[0]) && COMMANDS[words[0]]) return { key: words[0], skip: 1 };
+  if (ONE_WORD.has(words[0] ?? "") && COMMANDS[words[0] ?? ""]) return { key: words[0] ?? "", skip: 1 };
   return null;
 }
 
@@ -249,7 +249,7 @@ async function mainInner(argv: string[], opts: { direct?: boolean }): Promise<nu
     process.stderr.write(`unknown subcommand: ${words[0]}\n${usage()}\n`);
     return 2;
   }
-  const handler = COMMANDS[resolved.key];
+  const handler = COMMANDS[resolved.key]!;
   if (!opts.direct && process.env.ORCH_DIRECT !== "1" && SOCKET_KEYS.has(resolved.key)) {
     const r = await viaServer(orchHome(), argv);
     if (r) {

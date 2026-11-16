@@ -120,7 +120,7 @@ function takeArgs(args: string[]): { run: string; node: string; text: string; fr
   let text = "";
   let from = "";
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--from") from = args[++i] ?? "";
     else if (!run) run = a;
     else if (!node) node = a;
@@ -162,7 +162,7 @@ async function nodePane(home: string, run: string, node: string): Promise<string
   const n = st ? findNode(st, node) : undefined;
   if (!n || n.status !== "running" || !n.job_id) return "";
   const t = await Bun.file(join(paths.jobs(home), String(n.job_id), "herdr_pane")).text().catch(() => "");
-  return t.split("\n")[0].trim();
+  return t.split("\n")[0]!.trim();
 }
 
 // One push attempt. Returns delivered | pending | failed.
@@ -230,7 +230,7 @@ export async function cmdNodeAsk(args: string[]): Promise<number> {
   let timeout = String(INBOX_ASK_WAIT_SECS);
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--wait") wait = true;
     else if (a === "--timeout") timeout = args[++i] ?? "";
     else rest.push(a);
@@ -304,7 +304,7 @@ export async function cmdNodeAnswer(args: string[]): Promise<number> {
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--ask") ask = args[++i] ?? "";
-    else rest.push(args[i]);
+    else rest.push(args[i] ?? "");
   }
   const a = takeArgs(rest);
   if (!a) return (err(`usage: ${USAGE}\n`), 2);
@@ -350,7 +350,7 @@ export async function cmdNodeInbox(args: string[]): Promise<number> {
   let ack = "";
   let via = "inbox";
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--json") json = true;
     else if (a === "--peek") peek = true;
     else if (a === "--ack") ack = args[++i] ?? "";
@@ -447,8 +447,8 @@ export async function cmdRunBroadcast(args: string[]): Promise<number> {
   let from = "orch";
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--from") from = args[++i] || "orch";
-    else if (!run) run = args[i];
-    else text = text ? `${text} ${args[i]}` : args[i];
+    else if (!run) run = args[i]!;
+    else text = text ? `${text} ${args[i]}` : args[i]!;
   }
   if (!run || !text) return (err('usage: dispatch.ts run broadcast <run-id> "<text>" [--from NAME]\n'), 2);
   const home = orchHome();

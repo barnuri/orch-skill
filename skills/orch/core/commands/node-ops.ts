@@ -82,7 +82,7 @@ export async function nodeUsage(args: string[]): Promise<number> {
     else if (a === "--add" || a === "--set") {
       const op = a.slice(2);
       if (i + 1 >= rest.length) return (errLine(`node usage: --${op} expects a value`), 2);
-      const r = parseTerm(`--${op}`, rest[++i]);
+      const r = parseTerm(`--${op}`, rest[++i]!);
       if (typeof r === "string") return (errLine(r), 2);
       ops.push({ ...r, op });
     } else return (errLine(`node usage: unknown argument ${a}`), 2);

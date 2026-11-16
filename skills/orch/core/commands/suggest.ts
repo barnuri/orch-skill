@@ -338,7 +338,7 @@ function suggestApply(home: string, args: string[]): number {
   const ids: string[] = [];
   let all = false, asJson = false;
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--all") all = true;
     else if (a === "--json") asJson = true;
     else if (a === "--id") {
@@ -355,7 +355,7 @@ function suggestApply(home: string, args: string[]): number {
     return 2;
   }
   if (ids.length === 1 && !asJson && !all) {
-    const r = applyOne(home, ids[0]);
+    const r = applyOne(home, ids[0]!);
     if (r.msg) err(r.msg);
     return r.code;
   }

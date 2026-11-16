@@ -534,7 +534,7 @@ export async function artifactCommand(args: string[]): Promise<number> {
   const home = ioHome();
   let runId = "", outDir = "";
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--out") {
       outDir = args[++i] ?? "";
       if (!outDir) {

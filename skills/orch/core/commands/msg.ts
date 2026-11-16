@@ -31,7 +31,7 @@ export async function msgSend(args: string[]): Promise<number> {
   let text = "";
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
-    const a = rest[i];
+    const a = rest[i] ?? "";
     if (a === "--to") to = rest[++i] ?? "";
     else if (a === "--from") from = rest[++i] ?? "";
     else if (a.startsWith("-")) return (errLine(`msg send: unknown argument ${a}\n  usage: ${MSG_SEND_USAGE}`), 2);

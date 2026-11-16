@@ -84,7 +84,7 @@ export async function profilePickCommand(args: string[]): Promise<number> {
   let complexity = "";
   let kind = "";
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
+    const a = args[i] ?? "";
     if (a === "--complexity") complexity = args[++i] ?? "";
     else if (a === "--kind") kind = args[++i] ?? "";
     else if (a.startsWith("-")) return err(`profile pick: unknown option ${a}\n`, 2);

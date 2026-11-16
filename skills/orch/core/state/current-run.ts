@@ -4,7 +4,7 @@ import { paths } from "./home.ts";
 
 export async function currentRunResolve(home: string, arg: string): Promise<string> {
   if (arg !== ".") return arg;
-  const id = (await readFile(paths.currentRun(home), "utf8").catch(() => "")).split("\n")[0].trim();
+  const id = (await readFile(paths.currentRun(home), "utf8").catch(() => "")).split("\n")[0]!.trim();
   if (!id) throw new Error('run id ".": no current run; set one with: dispatch.ts use <run-id>');
   return id;
 }
