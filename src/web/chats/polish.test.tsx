@@ -25,14 +25,14 @@ const store = () => {
 const att = (id: string, name: string) => ({ id, chat_id: "chat-1", message_id: null, filename: name, mime: "text/plain", size: 5, sha256: "", created_at: "" });
 
 describe("model and duration in footer and header", () => {
-  test("footer shows the reported model, else the configured one; duration is live then static, also when failed or stopped", () => {
+  test("footer shows the reported model, else the configured one; duration is live then static, also when failed or stopped", async () => {
     cleanup();
     const started = "2026-01-01T00:00:00Z";
     const t0 = Date.parse(started);
     const { WorkingIndicator } = await import("./WorkingIndicator");
     const { rerender } = render(<WorkingIndicator message={row({ status: "streaming", started_at: started })} now={t0 + 5_000} fallbackModel="HAIKU" />);
     expect(screen.getByTestId("msg-model").textContent).toBe("HAIKU");
-    expect(screen.getByTestId("msg-duration").textContent).toBe("5s");
+    expect(screen.getByTestId("msg-duration").textContent).toBe("0:05");
     for (const status of ["error", "stopped", "done"] as const) {
       rerender(<MessageView message={row({ status, started_at: started, finished_at: "2026-01-01T00:01:05Z", model_used: "real-model" })} now={t0 + 9_999_000} onOpenImage={() => {}} fallbackModel="HAIKU" />);
       expect(screen.getByTestId("msg-model").textContent).toBe("real-model");

@@ -133,13 +133,13 @@ export class ClaudeSession implements AgentSession {
   readonly persistent = false;
   sessionId: string | null;
   private readonly handle = new TurnHandle();
-  private completedTurn: boolean;
-
-  constructor(
 
   get processId(): number | null {
     return this.handle.processId;
   }
+  private completedTurn: boolean;
+
+  constructor(
     private readonly params: SessionParams,
     private readonly bin: string,
     private readonly launch: Launch,
@@ -169,12 +169,12 @@ export class ClaudeSession implements AgentSession {
         args.push("--settings", file);
       }
     }
-    args.push(...launch.flags);
-    return args;
-  }
     if (params.effort != null) {
       args.push("--effort", params.effort);
     }
+    args.push(...launch.flags);
+    return args;
+  }
 
   async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
     const signal = this.handle.begin();

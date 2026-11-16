@@ -165,7 +165,7 @@ describe("Composer", () => {
 const row = (over: Partial<Message>): Message => ({ id: "msg-1", chat_id: "c", role: "assistant", content: "", status: "done", error: null, model_used: null, input_tokens: 0, output_tokens: 0, cost_usd: null, started_at: null, finished_at: null, created_at: "", attachments: [], ...over });
 
 describe("MessageView", () => {
-  test("a live message ticks, a finished one is static, and the footer shows model, tokens and cost", () => {
+  test("a live message ticks, a finished one is static, and the footer shows model, tokens and cost", async () => {
     cleanup();
     const started = "2026-01-01T00:00:00Z";
     const t0 = Date.parse(started);
