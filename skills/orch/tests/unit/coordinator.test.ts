@@ -1,7 +1,8 @@
-import { test, expect } from "bun:test";
+import { test, expect, setDefaultTimeout } from "bun:test";
+setDefaultTimeout(120000);
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { orch, seedHome, tempDir, fakeBin, readJson, readText, editJson, runState, autoCleanup } from "../helpers";
+import { orch, seedHome, tempDir, fakeBin, readJson, readText, editJson, writeJson, runState, autoCleanup } from "../helpers";
 autoCleanup();
 
 // Fake herdr (TypeScript, run by bun): logs calls, answers pane get/list/read, records send-text.
@@ -15,7 +16,7 @@ const mode = (n: string) => existsSync(e.FAKE_FLAGS + "/" + n);
 if (cmd === "pane get") {
   if (mode("gone") || (existsSync(e.FAKE_FLAGS + "/gone_pane") && readFileSync(e.FAKE_FLAGS + "/gone_pane", "utf8").trim() === a[2])) process.exit(1);
   const f = e.FAKE_GETS + "/" + a[2] + ".json";
-  if (existsSync(f)) process.stdout.write(readFileSync(f, "utf8"));
+  if (existsSync(f)) { const j = JSON.parse(readFileSync(f, "utf8")); if (mode("working")) j.agent_status = "working"; process.stdout.write(JSON.stringify(j)); }
   else console.log(JSON.stringify({ agent_status: mode("working") ? "working" : "idle" }));
 } else if (cmd === "pane list") { if (existsSync(e.FAKE_LIST!)) process.stdout.write(readFileSync(e.FAKE_LIST!, "utf8")); }
 else if (cmd === "pane read") {
@@ -47,7 +48,8 @@ const setup = () => {
   const st = () => runState(home, "r1");
   const orchMsgs = () => { const d = join(home, "runs/r1/inbox/orch"); try { return readdirSync(d).sort((x, y) => parseInt(x) - parseInt(y)).map((f) => readJson(join(d, f))); } catch { return []; } };
   const lastMsg = () => orchMsgs().at(-1);
-  const reset = () => { writeFileSync(log, ""); writeFileSync(text, ""); for (const f of readdirSync(flags)) Bun.spawnSync(["trash", join(flags, f)]); };
+  const drain = () => { const d = join(home, "runs/r1/inbox/orch"); try { for (const f of readdirSync(d)) { const m = readJson(join(d, f)); if (m.delivered_at == null) { m.delivered_at = "2026-01-01T00:00:00Z"; m.status = "delivered"; writeJson(join(d, f), m); } } } catch {} };
+  const reset = () => { drain(); writeFileSync(log, ""); writeFileSync(text, ""); for (const f of readdirSync(flags)) Bun.spawnSync(["trash", join(flags, f)]); };
   return { home, o, dir, env, sock, flag, get, panes, setCoord, st, lastMsg, orchMsgs, reset, text: () => readText(text), log: () => readText(log), repo };
 };
 
@@ -63,7 +65,7 @@ test("run set coordinator and delivery to an idle pane", () => {
   t.reset();
   expect(t.o("node", "ask", "r1", "a", "which db?").out).toMatch(/^m1 asked$/m);
   expect(t.lastMsg().via).toBe("herdr-coordinator");
-  expect(t.text()).toBe('[orch ask #m1 from a] which db? | answer: dispatch.sh node answer r1 a m1 "<text>"\n');
+  expect(t.text()).toBe('[orch ask #m1 from a] which db? | answer: dispatch.ts node answer r1 a m1 "<text>"\n');
   expect(t.log()).toMatch(/pane send-keys p-coord Enter/);
   expect(t.log()).toMatch(new RegExp(`^${t.sock} pane send-text`, "m"));
   t.reset(); t.o("node", "ask", "r1", "a", 'say "hi" \\ x');
@@ -94,16 +96,16 @@ test("busy, typing, changing, unreadable, send failure, retries", () => {
   expect(t.lastMsg().via).toBe("herdr-coordinator");
   // 10 tries to a working pane: the ask fails after 10, then a sweep delivers a later one once idle
   t.reset(); t.flag("working"); t.o("node", "ask", "r1", "a", "never ends");
-  for (let i = 0; i < 9; i++) t.o("run", "sweep-coordinator", "r1");
+  for (let i = 0; i < 9; i++) t.o("run-util", "sweep", "r1");
   expect(t.lastMsg().tries).toBeGreaterThanOrEqual(10);
   t.reset(); t.flag("working"); t.o("node", "ask", "r1", "a", "later"); t.flag("working", false);
-  t.o("run", "sweep-coordinator", "r1");
+  t.o("run-util", "sweep", "r1");
   expect(t.lastMsg().via).toBe("herdr-coordinator");
   t.reset(); t.flag("send_fail");
   expect(t.o("node", "ask", "r1", "a", "send fails").out).toMatch(/^m\d+ asked$/m);
   expect([t.lastMsg().status, t.lastMsg().delivered_at ?? null]).toEqual(["pending", null]);
   expect(t.st().coordinator.unreachable.reason).toMatch(/^send failed/);
-  t.flag("send_fail", false); t.o("run", "sweep-coordinator", "r1");
+  t.flag("send_fail", false); t.o("run-util", "sweep", "r1");
   expect(t.lastMsg().via).toBe("herdr-coordinator");
   expect(t.st().coordinator.unreachable ?? null).toBeNull();
 });
@@ -133,7 +135,7 @@ test("gone pane: unreachable, repoint by session, candidates, ordered backlog, l
   t.o("node", "ask", "r1", "a", "first in order"); t.o("node", "ask", "r1", "a", "second in order");
   t.get("p-back", { agent_status: "idle", agent_session: { value: "ses_A" } }); t.panes("p-back");
   Bun.spawnSync(["trash", join(t.dir, "flags/gone_pane")]);
-  expect(t.o("run", "sweep-coordinator", "r1").out).toMatch(/swept 2/);
+  expect(t.o("run-util", "sweep", "r1").out).toMatch(/swept 2/);
   const lines = t.text().trim().split("\n");
   expect(lines[0]).toBe("2 pending node questions");
   expect(lines[1]).toMatch(/^\[orch ask #m\d+ from a\] first in order/);

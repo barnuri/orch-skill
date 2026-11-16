@@ -205,7 +205,7 @@ export async function runUtil(args: string[]): Promise<number> {
     case "stopped": return r?.stopped === true ? 0 : 1;
     case "auto-record": await coordinatorAutoRecord(home, run); return 0;
     case "monitor-autostart": await healthMonitorAutostart(home, run); return 0;
-    case "sweep": await coordSweep(home, run); return 0;
+    case "sweep": for (const l of await coordSweep(home, run)) process.stdout.write(l + "\n"); return 0;
     default: return (err("usage: run-util guard|paused|stopped|auto-record|monitor-autostart|sweep <run-id>\n"), 2);
   }
 }
