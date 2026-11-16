@@ -1,6 +1,6 @@
 ---
 name: verify
-description: (BN) Fast, repeatable verification of orch-skill work with saved scripts: the dashboard API, the run page in a real browser (playwright-cli), herdr panes, and the herdr-web pad. Use after any change to src/, the orch skill or a herdr mod, before saying something works, and when a UI claim must be proven with output or a screenshot. Triggers: "verify", "check it in the browser", "does the run page show", "is the service up", "prove it works".
+description: Fast, repeatable verification of orch-skill work with saved scripts: the dashboard API, the run page in a real browser (playwright-cli), herdr panes, and the herdr-web pad. Use after any change to src/, the orch skill or a herdr mod, before saying something works, and when a UI claim must be proven with output or a screenshot. Triggers: "verify", "check it in the browser", "does the run page show", "is the service up", "prove it works".
 ---
 
 # verify
