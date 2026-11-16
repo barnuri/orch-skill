@@ -172,7 +172,7 @@ async function sendNudges(home: string, run: string, line: Snap): Promise<string
   const sent: string[] = [];
   for (const n of line._nudge as any[]) {
     const body = JSON.stringify({ text: n.text, delivery: "queue" });
-    const r = await runLimited(Number(process.env.ORCH_OWNER_CALL_TIMEOUT ?? 5), [bin, "api", "POST", `/api/session/${n.session}/prompt`, "--data", body]);
+    const r = await runLimited(Number(process.env.ORCH_NUDGE_TIMEOUT ?? 10), [bin, "api", "POST", `/api/session/${n.session}/prompt`, "--data", body]);
     if (r.code === 0) {
       await appendHealthEvents(home, run, [["nudge", n.node, "", "", `nudged ${n.session}: ${n.text}`]]);
       err(`health: nudged ${n.node} (${n.session})\n`);
