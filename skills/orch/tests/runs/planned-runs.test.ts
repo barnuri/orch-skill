@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { orch, seedHome, editJson, runState, readJson, readText, fakeHub, autoCleanup } from "../helpers";
+import { orch, seedHome, editJson, runState, readJson, readText, autoCleanup } from "../helpers";
+import { spawnEchoHub } from "../helpers/hub-proc.ts";
 autoCleanup();
 
 test("profile pick, flags, plan apply and advance, msg", async () => {
@@ -40,7 +41,7 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   writeFileSync(join(po, "plan.json"), JSON.stringify({ summary: "three then merge", tasks: [
     { id: "a", label: "Part A", prompt: "do A" }, { id: "b", label: "Part B", profile: "claude-default", prompt: "do B" },
     { id: "c", label: "Part C", prompt: "do C" }, { id: "merge", label: "Integrate", after: ["a", "b", "c"], prompt: "merge them" }] }));
-  const hub = fakeHub(1000);
+  const hub = await spawnEchoHub(1000);
   const env = { LLM_HUB_URL: hub.url };
   r = o.env(env, "run", "advance", "plan-1");
   expect(r.rc).toBe(0);
