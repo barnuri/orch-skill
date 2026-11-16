@@ -153,7 +153,7 @@ fmt_age() {
 
 run_link() {
   local port
-  port=$(cat "$SERVE_PORT_FILE" 2>/dev/null || printf '%s' "$SERVE_DEFAULT_PORT")
+  port=$(cat "$ORCH_HOME/serve/port" 2>/dev/null || printf '6724')
   printf 'http://127.0.0.1:%s/#/run/%s\n' "$port" "$1"
 }
 

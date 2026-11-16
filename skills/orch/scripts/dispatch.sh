@@ -190,27 +190,27 @@ $MSG_SEND_USAGE
 $MSG_READ_USAGE
 dispatch.sh run list              -> run-id, status, title, done/total — newest first
 
-$UI_USAGE
+dispatch.sh ui [--stop]
     -> opens the live dashboard: reuses the running server (markers under <home>/serve/) or starts one
        in the background on 0.0.0.0:6724, restarts it if the skill changed, then opens
        http://127.0.0.1:<port>/?token=… (ORCH_NO_OPEN=1 prints only; --stop stops it).
-$SERVE_USAGE
+dispatch.sh serve [--host H] [--port P] | serve --stop
     -> runs the dashboard server in the foreground over plain HTTP (Bun). Bind address, port and
        auth policy are read from <home>/serve.json (see serve config). CLI --host/--port override
        for one shot. /api/* needs the bearer token from <home>/serve.token unless serve.json
        opts out (0600; trash it to rotate).
-$ARTIFACT_USAGE
+dispatch.sh artifact <run-id> [--out DIR]
     -> emits a self-contained copy of the dashboard for one run into DIR (default
        <home>/artifacts/<run-id>), with every API document it needs embedded in the page. Renders
        with no server and no network — publish it as a Claude Code artifact. It is a snapshot, so
        re-run this to refresh it.
-$SERVE_CONFIG_USAGE
+dispatch.sh serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
     -> show, get or persist the dashboard bind/auth settings in <home>/serve.json.
-$SERVE_STATUS_USAGE
+dispatch.sh serve status [--json]
     -> dashboard health: running / down / zombie / stale sources / bun missing.
-$SERVE_RECOVER_USAGE
+dispatch.sh serve recover [--start|--no-start]
     -> fix a stale or zombie server and optionally start it (--start is the default).
-$SYNC_USAGE
+dispatch.sh sync [--no-serve]
     -> offline catch-up: recover the dashboard when possible, run sync on active runs,
        scan suggestions and auto-apply safe memory rows.
 $PRUNE_USAGE
@@ -269,9 +269,9 @@ fi
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="runs/batch runs/carry core/config runs/current-run
-  dashboard/demo runs/health runs/inbox core/locks
+  runs/health runs/inbox core/locks
   automation/loops runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
-  automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
+  automation/schedules runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
   [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
@@ -674,12 +674,19 @@ PORTED_COMMANDS=(
   "start opencode"
   "start copilot"
   "start pi"
+  "serve"
+  "ui"
+  "artifact"
+  "suggest"
+  "demo"
+  "sync"
 )
 
 is_ported() {
   local pair="$1 $2" p
   for p in "${PORTED_COMMANDS[@]+"${PORTED_COMMANDS[@]}"}"; do
     [ "$p" = "$pair" ] && return 0
+    [ "$p" = "$1" ] && return 0
   done
   return 1
 }
@@ -750,18 +757,7 @@ main() {
     list) cmd_list ;;
     init) cmd_init; owner_write_dispatch_path ;;
     prune) shift; cmd_prune "$@" ;;
-    serve)
-      shift
-      case "${1:-}" in
-        config) shift; cmd_serve_config "$@" ;;
-        status) shift; cmd_serve_status "$@" ;;
-        recover) shift; cmd_serve_recover "$@" ;;
-        *) cmd_serve "$@" ;;
-      esac
-      ;;
-    sync) shift; cmd_sync "$@" ;;
-    ui) shift; cmd_ui "$@" ;;
-    artifact) shift; cmd_artifact "$@" ;;
+    __loops-recover) loops_recover ;;
     profile) shift; cmd_profile "$@" ;;
     settings) shift; cmd_settings "$@" ;;
     model) shift; cmd_model "$@" ;;
@@ -770,8 +766,6 @@ main() {
     herdr) herdr_orch_bun "${@:2}" ;;
     hub) printf 'usage: %s\n' "$HUB_USAGE" >&2; exit 2 ;;
     memory) shift; cmd_memory "$@" ;;
-    suggest) shift; cmd_suggest "$@" ;;
-    demo) shift; cmd_demo "$@" ;;
     loop) shift; cmd_loop "$@" ;;
     watch) shift; cmd_watch "$@" ;;
     active) shift; cmd_active "$@" ;;

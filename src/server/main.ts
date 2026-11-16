@@ -2,6 +2,7 @@ import type { Server } from "bun";
 import { resolve } from "node:path";
 
 import { startServer } from "./app";
+import { startCliSocket } from "./cli-socket";
 import { SERVE_USAGE, parseServeArgs, urlsFor } from "./cli";
 import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
@@ -148,6 +149,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     `${banner(args.home, args.host, port, args.requireToken, args.requireRemoteToken)}\n`,
   );
 
+  const cliSocket = startCliSocket(args.home);
+  if (cliSocket) process.on("exit", () => cliSocket.stop());
   startTicker(args.home);
   startReconciler(args.home, orchPaths(args.home));
   startHealthWatcher(args.home);
