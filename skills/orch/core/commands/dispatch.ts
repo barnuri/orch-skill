@@ -1,9 +1,9 @@
 // `node dispatch`, `node retry`, `run finish`. Ported from lib/runs/runs.sh (cmd_node_dispatch, node_retry_dispatch,
 // cmd_node_retry, cmd_run_finish). The job itself starts through spawnNode (core/adapters).
-// Not ported: hub_node_expect (hub-mode expectation record).
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnNode } from "../adapters/spawn.ts";
+import { hubNodeExpect } from "../adapters/hub.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun, type RunState } from "../state/store.ts";
 import { nowIso } from "../state/clock.ts";
@@ -146,6 +146,7 @@ export async function dispatchNodeJob(home: string, runId: string, nodeId: strin
     ORCH_NODE_TIER: tier,
     ORCH_NODE_ACCEPTANCE: String(node.acceptance ?? ""),
   };
+  await hubNodeExpect(runId, nodeId, tier, String(node.role ?? ""), `${runId}/${nodeId}/${attempt}`).catch(() => 0);
   let jobId: string;
   try {
     ({ jobId } = await spawnNode({ home, runId, nodeId, target: { kind: isProfile ? "profile" : "adapter", name: targetName }, prompt, args: passArgs, env, resumeSession: o.resume || process.env.ORCH_RESUME_SESSION || undefined }));

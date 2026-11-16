@@ -1,24 +1,16 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { orch, seedHome, editJson, runState, fakeBin, readText, autoCleanup } from "../helpers";
+import { orch, seedHome, editJson, runState, fakeBin, readText, tempDir, autoCleanup } from "../helpers";
 autoCleanup();
 
-test("hub setup, tiers, headers, resolve, outcome", () => {
-  const posts: string[] = [];
-  const srv = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
-    const u = new URL(req.url);
-    if (req.method === "GET") {
-      if (u.pathname === "/healthz") return new Response("ok");
-      if (u.pathname === "/api/smart-auto/current") return Response.json({ selection: { main: { worker: "salted-" + (u.searchParams.get("worker") ?? ""), model: "used/model", tier: "intelligence", role: "planning", reason: "fresh", state: "completed" } } });
-      return Response.json({}, { status: 404 });
-    }
-    const body = await req.text();
-    posts.push(`${u.pathname} ${body}`);
-    if (u.pathname === "/api/smart-auto/resolve") { const r = JSON.parse(body); return Response.json({ model: "expected/" + r.tier, tier: r.tier, role: r.role ?? null, reason: "fresh", alternatives: [] }); }
-    if (u.pathname === "/api/smart-auto/outcome") return Response.json({});
-    return Response.json({}, { status: 404 });
-  } });
+test("hub setup, tiers, headers, resolve, outcome", async () => {
+  const postsFile = join(tempDir(), "posts");
+  writeFileSync(postsFile, "");
+  const hubProc = Bun.spawn(["bun", join(import.meta.dir, "../helpers/smart-auto-hub.ts")], { env: { ...process.env, HUB_POSTS: postsFile }, stdout: "pipe", stderr: "ignore" });
+  const port = Number((await hubProc.stdout.getReader().read().then((r) => new TextDecoder().decode(r.value))).trim());
+  const srv = { port, stop: (_?: boolean) => hubProc.kill() };
+  const posts = { join: (sep: string) => readText(postsFile).split("\n").filter(Boolean).join(sep) };
   const home = seedHome();
   const shims = fakeBin({
     opencode: `printf "%s\\n" "\${OPENCODE_CONFIG_CONTENT-unset}"\nprintf "%s\\n" "$@"`,
