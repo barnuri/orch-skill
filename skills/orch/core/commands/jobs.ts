@@ -80,14 +80,15 @@ export async function waitCommand(args: string[]): Promise<number> {
     else if (args[i] === "--interval") interval = Number(args[++i] ?? 5);
   }
   const jobs = paths.jobs(orchHome());
-  let elapsed = 0;
+  const start = Date.now();
+  let gap = 50;
   for (;;) {
     const st = jobStatus(jobs, id);
     if (st === null) return (err(`unknown job: ${id}\n`), 2);
     if (st.startsWith("done")) return (out(st + "\n"), 0);
-    if (elapsed >= timeout) return (err(`wait: timed out after ${timeout}s (job still running)\n`), 124);
-    await sleep(interval * 1000);
-    elapsed += interval;
+    if ((Date.now() - start) / 1000 >= timeout) return (err(`wait: timed out after ${timeout}s (job still running)\n`), 124);
+    await sleep(Math.min(gap, interval * 1000));
+    gap = Math.min(gap * 2, 1000);
   }
 }
 

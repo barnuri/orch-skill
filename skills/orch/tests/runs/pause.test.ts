@@ -43,7 +43,7 @@ test("pause, resume, cancel", async () => {
   expect(job.rc).toBe(0);
   expect(nd("later").status).toBe("running");
 
-  const cancel = Bun.spawn(["sleep", "300"]);
+  const cancel = { pid: Number(Bun.spawnSync(["sh", "-c", "sleep 300 >/dev/null 2>&1 </dev/null & echo \$!"]).stdout.toString().trim()) };
   mkdirSync(join(home, "jobs/cancel-job"), { recursive: true });
   writeFileSync(join(home, "jobs/cancel-job/pid"), `${cancel.pid}\n`);
   o("node", "add", "pause-1", "cancel-me", "to cancel");
