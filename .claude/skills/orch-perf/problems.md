@@ -90,3 +90,8 @@ in commits, learnings blocks and tasks. Evidence is from run state, job logs, te
 
 48 problems: 21 FIXED, 20 PARTIAL, 7 OPEN (P2, P3, P9, P21, P32, P36 to P38 overlap with PARTIAL rows; the table is the source of truth).
 Next review: run `bun scripts/orch-perf.ts` and update the status column; add a new `P` row per new problem.
+
+## Added later
+| ID | Problem | Evidence | Root cause | Status |
+|---|---|---|---|---|
+| P49 | The status line showed "orch: 0 running, 181/200 done · 1 monitor" in sessions that were not using orch any more | activity files of 5 unrelated sessions had `active:true`; the herdr pane token `orch` stayed set | `announce` counted every running run, loop and monitor on the machine, not the ones of the session | FIXED: a session is attributed only as coordinator (session id or pane) or node owner; monitors count only for the session's own runs with work running (test `announce/attribution.test.ts`) |

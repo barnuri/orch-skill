@@ -37,3 +37,4 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [ ] P41 dead panels are swept | fixed: - | check: bun test skills/orch/core/adapters/herdr.test.ts
 - [x] P47 no shell fake binaries in test support | fixed: 2026-11-16 819322b | check: test -z "$(find src -name '*.sh' -not -path '*/node_modules/*')"
 - [x] P48 no stale lib/*.sh mentions in docs | fixed: 2026-11-16 819322b | check: ! grep -rq "lib/runs/.*\.sh\|ORCH_LIB_FILES" skills/orch/SKILL.md README.md
+- [x] P49 status line shows orch only for a session that is part of a run | fixed: 2026-11-16 | check: bun test skills/orch/tests/announce/attribution.test.ts
