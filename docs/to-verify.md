@@ -13,7 +13,7 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 - [ ] `bun skills/orch/tests/run.ts` (fast tier) passes in under 30 s; `--full` passes in under 5 minutes (exit 0, or 75 then `--resume` until 0).
 - [ ] No test file takes more than 20 s (`bun scripts/test-bench.ts`, top 10 slowest).
 - [ ] `bun scripts/test-all.ts` passes (bash-free).
-- [ ] No `.sh` file remains except data: `find . -name "*.sh" -not -path "./node_modules/*" -not -path "./.git/*"` is empty (4 fake CLI binaries in `src/server/chats/testing/` were still shell).
+- [ ] No `.sh` file remains except data: `find . -name "*.sh" -not -path "./node_modules/*" -not -path "./.git/*"` is empty (the 4 fake CLI binaries were converted in 819322b; `jobs/<id>/herdr-launch.sh` is a generated runtime file, not a repo file).
 
 ## 2. Bun port parity (the bash oracle is gone)
 - [ ] `run status` wall time under 0.5 s on a seeded home; `node update` under 0.3 s; `node batch` of 10 ops under 0.5 s (measure with the bench, load average noted).

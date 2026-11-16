@@ -32,6 +32,8 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [ ] P23 cards show model, role, tier, effort, cost | fixed: - | check: bun skills/orch/tests/run.ts owner
 - [ ] P26 one worktree per code node | fixed: - | check: test -n "$(git worktree list | grep -c take)"
 - [ ] P34 tests run dispatch.ts with bun | fixed: - | check: ! grep -rq '"bash", DISPATCH' skills/orch/tests
-- [ ] P38 src tests pass | fixed: - | check: ORCH_HERDR=0 bun test --parallel=6 src
+- [ ] P38 src tests pass (9 fixed in 558646b, rerun pending) | fixed: - | check: ORCH_HERDR=0 bun test --parallel=6 src
 - [ ] P40 one tab per node | fixed: - | check: bun test skills/orch/core/adapters/herdr.test.ts
 - [ ] P41 dead panels are swept | fixed: - | check: bun test skills/orch/core/adapters/herdr.test.ts
+- [x] P47 no shell fake binaries in test support | fixed: 2026-11-16 819322b | check: test -z "$(find src -name '*.sh' -not -path '*/node_modules/*')"
+- [x] P48 no stale lib/*.sh mentions in docs | fixed: 2026-11-16 819322b | check: ! grep -rq "lib/runs/.*\.sh\|ORCH_LIB_FILES" skills/orch/SKILL.md README.md
