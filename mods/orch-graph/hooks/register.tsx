@@ -182,7 +182,16 @@ async function autoOpen($: EngineInterface): Promise<void> {
   if (isAutoOpened) return
   isAutoOpened = true
   await refresh($)
-  if (await openHerdrPane($, false)) return
+  // In herdr each agent pane gets one auto-open, remembered on disk: a pane the user closed stays closed
+  // across reloads until `/orch-graph` forces it open.
+  const paneId = await herdrBesidePane($)
+  const home = await $.env.get('HOME')
+  const marker = paneId && home ? `${home}/.cache/herdr-mods/orch-graph/opened-${paneId.replace(/[^\w.-]/g, '_')}` : null
+  if (marker !== null && (await $.fs.read(marker).catch(() => '')) !== '') return
+  if (await openHerdrPane($, false)) {
+    if (marker !== null) await $.fs.write(marker, String(Date.now())).catch(() => undefined)
+    return
+  }
   await $.ui.open({ id: PANE, title: 'orch graph' })
 }
 
