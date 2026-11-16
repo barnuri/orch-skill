@@ -3,6 +3,10 @@
 A single-skill Claude Code plugin. The skill itself lives at `skills/orch/`; everything at the
 repo root is packaging (install + optional service + docs).
 
+## Language: Bun and TypeScript only
+
+All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed, and when it is missing the skill and `doctor` tell the user "orch requires bun (https://bun.sh)". There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
+
 ## Layout
 
 ```
@@ -161,15 +165,25 @@ Use the `verify` skill (browser, herdr and herdr-web checks). Its scripts live i
 ```bash
 bash skills/orch/tests/run.sh              # FAST tier (default, under 30 s): tests/unit/*.test.sh only
 bash skills/orch/tests/run.sh --changed    # fast tier + tests mapped from changed files (git diff + untracked)
-bash skills/orch/tests/run.sh --full       # every skills/orch/tests/<category>/*.test.sh, slowest first
-bash skills/orch/tests/run.sh --budget 300 # stop starting files after 300 s; prints the files left to run
+bash skills/orch/tests/run.sh --full       # every skills/orch/tests/<category>/*.test.sh, slowest first, 300 s budget
+bash skills/orch/tests/run.sh --resume     # after exit 75: run only the files not yet passed
 bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
 bun run test:changed                         # quick local mode: only tests affected by git changes
 bun run test:random                          # --randomize, to expose test-order dependence
+bun run test:budget                          # TypeScript suite in file chunks, 300 s budget (scripts/test-budget.sh)
+bun run test:resume                          # after exit 75: run only the bun files not yet passed
 bun test src/web                             # web alone; passes together with the rest now
 bash scripts/typecheck.sh                    # must print `typecheck: ok`
-bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun)
+bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun); --resume after 75
 ```
+
+**Budget and resume.** Every test call has a hard 5 minute budget. `--budget <s>` (default 300 with
+`--full`) stops starting files when it is used, gives running files 20 s more (`ORCH_TEST_BUDGET_GRACE`),
+then kills them. Each file's result (passed, failed, not_run) goes to `${TMPDIR}/orch-test-progress.json`
+(bun: `orch-bun-test-progress.json`, test-all: `orch-test-all-progress`). The run prints
+`PARTIAL: N of M files, run again with --resume` and exits 75. On exit 75 run `--resume` until it exits
+0 or 1. Never raise the budget. A run that runs every file clears the progress file. Tests:
+`tests/runner/run-budget.test.sh`.
 
 `tests/run.sh` runs each test file as its own job on its own temp homes and merges the tallies. File ids
 are `<category>/<name>`. Pass a name fragment to run matching files only, or `ORCH_TEST_JOBS=1` to go serial.
@@ -186,7 +200,7 @@ pay no process start per assertion. A new lib gets a `tests/unit/<stem>.test.sh`
 `tests/changed-map.txt`. A path with no mapping (docs, config) runs the fast tier only.
 
 **Rules:** run `--changed` after an edit, the fast tier before a commit, and `--full` once, at the final
-gate. Stop any test command at 5 minutes (`timeout 300` or `--budget 300`) and run only the files left.
+gate. On exit 75 resume, never raise the budget. Stop any other test command at 5 minutes (`timeout 300`).
 Use `bun test <file>` for TypeScript. Many agents share this machine: five full suites at
 once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
 `tests/run.sh --full`, `bun run test`) each take a machine-wide heavy-test slot
@@ -217,6 +231,17 @@ real supervisor), `ORCH_CHAT_DISPATCH` (dispatch used by chat turn sessions),
 Status colour comes only from the `--status-*` tokens in `src/snapshot/tokens.css` (e.g. `--status-done`,
 `--status-error`, `--status-stale`, with `-bg`/`-bd` variants). No raw hex in `src/web` or component CSS.
 The blue accent means live / primary action and nothing else; do not use it as a status colour.
+
+**Red means error or failure only.** Red (`--status-error`, `--er`, `--erbg`, `--erbd`, any red hex) marks
+a node or run in error, a failed request, a failed test or invalid input. Nothing else is red: not a
+destructive button (Stop, Cancel, Delete use the amber `--wa` style), not a stalled or unverified flag,
+not a skipped or paused run, not an informational state, not a recording indicator (blue accent). Red is allowed for a destructive confirm
+button only inside a `<dialog>`. `src/web/colour-red.test.ts` fails when a component CSS rule paints red
+on a selector that does not name an error state (scans `src/web` and `src/snapshot`).
+The watchdog pill (`src/web/shell/WatchdogPill.tsx`) is red only for a node the watchdog gave up on
+(rules `infra-retry` and `lost`). `unverified`, `stalled` and any other flag are amber, off is grey, ok is
+green. Watchdog flags clear themselves when their cause is gone (`dropStaleFlags` in
+`src/server/watchdog/watchdog-service.ts`), so a stale flag never stays on the pill.
 Makeover state: direction B "Signal" is applied to the tokens and UI; the commit is pending approval,
 so do not commit or revert it. Sources and prototypes live in `design-system/`.
 
