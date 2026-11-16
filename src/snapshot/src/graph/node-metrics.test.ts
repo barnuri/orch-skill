@@ -140,6 +140,53 @@ describe("durationMetric", () => {
   });
 });
 
+describe("durationMetric with timing stamps", () => {
+  const t = (sec: number): string => new Date(Date.parse("2026-11-15T10:00:00Z") + sec * 1000).toISOString().replace(".000Z", "Z");
+  const timed = (o: Partial<RunNode>): RunNode => node({ started: t(0), finished: t(1000), dispatched_at: t(0), started_at: null, finished_at: null, seg_open: false, run_segments: [], ...o });
+
+  test("queue time is waited, not run time: dispatch at 0, first activity at 30, done at 100", () => {
+    const m = durationMetric(timed({ dispatched_at: t(0), started_at: t(30), finished_at: t(100), run_segments: [{ dispatched: t(0), start: t(30), end: t(100) }] }));
+    expect(m.text).toBe("1m 10s · waited 30s");
+  });
+
+  test("a finished node ignores the legacy started and finished stamps", () => {
+    const m = durationMetric(timed({ started: t(0), finished: t(5000), dispatched_at: t(0), started_at: t(10), finished_at: t(40), run_segments: [{ dispatched: t(0), start: t(10), end: t(40) }] }));
+    expect(m.text).toBe("30s · waited 10s");
+  });
+
+  test("attempts are summed and the run's pauses are left out", () => {
+    const run = { pauses: [{ from: t(60), to: t(80) }] };
+    const m = durationMetric(
+      timed({
+        status: "done",
+        run_segments: [{ dispatched: t(0), start: t(10), end: t(50) }],
+        dispatched_at: t(55),
+        started_at: t(60),
+        finished_at: t(120),
+        seg_open: true,
+      }),
+      run,
+      Date.parse(t(120)),
+    );
+    // 40 s first attempt + (120 - 60 - 20 paused) = 40 s second attempt.
+    expect(m.text).toBe("1m 20s · waited 15s");
+  });
+
+  test("a dispatched node with no activity is starting and ticks its wait", () => {
+    const m = durationMetric(timed({ status: "running", dispatched_at: t(0), started_at: null, seg_open: true, finished: null }), null, Date.parse(t(12)));
+    expect(m.text).toContain("starting");
+    expect(m.text).toContain("waited 12s");
+    expect(m.present).toBe(false);
+  });
+});
+
+describe("runTotals pauses", () => {
+  test("a paused stretch is not run time", () => {
+    const run = { started: "2026-11-15T10:00:00Z", finished: "2026-11-15T10:10:00Z", nodes: [node()], pauses: [{ from: "2026-11-15T10:02:00Z", to: "2026-11-15T10:05:00Z" }] };
+    expect(runTotals(run).duration.text).toBe("7m 0s");
+  });
+});
+
 describe("roleTierText", () => {
   test("joins what is set and is null otherwise", () => {
     expect(roleTierText(node())).toBeNull();

@@ -1,3 +1,4 @@
+import type { TimedRun } from "../../../shared/node-timing";
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { svgEl } from "../dom/el";
@@ -159,7 +160,7 @@ function metricText(metric: Metric, base: string, x: number, y: number, max: num
 }
 
 /** Duration (live while running), role and tier, and usage, under a hairline. Always all drawn. */
-function appendMetrics(group: SVGElement, node: RunNode): void {
+function appendMetrics(group: SVGElement, node: RunNode, run: TimedRun | null): void {
   group.appendChild(
     svgEl("line", {
       class: "metrics-rule",
@@ -169,7 +170,7 @@ function appendMetrics(group: SVGElement, node: RunNode): void {
       y2: String(METRICS_RULE_Y),
     }),
   );
-  const duration = durationMetric(node);
+  const duration = durationMetric(node, run);
   const durationText = metricText(duration, "metric dur", META_LEFT_X, DURATION_Y, META_MAX_CHARS);
   if (duration.liveSince !== null) {
     markLive(durationText, duration.liveSince);
@@ -230,6 +231,7 @@ function nodeGroup(
   harnessByProfile: Record<string, string>,
   maxAttempts: number,
   waitingOn: readonly string[] = [],
+  run: TimedRun | null = null,
 ): SVGElement {
   const label = nodeLabel(node);
   const profile = profileKey(node);
@@ -237,7 +239,7 @@ function nodeGroup(
   const pick = modelPick(node);
   const model = modelMetric(node, META_MAX_CHARS);
   const usage = cardUsageMetric(node);
-  const duration = durationMetric(node);
+  const duration = durationMetric(node, run);
   const attempt = attemptLine(node, maxAttempts);
   const accent = profile !== null ? palette.accent(profile) : "";
   const accentSoft = profile !== null ? palette.soft(profile) : "";
@@ -286,7 +288,7 @@ function nodeGroup(
     title.textContent = `${pick.isExpected ? "expected " : ""}${details.join(" · ")}`;
     group.appendChild(title);
   }
-  appendMetrics(group, node);
+  appendMetrics(group, node, run);
   if (isCyclic) {
     group.appendChild(
       svgText({ class: "cycle", x: String(NODE_W - 8), y: "14", "text-anchor": "end" }, "cycle"),
@@ -377,7 +379,7 @@ export function renderGraph(
     }
     const isCyclic = layout.cyclic.includes(node.id);
     svg.appendChild(
-      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, waitingOnDeps(run, node.id)),
+      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, waitingOnDeps(run, node.id), run),
     );
   }
   return svg;

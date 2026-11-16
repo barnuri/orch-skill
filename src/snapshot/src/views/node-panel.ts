@@ -1,3 +1,4 @@
+import type { TimedRun } from "../../../shared/node-timing";
 import type { NodeCost } from "../../../shared/types/node-cost";
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
@@ -128,7 +129,7 @@ function flagChips(node: RunNode): HTMLElement[] {
   return chips;
 }
 
-function detailList(node: RunNode, maxAttempts: number, waitingOn: readonly string[] = []): HTMLElement {
+function detailList(node: RunNode, maxAttempts: number, waitingOn: readonly string[] = [], run: TimedRun | null = null): HTMLElement {
   const list = el("dl");
   detailRow(list, "id", node.id, "mono");
   detailRow(list, "status", node.status);
@@ -139,7 +140,7 @@ function detailList(node: RunNode, maxAttempts: number, waitingOn: readonly stri
   appendActivityRows(list, node);
   metricRow(list, "model", modelMetric(node), "mono");
   metricRow(list, "actual", actualModelMetric(node), "mono");
-  const duration = durationMetric(node);
+  const duration = durationMetric(node, run);
   const durationRow = metricRow(list, "duration", duration);
   if (duration.liveSince !== null) {
     markLive(durationRow, duration.liveSince);
@@ -307,7 +308,7 @@ export function renderNodePanel(run: RunState, selectedId: string | null, maxAtt
   const grid = el("div", { class: "panel-grid" });
   const details = el("div", { class: "panel-details" });
   details.appendChild(modelBlock(node));
-  details.appendChild(detailList(node, maxAttempts, waitingOnDeps(run, node.id)));
+  details.appendChild(detailList(node, maxAttempts, waitingOnDeps(run, node.id), run));
   const attempts = attemptsHistory(node);
   if (attempts !== null) {
     details.appendChild(attempts);

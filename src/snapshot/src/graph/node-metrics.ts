@@ -1,3 +1,5 @@
+import { hasTiming, nodeTiming, pauseSpans } from "../../../shared/node-timing";
+import type { TimedRun } from "../../../shared/node-timing";
 import { nodeUsage, runUsage } from "../../../shared/run-usage";
 import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
@@ -108,12 +110,30 @@ export function usageMetric(node: RunNode): Metric {
   return { text: NO_USAGE_TEXT, present: false, title: `${inlineReason(node)}: no usage was reported` };
 }
 
+export const STARTING_TEXT = "◷ starting";
+const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
+
+function fmtSpan(ms: number): string {
+  return fmtDur(EPOCH_ISO, new Date(Math.max(0, ms)).toISOString());
+}
+
+/** `waited 12s`, the queue time between dispatch and the first real activity. */
+export function waitedText(waitedMs: number): string {
+  return `waited ${fmtSpan(waitedMs)}`;
+}
+
 /**
  * Elapsed time. Running nodes carry `liveSince` so the caller can tick them; waiting nodes read
  * "not started"; a finished node with no start stamp says so rather than showing a blank.
+ * A node with timing fields (`dispatched_at`, `started_at`, ...) shows real run time: summed over
+ * attempts, minus the run's paused and stopped stretches, with queue time as `waited Ns`. Only a node
+ * written before those fields existed falls back to `started` and `finished`.
  */
-export function durationMetric(node: RunNode): DurationMetric {
+export function durationMetric(node: RunNode, run?: TimedRun | null, nowMs: number = Date.now()): DurationMetric {
   const { status, started, finished } = node;
+  if (hasTiming(node)) {
+    return timedDuration(node, run, nowMs);
+  }
   if (status === "running" && started !== null) {
     return { text: fmtDur(started), present: true, liveSince: started, title: `running since ${started}` };
   }
@@ -129,6 +149,37 @@ export function durationMetric(node: RunNode): DurationMetric {
   }
   const inline = node.job_id === null ? "; ran inline, so this is the time between its node update calls" : "";
   return { text: fmtDur(started, finished), present: true, liveSince: null, title: `${started} to ${finished}${inline}` };
+}
+
+function timedDuration(node: RunNode, run: TimedRun | null | undefined, nowMs: number): DurationMetric {
+  const t = nodeTiming(node, run, nowMs);
+  const waited = t.waitedMs >= 1000 ? waitedText(t.waitedMs) : null;
+  const span = `dispatched ${node.dispatched_at ?? "—"}, started ${node.started_at ?? "—"}, finished ${node.finished_at ?? "—"}`;
+  if (t.phase === "starting") {
+    return {
+      text: `${STARTING_TEXT} · ${waitedText(t.waitedMs)}`,
+      present: false,
+      liveSince: t.waitingSince,
+      title: `dispatched ${node.dispatched_at ?? ""}, no real activity yet (no owner event, session or job-log growth, or ping)`,
+    };
+  }
+  if (t.runMs === null) {
+    if (node.status === "waiting" || node.status === "skipped") {
+      return { text: NOT_STARTED_TEXT, present: false, liveSince: null, title: node.status === "waiting" ? "waiting for its dependencies or dispatch" : "skipped before it started" };
+    }
+    return { text: "—", present: false, liveSince: null, title: `no real start time was recorded for this node (${span})` };
+  }
+  const text = waited === null ? fmtSpan(t.runMs) : `${fmtSpan(t.runMs)} · ${waited}`;
+  const attempts = (node.run_segments ?? []).length + (node.seg_open === true ? 1 : 0);
+  const sum = attempts > 1 ? `, summed over ${attempts} attempts` : "";
+  // The ticking clock counts one stretch from started_at; with earlier attempts or pauses the sum is not that stretch.
+  const ticks = (node.run_segments ?? []).length === 0 && pauseSpans(run, nowMs).length === 0;
+  return {
+    text,
+    present: true,
+    liveSince: ticks ? t.liveSince : null,
+    title: `ran ${fmtSpan(t.runMs)}${sum}, paused and stopped time left out${waited === null ? "" : `; ${waited} before it started`}\n${span}`,
+  };
 }
 
 export const NO_ROLE_TEXT = "role —";
@@ -179,15 +230,26 @@ export interface RunTotals {
   total: number;
 }
 
-export function runTotals(run: Pick<RunState, "started" | "finished" | "nodes">): RunTotals {
+export function runTotals(run: Pick<RunState, "started" | "finished" | "nodes"> & TimedRun, nowMs: number = Date.now()): RunTotals {
   const usage = runUsage(run.nodes);
   const done = run.nodes.filter((node) => node.status === "done").length;
   const live = run.finished === null || run.finished === undefined;
+  const from = Date.parse(run.started);
+  const to = live ? nowMs : Date.parse(run.finished ?? "");
+  let pausedMs = 0;
+  for (const [a, b] of pauseSpans(run, nowMs)) {
+    const lo = Math.max(a, from);
+    const hi = Math.min(b, to);
+    pausedMs += hi > lo ? hi - lo : 0;
+  }
+  const spanMs = to - from;
+  const text = Number.isNaN(spanMs) || spanMs < 0 ? fmtDur(null) : fmtSpan(spanMs - pausedMs);
+  const paused = pausedMs >= 1000 ? `; ${fmtSpan(pausedMs)} paused or stopped, left out` : "";
   const duration: DurationMetric = {
-    text: fmtDur(run.started, run.finished ?? undefined),
+    text,
     present: true,
-    liveSince: live ? run.started : null,
-    title: live ? `running since ${run.started}` : `${run.started} to ${run.finished}`,
+    liveSince: live && pausedMs === 0 ? run.started : null,
+    title: `${live ? `running since ${run.started}` : `${run.started} to ${run.finished}`}${paused}`,
   };
   return { duration, usage: usageTotalMetric(usage), done, total: run.nodes.length };
 }
