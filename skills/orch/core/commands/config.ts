@@ -109,7 +109,7 @@ async function probeOne(home: string, name: string): Promise<Row> {
   const rc = await proc.exited;
   return {
     profile: name, ok: rc === 0, status: rc === 0 ? "ok" : "failed", ms: Date.now() - start, harness, model_id: modelId, slug,
-    exit_code: rc, bytes: Buffer.byteLength(o), error: e,
+    exit_code: rc, bytes: Buffer.byteLength(o.replace(/\n+$/, "")), error: e,
   };
 }
 

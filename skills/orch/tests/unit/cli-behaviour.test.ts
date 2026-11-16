@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { orch, seedHome, tempHome, tempDir, fakeBin, editJson, readJson, readText, runState, nodeOf, events, ndjson, writeJson, autoCleanup } from "../helpers";
 autoCleanup();
@@ -9,7 +9,7 @@ test("harness, profile pick, model list, profile sanity", () => {
   expect(o("harness").rc).toBe(2);
   expect(o("harness", "list", "--bogus").rc).toBe(2);
   const bin = fakeBin({ opencode: "exit 0" });
-  const out = JSON.parse(orch(home, { ORCH_BIN_DIRS: bin, PATH: "/usr/bin:/bin" })("harness", "list", "--json").out);
+  const out = JSON.parse(orch(home, { ORCH_BIN_DIRS: bin, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` })("harness", "list", "--json").out);
   expect(out.harnesses.map((h: any) => h.id).slice(0, 6).join(" ")).toBe("claude cursor-agent opencode local-llm copilot pi");
   expect(out.harnesses.find((h: any) => h.id === "opencode").available).toBe(true);
   expect(o("profile", "pick").rc).toBe(2);
@@ -22,7 +22,7 @@ test("harness, profile pick, model list, profile sanity", () => {
       "p-cop": { harness: "copilot" }, "p-bad": { harness: "nope" }, "p-auth": { harness: "claude", auth: ["ORCH_T_TOKEN"] }, "p-off": { harness: "claude", enabled: false } };
   });
   const oo = orch(home, { CLAUDE_USAGE_SNAPSHOT: "/nonexistent/usage-snapshot.json" });
-  expect(oo("model", "list", "--harness", "opencode").out).toMatch(/^m-gw\tgw\/lfm\nm-oc\toc\/model/);
+  expect(oo("model", "list", "--harness", "opencode").out).toMatch(/^m-gw\tgw\/lfm\t*\nm-oc\toc\/model/);
   expect(oo("model", "list", "--bogus").rc).toBe(2);
   expect(oo("model", "list", "--profile", "p-allow").out.split("\n").filter(Boolean).map((l) => l.split("\t")[0]).join(" ")).toBe("m-opus m-gw");
   expect(oo("model", "list", "--profile", "p-claude").out.split("\n").filter(Boolean).map((l) => l.split("\t")[0]).join(" ")).toBe("m-sonnet m-opus m-gw");
