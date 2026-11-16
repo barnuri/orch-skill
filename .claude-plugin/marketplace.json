@@ -4,7 +4,7 @@
     "name": "barnuri"
   },
   "metadata": {
-    "description": "orch — route agent work across Claude Code, cursor-agent, opencode and local OpenAI-compatible models, run multi-node DAGs in the background, and watch them on a live dashboard",
+    "description": "orch \u2014 route agent work across Claude Code, cursor-agent, opencode and local OpenAI-compatible models, run multi-node DAGs in the background, and watch them on a live dashboard",
     "version": "1.0.0"
   },
   "plugins": [
@@ -14,7 +14,9 @@
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/orch"
+        "./skills/orch",
+        "./skills/unorch",
+        "./skills/verify"
       ]
     }
   ]
