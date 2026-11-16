@@ -106,4 +106,8 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE attachments ADD COLUMN queue_id TEXT;
   CREATE INDEX attachments_queue ON attachments(queue_id);
   `,
+  `
+  ALTER TABLE messages ADD COLUMN selected_effort TEXT;
+  ALTER TABLE messages ADD COLUMN selected_model TEXT;
+  `,
 ];

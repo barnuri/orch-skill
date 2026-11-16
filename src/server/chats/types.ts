@@ -30,6 +30,9 @@ export interface MessageRow {
   warning: string | null;
   /** JSON array of typed parts (src/shared/chat-parts.ts); null for rows written before parts existed: render `content`. */
   parts: string | null;
+  /** Effort and model the hub recorded for this reply (`/api/smart-auto/history`); null when unknown. */
+  selected_effort: string | null;
+  selected_model: string | null;
 }
 
 export interface AttachmentRow {

@@ -41,6 +41,8 @@ function Footer({ message, now, fallbackModel, onRegenerate }: { message: Messag
       ) : fallbackModel !== undefined ? (
         <span className="msg-meta mono" data-testid="msg-model" title="The agent reported no model: this is the one the chat is set to">{fallbackModel}</span>
       ) : null}
+      {message.selected_effort ? <span className="msg-meta mono" data-testid="msg-effort" title="Effort the hub recorded for this reply">effort {message.selected_effort}</span> : null}
+      {message.selected_model ? <span className="msg-meta mono" data-testid="msg-selected-model" title="Model the hub recorded as selected">hub {message.selected_model}</span> : null}
       {ms !== null ? <span className="msg-meta mono" data-testid="msg-duration">{formatDuration(ms)}</span> : null}
       {tokens !== null ? <span className="msg-meta mono">{tokens}</span> : null}
       {message.cost_usd !== null ? <span className="msg-meta mono">{fmtUsd(message.cost_usd)}</span> : null}

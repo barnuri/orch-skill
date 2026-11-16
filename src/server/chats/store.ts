@@ -226,6 +226,7 @@ export class ChatStore {
       error: input.error ?? null, model_used: input.model_used ?? null, input_tokens: 0, output_tokens: 0, cost_usd: null,
       started_at: input.status === "streaming" ? stamp : null, finished_at: input.status === "done" ? stamp : null, created_at: stamp,
       context_truncated: 0, warning: null, parts: input.parts === undefined ? null : JSON.stringify(input.parts),
+      selected_effort: null, selected_model: null,
     };
     this.db.query(
       `INSERT INTO messages (id, chat_id, role, content, status, error, model_used, input_tokens, output_tokens, cost_usd, started_at, finished_at, created_at, parts)
@@ -268,6 +269,11 @@ export class ChatStore {
 
   appendContent(id: string, text: string): void {
     this.db.query("UPDATE messages SET content = content || ? WHERE id = ?").run(text, id);
+  }
+
+  /** Stores what the hub reported for a reply. Null leaves a field unknown. */
+  setSelection(id: string, selection: { effort: string | null; model: string | null }): void {
+    this.db.query("UPDATE messages SET selected_effort = ?, selected_model = ? WHERE id = ?").run(selection.effort, selection.model, id);
   }
 
   finalizeMessage(id: string, fin: { status: "done" | "error" | "stopped"; error?: string | null; model_used?: string | null; input_tokens?: number; output_tokens?: number; cost_usd?: number | null; context_truncated?: boolean; warning?: string | null }): MessageRow | null {

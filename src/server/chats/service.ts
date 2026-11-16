@@ -30,6 +30,7 @@ import type { ArtifactEvent } from "../../shared/artifacts";
 import { BrowserProfiles, browserEnv, ensureProfile, primaryForCwd } from "./browser-profile";
 import { AUTOMATION_INSTRUCTION } from "../../shared/chat-automation";
 import { indexRemove, indexUpsert, instructionBlock, memoryFingerprint, type Scope, Workspace } from "./workspace";
+import { hubAdmin, hubSelection, hubWorkerId } from "./hub-selection";
 
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -1059,6 +1060,9 @@ export class ChatService {
     this.artifactTurnEnd(chat);
     this.emit(chat.id, { event: "done", id: `${id}.${final.content.length}`, data: { message_id: id, status: final.status, error: final.error, context_truncated: final.context_truncated === 1, warning: final.warning } });
     this.emit(chat.id, { event: "status", data: { chat_id: chat.id, status: this.idleStatus(chat.id) } });
+    if (chat.harness === "claude" && final.status === "done") {
+      void this.recordHubSelection(chat.id, id);
+    }
     try {
       this.queue.turnEnded(chat.id, final.status === "done" ? "done" : final.status === "stopped" ? "stopped" : "error");
     } catch (err) {
@@ -1067,6 +1071,23 @@ export class ChatService {
   }
 
   // ---- live events ----
+
+  /** Reads the effort and model the hub used for a reply and stores them on it; the footer updates from the `message` event. */
+  private async recordHubSelection(chatId: string, messageId: string): Promise<void> {
+    const admin = hubAdmin(this.ctx.paths.home);
+    if (admin === null) {
+      return;
+    }
+    const selection = await hubSelection(admin, hubWorkerId(chatId, messageId));
+    if (selection === null) {
+      return;
+    }
+    this.store.setSelection(messageId, selection);
+    const row = this.store.getMessage(messageId);
+    if (row !== null) {
+      this.emitRow(chatId, row);
+    }
+  }
 
   private emitRow(chatId: string, row: MessageRow): void {
     this.emit(chatId, { event: "message", id: `${row.id}.${row.content.length}`, data: { message: { ...row, parts: parseParts(row.parts), attachments: [] } } });

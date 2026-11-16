@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Launch } from "../options";
 import { startTurn, type TurnMeta, type TurnParser, type TurnPaths, TurnHandle, turnEvents } from "./turn-files";
 import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
+import { hubWorkerHeaders } from "../hub-selection";
 
 
 function summarize(input: unknown): string {
@@ -176,6 +177,15 @@ export class ClaudeSession implements AgentSession {
     return args;
   }
 
+  /** The process env of one turn; the hub gets the reply's worker id so it can report the effort and model used. */
+  private turnEnv(messageId: string | undefined): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...process.env, ...this.launch.env };
+    if (messageId !== undefined) {
+      env.ANTHROPIC_CUSTOM_HEADERS = hubWorkerHeaders(this.params.chatId, messageId, env.ANTHROPIC_CUSTOM_HEADERS);
+    }
+    return env;
+  }
+
   async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
     const signal = this.handle.begin();
     const line = `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: withLanguageHint(withAttachments(prompt, attachments)) }] } })}\n`;
@@ -183,7 +193,7 @@ export class ClaudeSession implements AgentSession {
     try {
       started = startTurn({
         home: this.params.home, id: turn?.messageId ?? `t-${crypto.randomUUID()}`, cmd: [this.bin, ...this.args()], cwd: this.params.cwd,
-        env: { ...process.env, ...this.launch.env }, stdin: line,
+        env: this.turnEnv(turn?.messageId), stdin: line,
         meta: { harness: this.params.harness, parser: "claude", session_id: this.sessionId, chat_id: this.params.chatId, message_id: turn?.messageId ?? "", model: this.launch.modelSlug || null },
       });
     } catch (err) {

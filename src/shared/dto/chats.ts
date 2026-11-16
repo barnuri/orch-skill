@@ -357,6 +357,12 @@ export class MessageDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "Model the agent reported using." })
   model_used!: string | null;
 
+  @ZodField(z.string().nullable().optional(), { description: "Effort the hub recorded for this reply (low, medium, high, max or a provider word). Null when unknown or the hub could not be asked." })
+  selected_effort?: string | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Model the hub recorded as selected for this reply. Null when unknown." })
+  selected_model?: string | null;
+
   @ZodField(z.number().int(), { description: "Input tokens of the reply, 0 when not reported." })
   input_tokens!: number;
 
