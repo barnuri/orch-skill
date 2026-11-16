@@ -11,6 +11,7 @@ import { loadProfilesDoc } from "../state/settings.ts";
 import { archiveAttempt, ev, findNode, OpError, setStatus, SMART_AUTO_TIERS } from "../runs/node.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
+import { pauseGuard } from "./pause.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
 export const NODE_RETRY_USAGE = "dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]";
@@ -189,6 +190,8 @@ export async function nodeDispatch(args: string[]): Promise<number> {
   const home = orchHome();
   const runId = await resolveRun(home, runArg);
   if (runId === null) return 1;
+  const guard = await pauseGuard(home, runId, true);
+  if (guard !== 0) return guard;
   const force = args.slice(2).includes("--force");
   const rest = args.slice(2).filter((a) => a !== "--force");
   if (rest.length === 0) {

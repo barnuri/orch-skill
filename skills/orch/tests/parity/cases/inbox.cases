@@ -15,3 +15,29 @@ node inbox nope n1
 node inbox nope n1 --json
 node inbox nope n1 --peek
 node inbox nope n1 --ack m1
+node answer
+node answer nope n1 hello
+node cancel
+node cancel nope n1
+run messages
+run messages nope
+run broadcast
+run broadcast nope hello
+run rule
+run rule add nope hello
+run rule list nope
+run repoint
+run repoint nope /tmp/s p1
+run pause
+run pause nope
+run resume
+run resume nope
+run stop
+run stop nope
+run set
+run set nope auto_dispatch maybe
+run set nope coordinator
+run health
+run health nope
+run health nope --json
+run guard nope

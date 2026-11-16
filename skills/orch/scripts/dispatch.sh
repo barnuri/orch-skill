@@ -273,8 +273,8 @@ NODE_STARTED_USAGE="node started <run-id> <node-id> [--at ISO] [--source S]"
 RUN_BACKFILL_TIMING_USAGE="run backfill-timing [<run-id>]"
 RUN_WAIT_USAGE='dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]'
 ORCH_LIB_FILES="core/config
-  runs/health runs/inbox core/locks
-  runs/pause runs/plan adapters/profile-sanity adapters/routing
+  core/locks
+  runs/plan adapters/profile-sanity adapters/routing
   runs/timing"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
@@ -283,6 +283,17 @@ for lib_file in $ORCH_LIB_FILES; do
   . "$lib_file"
 done
 
+
+# pause/inbox/health live in core/commands/*.ts. Shims for the bash that still calls the old functions.
+RUN_HEALTH_USAGE='dispatch.sh run health <run-id> [--json] [--nudge] | run health --ensure-monitors'
+RUN_RESUME_USAGE="dispatch.sh run resume <run-id> [--stopped]"
+_orch_util() { "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" run-util "$@"; }
+pause_guard() { _orch_util guard "${1:-}"; }
+run_is_paused() { _orch_util paused "${1:-}"; }
+run_is_stopped() { _orch_util stopped "${1:-}"; }
+coordinator_auto_record() { _orch_util auto-record "${1:-}"; }
+health_monitor_autostart() { _orch_util monitor-autostart "${1:-}"; }
+coord_sweep() { _orch_util sweep "${1:-}"; }
 
 # herdr lives in core/adapters/herdr.ts. These thin wrappers keep the bash call sites working.
 HERDR_PID_WAIT_SECS=15
@@ -618,6 +629,9 @@ PORTED_COMMANDS=(
   "node tell"
   "node ask"
   "node inbox"
+  "node answer" "node cancel"
+  "run messages" "run broadcast" "run rule" "run repoint"
+  "run pause" "run resume" "run stop" "run set" "run guard" "run health"
   "node update"
   "node add"
   "node report"

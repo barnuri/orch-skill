@@ -1,7 +1,9 @@
 // orch CLI entry: argv parse, command table, exit codes. Bun built-ins only, no npm imports.
 // Importing this module has no side effects; main() runs only when executed directly.
 
-import { cmdNodeTell, cmdNodeAsk, cmdNodeInbox } from "./commands/inbox.ts";
+import { cmdNodeTell, cmdNodeAsk, cmdNodeInbox, cmdNodeAnswer, cmdRunMessages, cmdRunBroadcast, cmdRunRule, cmdRunRepoint } from "./commands/inbox.ts";
+import { runPause, runResume, runStop, runSet, runGuard, nodeCancel, runUtil } from "./commands/pause.ts";
+import { runHealth } from "./commands/health.ts";
 import { nodeAdd, nodeUpdate, nodeReport } from "./commands/node.ts";
 import { runWait } from "./commands/wait.ts";
 import { nodeStarted, runBackfillTiming } from "./commands/timing.ts";
@@ -51,6 +53,18 @@ export const COMMANDS: Record<string, Handler> = {
   "node tell": cmdNodeTell,
   "node ask": cmdNodeAsk,
   "node inbox": cmdNodeInbox,
+  "node answer": cmdNodeAnswer,
+  "node cancel": nodeCancel,
+  "run messages": cmdRunMessages,
+  "run broadcast": cmdRunBroadcast,
+  "run rule": cmdRunRule,
+  "run repoint": cmdRunRepoint,
+  "run pause": runPause,
+  "run resume": runResume,
+  "run stop": runStop,
+  "run set": runSet,
+  "run guard": runGuard,
+  "run health": runHealth,
   "node add": nodeAdd,
   "node update": nodeUpdate,
   "node report": nodeReport,
@@ -149,6 +163,7 @@ export async function main(argv: string[], opts: { direct?: boolean } = {}): Pro
     const rest = argv.slice(1);
     return words[0] === "start" ? cmdStart(rest) : cmdRun(rest);
   }
+  if (words[0] === "run-util") return runUtil(argv.slice(1));
   if (words[0] === "adapter-util") return adapterUtil(argv.slice(1));
   if (words[0] === "job-run") return cmdJobRun(argv.slice(1));
   // Single-word commands take every later argument, so `announce --run <id>` is not read as a verb.
