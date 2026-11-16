@@ -102,3 +102,11 @@ main:has(.run-page) { max-width: none; }
 .node-health-item .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .node-health-id { font-size: var(--fs-meta); }
 .run-health { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.run-state-notice { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: baseline; }
+.run-state-notice.paused { border-color: var(--status-waiting); color: var(--status-waiting); background: var(--status-waiting-bg); }
+.run-state-notice.stopped { border-color: var(--status-stale); color: var(--status-stale); background: var(--status-stale-bg); }
+.run-banner-error { border-color: var(--status-error-bd); color: var(--status-error); background: var(--status-error-bg); }
+.run-banner-list { list-style: none; margin: var(--s2) 0 0; padding: 0; display: grid; gap: var(--s2); }
+.run-long-banner { border-color: var(--status-stale-bd); color: var(--status-stale); background: var(--status-stale-bg); }
+.run-long-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; color: var(--tx); }
+.run-long-row .btn { margin-left: 0; }

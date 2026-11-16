@@ -15,4 +15,7 @@ export interface RunState {
   plan?: RunPlan | null;
   /** Set by `dispatch.sh run stop`: never auto-resumes; the run page Resume button resumes it. */
   stopped?: boolean;
+  /** Set by `dispatch.sh run pause`: starts no node until `run resume`. */
+  paused?: boolean;
+  paused_at?: string | null;
 }

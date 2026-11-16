@@ -108,6 +108,14 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/resume`, okSchema);
   }
 
+  pauseRun(id: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/pause`, okSchema);
+  }
+
+  cancelNode(runId: string, nodeId: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/cancel`, okSchema);
+  }
+
   retryRun(id: string): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/retry`, okSchema);
   }

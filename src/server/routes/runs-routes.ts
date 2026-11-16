@@ -95,6 +95,23 @@ export function stopRunHandler(ctx: ServerContext): RouteHandler {
   return runVerbHandler(ctx, "stop");
 }
 
+/** Pauses a run: `run pause <id>`. The run starts nothing new until it is resumed. */
+export function pauseRunHandler(ctx: ServerContext): RouteHandler {
+  return runVerbHandler(ctx, "pause");
+}
+
+/** Cancels one running node: `node cancel <id> <node>`. Other nodes and the run are not touched. */
+export function cancelNodeHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
+    const runId = params.id ?? "";
+    const nodeId = params.node ?? "";
+    if (runId === "" || nodeId === "") {
+      return jsonResponse(400, { error: "missing run or node id" });
+    }
+    return dispatchSubcommand(ctx, ["node", "cancel", runId, nodeId]);
+  };
+}
+
 /** The user path that resumes a stopped run: `run resume <id> --stopped`. */
 export function resumeRunHandler(ctx: ServerContext): RouteHandler {
   return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {

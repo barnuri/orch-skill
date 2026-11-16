@@ -2,11 +2,13 @@ import { Controller, Get, Param, Post, Query, Response as ResponseSchema } from 
 
 import type { RouteHandler } from "../../http/route";
 import {
+  cancelNodeHandler,
   listRunsHandler,
   readJobChatHandler,
   readJobLogHandler,
   readNodeActivityHandler,
   readRunEventsHandler,
+  pauseRunHandler,
   readRunHandler,
   retryNodeHandler,
   resumeRunHandler,
@@ -25,6 +27,8 @@ export class RunsController {
   private readonly read: RouteHandler;
   private readonly retry: RouteHandler;
   private readonly stop: RouteHandler;
+  private readonly pause: RouteHandler;
+  private readonly cancelNode: RouteHandler;
   private readonly resume: RouteHandler;
   private readonly retryNode: RouteHandler;
   private readonly jobLog: RouteHandler;
@@ -37,6 +41,8 @@ export class RunsController {
     this.read = readRunHandler(ctx);
     this.retry = retryRunHandler(ctx);
     this.stop = stopRunHandler(ctx);
+    this.pause = pauseRunHandler(ctx);
+    this.cancelNode = cancelNodeHandler(ctx);
     this.resume = resumeRunHandler(ctx);
     this.retryNode = retryNodeHandler(ctx);
     this.jobLog = readJobLogHandler(ctx);
@@ -111,6 +117,17 @@ export class RunsController {
     return call(this.stop, c);
   }
 
+  @Post("/runs/{id}/pause", {
+    summary: "Pause a run",
+    description: "Runs `run pause <id>`: sets `paused: true`. A paused run starts no node until it is resumed. Its running nodes are re-dispatched by resume when their process is gone.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Paused." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
+  pause_(c: ApiContext): Promise<Response> {
+    return call(this.pause, c);
+  }
+
   @Post("/runs/{id}/resume", {
     summary: "Resume a stopped run",
     description: "Runs `run resume <id> --stopped`: clears `stopped` and re-dispatches the stopped nodes with their sessions.",
@@ -120,6 +137,17 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   resume_(c: ApiContext): Promise<Response> {
     return call(this.resume, c);
+  }
+
+  @Post("/runs/{id}/nodes/{node}/cancel", {
+    summary: "Cancel one node",
+    description: "Runs `node cancel <id> <node>`: kills the node's running job and marks only that node `stopped`. The CLI refuses a node that is not running.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Cancelled." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node." })
+  cancelNode_(c: ApiContext): Promise<Response> {
+    return call(this.cancelNode, c);
   }
 
   @Post("/runs/{id}/nodes/{node}/retry", {

@@ -1,5 +1,5 @@
 import "./runs.css";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NodeStatus } from "../../shared/types/node-status";
 import type { RunState } from "../../shared/types/run-state";
 import { api } from "../api/client";
@@ -20,6 +20,8 @@ import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth } from "./queries";
 import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
 import { refetchRun } from "./run-actions";
+import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
+import { FailureBanner, LongRunningBanner, RunStateNotice } from "./RunAttention";
 import { useNow } from "./use-now";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
@@ -74,12 +76,25 @@ function RunMeta({ run, events }: { run: RunState; events: readonly RunEvent[] }
 function RunActions({ run }: { run: RunState }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [busy, setBusy] = useState<"retry" | "stop" | "resume" | null>(null);
+  const [busy, setBusy] = useState<"retry" | "stop" | "pause" | "resume" | null>(null);
   const hasFailed = run.nodes.some((node) => node.status === "error");
   const stopped = run.stopped === true;
-  if (!hasFailed && run.status !== "running" && !stopped) {
+  const paused = run.paused === true;
+  if (!hasFailed && run.status !== "running" && !stopped && !paused) {
     return null;
   }
+  const pause = (): void => {
+    setBusy("pause");
+    void api.pauseRun(run.run_id).then((result) => {
+      setBusy(null);
+      if (result.kind === "ok") {
+        toast("ok", "Run paused");
+        void refetchRun(run.run_id);
+      } else {
+        toast("error", describeFailure(result, "Pause failed"));
+      }
+    });
+  };
   const resume = (): void => {
     setBusy("resume");
     void api.resumeRun(run.run_id).then((result) => {
@@ -132,9 +147,14 @@ function RunActions({ run }: { run: RunState }) {
           Retry failed nodes
         </button>
       ) : null}
-      {stopped ? (
+      {stopped || paused ? (
         <button className="btn primary" type="button" disabled={busy === "resume"} onClick={resume}>
           Resume
+        </button>
+      ) : null}
+      {run.status === "running" && !stopped && !paused ? (
+        <button className="btn" type="button" disabled={busy === "pause"} onClick={pause}>
+          Pause
         </button>
       ) : null}
       {run.status === "running" && !stopped ? (
@@ -159,6 +179,16 @@ function RunBody({ run }: { run: RunState }) {
   const [flash, setFlash] = useState(0);
   const events = useRunEvents(run.run_id);
   const health = useRunHealth(run.run_id, run.status === "running");
+  const toast = useToast();
+  const lastSnapshot = useRef<RunSnapshot | null>(null);
+  const nowMs = useNow(run.nodes.some((node) => node.status === "running"));
+  useEffect(() => {
+    const next = snapshotRun(run);
+    for (const change of describeChanges(lastSnapshot.current, next)) {
+      toast(change.kind, change.text);
+    }
+    lastSnapshot.current = next;
+  }, [run, toast]);
   return (
     <div className="run-page">
       <div className="run-page-header">
@@ -171,6 +201,9 @@ function RunBody({ run }: { run: RunState }) {
           <RunActions run={run} />
         </div>
         <RunMeta run={run} events={events} />
+        <RunStateNotice run={run} />
+        <FailureBanner run={run} />
+        <LongRunningBanner run={run} nowMs={nowMs} />
         <StaleBanner run={run} />
         <ReadyNotice health={health} />
         <NodeHealthStrip
