@@ -28,7 +28,7 @@ you ──▶ your agent ──┬──▶ claude       (subscription, or via a
 |---|---|
 | Everything | `bash` + coreutils |
 | Installing the skill | the [`claude` CLI](https://docs.claude.com/en/docs/claude-code) |
-| The dashboard | [Bun](https://bun.sh) 1.3+ (`ORCH_BUN` overrides the binary) |
+| The orch CLI and dashboard | [Bun](https://bun.sh) 1.2+ (required, no fallback; `ORCH_BUN` overrides the binary). Install: `curl -fsSL https://bun.sh/install \| bash`. `dispatch.sh doctor` prints the bun version and home path. |
 | `local-llm` adapter, budget check | `curl` and `jq` |
 | Recoverable deletes | `trash` (optional — falls back to a timestamped move) |
 | Each adapter | that harness's own CLI on `PATH` (`claude`, `cursor-agent`, `opencode`) |

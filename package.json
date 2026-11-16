@@ -6,6 +6,8 @@
   "scripts": {
     "test": "ORCH_HERDR=0 bash scripts/heavy-test-lock.sh run -- bun test --timeout 300000 --parallel=6 --retry=1 --timings=${TMPDIR:-/tmp}/orch-bun-test-timings.json --update-timings src",
     "test:fast": "bash scripts/test-fast.sh",
+    "test:budget": "bash scripts/test-budget.sh",
+    "test:resume": "bash scripts/test-budget.sh --resume",
     "test:random": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --randomize src",
     "test:changed": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --changed src",
     "test:bash": "bash skills/orch/tests/run.sh",

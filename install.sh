@@ -428,7 +428,7 @@ EOF
 check_bun() {
   local bun_bin="${ORCH_BUN:-bun}" ver major minor
   if ! command -v "$bun_bin" >/dev/null 2>&1; then
-    printf 'install: bun not found. Install it with:\n  curl -fsSL https://bun.sh/install | bash\n' >&2
+    printf 'orch needs bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again\n' >&2
     return 1
   fi
   ver=$("$bun_bin" --version 2>/dev/null) || ver=""

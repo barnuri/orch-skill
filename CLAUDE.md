@@ -5,7 +5,7 @@ repo root is packaging (install + optional service + docs).
 
 ## Language: Bun and TypeScript only
 
-All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed, and when it is missing the skill and `doctor` tell the user "orch requires bun (https://bun.sh)". There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
+All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed. When it is missing, `dispatch.sh` exits 127 with "orch needs bun: install it from https://bun.sh (...)", `install.sh` refuses to install, and SKILL.md Step 0 tells the user the same. `dispatch.sh doctor` prints the bun version, home path and herdr availability. There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
 
 ## Layout
 
