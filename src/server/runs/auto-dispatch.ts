@@ -291,8 +291,11 @@ export class RunEngine {
       const claims = join(engineDir(this.home, runId), "claims");
       mkdirSync(claims, { recursive: true });
       const claim = join(claims, `${d.node}@${(node?.attempts ?? []).length}`);
-      if (!claimOnce(claim, { run: runId, node: d.node, profile: d.profile, claimed_at: this.now().toISOString() })) {
-        continue;
+      const updated = String((node as { updated?: string } | undefined)?.updated ?? "");
+      if (!claimOnce(claim, { run: runId, node: d.node, profile: d.profile, claimed_at: this.now().toISOString(), node_updated: updated })) {
+        if (!this.releaseReset(claim, updated) || !claimOnce(claim, { run: runId, node: d.node, profile: d.profile, claimed_at: this.now().toISOString(), node_updated: updated })) {
+          continue;
+        }
       }
       this.lastSkip.delete(key);
       this.log(`start ${runId} ${d.node} --profile ${d.profile}`);
@@ -305,6 +308,29 @@ export class RunEngine {
         .catch((err: unknown) => this.releaseFailed(runId, d.node, claim, err instanceof Error ? err.message : String(err)))
         .finally(() => this.inflight.delete(p));
       this.inflight.add(p);
+    }
+  }
+
+  /** A node set back to waiting by hand (its `updated` stamp moved since the claim) frees its claim, kept as `.reset-<n>`. */
+  private releaseReset(claim: string, updated: string): boolean {
+    let stamp: unknown;
+    try {
+      stamp = (JSON.parse(readFileSync(claim, "utf8")) as { node_updated?: unknown }).node_updated;
+    } catch {
+      return false;
+    }
+    if (typeof stamp !== "string" || stamp === updated) {
+      return false;
+    }
+    for (let i = 1; ; i++) {
+      if (!existsSync(`${claim}.reset-${i}`)) {
+        try {
+          renameSync(claim, `${claim}.reset-${i}`);
+          return true;
+        } catch {
+          return false;
+        }
+      }
     }
   }
 

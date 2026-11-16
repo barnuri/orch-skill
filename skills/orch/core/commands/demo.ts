@@ -7,7 +7,7 @@ import { env, err, home as ioHome, out } from "../io.ts";
 import { nowIso } from "../state/clock.ts";
 import { loadRun } from "../state/store.ts";
 import { trashPath } from "../state/trash.ts";
-import { applyAdd, parseAddArgs, type Ctx } from "../runs/node.ts";
+import { applyAdd, parseAddArgs, setStatus as coreSetStatus, type Ctx } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
 import { dispatchSh, learningAfterFinish, memoryAdd } from "./suggest.ts";
 import { ensureHome } from "./serve.ts";
@@ -105,56 +105,14 @@ interface StatusExtra {
   modelId?: string;
 }
 
-function segClose(n: Record<string, any>, at: string): void {
-  if (!n.seg_open) return;
-  if (!(n.started_at == null && (n.dispatched_at ?? at) >= at)) {
-    n.run_segments = [...(n.run_segments ?? []), { dispatched: n.dispatched_at ?? null, start: n.started_at ?? null, end: at }];
-  }
-  n.seg_open = false;
-}
-
-// The node status mutation every state change goes through (node_set_status in runs.sh).
 function setStatus(run: Record<string, any>, ctx: Ctx, id: string, status: string, x: StatusExtra = {}): void {
+  coreSetStatus(run as any, id, status, x.job ?? "", x.error ?? "", "", "", ctx);
   const n = run.nodes.find((q: any) => q.id === id);
-  if (!n) throw new Error(`node ${id}: unknown node`);
-  const at = ctx.now;
-  const old = n.status ?? "";
-  const terminal = ["done", "error", "skipped", "stopped"].includes(status);
-  if (status === "running" && !n.seg_open) {
-    n.dispatched_at = at; n.started_at = at; n.finished_at = null; n.seg_open = true;
-  } else if (status === "running" && n.started_at == null) {
-    n.started_at = n.dispatched_at != null && at < n.dispatched_at ? n.dispatched_at : at;
-  } else if (terminal) {
-    segClose(n, at);
-    n.finished_at = at;
-  } else if (status === "waiting") {
-    segClose(n, at);
-    n.dispatched_at = null; n.started_at = null; n.finished_at = null;
-  }
-  n.status = status;
-  n.updated = at;
-  if ((status === "done" || status === "error") && n.started == null) {
-    n.started = n.created ?? at;
-    n.backfilled = true;
-  }
-  if (x.job) n.job_id = x.job;
-  if (x.error) n.error = x.error;
   if (x.adapter) n.adapter = x.adapter;
   if (x.profile) n.profile = x.profile;
   if (x.session) n.session = x.session;
   if (x.model) n.model = x.model;
   if (x.modelId) n.model_id = x.modelId;
-  if (status === "running" && n.started == null) n.started = at;
-  if (status === "running") { n.backfilled = false; n.hold = null; }
-  if (status === "running" && x.job) n.owner = x.job;
-  if (status === "waiting") {
-    n.started = null; n.finished = null; n.error = null; n.owner = null; n.job_id = null;
-    n.owner_kind = null; n.owner_id = null; n.owner_state = null;
-  }
-  if (status === "done") { n.unverified = null; n.auto = null; }
-  if (terminal && status !== "stopped") n.finished = at;
-  if (status === "error" || status === "running" || status === "waiting" || status === "done" || status === "skipped") n.next_retry_at = null;
-  ctx.events.push({ at: nowIso(), kind: "status", node: id, from: old || null, to: status, note: x.error || null, by: ctx.by });
 }
 
 async function nodeStatus(home: string, run: string, id: string, status: string, x: StatusExtra = {}): Promise<number> {

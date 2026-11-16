@@ -12,6 +12,7 @@ import { archiveAttempt, ev, findNode, OpError, setStatus, SMART_AUTO_TIERS } fr
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
 import { pauseGuard } from "./pause.ts";
+import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
 export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]";
@@ -349,13 +350,6 @@ export async function nodeRetry(args: string[]): Promise<number> {
   return res.rc;
 }
 
-async function learningAfterFinish(home: string): Promise<void> {
-  const doc = await loadProfilesDoc(home);
-  if (String(doc.settings?.["learning.auto_scan_on_finish"] ?? "true") !== "true") return;
-  const p = Bun.spawn([process.execPath, dispatchPath(), "suggest", "scan"], { env: { ...process.env, HARNESS_ORCH_HOME: home }, stdout: "ignore", stderr: "ignore" });
-  await p.exited;
-}
-
 export async function runFinish(args: string[]): Promise<number> {
   const [runArg = ""] = args;
   if (!runArg) return (errLine(`usage: ${RUN_FINISH_USAGE}`), 2);
@@ -377,7 +371,7 @@ export async function runFinish(args: string[]): Promise<number> {
     ev(ctx, "run", "", "", final, "");
   });
   if (rc !== 0) return rc;
-  await learningAfterFinish(home);
+  learningAfterFinish(home, true);
   process.stdout.write(final + "\n");
   return 0;
 }

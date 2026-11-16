@@ -8,7 +8,9 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { loadRun } from "../state/store.ts";
-import { dispatchSh } from "../state/proc.ts";
+import { runSync } from "./runs.ts";
+import { coordinatorAutoRecord, coordSweep } from "./inbox.ts";
+import { healthMonitorFind, healthMonitorStart } from "./health.ts";
 import { healthEverySec, healthMap, stallMinutes } from "../runs/health.ts";
 import { nodeReady } from "./run.ts";
 
@@ -24,6 +26,12 @@ type Cursor = { n: number; snap?: Snap; health?: Record<string, string>; settled
 
 const nn = (v: unknown): string | null => (v === null || v === undefined || v === "" ? null : String(v));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function quiet(fn: () => Promise<unknown>): Promise<void> {
+  const o = process.stdout.write, e = process.stderr.write;
+  (process.stdout as any).write = () => true;
+  (process.stderr as any).write = () => true;
+  try { await fn(); } catch {} finally { process.stdout.write = o; process.stderr.write = e; }
+}
 const uint = (v: string) => /^[0-9]+$/.test(v);
 
 function snapNow(run: any): Snap {
@@ -130,9 +138,9 @@ function readCursor(file: string): Cursor | null {
 async function checkMonitor(home: string, runId: string, evf: string): Promise<Ev[]> {
   if (["0", "false", "off"].includes(process.env.ORCH_HEALTH_MONITOR ?? "")) return [];
   if (!existsSync(evf) || !readFileSync(evf, "utf8").includes('"note":"monitor started')) return [];
-  const r = await dispatchSh(["run", "health", "--ensure-monitors"]);
-  if (/^started /m.test(r.out)) return [{ kind: "monitor", node: null, note: `health monitor was dead, restarted ${r.out.match(/^started (\S+)/m)?.[1] ?? ""}`.trim() }];
-  return [];
+  if ((await loadRun(home, runId))?.status !== "running" || healthMonitorFind(home, runId)) return [];
+  const id = await healthMonitorStart(home, runId).catch(() => null);
+  return [{ kind: "monitor", node: null, note: id ? `health monitor was dead, restarted ${id}` : "health monitor is dead and did not restart" }];
 }
 
 export async function runWait(args: string[]): Promise<number> {
@@ -181,14 +189,15 @@ export async function runWait(args: string[]): Promise<number> {
     if (now >= nextSync) {
       nextSync = now + rescan;
       if (run.nodes.some((n) => n.status === "running" && (n.job_id ?? "") !== "")) {
-        await dispatchSh(["run", "sync", runId, "--no-retry"]).catch(() => undefined);
+        await quiet(() => runSync([runId, "--no-retry"]));
         run = (await loadRun(home, runId)) ?? run;
       }
     }
     if (now >= nextScan) { nextScan = now + rescan; lastKey = ""; }
     if (now >= nextBridge) {
       nextBridge = now + COORD_SWEEP_SECS;
-      if (existsSync(join(home, "runs", runId, "inbox"))) await dispatchSh(["run", "messages", runId, "retry"]).catch(() => undefined);
+      if ((run as any).coordinator == null) await quiet(() => coordinatorAutoRecord(home, runId));
+      await quiet(() => coordSweep(home, runId));
     }
     if (now >= nextHealth) {
       nextHealth = now + every;

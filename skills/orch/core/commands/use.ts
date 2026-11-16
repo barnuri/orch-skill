@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { orchHome, paths } from "../state/home.ts";
 import { currentRunSet } from "../state/current-run.ts";
+import { coordinatorAutoRecord } from "./inbox.ts";
 
 export async function useCommand(args: string[]): Promise<number> {
   const home = orchHome();
@@ -16,6 +17,7 @@ export async function useCommand(args: string[]): Promise<number> {
   if (!existsSync(paths.runState(home, runId))) { process.stderr.write(`use: no such run: ${runId}\n`); return 1; }
   mkdirSync(home, { recursive: true });
   await currentRunSet(home, runId);
+  await coordinatorAutoRecord(home, runId).catch(() => undefined);
   process.stdout.write(`${runId}\n`);
   return 0;
 }

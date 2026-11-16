@@ -1,6 +1,6 @@
 // `run advance`: one scheduler step (sync, apply a finished plan, dispatch ready nodes), optionally looped.
 // Ported from lib/runs/plan.sh (run_advance_once, cmd_run_advance). `run sync` still runs through dispatch.ts
-// until it is ported.
+// runs in-process (stdout muted, pause answered by run sync itself as in bash).
 import { join } from "node:path";
 import { orchHome } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
@@ -11,6 +11,7 @@ import { nodeDispatchStored } from "./dispatch.ts";
 import { planApply } from "./plan.ts";
 import { runFinish } from "./dispatch.ts";
 import { resolveRun } from "./node.ts";
+import { runSync as runSyncCmd } from "./runs.ts";
 
 export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]";
 const ADVANCE_INTERVAL_DEFAULT = 15;
@@ -18,16 +19,20 @@ const ADVANCE_INTERVAL_DEFAULT = 15;
 const out = (s: string) => void process.stdout.write(s);
 const err = (s: string) => void process.stderr.write(s);
 
-async function runSync(runId: string): Promise<boolean> {
-  const dispatch = process.env.ORCH_DISPATCH || join(import.meta.dir, "../../scripts/dispatch.ts");
-  const p = Bun.spawn([process.execPath, dispatch, "run", "sync", runId], { stdin: "ignore", stdout: "ignore", stderr: "inherit", env: process.env as Record<string, string> });
-  return (await p.exited) === 0;
+async function syncQuiet(runId: string): Promise<boolean> {
+  const w = process.stdout.write;
+  (process.stdout as any).write = () => true;
+  try {
+    return (await runSyncCmd([runId])) === 0;
+  } finally {
+    (process.stdout as any).write = w;
+  }
 }
 
 const count = (run: any, ...st: string[]) => (run.nodes ?? []).filter((n: any) => st.includes(n.status)).length;
 
 async function advanceOnce(home: string, runId: string): Promise<number> {
-  if (!(await runSync(runId))) return 1;
+  if (!(await syncQuiet(runId))) return 1;
   let run = (await loadRun(home, runId))!;
   const planNode = run.plan?.node ?? "";
   if (planNode !== "" && !run.plan?.applied) {
