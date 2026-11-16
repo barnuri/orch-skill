@@ -20,7 +20,7 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [x] P45 cron expression shows its meaning | fixed: 2026-11-16 8c79174 | check: bun test src/web/lib/cron-text.test.ts
 - [x] P43 agent output keeps colour (pty, ANSI log) | fixed: 2026-11-16 7202a9e | check: bun test skills/orch/core/commands/herdr-launch.test.ts src/web/lib/ansi.test.ts
 - [x] P6 parallel cap 15 | fixed: 2026-11-16 profile-defaults | check: grep -q "auto_dispatch_max_parallel" src/server/runs/auto-dispatch.ts
-- [ ] P1 CLI call takes seconds | fixed: - | check: bun scripts/bench-status.ts 0.5
+- [x] P1 CLI call takes seconds (run status 0.356 s, node update 0.215 s, batch x10 0.478 s, help 0.083 s at load 19; was 7.1 s) | fixed: 2026-11-16 7e0d55d | check: bun scripts/bench-status.ts 0.5
 - [ ] P7 early end resumes the same session | fixed: - | check: bun skills/orch/tests/run.ts lessons
 - [ ] P9 retry keeps the prompt and progress | fixed: - | check: bun skills/orch/tests/run.ts retry
 - [ ] P12 asks are answered fast (bridge delivers) | fixed: - | check: bun skills/orch/tests/run.ts coordinator

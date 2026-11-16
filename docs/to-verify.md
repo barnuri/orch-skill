@@ -16,7 +16,7 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 - [ ] No `.sh` file remains except data: `find . -name "*.sh" -not -path "./node_modules/*" -not -path "./.git/*"` is empty (the 4 fake CLI binaries were converted in 819322b; `jobs/<id>/herdr-launch.sh` is a generated runtime file, not a repo file).
 
 ## 2. Bun port parity (the bash oracle is gone)
-- [ ] `run status` wall time under 0.5 s on a seeded home; `node update` under 0.3 s; `node batch` of 10 ops under 0.5 s (measure with the bench, load average noted).
+- [x] `run status` wall time under 0.5 s on a seeded home; `node update` under 0.3 s; `node batch` of 10 ops under 0.5 s (measure with the bench, load average noted). EVIDENCE: bun scripts/bench-status.ts 0.5 exit 0: status 0.356 s, update 0.215 s, batch x10 0.478 s, help 0.083 s, load 19 (2026-11-16)
 - [ ] Every command of the old usage text still exists: compare `dispatch.ts --help` with the usage in `skills/orch/SKILL.md` and the table in `core/cli.ts`.
 - [ ] `run sync`, `run advance`, `run retry`, `node dispatch` behave as the bash version did: start a tiny run with the fake adapter and walk it to done.
 - [ ] `hub_node_expect` equivalent exists (the hub expectation record at node dispatch was dropped in the port).

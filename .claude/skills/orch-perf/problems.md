@@ -7,7 +7,7 @@ in commits, learnings blocks and tasks. Evidence is from run state, job logs, te
 
 | ID | Problem | Evidence | Root cause | Status |
 |---|---|---|---|---|
-| P1 | Every CLI call takes seconds | `run status` 7.1 s wall, 0.4 s CPU, about 90 process starts | bash plus jq, process start 80 ms or more under scanning and load | PARTIAL: full TypeScript port merged, not yet measured |
+| P1 | Every CLI call takes seconds | `run status` 7.1 s wall, 0.4 s CPU, about 90 process starts | bash plus jq, process start 80 ms or more under scanning and load | FIXED: measured 0.356 s run status (was 7.1 s) |
 | P2 | Node cold start | opencode start 6 to 10 s, plus pane and launcher | one process and one pane per node | OPEN (warm agent pool in backlog A3) |
 | P3 | High machine load | load average 20 to 35 with endpoint security, Finder, other agents | many concurrent agents and process starts | OPEN (load-aware scheduler A7) |
 | P4 | Full test suites in nodes | 8 to 12 min per run, four runs in one node | no fast tier, agents ran everything | PARTIAL: fast tier, budget and resume built; in-process runner in progress |
