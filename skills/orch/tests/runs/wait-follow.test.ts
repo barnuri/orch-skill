@@ -34,7 +34,7 @@ test("wait --follow: restart without loss or duplicates, rescan", async () => {
   o("node", "update", R, "c", "running", "--owner", "coordinator");
   expect(await printed(f, "c waiting->running")).toBe(true);
   o("node", "update", R, "d", "done");
-  o("run", "wait", R, "--timeout", "10");
+  o("run", "wait", R, "--timeout", "1");
   expect(await printed(f, "d running->done")).toBe(true);
   f.p.kill(); await f.p.exited;
   const first = f.buf();
@@ -50,7 +50,7 @@ test("wait --follow: restart without loss or duplicates, rescan", async () => {
   const sf = join(home, "runs", R, "state.json");
   o("node", "add", R, "s", "s");
   writeFileSync(sf, JSON.stringify(readJson(sf), null, 2));
-  f = await start({ ORCH_WAIT_RESCAN_SECS: "2" });
+  f = await start({ ORCH_WAIT_RESCAN_SECS: "1" });
   await waitUntil(() => { try { return readJson(fcur).snap.nodes.s.s === "waiting"; } catch { return false; } }, 60);
   const st = statSync(sf), size0 = st.size;
   const text = readText(sf).replace('"id": "s"', '"id": "s"');
