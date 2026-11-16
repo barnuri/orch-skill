@@ -139,7 +139,8 @@ export function promptFor(node: NodeState): string {
 export type Decision = { node: string; action: "start"; profile: string; prompt: string } | { node: string; action: "skip"; reason: string };
 
 /** Pure: which waiting nodes start now and why the others wait. Empty when the run is not opted in. */
-export function decide(state: RunState, cap: number): Decision[] {
+/** `isSettled(id)` is false for a dependency that just turned done but has no handoff yet: the watchdog may still flip it to error. */
+export function decide(state: RunState, cap: number, isSettled: (id: string) => boolean = () => true): Decision[] {
   if (state.auto_dispatch !== true) {
     return [];
   }
@@ -153,7 +154,7 @@ export function decide(state: RunState, cap: number): Decision[] {
   let running = nodes.filter((n) => n.status === "running").length;
   const out: Decision[] = [];
   for (const n of waiting) {
-    const blockers = (state.edges ?? []).filter(([, to]) => to === n.id).map(([from]) => from).filter((d) => statusOf.get(d) !== "done");
+    const blockers = (state.edges ?? []).filter(([, to]) => to === n.id).map(([from]) => from).filter((d) => statusOf.get(d) !== "done" || !isSettled(d));
     if (blockers.length > 0) {
       out.push({ node: n.id, action: "skip", reason: `waiting on ${blockers.join(",")}` });
       continue;
@@ -224,7 +225,15 @@ export class RunEngine {
         this.log(`onState ${runId} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    for (const d of decide(state, maxParallel(this.home))) {
+    const settled = (id: string): boolean => {
+      const dep = (state.nodes ?? []).find((n) => n.id === id);
+      const finished = Date.parse(String((dep as { finished?: string } | undefined)?.finished ?? ""));
+      if (!Number.isFinite(finished) || Date.now() - finished > 120_000) {
+        return true;
+      }
+      return existsSync(join(this.home, "runs", runId, "out", id, "handoff.md"));
+    };
+    for (const d of decide(state, maxParallel(this.home), settled)) {
       const key = `${runId}/${d.node}`;
       if (d.action === "skip") {
         if (this.lastSkip.get(key) !== d.reason) {

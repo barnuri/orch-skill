@@ -91,6 +91,13 @@ describe("auto-dispatch", () => {
     expect(logs.some((l) => l.includes("gave up after 3 tries"))).toBe(true);
   });
 
+  test("a dependency that finished seconds ago without a handoff does not unblock its dependents yet", () => {
+    const just = new Date().toISOString();
+    const state = run({ nodes: [{ id: "a", status: "done", label: "A", profile: "p", finished: just } as never, { id: "b", status: "waiting", label: "B", profile: "p" }], edges: [["a", "b"]] });
+    expect(decide(state, 4, () => false)).toEqual([{ node: "b", action: "skip", reason: "waiting on a" }]);
+    expect(decide(state, 4, () => true)[0]?.action).toBe("start");
+  });
+
   test("a double event starts the node once", async () => {
     const home = homeWith(run({}));
     const engine = new RunEngine(home.path, { log: () => {} });
