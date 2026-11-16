@@ -1,5 +1,6 @@
 // `plan <run> "<goal>"` and `plan apply <run>`. Ported from lib/runs/plan.sh (cmd_plan, cmd_plan_apply).
 // run advance stays in bash until `run sync` is ported.
+import { profileAllowedFor, usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { nowIso } from "../state/clock.ts";
@@ -24,7 +25,7 @@ function profileMenu(doc: any): string {
   const dflt = doc.settings?.default_profile;
   const lines: string[] = [];
   for (const [name, p] of Object.entries<any>(doc.profiles ?? {})) {
-    if (p.enabled === false || disabled.includes(p.harness)) continue;
+    if (p.enabled === false || disabled.includes(p.harness) || !profileAllowedFor(doc, name, "runs")) continue;
     let l = `- ${name}${name === dflt ? " (default)" : ""}: harness ${p.harness}, model ${p.model ?? "-"}`;
     if ((p.description ?? "") !== "") l += `. ${p.description}`;
     if ((p.strengths ?? []).length > 0) l += ` Strengths: ${p.strengths.join(", ")}.`;
@@ -174,9 +175,9 @@ export function validatePlan(plan: any, doc: any, existing: string[], max: numbe
     else if (pp === null) {
       profile = dflt;
       warnings.push(`task ${x.id}: unknown profile ${p}, using ${dflt}`);
-    } else if (pp.enabled === false || disabled.includes(pp.harness)) {
+    } else if (pp.enabled === false || disabled.includes(pp.harness) || !profileAllowedFor(doc, p, "runs")) {
       profile = dflt;
-      warnings.push(`task ${x.id}: profile ${p} is disabled, using ${dflt}`);
+      warnings.push(`task ${x.id}: profile ${p} is disabled or not for orch runs, using ${dflt}`);
     }
     return { id: x.id, layer: layer[x.id]!, _i: i, profile, prompt: x.prompt, label: String(x.label ?? x.id).slice(0, PLAN_LABEL_MAX), after: x.after ?? [] };
   });

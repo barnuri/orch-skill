@@ -60,7 +60,7 @@ function post<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<Ap
 }
 
 export const chatsApi = {
-  options: () => get("/chat-options", optionsSchema),
+  options: (use?: "runs") => get(`/chat-options${use === undefined ? "" : `?use=${use}`}`, optionsSchema),
   projects: (archived: boolean) => get(`/projects${query({ archived: archived ? 1 : 0, limit: 100 })}`, projectPage),
   createProject: (body: { name: string; path?: string | null; description?: string }) => post("/projects", projectSchema, body),
   updateProject: (id: string, body: { name?: string; path?: string | null; description?: string }) =>

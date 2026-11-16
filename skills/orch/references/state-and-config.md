@@ -87,6 +87,8 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `auth` | env-var **names** that must be non-empty before the profile may run. Values are never stored. |
 | `settings.default_profile` | the `*` in `profile list`; what SKILL.md uses for a plain `claude` classification |
 | `settings.disabled_harnesses` | harness ids hidden in the dashboard profile picker and skipped by `profile pick` (adapters remain in code). Template: none |
+| `settings.harness_usage` | map harness id to a non-empty array of `"chat"` and/or `"runs"`: where the harness may be used. Missing means both. Set with `dispatch.ts harness set-usage <id> chat\|runs\|both` or the Harnesses page. Template: none |
+| `profiles.<name>.usage` | same array for one profile (also `defaults.usage`). Missing means both. A profile is available for a use only when the profile AND its harness allow it and the harness is not in `disabled_harnesses`. Set with `dispatch.ts profile set-usage <name> chat\|runs\|both` or the Profiles page. The committed template stays generic (both); the gitignored overlay may limit personal profiles |
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
 | `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
@@ -311,6 +313,8 @@ hostname nor `localhost` is refused with 400.
 | `/api/runs/:id/retry` | POST | dispatches `run retry <id>` |
 | `/api/runs/:id/nodes/:node/retry` | POST | dispatches `node retry <id> <node>` |
 | `/api/profiles` | GET, PUT | envelope adds `harnesses`, `issues`, `limits`; PUT validates before writing |
+| `/api/profiles/{id}/usage`, `/api/harnesses/{id}/usage` | PATCH | body `{"usage":"chat\|runs\|both"}`; runs `dispatch.ts profile\|harness set-usage` |
+| `/api/chat-options?use=runs` | GET | chat pickers list only chat-allowed profiles (`not_for_chat` names the left-out ones with the reason); `use=runs` lists the runs side (Schedules page) |
 | `/api/harnesses` | GET | live probe per adapter (`dispatch.ts harness list --json`); `enabled` reflects `settings.disabled_harnesses` |
 | `/api/memory` | GET, PUT | same shape with `outcomes` |
 
@@ -380,3 +384,14 @@ dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 
 Exit codes: `0` ok · `1` environment/request failure · `2` bad arguments or unknown id ·
 `124` `wait` timed out · `127` required binary missing.
+
+## Usage limits (chat / runs)
+
+Enforcement: `run`, `start`, node dispatch, loops, watches, schedules and `plan` refuse a chat-only
+profile or harness (`profile X is chat-only (profiles.X.usage)` / `harness H is chat-only
+(settings.harness_usage.H)`), exit 2. `profile pick`, the plan menu and the retry fallback skip them.
+Chat turns run with `ORCH_USE=chat`, so they refuse runs-only profiles; `ORCH_USE=any` (sanity) skips the check.
+Creating a chat or moving one to a runs-only profile answers 400. A chat already on a profile that
+became runs-only keeps working and shows an amber warning. `profile sanity` adds `warnings` when
+`planner_profile` or `default_profile` is not runs-enabled. `profile list [--for chat|runs] [--json]`,
+`harness list --json` (`usage`).

@@ -4,6 +4,8 @@ import { BuildInfoDto, RestartAcceptedDto } from "../../shared/dto/build";
 import type { BuildInfo } from "../../shared/types/build-info";
 import { OkDto } from "../../shared/dto/common";
 import { HarnessesEnvelopeDto } from "../../shared/dto/runs";
+import { UsageResultDto } from "../../shared/dto/usage";
+import type { UsageChoice } from "../../shared/profile-usage";
 import {
   ScheduleCreatedDto,
   ScheduleLogDto,
@@ -56,6 +58,7 @@ const buildSchema = typed<BuildInfo>(BuildInfoDto.schema);
 const restartSchema = typed<RestartAcceptedDto>(RestartAcceptedDto.schema);
 const schedulesSchema = typed<SchedulesEnvelope>(SchedulesEnvelopeDto.schema);
 const harnessesSchema = typed<HarnessesEnvelope>(HarnessesEnvelopeDto.schema);
+const usageSchema = typed<UsageResultDto>(UsageResultDto.schema);
 
 // The DTO class doubles as its own instance type, so these need no shared plain type.
 const createdSchema = typed<ScheduleCreatedDto>(ScheduleCreatedDto.schema);
@@ -163,6 +166,11 @@ export class ApiClient {
 
   getDocument(kind: DocumentKind, etag: string | null): Promise<ApiResult<LoadedEnvelope>> {
     return this.request("GET", `${API_BASE}/${kind}`, DOCUMENT_SCHEMAS[kind], { etag });
+  }
+
+  /** Limits a profile or harness to chat, orch runs or both; the server runs `dispatch.ts <kind> set-usage`. */
+  setUsage(kind: "profile" | "harness", id: string, usage: UsageChoice): Promise<ApiResult<UsageResultDto>> {
+    return this.request("PATCH", `${API_BASE}/${kind === "profile" ? "profiles" : "harnesses"}/${encodeURIComponent(id)}/usage`, usageSchema, { body: { usage } });
   }
 
   putDocument(kind: DocumentKind, body: unknown, ifMatch: string): Promise<ApiResult<z.infer<typeof putOkSchema>>> {

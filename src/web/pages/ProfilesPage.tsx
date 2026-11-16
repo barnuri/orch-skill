@@ -21,6 +21,10 @@ import type { OffReason } from "../lib/profile-filter";
 import { profileSwitchDecision } from "../lib/profile-switch";
 import { fmtMs, statusOf } from "../lib/sanity-logic";
 import { sanity } from "../lib/sanity-store";
+import { UsageChips } from "../components/UsageChips";
+import { profileUsage, type Use } from "../../shared/profile-usage";
+import { USAGE_FILTERS, profileUseState, usageBadge, type UsageFilter } from "../lib/usage-ui";
+import { useSetUsage } from "../lib/use-set-usage";
 import { ProfileForm } from "./ProfileForm";
 import { SanityPanel, SanityStatusChip, SanityTestButton, useRunSanity, useSanity } from "./SanityPanel";
 import { SettingsForm } from "./SettingsForm";
@@ -105,8 +109,15 @@ function SanityCell({ name, reason }: { name: string; reason: OffReason | null }
   );
 }
 
+type UsageDoc = Parameters<typeof profileUsage>[0];
+
 function ProfileRow({ name, spec, doc, editor }: { name: string; spec: ProfileSpec; doc: ProfilesDocument; editor: DocEditor }) {
   const toast = useToast();
+  const usage = useSetUsage("profile");
+  const chatState = profileUseState(doc, name, "chat");
+  const runsState = profileUseState(doc, name, "runs");
+  const own = profileUsage(doc as unknown as UsageDoc, name);
+  const badge = usageBadge(own);
   const reason = offReason(spec, disabledHarnessSet(doc));
   const selected = editor.target === name;
   const blocked = reason === "harness";
@@ -151,6 +162,15 @@ function ProfileRow({ name, spec, doc, editor }: { name: string; spec: ProfileSp
           {name}
           {doc.settings.default_profile === name ? <Chip status="default" /> : null}
         </button>
+        {badge === null ? null : <Chip status="default">{badge}</Chip>}
+        <UsageChips
+          name={name}
+          chat={{ on: chatState.on, lock: chatState.lock }}
+          runs={{ on: runsState.on, lock: runsState.lock }}
+          busy={usage.busy === name}
+          lastOn={(use: Use) => own.length === 1 && own[0] === use}
+          onChange={(use, on) => void usage.change(name, own, use, on)}
+        />
       </div>
       <SanityCell name={name} reason={reason} />
       <div className="harness-cell">
@@ -179,6 +199,7 @@ export function ProfilesPage() {
   const editor = useDocEditor("profiles", query.data);
   useEscapeToClose(editor);
   const [hideDisabled, setHideDisabled] = useState(loadHideDisabled);
+  const [useFilter, setUseFilter] = useState<UsageFilter>("all");
   const base = editor.base;
   const doc = base === null ? null : asProfilesDocument(base.document);
   const off = doc === null ? new Set<string>() : disabledHarnessSet(doc);
@@ -189,6 +210,11 @@ export function ProfilesPage() {
 
   const toolbar = (
     <>
+      <div className="usage-filter" role="group" aria-label="Filter by use">
+        {USAGE_FILTERS.map((f) => (
+          <button key={f.id} type="button" aria-pressed={useFilter === f.id} onClick={() => { setUseFilter(f.id); }}>{f.label}</button>
+        ))}
+      </div>
       <Button
         aria-pressed={hideDisabled}
         onClick={() => {
@@ -213,7 +239,7 @@ export function ProfilesPage() {
       </>
     );
   }
-  const entries = visibleProfiles(doc.profiles, hideDisabled, off);
+  const entries = visibleProfiles(doc.profiles, hideDisabled, off).filter(([name]) => useFilter === "all" || profileUseState(doc, name, useFilter).on);
   const target = editor.target;
   const editingProfile = typeof target === "string" && target !== "";
   return (

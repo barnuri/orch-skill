@@ -12,6 +12,10 @@ import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { useDocEditor } from "../forms/use-doc-editor";
 import { ApiFailure, forceNextHarnessProbe, keys, queryClient, useDocument, useHarnesses } from "../api/queries";
 import { asProfilesDocument } from "../lib/documents";
+import { UsageChips } from "../components/UsageChips";
+import { harnessUsage, type Use } from "../../shared/profile-usage";
+import { USAGE_FILTERS, usageBadge, type UsageFilter } from "../lib/usage-ui";
+import { useSetUsage } from "../lib/use-set-usage";
 
 function StatusChip({ harness }: { harness: HarnessStatus }) {
   if (!harness.wired) {
@@ -30,7 +34,14 @@ export function withSavedEnabled(list: readonly HarnessStatus[], doc: ProfilesDo
     return [...list];
   }
   const disabled = new Set(doc.settings.disabled_harnesses ?? []);
-  return list.map((h) => (h.wired ? { ...h, enabled: !disabled.has(h.id) } : h));
+  const saved = (doc.settings.harness_usage ?? {}) as Record<string, Use[]>;
+  return list.map((h) => {
+    if (!h.wired) {
+      return h;
+    }
+    const usage = harnessUsage({ settings: { harness_usage: saved } }, h.id);
+    return { ...h, enabled: !disabled.has(h.id), usage };
+  });
 }
 
 /** The document with `id` added to or dropped from settings.disabled_harnesses, keys sorted. */
@@ -54,11 +65,17 @@ function HarnessCard({
   harness,
   busy,
   onToggle,
+  usageBusy,
+  onUsage,
 }: {
   harness: HarnessStatus;
   busy: boolean;
   onToggle: ((enabled: boolean) => void) | null;
+  usageBusy: boolean;
+  onUsage: ((use: Use, on: boolean) => void) | null;
 }) {
+  const uses: Use[] = harness.usage ?? ["chat", "runs"];
+  const badge = usageBadge(uses);
   const ready = harness.wired && harness.enabled && harness.available;
   return (
     <article className={ready ? "harness-card is-ready" : "harness-card"}>
@@ -70,11 +87,22 @@ function HarnessCard({
         <StatusChip harness={harness} />
         <span className="muted">{harness.kind}</span>
         {harness.wired ? null : <span className="muted">not wired</span>}
+        {badge === null || !harness.wired ? null : <Chip status="default">{badge}</Chip>}
       </div>
       <p className="harness-desc">{harness.description}</p>
       {harness.binary === null ? null : <p className="hint mono">{`binary: ${harness.binary}`}</p>}
       {harness.needs.length > 0 ? <p className="hint">{`needs: ${harness.needs.join(", ")}`}</p> : null}
       {!harness.available && harness.reason !== "" ? <p className="harness-reason">{harness.reason}</p> : null}
+      {harness.wired && onUsage !== null ? (
+        <UsageChips
+          name={harness.id}
+          chat={{ on: uses.includes("chat"), lock: null }}
+          runs={{ on: uses.includes("runs"), lock: null }}
+          busy={usageBusy}
+          lastOn={(use) => uses.length === 1 && uses[0] === use}
+          onChange={onUsage}
+        />
+      ) : null}
       {harness.wired && onToggle !== null ? (
         <div className="harness-actions">
           <Button
@@ -98,6 +126,8 @@ export function HarnessesPage() {
   const harnesses = useHarnesses();
   const editor = useDocEditor("profiles", profiles.data);
   const [busy, setBusy] = useState<string | null>(null);
+  const usage = useSetUsage("harness");
+  const [useFilter, setUseFilter] = useState<UsageFilter>("all");
   const loaded = asProfilesDocument(editor.base?.document);
   const probed = harnesses.data?.harnesses ?? null;
   const list = probed === null ? null : withSavedEnabled(probed, loaded);
@@ -123,7 +153,16 @@ export function HarnessesPage() {
     setBusy(null);
   };
 
-  const refreshButton = <Button onClick={redetect}>Re-detect</Button>;
+  const refreshButton = (
+    <>
+      <div className="usage-filter" role="group" aria-label="Filter by use">
+        {USAGE_FILTERS.map((f) => (
+          <button key={f.id} type="button" aria-pressed={useFilter === f.id} onClick={() => { setUseFilter(f.id); }}>{f.label}</button>
+        ))}
+      </div>
+      <Button onClick={redetect}>Re-detect</Button>
+    </>
+  );
   if (failure !== null && list === null) {
     return (
       <>
@@ -152,9 +191,16 @@ export function HarnessesPage() {
         <h2>Orch adapters</h2>
         <div className="harness-grid">
           {list
-            .filter((h) => h.wired)
+            .filter((h) => h.wired && (useFilter === "all" || (h.usage ?? ["chat", "runs"]).includes(useFilter)))
             .map((harness) => (
-              <HarnessCard key={harness.id} harness={harness} busy={busy === harness.id || editor.saving} onToggle={toggler(harness.id)} />
+              <HarnessCard
+                key={harness.id}
+                harness={harness}
+                busy={busy === harness.id || editor.saving}
+                onToggle={toggler(harness.id)}
+                usageBusy={usage.busy === harness.id}
+                onUsage={(use, on) => void usage.change(harness.id, harness.usage ?? ["chat", "runs"], use, on)}
+              />
             ))}
         </div>
       </section>
@@ -163,7 +209,7 @@ export function HarnessesPage() {
           <h2>Detected CLIs</h2>
           <div className="harness-grid">
             {extra.map((harness) => (
-              <HarnessCard key={harness.id} harness={harness} busy={false} onToggle={null} />
+              <HarnessCard key={harness.id} harness={harness} busy={false} onToggle={null} usageBusy={false} onUsage={null} />
             ))}
           </div>
         </section>

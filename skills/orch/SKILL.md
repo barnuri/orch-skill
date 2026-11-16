@@ -32,7 +32,9 @@ orch requires Bun. Check it first: `command -v bun`. If it prints nothing, tell 
 ```bash
 dispatch.ts doctor    # bun version, home path, herdr availability
 orch init            # creates ~/.harness-orch with template profiles.json and an empty memory.json
-orch profile list    # name, harness, model — `*` marks settings.default_profile
+orch profile list    # name, harness, model — `*` marks settings.default_profile; `--for chat|runs`, `--json`
+orch profile set-usage <name> chat|runs|both   # limit a profile to the chat page, orch runs, or both
+orch harness set-usage <id> chat|runs|both     # same for a harness; a chat-only profile or harness is refused by run/start/nodes/loops/schedules
 orch memory list -n 20
 ```
 

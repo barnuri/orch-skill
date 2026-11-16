@@ -23,8 +23,8 @@ export const chatKeys = {
   search: (q: string) => ["chat-search", q] as const,
 };
 
-export function useChatOptions() {
-  return useQuery<ChatOptions>({ queryKey: chatKeys.options, queryFn: async () => unwrap(await chatsApi.options()), staleTime: 30_000 });
+export function useChatOptions(use?: "runs") {
+  return useQuery<ChatOptions>({ queryKey: use === undefined ? chatKeys.options : [...chatKeys.options, use], queryFn: async () => unwrap(await chatsApi.options(use)), staleTime: 30_000 });
 }
 
 export function useProjects(archived: boolean) {

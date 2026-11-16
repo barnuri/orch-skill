@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { trashPath } from "../state/trash.ts";
+import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { readCatalog, modelIdAllowed, hasHarnessDisabled } from "../adapters/routing.ts";
 import {
   dispatchSh, ensureDir, hex4, isUint, jobStatus, mtimeSecs, parseDuration, patchJsonSync, pidAlive, readJsonSync, spawnOrch, stampUtc,
@@ -228,6 +229,11 @@ async function profileOk(name: string): Promise<number> {
   }
   if (hasHarnessDisabled(cat, p.harness)) {
     err(`profile ${name}: harness "${p.harness}" is disabled (settings.disabled_harnesses); enable it on the Harnesses page first\n`);
+    return 2;
+  }
+  const refusal = usageRefusal(cat, name, "runs");
+  if (refusal) {
+    err(`${refusal}\n`);
     return 2;
   }
   return 0;

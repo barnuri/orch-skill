@@ -10,6 +10,8 @@ export interface ProfileSpec {
   speed?: SpeedTier;
   risk?: RiskTier;
   enabled?: boolean;
+  /** Where the profile may be used; missing means both. */
+  usage?: Array<"chat" | "runs">;
   tags?: string[];
   strengths?: string[];
   avoid_for?: string[];

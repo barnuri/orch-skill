@@ -102,6 +102,9 @@ export class HarnessDto extends ZodDto {
   @ZodField(z.boolean(), { description: "False when listed in settings.disabled_harnesses." })
   enabled!: boolean;
 
+  @ZodField(z.array(z.enum(["chat", "runs"])).optional(), { description: "Where the harness may be used: `chat` and/or `runs`. Missing means both (settings.harness_usage)." })
+  usage?: Array<"chat" | "runs">;
+
   @ZodField(z.boolean(), { description: "True when the binary or endpoint was found." })
   available!: boolean;
 

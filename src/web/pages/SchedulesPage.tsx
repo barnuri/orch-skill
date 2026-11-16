@@ -360,7 +360,7 @@ function ScheduleForm({
     });
   };
   const profile = draft.profile === "" ? defaultProfile || profileNames[0] || "" : draft.profile;
-  const chatOptions = useChatOptions();
+  const chatOptions = useChatOptions("runs");
   const model = draft.model ?? "";
   const modelOptions = scheduleModelOptions(chatOptions.data, profile, model);
   const modelNote = chatOptions.isLoading ? "loading models…" : modelOptions.length === 1 ? "no other model for this profile" : null;

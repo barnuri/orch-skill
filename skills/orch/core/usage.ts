@@ -59,6 +59,11 @@ dispatch.ts profile pick "<task>" [--complexity trivial|small|medium|large] [--k
     -> profile=…, model=…, reason=… (metadata + memory weighted pick)
 dispatch.ts profile sanity [--profile NAME]
     -> JSON {generated_at, results:[{profile, ok, ms, harness, model_id, slug, exit_code, bytes, error}]}
+dispatch.ts profile list [--for chat|runs] [--json]
+    -> --for keeps profiles whose profile AND harness allow that use; --json adds usage and availability
+dispatch.ts profile set-usage <name> chat|runs|both
+dispatch.ts harness set-usage <id> chat|runs|both
+    -> limits a profile or harness to the chat page, orch runs, or both (settings.harness_usage)
 dispatch.ts profile unset-env <name> <VAR>...
     -> drops the named env vars from one profile; the rest of profiles.json stays as written
 dispatch.ts model list [--profile P] [--harness H]

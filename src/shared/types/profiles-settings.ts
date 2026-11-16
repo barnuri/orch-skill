@@ -20,5 +20,7 @@ export interface ProfilesSettings {
   /** Harness ids hidden from profile pickers (adapters remain in code). */
   disabled_harnesses?: string[];
   /** Runs each started job in a pane of the main Herdr session's "orch" workspace. */
+  /** Per harness: where its profiles may be used. Missing means both. */
+  harness_usage?: Record<string, Array<"chat" | "runs">>;
   herdr?: boolean;
 }

@@ -6,8 +6,11 @@ import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { OrchLock } from "../state/lock.ts";
 import { readCatalog } from "./routing.ts";
+import { profilesCommit } from "../state/profiles.ts";
+import { USAGE_CHOICES, harnessUsage, usageFromChoice, type Use, type UsageChoice } from "../../../../src/shared/profile-usage.ts";
 
-export const HARNESS_LIST_USAGE = "dispatch.ts harness list [--json]";
+export const HARNESS_LIST_USAGE = "dispatch.ts harness list [--json] | set-usage <id> chat|runs|both";
+const HARNESS_SET_USAGE_USAGE = "dispatch.ts harness set-usage <id> chat|runs|both";
 const HARNESS_IDS = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 const DETECTED_CLI_IDS = "codex aider gemini".split(" ");
 type Env = Record<string, string | undefined>;
@@ -80,6 +83,7 @@ export async function harnessListJson(e: Env = process.env): Promise<any> {
         description: m.description,
         needs: m.needs,
         enabled: m.wired ? !disabled.includes(id) : true,
+        usage: harnessUsage(cat, id),
         available,
         reason: available ? "" : (HINTS[id] ?? "unknown harness"),
       };
@@ -116,8 +120,27 @@ export async function harnessList(args: string[]): Promise<number> {
   }
 }
 
+export async function harnessSetUsage(args: string[]): Promise<number> {
+  const [id = "", choice = ""] = args;
+  if (id === "" || !(USAGE_CHOICES as readonly string[]).includes(choice)) return (process.stderr.write(`usage: ${HARNESS_SET_USAGE_USAGE}\n`), 2);
+  if (!HARNESS_IDS.includes(id)) return (process.stderr.write(`harness ${id}: unknown harness. Available: ${HARNESS_IDS.join(", ")}\n`), 2);
+  const home = orchHome();
+  const file = paths.profiles(home);
+  const doc: any = await Bun.file(file).json();
+  doc.settings ??= {};
+  const map: Record<string, Use[]> = { ...(doc.settings.harness_usage ?? {}) };
+  if (choice === "both") delete map[id];
+  else map[id] = usageFromChoice(choice as UsageChoice);
+  if (Object.keys(map).length === 0) delete doc.settings.harness_usage;
+  else doc.settings.harness_usage = map;
+  profilesCommit(home, doc);
+  process.stdout.write(`harness ${id}: usage = ${choice}\n`);
+  return 0;
+}
+
 export async function cmdHarness(args: string[]): Promise<number> {
   if (args[0] === "list") return harnessList(args.slice(1));
+  if (args[0] === "set-usage") return harnessSetUsage(args.slice(1));
   process.stderr.write(`usage: ${HARNESS_LIST_USAGE}\n`);
   return 2;
 }

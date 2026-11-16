@@ -14,6 +14,7 @@ import {
   readCatalog,
   type Catalog,
 } from "./routing.ts";
+import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { SMART_AUTO_TIERS } from "./hub.ts";
 import { harnessFindBinary } from "./harness.ts";
 
@@ -104,6 +105,8 @@ export async function loadProfile(home: string, name: string, e: Env): Promise<P
   }
   if (!VALID_HARNESSES.includes(harness)) return fail(2, `profile ${name}: harness "${harness}" must be one of: ${VALID_HARNESSES.join(" ")}\n`);
   if (hasHarnessDisabled(cat, harness)) return fail(2, `profile ${name}: harness "${harness}" is disabled (settings.disabled_harnesses); enable it on the Harnesses page first\n`);
+  const refusal = e.ORCH_USE === "any" ? null : usageRefusal(cat, name, e.ORCH_USE === "chat" ? "chat" : "runs");
+  if (refusal) return fail(2, `${refusal}\n`);
   const flags = (Array.isArray(prof.flags) ? prof.flags : []).filter((f: unknown) => f !== null && f !== false).map(String);
   for (const [key, raw] of Object.entries(prof.env ?? {})) {
     if (!IDENT.test(key)) return fail(2, `profile ${name}: env key "${key}" is not a valid variable name\n`);

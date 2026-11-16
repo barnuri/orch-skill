@@ -1,7 +1,8 @@
-// `orch profile list | show <name> | pick "<task>"` and `orch model list`. Ported from cmd_profile
+// `orch profile list [--for chat|runs] [--json] | set-usage <name> chat|runs|both | show <name> | pick "<task>"` and `orch model list`. Ported from cmd_profile
 // (lib/core/config.sh), cmd_profile_pick (lib/adapters/routing.sh) and cmd_model (lib/adapters/routing.sh).
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { harnessUsage, profileAllowedFor, profileUsage, type Use } from "../../../../src/shared/profile-usage.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { ensureHome } from "../state/profiles.ts";
 import {
@@ -39,13 +40,37 @@ function err(s: string, code: number): number {
 }
 
 // profile list: "*" marks the default profile. Insertion order, as jq to_entries.
-export async function profileList(_args: string[]): Promise<number> {
+export async function profileList(args: string[]): Promise<number> {
+  let use: Use | "" = "";
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json") json = true;
+    else if (a === "--for") {
+      const v = args[++i] ?? "";
+      if (v !== "chat" && v !== "runs") return err(`profile list: --for must be chat or runs\n`, 2);
+      use = v;
+    } else return err(`profile list: unknown argument ${a}\n`, 2);
+  }
   await ensureHome(orchHome());
   const cat = await loadCatalog(orchHome());
   const dflt = setting(cat, "default_profile", "");
-  const lines = Object.entries(cat.profiles ?? {}).map(
-    ([k, p]: [string, any]) => `${k === dflt ? "*" : ""}${k}\t${p.harness}\t${p.model ?? ""}\n`,
-  );
+  const names = Object.keys(cat.profiles ?? {}).filter((k) => use === "" || profileAllowedFor(cat, k, use));
+  if (json) {
+    const rows = names.map((k) => {
+      const p: any = cat.profiles![k];
+      return {
+        name: k, harness: p.harness, model: p.model ?? "", default: k === dflt, enabled: p.enabled !== false,
+        usage: profileUsage(cat, k), harness_usage: harnessUsage(cat, p.harness),
+        available: { chat: profileAllowedFor(cat, k, "chat"), runs: profileAllowedFor(cat, k, "runs") },
+      };
+    });
+    return out(JSON.stringify(rows, null, 2) + "\n");
+  }
+  const lines = names.map((k) => {
+    const p: any = cat.profiles![k];
+    return `${k === dflt ? "*" : ""}${k}\t${p.harness}\t${p.model ?? ""}\n`;
+  });
   return out(lines.join(""));
 }
 

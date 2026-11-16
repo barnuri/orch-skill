@@ -1,13 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { harnessUsage, usageRefusal } from "../../shared/profile-usage";
 
 interface ModelSpec { slug?: string; harnesses?: string[]; description?: string; behaves_as?: string; cost?: string; quality?: string }
 interface ProfileSpec {
+  usage?: string[];
   harness?: string; model?: string; allowed_models?: string[]; enabled?: boolean; description?: string;
   flags?: string[]; env?: Record<string, string>; auth?: string[];
 }
 interface ProfilesDoc {
-  settings?: { disabled_harnesses?: string[]; default_profile?: string; chat_roots?: string[] };
+  settings?: { disabled_harnesses?: string[]; default_profile?: string; chat_roots?: string[]; harness_usage?: Record<string, string[]> };
+  defaults?: { usage?: string[] };
   models?: Record<string, ModelSpec>;
   profiles?: Record<string, ProfileSpec>;
 }
@@ -26,15 +29,15 @@ const BINARY: Record<string, string> = { claude: "claude", "cursor-agent": "curs
 export const MEMORY: Readonly<Record<string, "process" | "session" | "replay">> = {
   claude: "process", copilot: "session", pi: "session", "cursor-agent": "session", opencode: "session", "local-llm": "replay",
 };
-/** Install folders a harness's installer uses that a supervisor's minimal PATH often lacks (opencode installs to ~/.opencode/bin). */
-const EXTRA_BIN_DIRS: Readonly<Record<string, string>> = { opencode: join(".opencode", "bin") };
-
 /**
  * Effort levels a harness can be asked for, and how each takes them (verified with `--help`):
  * claude `--effort <level>` (low, medium, high, xhigh, max); opencode `-m provider/model#variant`.
  * copilot has `--reasoning-effort`, but its chat turns run through dispatch.ts, which has no such pass-through; the others have no flag.
  */
 export const EFFORTS: Readonly<Record<string, readonly string[]>> = { claude: ["low", "medium", "high", "max"], opencode: ["low", "medium", "high", "max"] };
+/** Install folders a harness's installer uses that a supervisor's minimal PATH often lacks (opencode installs to ~/.opencode/bin). */
+const EXTRA_BIN_DIRS: Readonly<Record<string, string>> = { opencode: join(".opencode", "bin") };
+
 /** True when the harness binary is on PATH or in its installer's own folder, the same places the chat session looks. */
 export function harnessAvailable(id: string): boolean {
   const bin = BINARY[id] ?? id;
@@ -115,13 +118,20 @@ function problemOf(profile: ProfileSpec, vars: Record<string, string | undefined
   return null;
 }
 
-export function buildOptions(home: string, harnessIds: readonly string[]): ChatOptions {
+export function buildOptions(home: string, harnessIds: readonly string[], use: "chat" | "runs" = "chat"): ChatOptions {
   const doc = readProfiles(home);
   const disabled = new Set(doc.settings?.disabled_harnesses ?? []);
   const entries = Object.entries(doc.profiles ?? {});
+  const notForChat: Record<string, string> = {};
+  for (const [name] of entries) {
+    const why = usageRefusal(doc, name, use);
+    if (why !== null) {
+      notForChat[name] = why;
+    }
+  }
   const harnesses: HarnessOption[] = harnessIds.map((id) => {
     const enabled = !disabled.has(id);
-    const profiles = entries.filter(([, p]) => p.harness === id).map(([name, p]): ProfileOption => {
+    const profiles = entries.filter(([name, p]) => p.harness === id && notForChat[name] === undefined).map(([name, p]): ProfileOption => {
       const models = modelsOf(doc, p);
       const problem = problemOf(p, profileEnvSource(home, models.find((m) => m.default)?.slug ?? ""));
       return {
@@ -133,7 +143,12 @@ export function buildOptions(home: string, harnessIds: readonly string[]): ChatO
   const given = doc.settings?.default_profile ?? null;
   const def = given !== null && notForChat[given] === undefined ? given : null;
   const defHarness = def === null ? null : (doc.profiles?.[def]?.harness ?? null);
-  return { harnesses, default_harness: defHarness, default_profile: defHarness === null ? null : def };
+  return { harnesses, default_harness: defHarness, default_profile: defHarness === null ? null : def, not_for_chat: notForChat };
+}
+
+/** The reason a profile cannot start or move a chat (limited to orch runs by its profile or harness), or null. Unknown profiles pass: the launch check names them. */
+export function chatUsageRefusal(home: string, profileName: string): string | null {
+  return usageRefusal(readProfiles(home), profileName, "chat");
 }
 
 export interface Launch {

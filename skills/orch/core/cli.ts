@@ -29,7 +29,7 @@ import { viaServer } from "./client.ts";
 import { loopCommands } from "./commands/loops.ts";
 import { scheduleCommands } from "./commands/schedules.ts";
 import { announce } from "./commands/announce.ts";
-import { init, settings, profileSanity, profileUnsetEnv, profileSyncOverlay, memory } from "./commands/config.ts";
+import { init, settings, profileSanity, profileSetUsage, profileUnsetEnv, profileSyncOverlay, memory } from "./commands/config.ts";
 import { runAdvance } from "./commands/advance.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
@@ -116,6 +116,7 @@ export const COMMANDS: Record<string, Handler> = {
   "model list": modelList,
   "profile sanity": profileSanity,
   "profile unset-env": profileUnsetEnv,
+  "profile set-usage": profileSetUsage,
   "profile sync-overlay": profileSyncOverlay,
   "settings get": (a) => settings(["get", ...a]),
   "settings set": (a) => settings(["set", ...a]),
@@ -125,6 +126,7 @@ export const COMMANDS: Record<string, Handler> = {
   init,
   ...Object.fromEntries(HERDR_VERBS.map((v): [string, Handler] => [`herdr ${v}`, (a) => herdrCommand(v, a)])),
   "harness list": (a) => cmdHarness(["list", ...a]),
+  "harness set-usage": (a) => cmdHarness(["set-usage", ...a]),
   "hub setup": (a) => cmdHub(["setup", ...a]),
   "hub off": (a) => cmdHub(["off", ...a]),
   "hub status": (a) => cmdHub(["status", ...a]),

@@ -3,6 +3,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { profileAllowedFor } from "../../../../src/shared/profile-usage.ts";
 
 export const PROFILE_PICK_USAGE = 'dispatch.ts profile pick "<task>" [--complexity trivial|small|medium|large] [--kind K]';
 export const MODEL_LIST_USAGE = "dispatch.ts model list [--profile P] [--harness H]";
@@ -107,7 +108,7 @@ function memoryBoost(mem: any[], name: string, kind: string): number {
 export function profilePick(cat: Catalog, mem: any[], complexity: string, kind: string, budgetOk: boolean): string[] | null {
   const disabled = list(cat.settings?.disabled_harnesses);
   const scored = Object.entries(cat.profiles ?? {})
-    .filter(([, p]) => p.enabled !== false && !disabled.includes(p.harness) && inBand(p, complexity))
+    .filter(([name, p]) => p.enabled !== false && !disabled.includes(p.harness) && profileAllowedFor(cat, name, "runs") && inBand(p, complexity))
     .map(([name, p]) => ({
       name,
       score: memoryBoost(mem, name, kind) * -10 + costScore(p, budgetOk) + (10 - (p.priority ?? 5)),

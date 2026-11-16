@@ -9,6 +9,7 @@ import { acquireLock } from "../state/lock.ts";
 import { loadRun, saveRun } from "../state/store.ts";
 import { trashPath } from "../state/trash.ts";
 import { readCatalog } from "../adapters/routing.ts";
+import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import {
   dispatchSh, hex4, isUint, parseDuration, patchJsonSync, pidAlive, psCommand, readJsonOr, readJsonSync, runLimited, sleep, spawnOrch,
   stampUtc, writeJsonSync,
@@ -188,6 +189,10 @@ async function loopStart(args: string[]): Promise<number> {
 
   let harness = name;
   if (kind === "profile") harness = (await readCatalog(paths.profiles(home()))).profiles?.[name]?.harness ?? "";
+  if (kind === "profile") {
+    const why = usageRefusal(await readCatalog(paths.profiles(home())), name, "runs");
+    if (why !== null) { err(`${why}\n`); return 2; }
+  }
   let sessionId = "";
   if (sessionMode === "fresh") {
   } else if (sessionMode === "resume") {
@@ -577,6 +582,10 @@ async function watchStart(args: string[]): Promise<number> {
   const runtime = parseDuration(maxRuntime || "24h");
   if (runtime === null) { err("watch start: --max-runtime must be a duration (e.g. 6h)\n"); return 2; }
   if (onMatch && !profile) { err("watch start: --on-match needs --profile\n"); return 2; }
+  if (onMatch) {
+    const why = usageRefusal(await readCatalog(paths.profiles(home())), profile, "runs");
+    if (why !== null) { err(`${why}\n`); return 2; }
+  }
   const limit = Number(process.env.WATCH_MAX_ACTIVE ?? 10);
   const active = watchActiveCount();
   if (active >= limit) { err(`watch start: ${active} watches already active (limit ${limit})\n`); return 1; }

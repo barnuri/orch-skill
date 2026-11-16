@@ -120,6 +120,39 @@ function stringArrayIssues(path: string, value: unknown, maxItems: number, maxLe
   return issues;
 }
 
+function usageIssues(path: string, value: unknown): Issue[] {
+  if (!Array.isArray(value)) {
+    return [{ path, reason: 'must be a non-empty array of "chat" and/or "runs"' }];
+  }
+  const issues: Issue[] = [];
+  if (value.length === 0) {
+    issues.push({ path, reason: 'must not be empty; use ["chat","runs"] for both' });
+  }
+  value.forEach((entry: unknown, index: number) => {
+    if (entry !== "chat" && entry !== "runs") {
+      issues.push({ path: `${path}[${index}]`, reason: 'must be "chat" or "runs"' });
+    } else if (value.indexOf(entry) !== index) {
+      issues.push({ path: `${path}[${index}]`, reason: "duplicate entry" });
+    }
+  });
+  return issues;
+}
+
+function harnessUsageIssues(value: unknown, harnesses: readonly string[]): Issue[] {
+  if (!isPlainObject(value)) {
+    return [{ path: "settings.harness_usage", reason: MUST_BE_OBJECT }];
+  }
+  const issues: Issue[] = [];
+  for (const [id, uses] of Object.entries(value)) {
+    const path = `settings.harness_usage.${id}`;
+    if (!harnesses.includes(id)) {
+      issues.push({ path, reason: `unknown harness; must be one of ${harnesses.join(", ")}` });
+    }
+    issues.push(...usageIssues(path, uses));
+  }
+  return issues;
+}
+
 function defaultProfileIssues(value: unknown, profiles: unknown): Issue[] {
   const path = "settings.default_profile";
   if (typeof value !== "string") {
@@ -220,6 +253,9 @@ function settingsIssues(settings: unknown, profiles: unknown, harnesses: readonl
   }
   if ("learning" in settings) {
     issues.push(...learningIssues(settings["learning"]));
+  }
+  if ("harness_usage" in settings) {
+    issues.push(...harnessUsageIssues(settings["harness_usage"], harnesses));
   }
   if ("disabled_harnesses" in settings) {
     issues.push(...stringArrayIssues("settings.disabled_harnesses", settings["disabled_harnesses"], MAX_PROFILES, MAX_MODEL_LEN));
@@ -558,6 +594,9 @@ function profileIssues(
   if ("parallel_ok" in spec && typeof spec["parallel_ok"] !== "boolean") {
     issues.push({ path: `${path}.parallel_ok`, reason: MUST_BE_BOOLEAN });
   }
+  if ("usage" in spec) {
+    issues.push(...usageIssues(`${path}.usage`, spec["usage"]));
+  }
   if ("priority" in spec && !isIntegerInRange(spec["priority"], MIN_PRIORITY, MAX_PRIORITY)) {
     issues.push({
       path: `${path}.priority`,
@@ -615,6 +654,9 @@ function defaultsIssues(defaults: unknown): Issue[] {
   const issues = unknownKeyIssues(defaults, DEFAULTS_KEYS, "defaults");
   if ("max_parallel" in defaults && !isIntegerInRange(defaults["max_parallel"], 1, 32)) {
     issues.push({ path: "defaults.max_parallel", reason: "must be an integer 1-32" });
+  }
+  if ("usage" in defaults) {
+    issues.push(...usageIssues("defaults.usage", defaults["usage"]));
   }
   if ("parallel_ok" in defaults && typeof defaults["parallel_ok"] !== "boolean") {
     issues.push({ path: "defaults.parallel_ok", reason: MUST_BE_BOOLEAN });

@@ -1,5 +1,6 @@
 // Run lifecycle commands: `run start|list|retry|sync`, `__run-cancel`, `prune`. Ported from lib/runs/runs.sh
 // (cmd_run_start, cmd_run_list, cmd_run_retry, cmd_run_sync + auto retry, run_cancel, cmd_prune, auto_prune).
+import { profileAllowedFor, usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -355,7 +356,7 @@ async function autoRetryErrors(home: string, runId: string): Promise<number> {
       const fb = String(doc.profiles?.[profile]?.fallback ?? "");
       const p = fb ? doc.profiles?.[fb] : null;
       const disabled = (doc.settings?.disabled_harnesses ?? []) as string[];
-      if (fb && p && p.enabled !== false && !disabled.includes(p.harness)) {
+      if (fb && p && p.enabled !== false && !disabled.includes(p.harness) && profileAllowedFor(doc, fb, "runs")) {
         override = fb;
       }
     }

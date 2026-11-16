@@ -9,6 +9,8 @@ export interface HarnessStatus {
   available: boolean;
   reason: string;
   enabled: boolean;
+  /** Where the harness may be used (settings.harness_usage); missing means both. */
+  usage?: Array<"chat" | "runs">;
 }
 
 export interface HarnessesEnvelope {

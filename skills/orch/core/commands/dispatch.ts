@@ -1,5 +1,6 @@
 // `node dispatch`, `node retry`, `run finish`. Ported from lib/runs/runs.sh (cmd_node_dispatch, node_retry_dispatch,
 // cmd_node_retry, cmd_run_finish). The job itself starts through spawnNode (core/adapters).
+import { profileAllowedFor, usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnNode } from "../adapters/spawn.ts";
@@ -231,7 +232,12 @@ function errorSummary(n: Record<string, any>): string {
 // profile_require: false (after printing the problem) when the profile does not exist.
 export async function profileRequire(home: string, name: string): Promise<boolean> {
   const doc = await loadProfilesDoc(home);
-  if (doc.profiles?.[name]) return true;
+  if (doc.profiles?.[name]) {
+    const why = usageRefusal(doc, name, "runs");
+    if (why === null) return true;
+    errLine(why);
+    return false;
+  }
   const avail = Object.keys((doc as any).profiles ?? {}).sort().join(", ");
   errLine(`profile ${name}: unknown profile. Available: ${avail}`);
   return false;

@@ -97,7 +97,7 @@ export class TurnSession implements AgentSession {
   }
 
   private baseEnv(): Record<string, string | undefined> {
-    const env: Record<string, string | undefined> = { ...process.env, HARNESS_ORCH_HOME: this.params.home };
+    const env: Record<string, string | undefined> = { ...process.env, HARNESS_ORCH_HOME: this.params.home, ORCH_USE: "chat" };
     if (this.params.modelId !== null) {
       env.ORCH_MODEL_ID = this.params.modelId;
     }

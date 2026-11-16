@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { trashPath } from "../state/trash.ts";
+import { USAGE_CHOICES, choiceFromUsage, profileUsage, usageFromChoice, usageRefusal, type UsageChoice } from "../../../../src/shared/profile-usage.ts";
 import { ensureHome, overlayFile, profilesCommit } from "../state/profiles.ts";
 import { loadProfilesDoc } from "../state/settings.ts";
 import { hasHarnessDisabled, modelIdResolve, modelSlugResolve, readCatalog } from "../adapters/routing.ts";
@@ -93,7 +94,7 @@ async function probeOne(home: string, name: string): Promise<Row> {
   (process.stderr as any).write = (s: string) => (logs.push(String(s)), true);
   let loaded;
   try {
-    loaded = await loadProfile(home, name, { ...process.env });
+    loaded = await loadProfile(home, name, { ...process.env, ORCH_USE: "any" });
   } finally {
     (process.stderr as any).write = realWrite;
   }
@@ -103,7 +104,7 @@ async function probeOne(home: string, name: string): Promise<Row> {
   }
   const start = Date.now();
   const proc = Bun.spawn([process.execPath, join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "--profile", name, SANITY_PROMPT], {
-    stdin: "ignore", stdout: "pipe", stderr: "pipe", env: process.env as Record<string, string>,
+    stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, ORCH_USE: "any" } as Record<string, string>,
   });
   const [o, e] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), new Response(proc.stderr as ReadableStream).text()]);
   const rc = await proc.exited;
@@ -127,7 +128,29 @@ export async function profileSanity(args: string[]): Promise<number> {
   if (names.length === 0) names.push(...Object.keys((await readCatalog(paths.profiles(home))).profiles ?? {}).sort());
   const results: Row[] = [];
   for (const n of names) results.push(await probeOne(home, n));
-  return out(JSON.stringify({ generated_at: nowIso(), results }) + "\n");
+  const doc = await readCatalog(paths.profiles(home));
+  const warnings: string[] = [];
+  for (const key of ["planner_profile", "default_profile"]) {
+    const v = String(doc.settings?.[key] ?? "");
+    const why = v === "" ? null : usageRefusal(doc, v, "runs");
+    if (why !== null) warnings.push(`settings.${key}: ${why}`);
+  }
+  return out(JSON.stringify({ generated_at: nowIso(), results, warnings }) + "\n");
+}
+
+export async function profileSetUsage(args: string[]): Promise<number> {
+  const [name = "", choice = ""] = args;
+  if (name === "" || !(USAGE_CHOICES as readonly string[]).includes(choice)) return err("usage: dispatch.ts profile set-usage <name> chat|runs|both\n", 2);
+  const home = await requireHome();
+  if (!home) return 1;
+  const doc: any = await Bun.file(paths.profiles(home)).json();
+  const p = doc.profiles?.[name];
+  if (!p) return err(`profile ${name}: unknown profile. Available: ${Object.keys(doc.profiles ?? {}).sort().join(", ")}\n`, 2);
+  const inheritsBoth = choiceFromUsage(profileUsage({ defaults: doc.defaults, profiles: { x: {} } }, "x")) === "both";
+  if (choice === "both" && inheritsBoth) delete p.usage;
+  else p.usage = usageFromChoice(choice as UsageChoice);
+  profilesCommit(home, doc);
+  return out(`profile ${name}: usage = ${choiceFromUsage(profileUsage(doc, name))}\n`);
 }
 
 export async function profileUnsetEnv(args: string[]): Promise<number> {

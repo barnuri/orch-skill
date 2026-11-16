@@ -12,7 +12,7 @@ export const TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 export const ROOT_KEYS = ["settings", "models", "profiles"] as const;
 /** Optional root key: profile defaults every profile inherits (settable from the Settings page). */
 export const OPTIONAL_ROOT_KEYS = ["defaults"] as const;
-export const DEFAULTS_KEYS = ["parallel_ok", "max_parallel", "flags", "env", "timeout_min", "retry", "stall_min", "effort", "tier", "role", "cost", "quality", "speed", "risk"] as const;
+export const DEFAULTS_KEYS = ["parallel_ok", "max_parallel", "flags", "env", "timeout_min", "retry", "stall_min", "effort", "tier", "role", "cost", "quality", "speed", "risk", "usage"] as const;
 export const SETTINGS_KEYS = [
   "default_profile",
   "retention_days",
@@ -25,6 +25,7 @@ export const SETTINGS_KEYS = [
   "planner_profile",
   "learning",
   "disabled_harnesses",
+  "harness_usage",
   "herdr",
   "llm_hub",
 ] as const;
@@ -63,6 +64,7 @@ export const PROFILE_KEYS = [
   "min_complexity",
   "max_complexity",
   "parallel_ok",
+  "usage",
   "priority",
   "fallback",
   "example_tasks",
