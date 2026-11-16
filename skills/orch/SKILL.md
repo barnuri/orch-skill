@@ -677,6 +677,25 @@ orch schedule next "<cron>"     # check an expression before saving it
   pauses, runs and deletes them (`/api/schedules`). With no server running, nothing fires: use
   `orch schedule tick` from your own cron, or start the service.
 
+### From a chat
+
+A schedule, loop or monitor can belong to a dashboard chat. The result then returns to that chat's thread (`target: {kind: "chat", chat_id, mode}`), the chat list shows an unread dot, and a push with category `Schedules` is sent. The same engines run: `schedule`, `loop` and `watch` of dispatch.ts stay the only writers; the dashboard server adds the part only it can do, which is sending into a chat (`src/server/chats/automation.ts`).
+
+```
+orch schedule add --chat <chat-id> [--mode message|fresh] [--tz Asia/Jerusalem] [--once] --name N --cron C --prompt P
+orch schedule list --chat <chat-id>
+orch loop start --every 10m --max 20 --chat <chat-id> [--mode message|fresh] [--until-re RE] [--until-text TEXT] [--until CMD] [--label L] --profile <chat profile> "<prompt>"
+orch loop list --chat <chat-id>
+orch watch start --chat <chat-id> --meta '<json>' [--baseline] [--every 60s] [--match RE] --name N "<cmd>"
+orch watch list --chat <chat-id>
+```
+
+- **Schedules.** `mode: message` (default) sends the prompt into the chat as a user message `Scheduled: <name>` through the normal send path and queue: same session, it waits in the queue while a reply runs and never cuts it. `mode: fresh` runs the prompt in a new one-off session with the chat's folder, harness and effort and posts the final answer as an assistant block `Scheduled result: <name>` with a link. The cron is read in the schedule's own zone (`--tz`, default the machine's; DST: a time that does not exist is skipped, a repeated one fires once). A chat schedule is fired by the dashboard server (claim files make a fire happen once), not by `schedule tick`; `schedule run` refuses it (use `POST /api/chats/{id}/schedules/{sid}/run-now`). A run missed while the server was down fires once on boot inside the grace window (`settings.schedule_grace_hours`, default 6), otherwise it is recorded `skipped`. A failed run retries once after 5 minutes; 3 failures in a row pause it with `pause_reason` and an error notice in the chat. An archived chat pauses its schedules. At least 5 minutes between runs; at most 50 active chat schedules. `schedule record <id> --status ok|failed|skipped ...` is how the server writes a run (single writer).
+- **Loops.** The chat's profile runs each iteration; the server posts every iteration into the chat with a quiet counter (`iteration 3 of 10`), then a closing line. Stops on `--max`, `--until` (command exits 0), `--until-re` (regex on the reply), `--until-text` (the agent judges it and writes `STOP`), Stop, or 3 failures in a row (a plain loop allows 5).
+- **Monitors.** `--meta` carries `{spec, once, debounce, then}`; `spec.type` is `file`, `url`, `command`, `stream`, `run` or `git`. The check is a shell command the watch engine already runs (cksum for a file or folder, `curl` for a URL, `ghx run list` for CI). `--baseline` skips the first reading so only a change triggers. At most 20 active per chat; at least 10 s between local checks and 60 s for a URL; only http and https URLs, no credentials, and link-local and metadata addresses (169.254.0.0/16, fe80::/10, `metadata.google.internal`) are refused, also after DNS resolution, unless `settings.monitor_allow_link_local` is true. A trigger posts a short message and pushes; `then: {mode: "act", prompt}` also sends that prompt into the chat. `debounce` folds triggers into one message; `once` stops after the first.
+- **Chat API.** `GET|POST /api/chats/{id}/schedules|loops|monitors`, `PATCH|DELETE .../schedules/{sid}`, `POST .../{sid}/run-now|pause|resume` (loops: `stop`, `resume`; monitors: `stop`, `pause`, `resume`, `run-now`), `GET .../{sid}/log` (last 20), `POST /api/chats/{id}/read` (clears the unread dot). The global Schedules and Active pages show these items with a Chat column.
+- **Agent.** The first turn of a session gets one line: it may suggest a schedule, loop or monitor, must ask the user to confirm, and the user creates it with `/schedule`, `/loop` or `/watch`. No tool lets the agent create one alone.
+
 ## Retention
 
 `orch prune [--older-than 7d|12h|3] [--dry-run]` recoverably removes finished runs and their jobs
