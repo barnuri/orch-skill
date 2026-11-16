@@ -126,6 +126,7 @@ export async function nodeSelectionsText(home: string, args: string[]): Promise<
     const q = [
       ["worker", `${runId}/${nodeId}/${attempt}`],
       ["since_seq", String(since)],
+      ["since_ts_ms", "1"],
       ["limit", String(SELECTION_PAGE_LIMIT)],
     ]
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`)

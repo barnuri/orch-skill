@@ -86,7 +86,7 @@ console.log(s.port);`;
   server.stop(true);
 });
 
-test("herdr off, run stop, claude path, profile jobs", () => {
+test("herdr off, run stop, claude path, profile jobs", async () => {
   const sh = fakeBin(Object.fromEntries(["claude", "cursor-agent", "opencode", "copilot"].map((t) => [t, `printf "%s\\n" "$@"`])));
   const home = seedHome();
   const o = orch(home, { PATH: `${sh}:${process.env.PATH}`, CURSOR_API_KEY: "shim" });
@@ -131,7 +131,9 @@ test("herdr off, run stop, claude path, profile jobs", () => {
   o("wait", jid, "--timeout", "60", "--interval", "1");
   expect(o("list").all).toMatch(new RegExp(`${jid}.done exit=0.claude-default`));
   expect(o("tail", jid).all).toMatch(/--model/);
-  const hub = fakeHub(0);
+  const hubSrc = `const s = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) { let content = "", model = ""; try { const b = await req.json(); content = b.messages?.[0]?.content ?? ""; model = b.model ?? ""; } catch {} return Response.json({ choices: [{ message: { content: "echo:" + content + "|model=" + model } }] }); } }); console.log(s.port);`;
+  const hubProc = Bun.spawn(["bun", "-e", hubSrc], { stdout: "pipe" });
+  const hub = { url: `http://127.0.0.1:${(await hubProc.stdout.getReader().read().then((x) => new TextDecoder().decode(x.value))).trim()}`, stop: () => hubProc.kill() };
   r = o.env({ LLM_HUB_URL: hub.url }, "run", "--profile", "local-llm-fast", "ping");
   expect(r.all).toMatch(/echo:ping.model=llama_swap\/ornith-1.5-9b/);
   hub.stop();

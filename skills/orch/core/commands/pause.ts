@@ -1,5 +1,5 @@
 // `run pause | resume | stop | set | guard` and `node cancel`. Port of lib/runs/pause.sh.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
@@ -89,7 +89,11 @@ export async function stopKillJob(home: string, job: string): Promise<boolean> {
   const sig = (s: NodeJS.Signals) => { try { process.kill(-pid, s); } catch { try { process.kill(pid, s); } catch { /* gone */ } } };
   sig("SIGTERM");
   for (let i = 0; pidAlive(pid) && i < STOP_GRACE() * 10; i++) await sleep(100);
-  if (pidAlive(pid)) sig("SIGKILL");
+  let code = 143;
+  if (pidAlive(pid)) { sig("SIGKILL"); code = 137; }
+  // A job killed before its wrapper installed the signal handler leaves no exit code: record the one the signal gives.
+  const ec = join(paths.jobs(home), job, "exit_code");
+  if (!existsSync(ec)) { try { writeFileSync(ec, `${code}\n`); } catch { /* job dir gone */ } }
   await closeJobTab(home, join(paths.jobs(home), job));
   return true;
 }
