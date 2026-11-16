@@ -269,7 +269,7 @@ fi
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
-  dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
+  dashboard/demo adapters/harness runs/health adapters/hub runs/inbox core/locks
   automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
   automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
@@ -278,6 +278,18 @@ for lib_file in $ORCH_LIB_FILES; do
   # shellcheck source=/dev/null
   . "$lib_file"
 done
+
+
+# herdr lives in core/adapters/herdr.ts. These thin wrappers keep the bash call sites working.
+HERDR_PID_WAIT_SECS=15
+HERDR_CALL_TIMEOUT_SECS="${ORCH_HERDR_CALL_TIMEOUT:-8}"
+herdr_orch_bun() { "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" herdr "$@"; }
+herdr_enabled() { herdr_orch_bun enabled; }
+herdr_cli() { herdr_orch_bun cli "$@"; }
+herdr_start_job() { herdr_orch_bun start-job "$@"; }
+herdr_close_job_tab() { herdr_orch_bun close-tab "$1" >/dev/null 2>&1 || true; }
+herdr_job_gone_note() { herdr_orch_bun job-gone-note "$1"; }
+herdr_serve_boot() { ( herdr_orch_bun serve-boot ) </dev/null >/dev/null 2>&1 & disown $! 2>/dev/null || true; }
 
 # Converts a `date -u +%Y-%m-%dT%H:%M:%SZ`-shaped timestamp to epoch seconds, trying BSD date
 # (macOS) then GNU date, since usage-snapshot.sh's captured_at must be readable on both.
@@ -675,6 +687,21 @@ PORTED_COMMANDS=(
   "delegate task"
   "delegate finding"
   "delegate show"
+  "herdr on"
+  "herdr off"
+  "herdr auto"
+  "herdr status"
+  "herdr attach"
+  "herdr ensure"
+  "herdr stop"
+  "herdr health"
+  "herdr sweep"
+  "herdr enabled"
+  "herdr start-job"
+  "herdr close-tab"
+  "herdr job-gone-note"
+  "herdr serve-boot"
+  "herdr cli"
 )
 
 is_ported() {
@@ -771,7 +798,7 @@ main() {
     harness)
       shift
       if [ "${1:-}" = list ]; then harness_list_locked "$@"; else cmd_harness "$@"; fi ;;
-    herdr) shift; cmd_herdr "$@" ;;
+    herdr) herdr_orch_bun "${@:2}" ;;
     hub) shift; cmd_hub "$@" ;;
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;

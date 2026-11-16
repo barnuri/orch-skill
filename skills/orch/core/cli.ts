@@ -7,6 +7,7 @@ import { nodeBatch } from "./commands/node-batch.ts";
 import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
+import { herdrCommand, HERDR_VERBS } from "./adapters/herdr.ts";
 import { doctor } from "./commands/doctor.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
@@ -29,6 +30,7 @@ export const COMMANDS: Record<string, Handler> = {
   "profile show": profileShow,
   "profile pick": profilePickCommand,
   "model list": modelList,
+  ...Object.fromEntries(HERDR_VERBS.map((v): [string, Handler] => [`herdr ${v}`, (a) => herdrCommand(v, a)])),
   // `delegate <run> <verb>`: the run id is the second word, so the key is built in main().
   "delegate plan": (a) => delegatePlan(a),
   "delegate task": (a) => delegateTask(a),

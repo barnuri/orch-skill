@@ -1,0 +1,3 @@
+# Parity: herdr verbs that need no herdr binary. The instance itself is covered by core/adapters/herdr.test.ts.
+herdr bogus
+herdr health --bogus

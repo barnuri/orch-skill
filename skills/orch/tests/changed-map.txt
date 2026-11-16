@@ -14,7 +14,7 @@ config          init-profiles profiles-overlay profiles-tmp tmp-leak lib-list
 locks           state-lock
 adapters        classify-adapters llm-hub-native
 harness         classify-adapters
-herdr           herdr-runner identity-panes-stop
+herdr           identity-panes-stop
 hub             llm-hub-native
 routing         routing-claude classify-adapters
 profile-sanity  routing-claude profiles-overlay
