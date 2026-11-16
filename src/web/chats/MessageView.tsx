@@ -4,6 +4,10 @@ import { formatTokens, isLive, messageDurationMs, messageNotes } from "../lib/ch
 import type { Attachment, Message } from "../lib/chat-types";
 import { fmtUsd } from "../lib/format";
 import { AttachmentTile } from "./Attachments";
+import { partsOf } from "./chat-group";
+import { CopyButton } from "./CopyButton";
+import { Reasoning } from "./Reasoning";
+import { ToolGroup } from "./ToolCard";
 import { primeSpeech, speak, speechSupported, stopSpeaking, useSpeakingKey } from "./voice";
 
 const Markdown = lazy(() => import("./Markdown"));
@@ -13,17 +17,21 @@ interface MessageViewProps {
   now: number;
   onOpenImage: (a: Attachment) => void;
   onRetry?: (() => void) | undefined;
+  /** Set on the newest finished reply: asks the agent again with the same prompt. */
+  onRegenerate?: (() => void) | undefined;
   /** The model the chat is configured with, shown when the agent reported none. */
   fallbackModel?: string | undefined;
 }
 
-function Footer({ message, now, fallbackModel }: { message: Message; now: number; fallbackModel?: string | undefined }) {
+function Footer({ message, now, fallbackModel, onRegenerate }: { message: Message; now: number; fallbackModel?: string | undefined; onRegenerate?: (() => void) | undefined }) {
   const ms = messageDurationMs(message, now);
   const tokens = formatTokens(message.input_tokens, message.output_tokens);
   return (
     <div className="msg-foot" data-testid="msg-foot">
       <span className={`msg-status is-${message.status}`}>{message.status}</span>
       <SpeakButton message={message} />
+      {message.content.trim() !== "" && !isLive(message) ? <CopyButton text={message.content} label="Copy" className="msg-act" /> : null}
+      {onRegenerate !== undefined ? <button type="button" className="msg-act" data-testid="msg-regenerate" onClick={onRegenerate}>Regenerate</button> : null}
       {message.model_used !== null ? (
         <span className="msg-meta mono" data-testid="msg-model">{message.model_used}</span>
       ) : fallbackModel !== undefined ? (
@@ -84,8 +92,26 @@ function ToolRow({ message }: { message: Message }) {
   );
 }
 
-export function MessageView({ message, now, onOpenImage, onRetry, fallbackModel }: MessageViewProps) {
+/** A run of consecutive tool-call rows, as cards. */
+export function ToolsView({ messages, now }: { messages: Message[]; now: number }) {
+  const calls = messages.flatMap((m) => {
+    const parts = partsOf(m) ?? [];
+    const part = parts.find((p) => p.type === "tool-call");
+    return part?.type === "tool-call" ? [{ key: m.id, part, extra: parts.filter((p) => p.type !== "tool-call") }] : [];
+  });
+  return <ToolGroup calls={calls} now={now} />;
+}
+
+export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, fallbackModel }: MessageViewProps) {
   if (message.role === "tool") {
+    const parts = partsOf(message);
+    const thought = parts?.find((p) => p.type === "reasoning");
+    if (thought?.type === "reasoning") {
+      return <Reasoning text={thought.text} live={false} />;
+    }
+    if (parts?.some((p) => p.type === "tool-call") === true) {
+      return <ToolsView messages={[message]} now={now} />;
+    }
     return <ToolRow message={message} />;
   }
   const live = isLive(message);
@@ -124,7 +150,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, fallbackModel 
           </div>
         ) : null}
       </div>
-      <Footer message={message} now={now} fallbackModel={fallbackModel} />
+      <Footer message={message} now={now} fallbackModel={fallbackModel} onRegenerate={onRegenerate} />
       {messageNotes(message).map((n) => (
         <p key={n.key} className="msg-warning" data-testid={`msg-${n.key}`} title={n.title}>{n.text}</p>
       ))}

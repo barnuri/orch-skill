@@ -1,3 +1,4 @@
+import { parseParts } from "../../../shared/chat-parts";
 import { Body, Controller, Get, Param, Patch, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
@@ -19,7 +20,7 @@ import { valid } from "./support";
 const publicAttachment = ({ rel_path: _rel, ...rest }: AttachmentRow): Omit<AttachmentRow, "rel_path"> => rest;
 
 function publicMessage(row: MessageRow & { attachments: AttachmentRow[] }): unknown {
-  return { ...row, attachments: row.attachments.map(publicAttachment) };
+  return { ...row, parts: parseParts(row.parts), attachments: row.attachments.map(publicAttachment) };
 }
 
 function guarded(work: () => Response | Promise<Response>): Promise<Response> {

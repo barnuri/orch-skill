@@ -22,6 +22,8 @@ export interface MessageRow {
   context_truncated: number;
   /** Set when the stored session could not be resumed and the turn started fresh. */
   warning: string | null;
+  /** JSON array of typed parts (src/shared/chat-parts.ts); null for rows written before parts existed: render `content`. */
+  parts: string | null;
 }
 
 export interface AttachmentRow {

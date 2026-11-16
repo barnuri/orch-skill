@@ -57,7 +57,7 @@ describe("cursor", () => {
     cleanup();
     const { container, rerender } = render(<Markdown text={"hello **world**\n\nlast words"} live />);
     expect(container.querySelector(".md.is-live")).not.toBeNull();
-    expect(container.querySelector(".md.is-live > p:last-child")?.textContent).toBe("last words");
+    expect(container.querySelector(".md.is-live > div > div:last-child > p:last-child")?.textContent).toBe("last words");
     rerender(<Markdown text="x" />);
     expect(container.querySelector(".is-live")).toBeNull();
     cleanup();
@@ -70,9 +70,10 @@ describe("right-to-left replies", () => {
   test("each text block takes its own direction, and code stays left to right", () => {
     cleanup();
     const { container } = render(<Markdown text={"## המלצות\n\n- מקרר אחד\n- second\n\nplain line\n\n```sh\necho hi\n```"} />);
-    for (const sel of ["h2", "ul", "li", "p"]) {
-      expect(container.querySelector(`.md ${sel}`)?.getAttribute("dir")).toBe("auto");
-    }
+    // Streamdown detects the direction per block: static mode sets it on the element, streaming mode on its block wrapper.
+    const dirOf = (sel: string): string | null => { const el = container.querySelector(`.md ${sel}`); return el?.getAttribute("dir") ?? el?.parentElement?.getAttribute("dir") ?? null; };
+    expect(dirOf("h2")).toBe("rtl");
+    expect(dirOf("p")).toBe("ltr");
     expect(container.querySelector(".code-block")?.getAttribute("dir")).toBeNull();
     cleanup();
   });

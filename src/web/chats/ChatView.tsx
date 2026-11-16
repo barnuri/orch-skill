@@ -9,7 +9,9 @@ import type { Selection } from "../lib/chat-logic";
 import { formatDuration } from "../lib/duration";
 import type { Attachment, Chat, ChatOptions, Message, Project } from "../lib/chat-types";
 import { Lightbox } from "./Attachments";
+import { latestTodos } from "../../shared/chat-parts";
 import { Composer } from "./Composer";
+import { TodoPanel } from "./Todos";
 import { FolderChip, FolderPicker } from "./FolderPicker";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
 import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
@@ -167,6 +169,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const [lightbox, setLightbox] = useState<Attachment | null>(null);
   const chat = chatQuery.data;
   const rows = thread.messages;
+  const todos = latestTodos(rows);
   const running = thread.running || rows.some(isLive);
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
@@ -221,6 +224,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
         />
       )}
       {thread.conn === "reconnecting" ? <p className="conn-note" role="status">Reconnecting…</p> : null}
+      {todos !== null && todos.length > 0 ? <TodoPanel items={todos} /> : null}
       <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>

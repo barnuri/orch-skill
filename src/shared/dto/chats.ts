@@ -352,6 +352,9 @@ export class MessageDto extends ZodDto {
   @ZodField(z.string().nullable().optional(), { description: "A visible problem with this reply, e.g. the session could not be resumed." })
   warning?: string | null;
 
+  @ZodField(z.array(z.looseObject({ type: z.string() })).nullable().optional(), { description: "Typed parts (text, reasoning, tool-call, todo, file, diff; see src/shared/chat-parts.ts). Null on rows stored before parts existed: render `content`." })
+  parts?: Array<{ type: string; [key: string]: unknown }> | null;
+
   @ZodField(z.array(AttachmentDto.schema), { description: "Files attached to this message." })
   attachments!: AttachmentDto[];
 }

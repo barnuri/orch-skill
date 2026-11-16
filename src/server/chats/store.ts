@@ -1,3 +1,4 @@
+import type { ChatPart } from "../../shared/chat-parts";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -198,18 +199,18 @@ export class ChatStore {
 
   // ---- messages ----
 
-  addMessage(input: { chat_id: string; role: Role; content?: string; status: MessageStatus; error?: string | null; model_used?: string | null }): MessageRow {
+  addMessage(input: { chat_id: string; role: Role; content?: string; status: MessageStatus; error?: string | null; model_used?: string | null; parts?: ChatPart[] }): MessageRow {
     const stamp = now();
     const row: MessageRow = {
       id: newId("msg"), chat_id: input.chat_id, role: input.role, content: input.content ?? "", status: input.status,
       error: input.error ?? null, model_used: input.model_used ?? null, input_tokens: 0, output_tokens: 0, cost_usd: null,
       started_at: input.status === "streaming" ? stamp : null, finished_at: input.status === "done" ? stamp : null, created_at: stamp,
-      context_truncated: 0, warning: null,
+      context_truncated: 0, warning: null, parts: input.parts === undefined ? null : JSON.stringify(input.parts),
     };
     this.db.query(
-      `INSERT INTO messages (id, chat_id, role, content, status, error, model_used, input_tokens, output_tokens, cost_usd, started_at, finished_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, ?)`,
-    ).run(row.id, row.chat_id, row.role, row.content, row.status, row.error, row.model_used, row.started_at, row.finished_at, row.created_at);
+      `INSERT INTO messages (id, chat_id, role, content, status, error, model_used, input_tokens, output_tokens, cost_usd, started_at, finished_at, created_at, parts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, ?, ?)`,
+    ).run(row.id, row.chat_id, row.role, row.content, row.status, row.error, row.model_used, row.started_at, row.finished_at, row.created_at, row.parts);
     if (row.status === "done" && row.content !== "") {
       this.index(row);
     }
@@ -218,6 +219,11 @@ export class ChatStore {
 
   getMessage(id: string): MessageRow | null {
     return (this.db.query("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | null) ?? null;
+  }
+
+  setParts(id: string, parts: ChatPart[]): MessageRow | null {
+    this.db.query("UPDATE messages SET parts = ? WHERE id = ?").run(JSON.stringify(parts), id);
+    return this.getMessage(id);
   }
 
   appendContent(id: string, text: string): void {

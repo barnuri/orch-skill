@@ -47,3 +47,22 @@ The dashboard server also serves the Chats page alone, with no rail or other pag
 - It is the same `ChatsPage` as the Chat tab, mounted by a thin `ChatShell` (`src/web/chats/ChatShell.tsx`); the dashboard mounts it in `AppShell`. A shell tells the page about itself through `ChatFrameContext`. The page takes its height from `--hdr` and `--tabbar-h`, which `AppShell` measures and `body.chat-only` sets to 0. Every chat feature therefore shows in both. `chat-shells.test.tsx` renders both shells and compares the controls.
 - The sidebar is persistent from 900 px, a drawer (hamburger) below. A small dot shows when the server is offline.
 - Installable: `<link rel="manifest">` plus `apple-mobile-web-app-capable` meta tags. The manifest is `src/web/chat.webmanifest` (name Orch chat, `display: standalone`, `start_url: /chat`, tokens' dark colours, icons `/chat/icon.svg` and `/chat/icon-dark.svg` from `src/snapshot/favicon*.svg`), also served at `/chat/manifest.webmanifest`. No service worker. Add to Home Screen opens it fullscreen; a remote device must sign in with the token once, since `sessionStorage` is not shared with the installed app.
+
+## Chat message parts (tool cards, todos, reasoning, diffs)
+
+A message row carries `parts` (JSON column, migration 5; `null` on old rows, which render their `content` as before). Types live in `src/shared/chat-parts.ts`: `text`, `reasoning`, `tool-call` (id, name, summary, input, state `running|done|error`, output, started_at, ended_at), `todo` (items: pending, in_progress, done), `file`, `diff` (path, before, after). Tool calls and reasoning are their own `tool` rows; a tool result updates the row and re-sends it as a `message` event.
+
+| Harness | Stream | Parts produced |
+|---|---|---|
+| claude | stream-json: `tool_use` (+ `tool_result` in `user` lines), `thinking_delta` | tool-call with result, todo (`TodoWrite`), diff (`Edit`, `Write`), reasoning |
+| opencode | JSON lines: `tool_use` with `state` (completed or error, input, output), `reasoning` | same; `todowrite`, `edit`, `write` |
+| pi, copilot, cursor-agent, local-llm | plain text | none: text only (no structured stream) |
+
+Libraries (installed at the repo root, one adapter file each in `src/web/chats` so they can be swapped):
+
+- `streamdown` (Vercel, streaming markdown): `Markdown.tsx`. Memoizes finished blocks and repairs unclosed markdown, so a streaming reply does not flicker; sets text direction per block. Used with `controls={false}` and our own `code`, `table` and `input` components, so the look comes from our tokens, not its Tailwind classes. Task lists render as checkboxes (`.task-box`, custom styled).
+- `diff` (jsdiff, `diffLines`): `DiffView.tsx`, lazy-loaded, about 30 KB. Chosen over `react-diff-viewer-continued` (emotion runtime, large) and `diff2html` (needs patch text and its own CSS).
+- Kept `highlight.js` (already bundled, lazy) instead of adding `shiki`: shiki grammars would add several hundred KB for no new feature.
+- Not used: `@assistant-ui/react` and Vercel `ai-elements` (they assume Tailwind or shadcn and their own state model; our thread is virtualized and SSE-driven). `ToolCard`, `Reasoning`, `Todos` are small and use our tokens.
+
+Bundle (`bun build src/web/index.html --splitting --target=browser`): entry chunk 1,882,856 to 1,883,502 bytes; the lazy Markdown chunk grew from 436 KB to about 1,008 KB (streamdown plus `diff`). First load is unchanged.

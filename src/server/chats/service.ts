@@ -1,3 +1,4 @@
+import { type ChatPart, parseParts, partsForToolCall } from "../../shared/chat-parts";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -452,6 +453,9 @@ export class ChatService {
     let outcome: { status: "done" | "error" | "stopped"; error: string | null } | null = null;
     let interrupted = false;
     let replayedText = false;
+    const toolRows = new Map<string, string>();
+    let reasoning = "";
+    let reasoningRow: string | null = null;
     const flush = (): void => {
       if (replayedText) {
         replayedText = false;
@@ -469,8 +473,33 @@ export class ChatService {
         }
       } else if (ev.type === "tool") {
         if (!replay) {
-          const tool = this.store.addMessage({ chat_id: chat.id, role: "tool", content: ev.summary === "" ? ev.name : `${ev.name}: ${ev.summary}`, status: "done" });
-          this.emit(chat.id, { event: "message", id: `${tool.id}.${tool.content.length}`, data: { message: { ...tool, attachments: [] } } });
+          const parts = partsForToolCall({ id: ev.id ?? "", name: ev.name, input: ev.input ?? null, at: new Date().toISOString() });
+          const tool = this.store.addMessage({ chat_id: chat.id, role: "tool", content: ev.summary === "" ? ev.name : `${ev.name}: ${ev.summary}`, status: "done", parts });
+          if (ev.id !== undefined && ev.id !== "") {
+            toolRows.set(ev.id, tool.id);
+          }
+          this.emitRow(chat.id, tool);
+        }
+      } else if (ev.type === "tool-result") {
+        const rowId = toolRows.get(ev.id);
+        const row = rowId === undefined || replay ? null : this.store.getMessage(rowId);
+        const parts = parseParts(row?.parts ?? null);
+        if (row !== null && parts !== null) {
+          const done = parts.map((p) => (p.type === "tool-call" ? { ...p, state: ev.error ? "error" as const : "done" as const, output: ev.output.slice(0, 20_000), ended_at: new Date().toISOString() } : p));
+          const next = this.store.setParts(row.id, done);
+          if (next !== null) {
+            this.emitRow(chat.id, next);
+          }
+        }
+      } else if (ev.type === "reasoning-delta") {
+        if (!replay) {
+          reasoning += ev.text;
+          const parts: ChatPart[] = [{ type: "reasoning", text: reasoning }];
+          const row = reasoningRow === null ? this.store.addMessage({ chat_id: chat.id, role: "tool", content: "", status: "done", parts }) : this.store.setParts(reasoningRow, parts);
+          if (row !== null) {
+            reasoningRow = row.id;
+            this.emitRow(chat.id, row);
+          }
         }
       } else if (ev.type === "usage") {
         usage = { input: ev.input_tokens, output: ev.output_tokens, cost: ev.cost_usd, model: ev.model };
@@ -532,6 +561,10 @@ export class ChatService {
 
   // ---- live events ----
 
+  private emitRow(chatId: string, row: MessageRow): void {
+    this.emit(chatId, { event: "message", id: `${row.id}.${row.content.length}`, data: { message: { ...row, parts: parseParts(row.parts), attachments: [] } } });
+  }
+
   private emit(chatId: string, event: ChatEvent): void {
     for (const listener of this.listeners.get(chatId) ?? []) {
       listener(event);
@@ -565,7 +598,7 @@ export class ChatService {
         // streaming, or finished at or after the cursor row's creation.
         const snapshot = this.store.messagesSince(chat.id, seen.id, seen.created_at).filter((row) => row.id !== seen.id);
         for (const row of this.withAttachments(snapshot)) {
-          out.push({ event: "message", id: `${row.id}.${row.content.length}`, data: { message: row } });
+          out.push({ event: "message", id: `${row.id}.${row.content.length}`, data: { message: { ...row, parts: parseParts(row.parts) } } });
         }
       }
     }

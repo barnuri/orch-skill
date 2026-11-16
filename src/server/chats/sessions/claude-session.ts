@@ -19,11 +19,22 @@ function summarize(input: unknown): string {
   return "";
 }
 
+function resultText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content.map((c) => (typeof c === "object" && c !== null && typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : "")).join("");
+  }
+  return "";
+}
+
 /** Maps `claude -p --output-format stream-json` lines to chat events. Shared by the live turn and by boot recovery. */
 export class ClaudeParser implements TurnParser {
   readonly mode = "lines" as const;
   done = false;
   private sawDelta = false;
+  private sawThinking = false;
   private model: string | null = null;
   private session: string | null;
 
@@ -58,19 +69,31 @@ export class ClaudeParser implements TurnParser {
     if (type === "system" && line.subtype === "init" && typeof line.session_id === "string") {
       this.session = line.session_id;
     } else if (type === "stream_event" && line.parent_tool_use_id == null) {
-      const event = line.event as { type?: string; delta?: { type?: string; text?: string } } | undefined;
+      const event = line.event as { type?: string; delta?: { type?: string; text?: string; thinking?: string } } | undefined;
       if (event?.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
         this.sawDelta = true;
         out.push({ type: "text-delta", text: event.delta.text });
+      } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta" && typeof event.delta.thinking === "string") {
+        this.sawThinking = true;
+        out.push({ type: "reasoning-delta", text: event.delta.thinking });
       }
     } else if (type === "assistant" && line.parent_tool_use_id == null) {
       const message = line.message as { model?: string; content?: Array<Record<string, unknown>> } | undefined;
       this.model = message?.model ?? this.model;
       for (const block of message?.content ?? []) {
         if (block.type === "tool_use") {
-          out.push({ type: "tool", name: String(block.name ?? "tool"), summary: summarize(block.input) });
+          out.push({ type: "tool", name: String(block.name ?? "tool"), summary: summarize(block.input), id: String(block.id ?? ""), input: block.input });
+        } else if (block.type === "thinking" && !this.sawThinking && typeof block.thinking === "string" && block.thinking !== "") {
+          out.push({ type: "reasoning-delta", text: block.thinking });
         } else if (block.type === "text" && !this.sawDelta && typeof block.text === "string") {
           out.push({ type: "text-delta", text: block.text });
+        }
+      }
+    } else if (type === "user" && line.parent_tool_use_id == null) {
+      const message = line.message as { content?: unknown } | undefined;
+      for (const block of Array.isArray(message?.content) ? (message.content as Array<Record<string, unknown>>) : []) {
+        if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+          out.push({ type: "tool-result", id: block.tool_use_id, output: resultText(block.content), error: block.is_error === true });
         }
       }
     } else if (type === "result" && !this.done) {

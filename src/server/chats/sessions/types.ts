@@ -1,6 +1,8 @@
 export type AgentEvent =
   | { type: "text-delta"; text: string }
-  | { type: "tool"; name: string; summary: string }
+  | { type: "tool"; name: string; summary: string; id?: string; input?: unknown }
+  | { type: "tool-result"; id: string; output: string; error: boolean }
+  | { type: "reasoning-delta"; text: string }
   | { type: "usage"; input_tokens: number; output_tokens: number; cost_usd: number | null; model: string | null }
   | { type: "warning"; message: string }
   | { type: "context-truncated" }

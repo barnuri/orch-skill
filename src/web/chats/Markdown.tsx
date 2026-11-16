@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
-import type { ElementType, ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
+import type { ReactNode } from "react";
+import { Streamdown } from "streamdown";
 
-const REMARK = [remarkGfm];
-// Raw HTML is never enabled in react-markdown; the sanitizer is a second wall for anything the parser lets through.
-const REHYPE = [rehypeSanitize];
+// Adapter: the only file that imports the streaming markdown library. Streamdown sanitizes and hardens raw HTML and links itself.
 
 function textOf(node: ReactNode): string {
   if (typeof node === "string") {
@@ -58,45 +54,23 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
-/**
- * Text blocks take their direction from their own first strong letter, so a Hebrew or Arabic reply
- * reads right to left (bullets and punctuation on the correct side) while an English line next to it stays left to right.
- */
-const autoDir = <T extends "p" | "li" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote" | "th" | "td">(Tag: T) =>
-  function AutoDir({ children }: { children?: ReactNode }) {
-    const El = Tag as ElementType;
-    return <El dir="auto">{children}</El>;
-  };
-const AUTO_DIR = {
-  p: autoDir("p"),
-  li: autoDir("li"),
-  ul: autoDir("ul"),
-  ol: autoDir("ol"),
-  h1: autoDir("h1"),
-  h2: autoDir("h2"),
-  h3: autoDir("h3"),
-  h4: autoDir("h4"),
-  h5: autoDir("h5"),
-  h6: autoDir("h6"),
-  blockquote: autoDir("blockquote"),
-  th: autoDir("th"),
-  td: autoDir("td"),
-};
-
 export default function Markdown({ text, live = false }: { text: string; live?: boolean }) {
   return (
     <div className={live ? "md is-live" : "md"}>
-      <ReactMarkdown
-        remarkPlugins={REMARK}
-        rehypePlugins={REHYPE}
+      <Streamdown
+        mode={live ? "streaming" : "static"}
+        isAnimating={live}
+        dir="auto"
+        controls={false}
         components={{
-          ...AUTO_DIR,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noopener noreferrer nofollow">
               {children}
             </a>
           ),
           pre: ({ children }) => <>{children}</>,
+          input: ({ checked, type }) =>
+            type === "checkbox" ? <input type="checkbox" className="task-box" checked={checked === true} readOnly disabled aria-label={checked === true ? "done" : "not done"} /> : null,
           code: ({ className, children }) => {
             const lang = /language-([\w+-]+)/.exec(className ?? "")?.[1] ?? "";
             const code = textOf(children);
@@ -111,7 +85,7 @@ export default function Markdown({ text, live = false }: { text: string; live?: 
         }}
       >
         {text}
-      </ReactMarkdown>
+      </Streamdown>
     </div>
   );
 }

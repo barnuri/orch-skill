@@ -1,8 +1,9 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isLive, retryTarget } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
-import { MessageView } from "./MessageView";
+import { groupThread } from "./chat-group";
+import { MessageView, ToolsView } from "./MessageView";
 import { useNow } from "./use-chat-thread";
 
 const NEAR_BOTTOM_PX = 80;
@@ -27,13 +28,18 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
   const anyLive = messages.some(isLive);
   const now = useNow(anyLive);
   const retry = retryTarget(messages);
+  const items = useMemo(() => groupThread(messages), [messages]);
+  const lastReply = [...messages].reverse().find((m) => m.role === "assistant" || m.role === "user");
+  const regen = lastReply !== undefined && lastReply.role === "assistant" && !isLive(lastReply) && retry === null
+    ? [...messages].reverse().find((m) => m.role === "user" && m.id < lastReply.id)
+    : undefined;
 
   const virt = useVirtualizer({
-    count: messages.length,
+    count: items.length,
     getScrollElement: () => parent.current,
     estimateSize: () => 88,
     overscan: 8,
-    getItemKey: (i) => messages[i]?.id ?? i,
+    getItemKey: (i) => { const it = items[i]; return it === undefined ? i : it.kind === "tools" ? it.id : it.message.id; },
   });
 
   const onScroll = useCallback(() => {
@@ -83,8 +89,8 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
         {!hasOlder && messages.length > 0 ? <p className="thread-note">Start of the conversation</p> : null}
         <div className="thread-inner" style={{ height: total }}>
           {virt.getVirtualItems().map((item) => {
-            const message = messages[item.index];
-            if (message === undefined) {
+            const entry = items[item.index];
+            if (entry === undefined) {
               return null;
             }
             return (
@@ -95,13 +101,14 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
                 className="thread-item"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <MessageView
-                  message={message}
+                {entry.kind === "tools" ? <ToolsView messages={entry.messages} now={now} /> : <MessageView
+                  message={entry.message}
                   now={now}
                   fallbackModel={fallbackModel}
                   onOpenImage={onOpenImage}
-                  onRetry={retry !== null && retry.assistant.id === message.id ? () => { onRetry(retry.text); } : undefined}
-                />
+                  onRetry={retry !== null && retry.assistant.id === entry.message.id ? () => { onRetry(retry.text); } : undefined}
+                  onRegenerate={regen !== undefined && lastReply?.id === entry.message.id ? () => { onRetry(regen.content); } : undefined}
+                />}
               </div>
             );
           })}

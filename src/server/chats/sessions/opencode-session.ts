@@ -71,7 +71,16 @@ export class OpencodeParser implements TurnParser {
         out.push({ type: "text-delta", text: part.text });
       } else if (ev.type === "tool_use") {
         this.streamed = true;
-        out.push({ type: "tool", name: String(part.tool ?? "tool"), summary: summarize(rec(part.state).input) });
+        const state = rec(part.state);
+        const id = String(part.callID ?? part.id ?? "");
+        out.push({ type: "tool", name: String(part.tool ?? "tool"), summary: summarize(state.input), id, input: state.input });
+        if (state.status === "completed" || state.status === "error") {
+          const output = typeof state.output === "string" ? state.output : typeof state.error === "string" ? state.error : "";
+          out.push({ type: "tool-result", id, output, error: state.status === "error" });
+        }
+      } else if (ev.type === "reasoning" && typeof part.text === "string" && part.text !== "") {
+        this.streamed = true;
+        out.push({ type: "reasoning-delta", text: part.text });
       } else if (ev.type === "step_finish") {
         const tokens = rec(part.tokens);
         this.input += num(tokens.input);

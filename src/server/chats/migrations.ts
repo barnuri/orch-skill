@@ -71,4 +71,7 @@ export const MIGRATIONS: readonly string[] = [
     last_used_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE messages ADD COLUMN parts TEXT;
+  `,
 ];
