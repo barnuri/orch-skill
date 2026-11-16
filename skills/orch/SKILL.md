@@ -416,6 +416,38 @@ Treat every substantive task as a graph, the way Claude Code's ultracode does: p
 5. **Fan out.** Prefer dispatched nodes or subagents over doing parallel steps yourself.
 6. **Stay free to monitor.** Use `run sync` and `node digest` instead of reading logs, and give the user the `#/run/<run-id>` link when the run starts.
 
+## Delegation workflow
+
+Use this when a strong model should plan and review, and a cheaper model should write the code. The
+run keeps the plan, the task list and the review findings in its `delegation` record. The orch session
+relies on that record, not on its own context, after the context is trimmed.
+
+Profiles, checked by `orch delegate` (not by convention):
+
+- plan and review: a strong profile, `quality` high or best (template: `claude-default`).
+- implement and fix: a profile below that quality (template: `local-llm-fast`).
+
+Steps:
+
+1. Start the run: `orch run start "<title>"` → prints `<run-id>`.
+2. Plan: a strong node writes `plan.md` into its out dir. Store it with
+   `orch delegate <run-id> plan @<out>/plan.md`, then add one task per unit of work:
+   `orch delegate <run-id> task add <id> --stage implement --profile local-llm-fast --label "..."`.
+3. Implement: a cheap node per implement task. Set `doing`, then `done`:
+   `orch delegate <run-id> task set <id> doing|done`.
+4. Review: a strong node runs `cr` and a bug search on the changed files and lists its findings. The
+   session records each one: `orch delegate <run-id> finding add <task-id> "<text>"` → prints `F<n>`.
+5. Fix: a cheap node per open finding. The session closes each one after the fix:
+   `orch delegate <run-id> finding close F<n>`.
+
+Before the session trims its context, run `orch delegate <run-id> show` (or `show --json`). Only what
+the run stores survives the trim, so store the plan, tasks and findings before trimming.
+
+Questions: a node sends its question with `orch msg send <run-id> --to orch "<question>"`. The session
+reads it with `orch msg read <run-id>`, asks the user through the question tool (see "Asking the user"),
+then answers with `orch msg send <run-id> --to <node-id> --from orch "<answer>"`. A subagent returns its
+question in its report, and the session asks it the same way.
+
 ## Asking the user
 
 Every question to the user goes through the session's question tool (`AskUserQuestion` in Claude

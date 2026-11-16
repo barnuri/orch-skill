@@ -667,6 +667,7 @@ main() {
     owner) shift; cmd_owner_event "$@" ;;
     plan) shift; cmd_plan "$@" ;;
     msg) shift; cmd_msg "$@" ;;
+    delegate) shift; cmd_delegate "$@" ;;
     start) shift; cmd_start "$@" ;;
     status) shift; cmd_status "$@" ;;
     tail) shift; cmd_tail "$@" ;;
