@@ -75,3 +75,4 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 - [ ] Skills load: `unorch` (plugin manifest), `verify` (repo skill under `.claude/skills`), `orch-perf`.
 - [x] All take-* and wt-* worktrees and branches merged and removed (done, only master and the user-kept cp2 worktree remain)
 - [ ] The orch run `20261115-114006-0bff` is finished or archived (paused with `auto_dispatch` off today).
+- [ ] Chat folders (chat cwd, project default, picker, chips): run a real claude, pi and opencode chat in a folder under ~/sandbox/private, open the picker on a phone, move a chat and check the next turn cwd; `PUT /api/projects/{id}` has no roots check; `chat_roots` has no settings UI

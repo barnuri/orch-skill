@@ -61,3 +61,4 @@ RUNNING (a subagent works on it), OPEN (not started or blocked). Source of truth
 
 ## D. Running now
 runs-group test fixer, other-groups test fixer, typecheck cache and parallel test-all, Bun port gaps (9 items), hot CLI speed, live herdr checks.
+| Chat folder per chat or project (cwd) | CODED (dec7485): API, picker, chips, turn cwd; tests pass with fake harnesses; real harness and phone check open |
