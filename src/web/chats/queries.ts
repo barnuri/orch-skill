@@ -19,6 +19,7 @@ export const chatKeys = {
   projects: (archived: boolean) => ["projects", archived] as const,
   chats: (archived: boolean) => ["chats", archived] as const,
   chat: (id: string) => ["chat", id] as const,
+  folders: (root: string) => ["chat-folders", root] as const,
   search: (q: string) => ["chat-search", q] as const,
 };
 
@@ -44,6 +45,10 @@ export function useChats(archived: boolean) {
   });
   const chats: Chat[] = query.data?.pages.flatMap((p) => p.items) ?? [];
   return { ...query, chats };
+}
+
+export function useFolders(root: string) {
+  return useQuery({ queryKey: chatKeys.folders(root), queryFn: async () => unwrap(await chatsApi.folders(root === "" ? undefined : root)), staleTime: 10_000 });
 }
 
 export function useChat(id: string) {

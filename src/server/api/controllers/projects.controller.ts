@@ -1,10 +1,10 @@
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { Body, Controller, Get, Param, Post, Put, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
 import { ErrorDto } from "../../../shared/dto/common";
 import {
-  ChatIdParamsDto, ProjectDto, ProjectEnvelopeDto, ProjectInputDto, ProjectPageDto, ProjectsQueryDto, ProjectUpdateDto,
+  ChatIdParamsDto, FolderSetDto, ProjectDto, ProjectEnvelopeDto, ProjectInputDto, ProjectPageDto, ProjectsQueryDto, ProjectUpdateDto,
 } from "../../../shared/dto/chats";
 import { type ChatService, chatServiceFor, HttpError } from "../../chats/service";
 import { jsonResponse } from "../../http/responses";
@@ -98,6 +98,23 @@ export class ProjectsController {
       this.service.project(idOf(c));
       checkPath(body.path);
       return jsonResponse(200, this.service.store.updateProject(idOf(c), body));
+    } catch (err) {
+      return failure(err);
+    }
+  }
+
+  @Patch("/projects/{id}/folder", {
+    summary: "Set a project's folder",
+    description: "The default folder of the project: chats without their own folder run there from the next turn. Same rules as PATCH /api/chats/{id}/folder (absolute, exists, directory, inside an allowed root after symlinks). `null` clears it.",
+  })
+  @Param(ChatIdParamsDto.schema)
+  @Body(FolderSetDto.schema)
+  @ResponseSchema(ProjectEnvelopeDto.schema, { description: "The project after the change." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Folder not allowed." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such project." })
+  setFolder(c: ApiContext): Response {
+    try {
+      return jsonResponse(200, { project: this.service.setProjectFolder(idOf(c), valid<{ path: string | null }>(c, "json").path) });
     } catch (err) {
       return failure(err);
     }

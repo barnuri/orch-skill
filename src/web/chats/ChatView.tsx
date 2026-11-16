@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { chatsApi } from "../api/chats";
 import { describeFailure } from "../api/result";
@@ -9,6 +10,7 @@ import { formatDuration } from "../lib/duration";
 import type { Attachment, Chat, ChatOptions, Message, Project } from "../lib/chat-types";
 import { Lightbox } from "./Attachments";
 import { Composer } from "./Composer";
+import { FolderChip, FolderPicker } from "./FolderPicker";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
 import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
 import { repairSelection } from "./repair-selection";
@@ -52,6 +54,13 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
     }
     void refreshChats();
   };
+  const client = useQueryClient();
+  const [pickingFolder, setPickingFolder] = useState(false);
+  const pickFolder = async (path: string | null): Promise<string | null> => {
+    const res = await chatsApi.setChatFolder(chat.id, path);
+    void refreshChats(client);
+    return res.kind === "ok" ? null : describeFailure(res, "could not set the folder");
+  };
   const projectOptions = [{ value: NO_PROJECT, label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))];
   return (
     <div className="chat-head">
@@ -87,6 +96,13 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
           {pickerSummary(chat, options, modelUsed)}
         </span>
         <span className="chat-session-note" data-testid="session-note">{sessionNote(chat, options)}</span>
+        <span className="chat-folder-row">
+          <FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} onClick={() => { setPickingFolder(true); }} />
+          {chat.status === "running" ? <span className="chat-session-note">A change applies from the next message.</span> : null}
+        </span>
+        {pickingFolder ? (
+          <FolderPicker title="Folder for this chat" current={chat.cwd ?? null} onPick={pickFolder} onClose={() => { setPickingFolder(false); }} />
+        ) : null}
       </div>
       <LastReplyStats reply={lastReply} />
       <div className="chat-head-actions">

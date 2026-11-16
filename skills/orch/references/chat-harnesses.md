@@ -27,3 +27,13 @@ The reply row gets a `warning` (shown by the dashboard, also in the SSE `done` e
 ## Unverified assumption
 
 `opencode session list --format json` is assumed to print an array of `{ "id", "title" }` (or `{ "sessions": [...] }`). Not run against a real model; the fake in `src/server/chats/testing/fake-harness.ts` follows the same shape.
+
+## Chat folders (working directory)
+
+A chat can be attached to a folder; the agent process of every turn then starts with that folder as its cwd.
+
+- **Data.** `chats.cwd` (absolute real path, null when unset) and the existing `projects.path` (the project's default folder). The effective folder is the chat's own, else its project's, else a scratch folder (`<home>/chats/workspace`). `folder_use` remembers the last pick of each folder. Migration 4 adds both; history is never touched.
+- **Roots.** `settings.chat_roots` in `profiles.json` (absolute paths, `~` allowed); default `["~/sandbox/private"]`. A folder is accepted only when it is absolute, has no `..` segment, exists, is a directory and its `realpath` (symlinks resolved) is inside a root. Otherwise the API answers 400 `folder: …`. The check runs again at every turn, so a folder swapped for a symlink that leaves the roots falls back to the scratch folder (the chat shows a warning).
+- **API.** `GET /api/chats/folders?root=` (child folders of a root, recent first then by name, no dot folders or `node_modules`, at most 200), `PATCH /api/chats/{id}/folder` and `PATCH /api/projects/{id}/folder` with `{"path": "<dir>" | null}`, `cwd` on `POST /api/chats`. Chat reads and lists carry `cwd` and `effective_cwd`.
+- **Turns.** claude, pi and the dispatch-based chats start their process with the effective folder as cwd; opencode also gets `--dir`. A running turn keeps its folder; the session manager replaces an idle session whose folder changed, so a move applies from the next message.
+- **UI.** Folder chip in the chat header and chat list (a project-inherited folder is marked), a searchable picker with a free path field (server-validated; a bottom sheet on phones), and a project folder setting on the project page.

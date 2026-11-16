@@ -7,7 +7,7 @@ interface ProfileSpec {
   flags?: string[]; env?: Record<string, string>; auth?: string[];
 }
 interface ProfilesDoc {
-  settings?: { disabled_harnesses?: string[]; default_profile?: string };
+  settings?: { disabled_harnesses?: string[]; default_profile?: string; chat_roots?: string[] };
   models?: Record<string, ModelSpec>;
   profiles?: Record<string, ProfileSpec>;
 }

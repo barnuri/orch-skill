@@ -2,6 +2,7 @@ import type {
   AttachmentDto,
   ChatDto,
   ChatOptionsDto,
+  FolderListDto,
   HarnessOptionDto,
   MessageDto,
   ModelOptionDto,
@@ -13,6 +14,7 @@ import type {
 export type Chat = ChatDto;
 export type Project = ProjectDto;
 export type Message = MessageDto;
+export type FolderList = FolderListDto;
 export type Attachment = AttachmentDto;
 export type SearchHit = SearchHitDto;
 export type ChatOptions = ChatOptionsDto;

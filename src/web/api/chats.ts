@@ -5,6 +5,7 @@ import {
   ChatEnvelopeDto,
   ChatOptionsDto,
   ChatPageDto,
+  FolderListDto,
   MessagePageDto,
   ProjectDto,
   ProjectEnvelopeDto,
@@ -13,7 +14,7 @@ import {
   SendResultDto,
   StopResultDto,
 } from "../../shared/dto/chats";
-import type { Attachment, Chat, ChatOptions, Message, Page, Project, SearchHit } from "../lib/chat-types";
+import type { Attachment, Chat, FolderList, ChatOptions, Message, Page, Project, SearchHit } from "../lib/chat-types";
 import { API_BASE } from "../lib/constants";
 import { OkDto } from "../../shared/dto/common";
 import { api } from "./client";
@@ -38,6 +39,7 @@ const attachmentsSchema = typed<{ items: Attachment[] }>(AttachmentsDto.schema);
 const sendSchema = typed<{ user_message_id: string; assistant_message_id: string }>(SendResultDto.schema);
 const stopSchema = typed<{ ok: boolean; stopped: boolean }>(StopResultDto.schema);
 
+const folderSchema = typed<FolderList>(FolderListDto.schema);
 const okSchema = typed<{ ok: boolean }>(OkDto.schema);
 
 const q = encodeURIComponent;
@@ -67,7 +69,10 @@ export const chatsApi = {
   chats: (params: { project_id?: string; archived?: boolean; cursor?: string | null; limit?: number }) =>
     get(`/chats${query({ project_id: params.project_id, archived: params.archived ? 1 : 0, cursor: params.cursor, limit: params.limit ?? 50 })}`, chatPage),
   chat: (id: string) => get(`/chats/${q(id)}`, chatSchema),
-  createChat: (body: { project_id: string | null; harness: string; profile: string; model_id: string | null }) => post("/chats", chatSchema, body),
+  createChat: (body: { project_id: string | null; harness: string; profile: string; model_id: string | null; cwd?: string | null }) => post("/chats", chatSchema, body),
+  folders: (root?: string) => get(`/chats/folders${query({ root })}`, folderSchema),
+  setChatFolder: (id: string, path: string | null) => api.request("PATCH", `${API_BASE}/chats/${q(id)}/folder`, chatEnvelope, { body: { path } }),
+  setProjectFolder: (id: string, path: string | null) => api.request("PATCH", `${API_BASE}/projects/${q(id)}/folder`, projectEnvelope, { body: { path } }),
   rename: (id: string, title: string) => post(`/chats/${q(id)}/rename`, chatEnvelope, { title }),
   moveChat: (id: string, project_id: string | null) => post(`/chats/${q(id)}/project`, chatEnvelope, { project_id }),
   configure: (id: string, body: { harness: string; profile: string; model_id: string | null }) => post(`/chats/${q(id)}/config`, chatEnvelope, body),

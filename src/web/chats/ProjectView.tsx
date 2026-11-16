@@ -9,6 +9,7 @@ import { rel } from "../lib/format";
 import { refreshChats, refreshProjects, useChatOptions, useChats, useProjects } from "./queries";
 import { useSingleFlight } from "../lib/use-single-flight";
 import { ChatListRow } from "./ChatListRow";
+import { FolderChip, FolderPicker } from "./FolderPicker";
 
 export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; onOpenDrawer: () => void }) {
   const toast = useToast();
@@ -18,15 +19,14 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
   const chats = useChats(false);
   const project: Project | undefined = [...(active.data ?? []), ...(archivedList.data ?? [])].find((p) => p.id === projectId);
   const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+  const [picking, setPicking] = useState(false);
   const [description, setDescription] = useState("");
   useEffect(() => {
     if (project !== undefined) {
       setName(project.name);
-      setPath(project.path ?? "");
       setDescription(project.description);
     }
-  }, [project?.id, project?.name, project?.path, project?.description]);
+  }, [project?.id, project?.name, project?.description]);
   const [newChat, creating] = useSingleFlight(async (): Promise<void> => {
     const sel = options.data === undefined ? { harness: "", profile: "", model: null } : normalizeSelection(options.data, null);
     const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model });
@@ -42,9 +42,15 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
   }
   const mine = chats.chats.filter((c) => c.project_id === projectId);
   const save = async (): Promise<void> => {
-    const res = await chatsApi.updateProject(projectId, { name: name.trim(), path: path.trim() === "" ? null : path.trim(), description });
+    const res = await chatsApi.updateProject(projectId, { name: name.trim(), description });
     toast(res.kind === "ok" ? "ok" : "error", res.kind === "ok" ? "Project saved" : describeFailure(res, "could not save"));
     void refreshProjects();
+  };
+  const pickFolder = async (path: string | null): Promise<string | null> => {
+    const res = await chatsApi.setProjectFolder(projectId, path);
+    void refreshProjects();
+    void refreshChats();
+    return res.kind === "ok" ? null : describeFailure(res, "could not set the folder");
   };
   const archive = async (): Promise<void> => {
     const res = await chatsApi.archiveProject(projectId, project.archived_at === null);
@@ -64,7 +70,13 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
       </div>
       <form className="project-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label className="field-group"><span className="field-label">Name</span><input value={name} onChange={(e) => { setName(e.target.value); }} required /></label>
-        <label className="field-group"><span className="field-label">Directory (chats run here)</span><input value={path} onChange={(e) => { setPath(e.target.value); }} placeholder="scratch directory" /></label>
+        <div className="field-group">
+          <span className="field-label">Folder (chats of this project run here unless they have their own)</span>
+          <span className="chat-folder-row">
+            <FolderChip path={project.path} onClick={() => { setPicking(true); }} />
+            {project.path === null ? null : <button type="button" className="btn" onClick={() => void pickFolder(null)}>Clear</button>}
+          </span>
+        </div>
         <label className="field-group"><span className="field-label">Description</span><textarea value={description} onChange={(e) => { setDescription(e.target.value); }} rows={3} /></label>
         <div className="project-actions">
           <button type="submit" className="btn primary" disabled={name.trim() === ""}>Save</button>
@@ -72,6 +84,7 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
           <button type="button" className="btn" onClick={() => void newChat()} disabled={project.archived_at !== null || creating}>New chat here</button>
         </div>
       </form>
+      {picking ? <FolderPicker title="Folder for this project" current={project.path} onPick={pickFolder} onClose={() => { setPicking(false); }} /> : null}
       <h2 className="section-title">Chats</h2>
       {mine.length === 0 ? (
         <EmptyState title="No chats in this project yet">Start one with New chat here.</EmptyState>

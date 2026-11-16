@@ -97,17 +97,17 @@ export class ChatStore {
 
   // ---- chats ----
 
-  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null; title_manual?: boolean }): ChatRow {
+  createChat(input: { project_id?: string | null; title: string; harness: string; profile: string; model_id?: string | null; title_manual?: boolean; cwd?: string | null }): ChatRow {
     const stamp = now();
     const row: ChatRow = {
       id: newId("chat"), project_id: input.project_id ?? null, title: input.title, harness: input.harness,
       profile: input.profile, model_id: input.model_id ?? null, session_id: null, status: "idle",
-      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0,
+      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0, cwd: input.cwd ?? null,
     };
     this.db.query(
-      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?)`,
-    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual);
+      `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual, cwd)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?, ?)`,
+    ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual, row.cwd);
     return row;
   }
 
@@ -140,6 +140,21 @@ export class ChatStore {
       "UPDATE chats SET title = ?, project_id = ?, harness = ?, profile = ?, model_id = ?, session_id = ?, status = ?, updated_at = ? WHERE id = ?",
     ).run(next.title, next.project_id, next.harness, next.profile, next.model_id, next.session_id, next.status, next.updated_at, id);
     return this.getChat(id);
+  }
+
+  /** Sets or clears the chat's own folder. It does not touch `updated_at`: moving a folder is not activity. */
+  setChatCwd(id: string, cwd: string | null): ChatRow | null {
+    this.db.query("UPDATE chats SET cwd = ? WHERE id = ?").run(cwd, id);
+    return this.getChat(id);
+  }
+
+  /** Remembers that a folder was picked, so the folder list shows recent ones first. */
+  touchFolder(path: string): void {
+    this.db.query("INSERT INTO folder_use (path, last_used_at) VALUES (?1, ?2) ON CONFLICT(path) DO UPDATE SET last_used_at = ?2").run(path, now());
+  }
+
+  folderUse(): Map<string, string> {
+    return new Map((this.db.query("SELECT path, last_used_at FROM folder_use").all() as Array<{ path: string; last_used_at: string }>).map((r) => [r.path, r.last_used_at]));
   }
 
   /** A title a person chose. It is marked manual, so the first-message auto-title never replaces it. */

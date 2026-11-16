@@ -316,3 +316,38 @@ body.drawer-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .voice-dot.is-live, .voice-level span { animation: none; transition: none; }
 }
+
+/* folders: chip, picker (a bottom sheet on phones) */
+.folder-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--inset); color: var(--tx2); font-size: var(--fs-meta); line-height: 1.5; cursor: default; }
+button.folder-chip { cursor: pointer; font: inherit; font-size: var(--fs-meta); }
+button.folder-chip:hover { color: var(--tx); border-color: var(--border-strong); }
+button.folder-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.folder-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-chip-note { color: var(--tx3); white-space: nowrap; }
+.folder-chip.is-empty { border-style: dashed; color: var(--tx3); }
+.thread-meta .folder-chip { margin-left: var(--s2); padding: 0 6px; }
+.chat-folder-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.folder-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); padding: var(--s4); }
+.folder-dialog { display: flex; flex-direction: column; gap: var(--s3); width: min(560px, 100%); max-height: min(720px, 100%); overflow: hidden; padding: var(--s4); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--panel); }
+.folder-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.folder-title { margin: 0; font-size: var(--fs-h3, 1rem); }
+.folder-current, .folder-where { margin: 0; color: var(--tx2); font-size: var(--fs-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--s2); }
+.folder-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 120px; flex: 1; border: 1px solid var(--border); border-radius: var(--r-sm, 6px); }
+.folder-item { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+.folder-item:last-child { border-bottom: 0; }
+.folder-pick { all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) var(--s3); min-height: 40px; cursor: pointer; }
+.folder-pick:hover, .folder-pick[aria-current="true"] { background: var(--accs); }
+.folder-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.folder-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-item-note { color: var(--tx3); font-size: var(--fs-meta); }
+.folder-open { min-width: 40px; }
+.folder-free { display: flex; gap: var(--s2); }
+.folder-free .input { flex: 1; min-width: 0; }
+.folder-error { margin: 0; color: var(--er); font-size: var(--fs-meta); overflow-wrap: anywhere; }
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  .folder-overlay { align-items: flex-end; padding: 0; }
+  .folder-dialog { width: 100%; max-height: 92dvh; border-radius: var(--r-md) var(--r-md) 0 0; padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); }
+  .folder-pick, .folder-open { min-height: 44px; }
+  .folder-free { flex-direction: column; }
+  .folder-free .btn { min-height: 44px; }
+}

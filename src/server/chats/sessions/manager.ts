@@ -1,7 +1,7 @@
 import { IDLE_SESSION_MS } from "../limits";
 import type { AgentSession, SessionFactory, SessionParams } from "./types";
 
-interface Entry { session: AgentSession; timer: ReturnType<typeof setTimeout> | null; busy: boolean }
+interface Entry { cwd: string; session: AgentSession; timer: ReturnType<typeof setTimeout> | null; busy: boolean }
 
 /** One live session per active chat. A session idle for `idleMs` is disposed; the stored session id resumes it later. */
 export class SessionManager {
@@ -11,8 +11,15 @@ export class SessionManager {
 
   acquire(params: SessionParams): AgentSession {
     let entry = this.entries.get(params.chatId);
+    if (entry !== undefined && !entry.busy && entry.cwd !== params.cwd) {
+      // The chat moved to another folder: a session keeps the folder it started in, so the next turn gets a new one.
+      this.entries.delete(params.chatId);
+      this.clearTimer(entry);
+      void entry.session.dispose();
+      entry = undefined;
+    }
     if (entry === undefined) {
-      entry = { session: this.factory(params), timer: null, busy: false };
+      entry = { cwd: params.cwd, session: this.factory(params), timer: null, busy: false };
       this.entries.set(params.chatId, entry);
     }
     entry.busy = true;

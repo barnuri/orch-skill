@@ -32,7 +32,7 @@ import { connection } from "./status";
 import type { StatusStore } from "./status";
 import { getToken } from "./token";
 
-type Method = "GET" | "PUT" | "POST";
+type Method = "GET" | "PUT" | "POST" | "PATCH";
 
 interface RequestOptions {
   etag?: string | null;
@@ -253,7 +253,7 @@ export class ApiClient {
   ): Promise<ApiResult<T>> {
     const headers = this.headersFor(method, options);
     const init: RequestInit = { method, headers, cache: "no-store" };
-    if (method === "PUT" || (method === "POST" && options.body !== undefined)) {
+    if (method === "PUT" || method === "PATCH" || (method === "POST" && options.body !== undefined)) {
       headers.set("Content-Type", "application/json");
       init.body = JSON.stringify(options.body);
     }

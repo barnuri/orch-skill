@@ -10,6 +10,8 @@ export interface ChatRow {
   session_id: string | null; status: "idle" | "running"; created_at: string; updated_at: string; archived_at: string | null;
   /** 1 once a person set the title (rename, or a title given at creation): the first message never replaces it. */
   title_manual: number;
+  /** Absolute folder the agent runs in; null falls back to the project's folder, then to a scratch folder. */
+  cwd: string | null;
 }
 
 export interface MessageRow {

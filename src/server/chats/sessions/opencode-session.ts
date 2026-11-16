@@ -211,6 +211,7 @@ export class OpencodeSession implements AgentSession {
     if (launch.modelSlug !== "") {
       args.push("-m", launch.modelSlug);
     }
+    args.push("--dir", this.params.cwd);
     args.push(...launch.flags.filter((flag) => flag !== "--pure" && flag !== "--standalone"));
     for (const path of attachments) {
       args.push("-f", path);

@@ -159,6 +159,12 @@ export class ChatDto extends ZodDto {
   @ZodField(z.number().int().optional(), { description: "1 once a person set the title. The first message never replaces such a title." })
   title_manual?: number;
 
+  @ZodField(z.string().nullable().optional(), { description: "Absolute folder the agent runs in for this chat. Null means the project's folder, else a scratch folder." })
+  cwd?: string | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "In chat reads and lists: the folder the next turn runs in (the chat's own, else its project's). Null means a scratch folder." })
+  effective_cwd?: string | null;
+
   @ZodField(z.boolean().optional(), { description: "In chat lists only: true when the chat has no message and no attachment. Empty chats older than 24 hours are archived at server start." })
   empty?: boolean;
 
@@ -191,6 +197,9 @@ export class ChatInputDto extends ZodDto {
 
   @ZodField(z.string().max(200).nullable().optional(), { description: "Catalog model id from the profile's list. Omit for the profile's default." })
   model_id?: string | null;
+
+  @ZodField(z.string().max(1000).nullable().optional(), { description: "Folder to run in. Same rules as PATCH /api/chats/{id}/folder. Omit to use the project's folder." })
+  cwd?: string | null;
 }
 
 @ZodObject({ description: "A new harness, profile and model for the next turn. Allowed between turns, not while a reply runs." })
@@ -218,6 +227,47 @@ export class ChatRenameDto extends ZodDto {
 export class ChatProjectDto extends ZodDto {
   @ZodField(z.string().max(100).nullable(), { description: "Project id, or null to take the chat out of its project." })
   project_id!: string | null;
+}
+
+// ---- folders ----
+
+@ZodObject({ description: "Which folder to list." })
+export class FolderQueryDto extends ZodDto {
+  @ZodField(z.string().max(1000).optional(), { description: "An allowed root, or a folder inside one. Default: the first root of settings.chat_roots (`~/sandbox/private`)." })
+  root?: string;
+}
+
+@ZodObject({ description: "A folder a chat may run in." })
+export class FolderItemDto extends ZodDto {
+  @ZodField(z.string(), { description: "Real absolute path." })
+  path!: string;
+
+  @ZodField(z.string(), { description: "Folder name." })
+  name!: string;
+
+  @ZodField(z.string().nullable(), { description: "When a chat or project last picked it. Null when never." })
+  last_used_at!: string | null;
+}
+
+@ZodObject({ description: "Child folders of a root. Recently used first, then by name; dot folders and node_modules are hidden; at most 200." })
+export class FolderListDto extends ZodDto {
+  @ZodField(z.string(), { description: "The folder that was listed. Empty when no root exists." })
+  root!: string;
+
+  @ZodField(z.array(z.string()), { description: "The allowed roots (settings.chat_roots, existing ones only)." })
+  roots!: string[];
+
+  @ZodField(z.array(FolderItemDto.schema), { description: "The child folders." })
+  items!: FolderItemDto[];
+
+  @ZodField(z.boolean(), { description: "True when more than 200 folders exist and the list was cut." })
+  truncated!: boolean;
+}
+
+@ZodObject({ description: "The folder to run in." })
+export class FolderSetDto extends ZodDto {
+  @ZodField(z.string().max(1000).nullable(), { description: "Absolute path of an existing directory inside an allowed root (symlinks are resolved first), or null to clear it." })
+  path!: string | null;
 }
 
 // ---- messages and attachments ----

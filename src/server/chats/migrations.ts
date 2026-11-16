@@ -64,4 +64,11 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE chats ADD COLUMN title_manual INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  ALTER TABLE chats ADD COLUMN cwd TEXT;
+  CREATE TABLE folder_use (
+    path TEXT PRIMARY KEY,
+    last_used_at TEXT NOT NULL
+  );
+  `,
 ];

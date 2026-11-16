@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
+import { Body, Controller, Get, Param, Patch, Post, Query, Response as ResponseSchema } from "@barnuri/hono-decorators";
 
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import {
   AttachmentsDto, ChatConfigDto, ChatDto, ChatEnvelopeDto, ChatIdParamsDto, ChatInputDto, ChatOptionsDto, ChatPageDto,
-  ChatProjectDto, ChatRenameDto, PageQueryDto, ChatSearchQueryDto, ChatsQueryDto, MessagePageDto, SearchResultDto,
+  ChatProjectDto, ChatRenameDto, FolderListDto, FolderQueryDto, FolderSetDto, PageQueryDto, ChatSearchQueryDto, ChatsQueryDto, MessagePageDto, SearchResultDto,
   SendMessageDto, SendResultDto, StopResultDto,
 } from "../../../shared/dto/chats";
 import { type ChatService, chatServiceFor, HttpError } from "../../chats/service";
@@ -61,6 +61,39 @@ export class ChatsController {
     return jsonResponse(200, { items: this.service.store.search(q.q, { projectId: q.project_id, limit: q.limit }) });
   }
 
+  @Get("/chats/folders", {
+    summary: "Folders a chat can run in",
+    description: "Child directories of `root` (an allowed root or a folder inside one; default the first of settings.chat_roots, `~/sandbox/private`). Recently used first, then by name. Dot folders and node_modules are hidden; at most 200. Answers 400 when `root` is not allowed.",
+  })
+  @Query(FolderQueryDto.schema)
+  @ResponseSchema(FolderListDto.schema, { description: "The folders." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Root not allowed." })
+  folders(c: ApiContext): Response {
+    try {
+      return jsonResponse(200, this.service.folders(valid<{ root?: string }>(c, "query").root));
+    } catch (err) {
+      return failure(err);
+    }
+  }
+
+  @Patch("/chats/{id}/folder", {
+    summary: "Set a chat's folder",
+    description: "The agent runs in this folder from the next turn; a reply that already streams keeps its old folder. The path must be absolute, exist, be a directory and resolve (symlinks followed) inside an allowed root. `null` clears it, so the project's folder applies. Answers 400 with the reason otherwise.",
+  })
+  @Param(ChatIdParamsDto.schema)
+  @Body(FolderSetDto.schema)
+  @ResponseSchema(ChatEnvelopeDto.schema, { description: "The chat after the change." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Folder not allowed." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such chat." })
+  setFolder(c: ApiContext): Response {
+    try {
+      const chat = this.service.setChatFolder(idOf(c), valid<{ path: string | null }>(c, "json").path);
+      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat) } });
+    } catch (err) {
+      return failure(err);
+    }
+  }
+
   @Get("/chats", {
     summary: "List chats",
     description: "Active chats, newest activity first, paged by cursor (default 30, max 100). `project_id` filters to one project (`none` for chats without one); `archived=1` lists archived chats.",
@@ -70,7 +103,7 @@ export class ChatsController {
   list(c: ApiContext): Response {
     const q = valid<{ limit?: number; cursor?: string; project_id?: string; archived?: string }>(c, "query");
     const page = this.service.store.listChats({ projectId: q.project_id, archived: q.archived === "1" || q.archived === "true", limit: q.limit, cursor: q.cursor });
-    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...row, empty: this.service.store.chatIsEmpty(row.id) })) });
+    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...row, effective_cwd: this.service.effectiveCwd(row), empty: this.service.store.chatIsEmpty(row.id) })) });
   }
 
   @Post("/chats", {
@@ -98,7 +131,7 @@ export class ChatsController {
   read(c: ApiContext): Response {
     try {
       const chat = this.service.chat(idOf(c));
-      return jsonResponse(200, { ...chat, warning: this.service.warningFor(chat) });
+      return jsonResponse(200, { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat) });
     } catch (err) {
       return failure(err);
     }

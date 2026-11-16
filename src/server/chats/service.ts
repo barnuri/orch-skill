@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
+import { chatRoots, FolderError, folderUsable, type FolderList, listFolders, validateFolder } from "./folders";
 import { alternativeHint, buildOptions, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
 import { OpencodeServerPool } from "./sessions/opencode-server";
@@ -22,6 +23,10 @@ export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
+}
+
+function asHttp(err: unknown): unknown {
+  return err instanceof FolderError ? new HttpError(400, err.message) : err;
 }
 
 export interface ChatEvent {
@@ -197,10 +202,11 @@ export class ChatService {
   // ---- chats ----
 
   /** Never rejected for a disabled, missing or unconfigured harness: the check happens when a turn is sent. */
-  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null }): ChatRow {
+  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null }): ChatRow {
     this.checkProject(input.project_id);
+    const cwd = input.cwd === undefined ? null : this.checkedFolder(input.cwd);
     const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
-    return this.store.createChat({ ...input, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+    return this.store.createChat({ ...input, cwd, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
   }
 
   /** A person's title: trimmed, 1 to MAX_TITLE_CHARS characters, and never replaced by the auto-title afterwards. */
@@ -240,11 +246,63 @@ export class ChatService {
     return row;
   }
 
-  /** Why the chat will not run where the user expects, or null: its project's directory is gone. */
-  warningFor(chat: ChatRow): string | null {
+  // ---- folders ----
+
+  folders(root?: string): FolderList {
+    try {
+      return listFolders(chatRoots(this.home), root, this.store.folderUse());
+    } catch (err) {
+      throw asHttp(err);
+    }
+  }
+
+  private checkedFolder(path: string | null): string | null {
+    if (path === null || path.trim() === "") {
+      return null;
+    }
+    try {
+      const real = validateFolder(path, chatRoots(this.home));
+      this.store.touchFolder(real);
+      return real;
+    } catch (err) {
+      throw asHttp(err);
+    }
+  }
+
+  /** Sets or clears (null) the chat's own folder. It overrides the project's folder from the next turn; a running turn keeps its folder. */
+  setChatFolder(id: string, path: string | null): ChatRow {
+    this.chat(id);
+    const folder = this.checkedFolder(path);
+    const row = this.store.setChatCwd(id, folder) as ChatRow;
+    void this.manager.drop(id);
+    return row;
+  }
+
+  /** The default folder of a project: chats without their own folder run there. */
+  setProjectFolder(id: string, path: string | null): ProjectRow {
+    this.project(id);
+    const folder = this.checkedFolder(path);
+    const row = this.store.updateProject(id, { path: folder }) as ProjectRow;
+    for (const chat of this.store.listChats({ projectId: id, limit: 100 }).items) {
+      void this.manager.drop(chat.id);
+    }
+    return row;
+  }
+
+  /** The folder the chat's next turn runs in: its own, else its project's, else null (a scratch folder). */
+  effectiveCwd(chat: ChatRow): string | null {
     const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
-    if (project?.path && !(existsSync(project.path) && statSync(project.path).isDirectory())) {
-      return `Project directory ${project.path} no longer exists: the agent runs in a scratch folder instead.`;
+    return chat.cwd ?? project?.path ?? null;
+  }
+
+  /** Why the chat will not run where the user expects, or null: its folder is gone or no longer allowed. */
+  warningFor(chat: ChatRow): string | null {
+    const cwd = this.effectiveCwd(chat);
+    if (cwd !== null && !existsSync(cwd)) {
+      return `${chat.cwd === null ? "Project" : "Chat"} directory ${cwd} no longer exists: the agent runs in a scratch folder instead.`;
+    }
+    if (cwd !== null && chat.cwd !== null && !folderUsable(cwd, chatRoots(this.home))) {
+      return `Folder ${cwd} is no longer inside an allowed root: the agent runs in a scratch folder instead.`;
     }
     return null;
   }
@@ -340,10 +398,11 @@ export class ChatService {
   }
 
   private paramsFor(chat: ChatRow): SessionParams {
-    const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
     let cwd = join(this.home, "chats", "workspace");
-    if (project?.path && existsSync(project.path) && statSync(project.path).isDirectory()) {
-      cwd = project.path;
+    const wanted = this.effectiveCwd(chat);
+    // A chat folder is checked again at every turn: a symlink swapped after it was picked must not lead outside the roots.
+    if (wanted !== null && existsSync(wanted) && statSync(wanted).isDirectory() && (chat.cwd === null || folderUsable(wanted, chatRoots(this.home)))) {
+      cwd = wanted;
     }
     mkdirSync(cwd, { recursive: true });
     return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, history: () => this.historyFor(chat.id) };

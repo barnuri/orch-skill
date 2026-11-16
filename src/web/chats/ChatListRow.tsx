@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Chat } from "../lib/chat-types";
 import { rel } from "../lib/format";
+import { FolderChip } from "./FolderPicker";
 import { KebabIcon, TitleInput, useRenameChat } from "./rename";
 
 /** True for the key that starts a rename on a focused row (F2, as in file managers). */
@@ -73,7 +74,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
             }}
             onCancel={stop}
           />
-          <span className="thread-meta">{meta}</span>
+          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} /></span>
         </div>
       ) : (
         <a
@@ -91,7 +92,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
           }}
         >
           <span className="thread-title">{chat.title}</span>
-          <span className="thread-meta">{meta}</span>
+          <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} /></span>
         </a>
       )}
       {editing ? null : (
