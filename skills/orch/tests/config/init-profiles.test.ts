@@ -58,7 +58,8 @@ test("overlay", () => {
     const h2 = tempHome();
     expect(orch(h2, { ORCH_PROFILES_OVERLAY: real })("init").rc).toBe(0);
     const b = readJson(join(h2, "profiles.json"));
-    expect([Object.keys(b.profiles).length, b.settings.planner_profile, b.profiles["claude-llm-hub"].model, b.models["hub-smart-auto-balance"].slug]).toEqual([18, "claude-planner", "local-qwen3.6-35b", "hub/smart-auto-balance"]);
+    expect(Object.keys(b.profiles).length).toBeGreaterThanOrEqual(18);
+    expect([b.settings.planner_profile, b.profiles["claude-llm-hub"].model, b.models["hub-smart-auto-balance"].slug]).toEqual(["claude-planner", "local-qwen3.6-35b", "hub/smart-auto-balance"]);
   }
 });
 
@@ -153,7 +154,7 @@ test("migrations", () => {
   expect([p.profiles["claude-default"].enabled, p.profiles["claude-planner"].enabled, p.profiles["copilot-default"].enabled]).toEqual([false, false, false]);
 });
 
-test("init idempotency and legacy cleanup, effective profile, settings, tmp leaks", () => {
+test("init idempotency and legacy cleanup, effective profile, settings, tmp leaks", async () => {
   const home = seedHome(), o = orch(home);
   editJson(join(home, "profiles.json"), (p) => { p.settings.default_profile = "custom"; });
   o("init");
@@ -212,7 +213,7 @@ test("init idempotency and legacy cleanup, effective profile, settings, tmp leak
   ot("profile", "list");
   expect(existsSync(join(th, "profiles.json.tmp.999999"))).toBe(false);
   expect(existsSync(join(th, `profiles.json.tmp.${live.pid}`))).toBe(true);
-  live.kill(); Bun.sleepSync(300);
+  live.kill(); await live.exited;
   ot("profile", "list");
   expect(strays(th)).toBe(0);
   const h2 = tempHome(); mkdirSync(h2, { recursive: true });

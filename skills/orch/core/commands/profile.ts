@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
+import { ensureHome } from "../state/profiles.ts";
 import {
   PROFILE_PICK_USAGE,
   MODEL_LIST_USAGE,
@@ -39,6 +40,7 @@ function err(s: string, code: number): number {
 
 // profile list: "*" marks the default profile. Insertion order, as jq to_entries.
 export async function profileList(_args: string[]): Promise<number> {
+  await ensureHome(orchHome());
   const cat = await loadCatalog(orchHome());
   const dflt = setting(cat, "default_profile", "");
   const lines = Object.entries(cat.profiles ?? {}).map(
