@@ -61,5 +61,5 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 - [ ] Schedules `orch-perf-daily` and `orch-learn-from-runs` run and write their output.
 - [ ] `bun scripts/unorch.ts` writes `tasks.md`, `asks.md`, `handoffs/` and pauses the run.
 - [ ] Skills load: `unorch` (plugin manifest), `verify` (repo skill under `.claude/skills`), `orch-perf`.
-- [ ] All `take-*` worktrees and branches are merged and removed (`git worktree list`, `git branch`).
+- [x] All take-* and wt-* worktrees and branches merged and removed (done, only master and the user-kept cp2 worktree remain)
 - [ ] The orch run `20261115-114006-0bff` is finished or archived (paused with `auto_dispatch` off today).
