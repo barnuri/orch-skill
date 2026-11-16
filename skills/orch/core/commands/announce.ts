@@ -19,7 +19,18 @@ function agentHarness(): string {
   return "unknown";
 }
 
-function scan(home: string, runId: string) {
+/** A session shows orch activity only when it is part of a run: it is the run's coordinator (session id or pane),
+ *  or it owns one of the run's nodes, or the caller named the run explicitly. Any other session sees nothing,
+ *  so a session that stopped using orch no longer shows "orch" because some other run or monitor is alive. */
+export function attributed(s: any, id: string, runId: string, sid: string, pane: string): boolean {
+  if (runId !== "") return runId === id;
+  const c = s.coordinator ?? {};
+  if (sid !== "" && c.session_id === sid) return true;
+  if (pane !== "" && c.pane_id === pane) return true;
+  return (s.nodes ?? []).some((n: any) => sid !== "" && (n.session === sid || n.owner_id === sid));
+}
+
+export function scan(home: string, runId: string, sid = "", pane = "") {
   let running = 0, done = 0, total = 0, loops = 0, watches = 0;
   const each = (kind: string) => {
     const root = join(home, kind);
@@ -32,15 +43,19 @@ function scan(home: string, runId: string) {
     }
     return rows;
   };
+  const mine = new Set<string>();
   for (const [id, s] of each("runs")) {
-    if (s.status !== "running" || (runId !== "" && runId !== id)) continue;
+    if (s.status !== "running" || !attributed(s, id, runId, sid, pane)) continue;
+    mine.add(id);
     const nodes: any[] = s.nodes ?? [];
     running += nodes.filter((n) => n.status === "running").length;
     done += nodes.filter((n) => n.status === "done").length;
     total += nodes.length;
   }
-  for (const [, s] of each("loops")) if (s.status === "running" && (pidAlive(s.pid) || s.demo === true)) loops++;
-  for (const [, s] of each("watches")) if (s.status === "running" && pidAlive(s.pid)) watches++;
+  // Loops and monitors count only when they belong to one of this session's runs and the run has work running.
+  const own = (s: any): boolean => mine.has(String(s.run_id ?? s.run ?? "")) && running > 0;
+  for (const [, s] of each("loops")) if (s.status === "running" && (pidAlive(s.pid) || s.demo === true) && own(s)) loops++;
+  for (const [, s] of each("watches")) if (s.status === "running" && pidAlive(s.pid) && own(s)) watches++;
   return { running, done, total, loops, watches };
 }
 
@@ -70,7 +85,10 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
   const say = (s: string) => {
     if (!o.quiet) process.stdout.write(s + "\n");
   };
-  const { running, done, total, loops, watches } = scan(home, o.runId);
+  let sid = env.ANNOUNCE_SID || agentSessionId();
+  if (!sid || sid === "unknown") sid = `pid-${process.ppid}`;
+  const pane = env.HERDR_PANE_ID ?? "";
+  const { running, done, total, loops, watches } = scan(home, o.runId, sid, pane);
   const busy = running + loops + watches;
   let summary = "";
   let active = false;
@@ -81,11 +99,8 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
     if (watches > 0) summary += ` · ${watches} monitor${watches > 1 ? "s" : ""}`;
     summary = summary.slice(0, 120);
   }
-  let sid = env.ANNOUNCE_SID || agentSessionId();
-  if (!sid || sid === "unknown") sid = `pid-${process.ppid}`;
   const harness = env.ANNOUNCE_HARNESS ?? agentHarness();
   const now = Math.floor(Date.now() / 1000);
-  const pane = env.HERDR_PANE_ID ?? "";
   const json = JSON.stringify({ active, updated_at: now, running, done, total, summary, pane, harness });
   const wf = JSON.stringify({ active, updated_at: now });
 
