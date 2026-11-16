@@ -15,11 +15,29 @@ seed_home_template() {
     bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/dispatch.sh" init >/dev/null 2>&1
 }
 
+# seed_home_template_cached: prints the path of a template home shared across runs, under $TMPDIR and
+# keyed by a hash of the scripts and templates that shape `init`, so it is rebuilt only after they
+# change. Saves the 3-8 s init (on a loaded machine) on every run of the fast tier.
+seed_home_template_cached() {
+  local orch key cache tmp
+  orch="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  key=$(cat "$orch/scripts/dispatch.sh" "$orch"/scripts/lib/*/*.sh "$orch"/templates/* 2>/dev/null | cksum | tr ' ' '-')
+  cache="${TMPDIR:-/tmp}"
+  cache="${cache%/}/orch-test-home-template.$key"
+  if [ ! -f "$cache/profiles.json" ]; then
+    tmp=$(mktemp -d) || return 1
+    seed_home_template "$tmp/home" || return 1
+    # A concurrent runner may have built it first: keep theirs, the copies are equivalent.
+    [ -f "$cache/profiles.json" ] || mv "$tmp/home" "$cache" 2>/dev/null
+    [ -f "$cache/profiles.json" ] || { printf '%s\n' "$tmp/home"; return 0; }
+  fi
+  printf '%s\n' "$cache"
+}
+
 seed_home() {
   local dest="$1" src
   if [ -z "${ORCH_TEST_HOME_TEMPLATE:-}" ] || [ ! -f "$ORCH_TEST_HOME_TEMPLATE/profiles.json" ]; then
-    ORCH_TEST_HOME_TEMPLATE="$(mktemp -d)/home"
-    seed_home_template "$ORCH_TEST_HOME_TEMPLATE" || return 1
+    ORCH_TEST_HOME_TEMPLATE=$(seed_home_template_cached) || return 1
     export ORCH_TEST_HOME_TEMPLATE
   fi
   mkdir -p "$dest" || return 1

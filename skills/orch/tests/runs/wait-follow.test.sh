@@ -54,7 +54,8 @@ o node add "$R" s "s" >/dev/null 2>&1
 jq '.' "$f" > "$f.new" && mv -f "$f.new" "$f"
 ORCH_WAIT_RESCAN_SECS=2 o run wait "$R" --follow >> "$log" 2>&1 & fpid=$!
 wait_until "[ -f '$(printf "$fcursor" "$R")' ]" 60
-sleep 3
+# The follower has scanned the current state once (its snapshot holds s as waiting).
+wait_until "jq -e '.snap.nodes.s.s == \"waiting\"' '$(printf "$fcursor" "$R")' >/dev/null 2>&1" 60
 size0=$(wc -c < "$f"); ref="$scratch/stamp"; touch -r "$f" "$ref"
 jq '(.nodes[] | select(.id == "s") | .status) = "skipped"' "$f" > "$f.new" && cat "$f.new" > "$f"
 touch -r "$ref" "$f"

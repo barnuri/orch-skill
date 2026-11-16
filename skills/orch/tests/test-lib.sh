@@ -64,6 +64,17 @@ expect_missing() {
   failures=$((failures + 1))
 }
 
+# expect_empty <label> <output>: passes when output is empty (a list of offenders, for example).
+expect_empty() {
+  local label="$1" output="$2"
+  if [ -z "$output" ]; then
+    pass_count=$((pass_count + 1))
+    return
+  fi
+  printf 'FAIL: %s\n  expected empty output, got:\n%s\n' "$label" "$output" >&2
+  failures=$((failures + 1))
+}
+
 expect_exit() {
   local label="$1" expected="$2" actual="$3"
   if [ "$actual" -eq "$expected" ]; then
@@ -176,6 +187,19 @@ start_fixture() {
 stop_fixture() {
   kill "$FIXTURE_PID" 2>/dev/null
   wait "$FIXTURE_PID" 2>/dev/null
+}
+
+# load_dispatch: the in-process seam of the fast tier (tests/unit/). Seeds a fresh home in $H, points
+# HARNESS_ORCH_HOME at it and sources dispatch.sh into this shell, so a test calls lib functions
+# directly instead of paying a dispatch.sh process (10-40 forks) per check. Sourcing defines functions
+# only (see dispatch.sh), so this is safe. Call it once, at the top of the file, before any check.
+load_dispatch() {
+  H="$(new_tmp)/home"
+  seed_home "$H" || { printf 'FAIL: seed_home %s\n' "$H" >&2; exit 1; }
+  export HARNESS_ORCH_HOME="$H"
+  # shellcheck source=/dev/null
+  . "$SCRIPT"
+  set +e
 }
 
 # Prints the per-file tally the runner (tests/run.sh) parses, and exits non-zero on a failure.

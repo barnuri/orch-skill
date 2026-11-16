@@ -1,0 +1,25 @@
+# Extra test files for `tests/run.sh --changed`, for changed files whose test names do not start with
+# the lib stem. Format: <lib stem or script name> <test name prefix>... (one line each, # comments).
+# The runner always adds unit/<stem> and every test whose name starts with the stem; this list only
+# adds more. A test name prefix also matches split parts (owner-bind matches owner-bind-a).
+runs            run-lifecycle run-set stop record liveness done-verify identity-panes-stop cost-digest state-lock
+owners          owner-bind owner-job-bind liveness
+plan            planned-runs
+loops           loops-watches
+schedules       schedules-edit schedules-service
+serve           serve-ui service-restart
+suggest         routing-claude
+demo            demo-seeding
+config          init-profiles profiles-overlay profiles-tmp tmp-leak lib-list
+locks           state-lock
+adapters        classify-adapters llm-hub-native
+harness         classify-adapters
+herdr           herdr-runner identity-panes-stop
+hub             llm-hub-native
+routing         routing-claude classify-adapters
+profile-sanity  routing-claude profiles-overlay
+batch           done-verify
+timing          wait
+visibility      stop
+dispatch.sh     run-lifecycle classify-adapters lib-list
+announce.sh     announce announce-daemon

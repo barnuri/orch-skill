@@ -116,11 +116,14 @@ port_file = sys.argv[1]
 events = {
     "wsel/nsel/1": [
         {"seq": 1, "worker_key": "k", "attempt_key": "a1", "stage": "solver", "state": "selected",
-         "model": "llama_swap/qwen3.6-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance"},
+         "model": "llama_swap/qwen3.6-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance",
+         "role": "implementation", "ts_ms": 1000, "sent_effort": "medium"},
         {"seq": 2, "worker_key": "k", "attempt_key": "a1", "stage": "solver", "state": "completed",
-         "model": "llama_swap/qwen3.6-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance"},
+         "model": "llama_swap/qwen3.6-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance",
+         "role": "implementation", "ts_ms": 2000, "selected_effort": "high", "sent_effort": "medium"},
         {"seq": 3, "worker_key": "k", "attempt_key": "a1", "stage": "judge", "state": "started",
-         "model": "llama_swap/ornith-1.5-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance"},
+         "model": "llama_swap/ornith-1.5-35b", "requested_selector": "hub/smart-auto-balance", "tier": "balance",
+         "role": "review", "ts_ms": 3000, "selected_effort": "high"},
     ],
 }
 
@@ -171,6 +174,14 @@ PY
     "$(jq -r '.nodes[0].main_model' "$sel_state")"
   expect_match "node selections lists the judge as an active stage" '^judge$' \
     "$(jq -r '.nodes[0].active_stages | join(",")' "$sel_state")"
+  expect_match "node selections sets actual_model from the latest solver event" '^llama_swap/qwen3.6-35b$' \
+    "$(jq -r '.nodes[0].actual_model' "$sel_state")"
+  expect_match "node selections sets the role from the latest solver event" '^implementation$' \
+    "$(jq -r '.nodes[0].role' "$sel_state")"
+  expect_match "node selections fills a missing tier" '^balance$' "$(jq -r '.nodes[0].tier' "$sel_state")"
+  expect_match "node selections sets effort from selected_effort" '^high$' "$(jq -r '.nodes[0].effort' "$sel_state")"
+  expect_match "node selections records each effort change once" '^1:medium,2:high$' \
+    "$(jq -r '.nodes[0].effort_history | map("\(.seq):\(.effort)") | join(",")' "$sel_state")"
   out=$(sorch node selections wsel nsel 2>&1)
   expect_match "a repeated node selections adds nothing" '^selections: 0 new$' "$out"
   expect_match "a repeated node selections keeps the history length" '^3$' \
