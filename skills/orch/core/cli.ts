@@ -18,6 +18,9 @@ import { suggestCommand, syncCommand } from "./commands/suggest.ts";
 import { demoCommand } from "./commands/demo.ts";
 import { orchHome } from "./state/home.ts";
 import { viaServer } from "./client.ts";
+import { loopCommands } from "./commands/loops.ts";
+import { scheduleCommands } from "./commands/schedules.ts";
+import { announce } from "./commands/announce.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 import { cmdRun, cmdStart, cmdJobRun } from "./adapters/spawn.ts";
@@ -76,6 +79,9 @@ export const COMMANDS: Record<string, Handler> = {
   suggest: suggestCommand,
   demo: demoCommand,
   sync: syncCommand,
+  ...loopCommands,
+  ...scheduleCommands,
+  announce,
 };
 
 const ONE_WORD = new Set(["serve", "ui", "artifact", "suggest", "demo", "sync"]);
@@ -132,6 +138,11 @@ export async function main(argv: string[], opts: { direct?: boolean } = {}): Pro
   }
   if (words[0] === "adapter-util") return adapterUtil(argv.slice(1));
   if (words[0] === "job-run") return cmdJobRun(argv.slice(1));
+  // Single-word commands take every later argument, so `announce --run <id>` is not read as a verb.
+  if (words[0] === "announce" || words[0] === "active") {
+    const first = argv.indexOf(words[0]);
+    return await COMMANDS[words[0]]!(argv.slice(first + 1));
+  }
   // `delegate <run> <verb> ...`: the verb is the third word. The handler gets the run id first, then
   // the rest, so the verb is dropped from argv.
   if (words[0] === "delegate") {

@@ -204,11 +204,11 @@ health_monitor_name() { printf 'health:%s\n' "$1"; }
 health_monitor_find() {
   local name spec dir id
   name=$(health_monitor_name "$1")
-  for spec in "$WATCHES_HOME"/*/spec.json; do
+  for spec in "$ORCH_HOME"/watches/*/spec.json; do
     [ -f "$spec" ] || continue
     grep -q "\"name\": *\"$name\"" "$spec" 2>/dev/null || continue
     dir="${spec%/spec.json}"; id="${dir##*/}"
-    [ "$(watch_alive_status "$id")" = running ] && { printf '%s\n' "$id"; return 0; }
+    [ "$("${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" watch status-of "$id" 2>/dev/null)" = running ] && { printf '%s\n' "$id"; return 0; }
   done
   return 1
 }
@@ -230,7 +230,7 @@ health_monitor_start_locked() {
   health_monitor_find "$run_id" && return 0
   every=$(health_every_sec)
   cmd="HARNESS_ORCH_HOME='$ORCH_HOME' ORCH_NO_ANNOUNCE=1 ORCH_EVENT_BY=$HEALTH_BY bash '$SELF_REAL' run health '$run_id' --monitor"
-  id=$(WATCH_MAX_ACTIVE=100000 cmd_watch_start --name "$(health_monitor_name "$run_id")" "$cmd" --every "${every}s" \
+  id=$(WATCH_MAX_ACTIVE=100000 "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" watch start --name "$(health_monitor_name "$run_id")" "$cmd" --every "${every}s" \
     --until '^health: run .* ended' --max-runtime "$HEALTH_MONITOR_RUNTIME" 2>/dev/null) || return 1
   ORCH_EVENT_BY=$HEALTH_BY run_event "$run_id" health "" "" "" "monitor started ($id, every ${every}s)"
   printf '%s\n' "$id"

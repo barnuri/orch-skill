@@ -5,8 +5,6 @@
 runs            run-lifecycle run-set stop record liveness done-verify identity-panes-stop cost-digest state-lock
 owners          owner-bind owner-job-bind liveness
 plan            planned-runs
-loops           loops-watches
-schedules       schedules-edit schedules-service
 serve           serve-ui service-restart
 suggest         routing-claude
 demo            demo-seeding
@@ -22,4 +20,3 @@ batch           done-verify
 timing          wait
 visibility      stop
 dispatch.sh     run-lifecycle classify-adapters lib-list
-announce.sh     announce announce-daemon

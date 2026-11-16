@@ -41,10 +41,10 @@ mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loa
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
-  scripts/announce.sh             status announcer (the second entry point)
+  core/commands/announce.ts       status announcer (`dispatch.sh announce`)
   scripts/lib/<category>/*.sh     sourced by dispatch.sh in the order of its ORCH_LIB_FILES list, never executed:
                                   core/ (config, locks), adapters/ (adapters, harness, herdr, hub, routing, profile-sanity),
-                                  runs/ (runs, batch, health, owners, pause, wait, ...), automation/ (loops, schedules),
+                                  runs/ (runs, batch, health, owners, pause, wait, ...), 
                                   dashboard/ (serve, suggest, demo). A new lib file must be added to ORCH_LIB_FILES.
   tests/run.sh                    the bash test runner: fast tier (tests/unit/) by default, --changed, --full
   tests/test-lib.sh, test-home.sh shared helpers (SCRIPT_DIR = skills/orch/scripts, TESTS_DIR = skills/orch/tests)

@@ -47,7 +47,7 @@ export function watchProcessAlive(pid: unknown, id: string): boolean {
   }
   const cmd = commandLine(pid);
   // Without a way to read the command line, fall back to the pid check alone.
-  const alive = cmd === null || cmd.includes(`watch_run ${id}`);
+  const alive = cmd === null || cmd.includes(`watch_run ${id}`) || cmd.includes(`watch __run ${id}`);
   if (alive) {
     if (confirmed.size > 256) {
       confirmed.clear();

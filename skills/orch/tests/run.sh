@@ -99,7 +99,7 @@ changed_tests() {
     case "$path" in
       skills/orch/tests/*/*.test.sh) [ -f "$REPO_ROOT/$path" ] && printf '%s\n' "$REPO_ROOT/$path"; continue ;;
       skills/orch/scripts/lib/*.sh) stem=$(basename "$path" .sh) ;;
-      skills/orch/scripts/dispatch.sh|skills/orch/scripts/announce.sh) stem=$(basename "$path") ;;
+      skills/orch/scripts/dispatch.sh) stem=$(basename "$path") ;;
       *) continue ;;
     esac
     extra=$(awk -v s="$stem" '$1 == s { $1 = ""; print }' "$TESTS_DIR/changed-map.txt" 2>/dev/null)
