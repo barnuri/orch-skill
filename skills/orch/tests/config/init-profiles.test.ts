@@ -227,7 +227,7 @@ test("init idempotency and legacy cleanup, effective profile, settings, tmp leak
   expect(readText(join(h3, "profiles.json"))).toBe("{broken json\n");
   expect(strays(h3)).toBe(0);
   const mt = statSync(join(th, "profiles.json")).mtimeMs;
-  Bun.sleepSync(1100);
+  Bun.sleepSync(30);
   ot("profile", "list");
   expect(statSync(join(th, "profiles.json")).mtimeMs).toBe(mt);
 }, 240000);

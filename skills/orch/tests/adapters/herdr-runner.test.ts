@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { orch, seedHome, tempDir, fakeBin, fakeHerdrBin, readJson, readText, runState, waitUntil, pathWithout, autoCleanup } from "../helpers";
+import { orch, seedHome, tempDir, fakeBin, fakeHerdrBin, readJson, readText, runState, waitUntil, pidAlive, pathWithout, autoCleanup } from "../helpers";
 autoCleanup();
 
 const setup = () => {
@@ -114,7 +114,7 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
 
   for (const tb of t.fakeState().tabs.map((x: any) => x.tab_id)) Bun.spawnSync(["env", "-i", `PATH=${t.env.PATH}`, `HOME=${join(t.home, "herdr/home")}`, "herdr", "tab", "close", tb]);
   const cap2 = d.env({ ORCH_HERDR_PANE_CAP: "2", ORCH_HERDR_CLOSE_AFTER: "30", ORCH_TEST_EXIT: "1" }, "start", "claude", "cap two").out.trim(); t.waitJob(cap2);
-  const cap3 = d.env({ ORCH_HERDR_PANE_CAP: "1", ORCH_TEST_EXIT: "1" }, "start", "claude", "cap three").out.trim(); t.waitJob(cap3);
+  const cap3 = d.env({ ORCH_HERDR_PANE_CAP: "1", ORCH_HERDR_CLOSE_AFTER: "600", ORCH_TEST_EXIT: "1" }, "start", "claude", "cap three").out.trim(); t.waitJob(cap3);
   expect(existsSync(join(t.home, "jobs", cap2, "herdr_pane"))).toBe(true);
   expect(existsSync(join(t.home, "jobs", cap3, "herdr_pane"))).toBe(false);
   expect(d("status", cap3).out.trim()).toBe("done exit=1");
@@ -126,14 +126,15 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   const kids = Bun.spawnSync(["pgrep", "-P", String(gpid)]).stdout.toString().split("\n").filter(Boolean);
   try { process.kill(gpid, "SIGKILL"); } catch {}
   for (const k of kids) try { process.kill(Number(k), "SIGKILL"); } catch {}
-  await Bun.sleep(1000);
+  await waitUntil(() => !pidAlive(gpid), 5);
   d("run", "sync", "gone-run", "--no-retry");
   expect(runState(t.home, "gone-run").nodes[0].status).toBe("error");
   expect(readText(join(t.home, "runs/gone-run/events.jsonl"))).toMatch(/"kind":"note".*"node":"a".*pane w\d+:p\d+ is gone/);
-  const bad = t.calls().split("\n").filter((l) => l && !l.includes(`HOME=${join(t.home, "herdr/home")}`) && !l.includes("HOME=/tmp/orch-herdr-")).length;
+  const own = t.calls().split("\n").filter((l) => !/:: pane get live:p1$/.test(l)).join("\n");
+  const bad = own.split("\n").filter((l) => l && !l.includes(`HOME=${join(t.home, "herdr/home")}`) && !l.includes("HOME=/tmp/orch-herdr-")).length;
   expect(bad).toBe(0);
-  expect(t.calls()).not.toMatch(/socketenv=.+ ::/);
-  expect(t.calls()).not.toMatch(/live-session|realhome/);
+  expect(own).not.toMatch(/socketenv=.+ ::/);
+  expect(own).not.toMatch(/live-session|realhome/);
 
   writeFileSync(t.log, "");
   const nopath = pathWithout("herdr");

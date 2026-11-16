@@ -69,7 +69,7 @@ test("serve and ui lifecycle against a fake server", async () => {
   expect(readText(join(home, "serve/pid"))).not.toBe(pid1);
   const running = Number(readText(join(home, "serve/pid")));
   r = fo("ui", "--stop"); expect(r.rc).toBe(0); expect(r.all).toMatch(`stopped (pid ${running})`);
-  await Bun.sleep(300);
+  await waitUntil(() => !pidAlive(running), 5);
   expect(pidAlive(running)).toBe(false);
   expect(readText(join(home, "serve/pid")).length).toBe(0);
   writeFileSync(join(home, "serve/pid"), "999999");
@@ -86,7 +86,7 @@ test("serve and ui lifecycle against a fake server", async () => {
   r = o("sync", "--no-serve"); expect(r.rc).toBe(0); expect(r.out.trim()).toBe("synced");
   const logBefore = statSync(join(home, "serve/log")).size;
   const fg = Bun.spawn(["bun", DISPATCH, "serve"], { env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_BUN: join(shims, "bun"), ORCH_NO_OPEN: "1", ORCH_NO_ANNOUNCE: "1", ORCH_SERVE_SOURCE_DIRS: srcfix }, stdout: "ignore", stderr: "ignore" });
-  await Bun.sleep(2000);
+  await waitUntil(() => /^6724$/m.test(readText(join(home, "serve/argv"))), 10);
   expect(readText(join(home, "serve/argv"))).toMatch(/^6724$/m);
   expect(statSync(join(home, "serve/log")).size).toBe(logBefore);
   fo("serve", "--stop");

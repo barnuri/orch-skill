@@ -56,11 +56,10 @@ wait
     labels.push(label);
     expect(runCmd(["launchctl", "bootstrap", `gui/${uid}`, plist]).rc).toBe(0);
     await waitUntil(() => existsSync(join(d, "setsid.pid")) && readText(join(d, "setsid.pid")).trim() !== "", 15);
-    await Bun.sleep(1000);
     const s1 = readText(join(d, "server.pid")).trim();
     runCmd(["launchctl", "kickstart", "-k", `gui/${uid}/${label}`]);
     await waitUntil(() => readText(join(d, "server.pid")).trim() !== s1, 20);
-    await Bun.sleep(1000);
+    await Bun.sleep(300);
     const res = ["plain", "setsid"].map((n) => `${n}=${pidAlive(Number(readText(join(d, `${n}.pid`)).trim())) ? "alive" : "dead"}`).join(" ");
     for (const n of ["plain", "setsid"]) try { process.kill(Number(readText(join(d, `${n}.pid`)).trim())); } catch {}
     runCmd(["launchctl", "bootout", `gui/${uid}/${label}`]);

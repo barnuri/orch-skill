@@ -43,7 +43,6 @@ test("schedules", async () => {
   expect(cmdId).toMatch(/^sch-\d{8}-\d{6}-[0-9a-f]{4}$/);
   sch("run", cmdId); await finish(cmdId);
   expect(show(cmdId).runs[0].status).toBe("ok");
-  await Bun.sleep(3000);
   const run0 = show(cmdId).runs[0];
   expect((Date.parse(run0.ended_at) - Date.parse(run0.started_at)) / 1000).toBeLessThanOrEqual(1);
   const runsDir = join(home, "schedules", cmdId, "runs");

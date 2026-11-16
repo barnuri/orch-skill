@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { orch, seedHome, runState, readText, fakeBin, fakeHub, tempDir, autoCleanup } from "../helpers";
 autoCleanup();
 
@@ -52,19 +52,23 @@ test("worker identity headers", () => {
   expect(log(op)).not.toMatch(/wid-1\/impl\/1/);
 }, 240000);
 
-test("node selections from a fake hub", () => {
+test("node selections from a fake hub", async () => {
   const events: Record<string, any[]> = { "wsel/nsel/1": [
     { seq: 1, worker_key: "k", attempt_key: "a1", stage: "solver", state: "selected", model: "llama_swap/qwen3.6-35b", requested_selector: "hub/smart-auto-balance", tier: "balance", role: "implementation", ts_ms: 1000, sent_effort: "medium" },
     { seq: 2, worker_key: "k", attempt_key: "a1", stage: "solver", state: "completed", model: "llama_swap/qwen3.6-35b", requested_selector: "hub/smart-auto-balance", tier: "balance", role: "implementation", ts_ms: 2000, selected_effort: "high", sent_effort: "medium" },
     { seq: 3, worker_key: "k", attempt_key: "a1", stage: "judge", state: "started", model: "llama_swap/ornith-1.5-35b", requested_selector: "hub/smart-auto-balance", tier: "balance", role: "review", ts_ms: 3000, selected_effort: "high" },
   ] };
-  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
-    const u = new URL(req.url);
-    if (u.pathname !== "/api/smart-auto/history") return new Response("", { status: 404 });
-    const since = Number(u.searchParams.get("since_seq") ?? 0);
-    const rows = u.searchParams.has("since_ts_ms") ? (events[u.searchParams.get("worker") ?? ""] ?? []).filter((e) => e.seq > since) : [];
-    return Response.json({ events: rows });
-  } });
+  const hubSrc = `const events = ${JSON.stringify(events)};
+const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
+  const u = new URL(req.url);
+  if (u.pathname !== "/api/smart-auto/history") return new Response("", { status: 404 });
+  const since = Number(u.searchParams.get("since_seq") ?? 0);
+  const rows = u.searchParams.has("since_ts_ms") ? (events[u.searchParams.get("worker") ?? ""] ?? []).filter((e) => e.seq > since) : [];
+  return Response.json({ events: rows });
+} });
+console.log(s.port);`;
+  const hubProc = Bun.spawn(["bun", "-e", hubSrc], { stdout: "pipe" });
+  const server = { port: Number((await hubProc.stdout.getReader().read().then((r) => new TextDecoder().decode(r.value))).trim()), stop: (_?: boolean) => hubProc.kill() };
   const home = seedHome();
   const o = orch(home, { LLM_HUB_URL: `http://127.0.0.1:${server.port}` });
   o("run", "start", "Selections", "--id", "wsel"); o("node", "add", "wsel", "nsel", "Solve");
@@ -111,14 +115,17 @@ test("herdr off, run stop, claude path, profile jobs", () => {
   expect(os("run", "stop").rc).toBe(2);
   expect(os("run", "stop", "no-such-run").rc).toBe(2);
 
-  const noClaude = orch(home, { ORCH_BIN_DIRS: "", PATH: "/usr/bin:/bin" });
+  const bunDir = tempDir("orch-bun-");
+  symlinkSync(process.execPath, join(bunDir, "bun"));
+  const bare = `${bunDir}:/usr/bin:/bin`;
+  const noClaude = orch(home, { ORCH_BIN_DIRS: "", PATH: bare });
   r = noClaude("run", "claude", "hi");
   expect(r.all).toMatch(/claude not found on PATH/); expect(r.rc).toBe(127);
-  r = orch(home, { ORCH_BIN_DIRS: sh, PATH: "/usr/bin:/bin" })("run", "claude", "off-path");
+  r = orch(home, { ORCH_BIN_DIRS: sh, PATH: bare })("run", "claude", "off-path");
   expect(r.rc).toBe(0);
   expect(r.all.replace(/\n/g, " ")).toMatch(/^-p off-path --output-format json/);
   r = o("run", "--profile", "claude-default");
-  expect(r.all).toMatch(/usage: dispatch.sh run \(--profile <name> \| <adapter>\)/); expect(r.rc).toBe(2);
+  expect(r.all).toMatch(/usage: dispatch.ts run \(--profile <name> \| <adapter>\)/); expect(r.rc).toBe(2);
   expect(o("start", "--profile", "bogus", "hi").rc).toBe(2);
   const jid = o("start", "--profile", "claude-default", "bg").out.trim();
   o("wait", jid, "--timeout", "60", "--interval", "1");

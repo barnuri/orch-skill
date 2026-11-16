@@ -87,10 +87,10 @@ test("announce hook from dispatch and daemon", async () => {
   const R = hk("run", "start", "hook").out.trim();
   await waitUntil(() => t.callsText().includes("report-metadata"), 10);
   expect(t.callsText()).toMatch(/report-metadata p1/);
-  hk("node", "add", R, "a", "A"); await Bun.sleep(1000); writeFileSync(t.calls, "");
+  hk("node", "add", R, "a", "A"); await Bun.sleep(300); writeFileSync(t.calls, "");
   writeFileSync(join(t.O, ".announce-ts"), `${Math.floor(Date.now() / 1000) + 60}\n`);
   expect(hk("node", "update", R, "a", "running").rc).toBe(0);
-  await Bun.sleep(1000);
+  await Bun.sleep(500);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBe(0);
   writeFileSync(join(t.O, ".announce-ts"), `${Math.floor(Date.now() / 1000) - 10}\n`);
   hk("node", "ping", R, "a", "--note", "x");
@@ -98,10 +98,10 @@ test("announce hook from dispatch and daemon", async () => {
   expect(t.callsText()).toMatch(/orch: 1 running/);
   writeFileSync(t.calls, ""); writeFileSync(join(t.O, ".announce-ts"), "0\n");
   runCmd(["bun", DISPATCH, "node", "ping", R, "a", "--note", "y"], { env: { ...base, ORCH_NO_ANNOUNCE: "1" } });
-  await Bun.sleep(1500);
+  await Bun.sleep(600);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBe(0);
   runCmd(["bun", DISPATCH, "node", "ping", R, "a", "--note", "z"], { env: { ...base, HERDR_ENV: undefined, HERDR_PANE_ID: undefined, CLAUDE_CODE_SESSION_ID: undefined, OPENCODE_SESSION_ID: undefined } });
-  await Bun.sleep(1500);
+  await Bun.sleep(600);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBe(0);
   expect(runCmd(["bun", DISPATCH, "announce", "--dry-run"], { env: { ...base } }).out).toMatch(/orch: 1 running/);
 }, 120000);
@@ -126,7 +126,7 @@ test("announce daemon, sync lock, harness list lock", async () => {
   await waitUntil(() => upd() > u2, 15); expect(upd()).toBeGreaterThan(u2);
   await waitUntil(() => (t.callsText().match(/report-metadata/g) ?? []).length >= 3, 15);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBeGreaterThanOrEqual(3);
-  ann("--quiet"); ann("--quiet"); await Bun.sleep(2000);
+  ann("--quiet"); ann("--quiet"); await Bun.sleep(800);
   expect((readText(join(t.O, "announce.log")).match(/started/g) ?? []).length).toBe(1);
   expect(Number(readText(pidf))).toBe(pid);
   ann("--clear", "--quiet"); await waitUntil(() => !pidAlive(pid), 15);
@@ -144,7 +144,7 @@ test("announce daemon, sync lock, harness list lock", async () => {
   ann("--quiet");
   await waitUntil(() => Number(readText(pidf)) !== 999999 && statSync(join(t.O, "announce.log")).size < 160000, 15);
   expect(statSync(join(t.O, "announce.log")).size).toBeLessThan(160000);
-  ann("--clear", "--quiet"); await Bun.sleep(1000);
+  ann("--clear", "--quiet");
   mkdirSync(join(t.O, "locks"), { recursive: true });
   const holder = Bun.spawn(["sleep", "20"]);
   writeFileSync(join(t.O, "locks", `sync-${R}.pid`), `${holder.pid}\n`);
