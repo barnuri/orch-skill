@@ -41,6 +41,12 @@ function pidAlive(pid: unknown): boolean {
   }
 }
 
+function chatOf(spec: Json): { chat_id: string } | Record<string, never> {
+  const target = spec["target"];
+  const id = typeof target === "object" && target !== null && !Array.isArray(target) ? (target as Json)["chat_id"] : undefined;
+  return typeof id === "string" ? { chat_id: id } : {};
+}
+
 const num = (value: unknown, fallback: number): number => (typeof value === "number" ? value : fallback);
 const str = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
 
@@ -61,12 +67,13 @@ function loopItem(home: string, id: string): ActiveItem | null {
   return {
     kind: "loop",
     id: str(state["id"], id),
-    name: str(spec["name"], ""),
+    name: str(spec["label"], "") || str(spec["name"], ""),
     status,
     reason: typeof state["reason"] === "string" ? state["reason"] : null,
     started: str(spec["started"], ""),
     interval: num(spec["interval"], 0),
     deadline: num(spec["deadline"], 0),
+    ...chatOf(spec),
     iteration: num(state["iteration"], 0),
     max: num(spec["max"], 0),
     next: num(state["next_tick"], 0),
@@ -105,6 +112,7 @@ function watchItem(home: string, id: string): ActiveItem | null {
     events: num(state["events"], 0),
     last_event: typeof state["last_event"] === "string" ? state["last_event"] : null,
     cmd: str(spec["cmd"], ""),
+    ...chatOf(spec),
   };
 }
 

@@ -1,0 +1,72 @@
+/* Schedules, loops and monitors of a chat. Tokens only. Blue = live or primary action; amber = paused or waiting; red only for a failure. */
+.chat-head-auto { position: relative; flex: none; display: inline-flex; align-items: center; gap: var(--s2); }
+.auto-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--inset); border: 1px solid var(--border-strong); color: var(--tx); font-size: var(--fs-micro); font-weight: 600; }
+.auto-live { width: 8px; height: 8px; border-radius: 50%; background: var(--status-running); animation: auto-pulse 1.4s ease-in-out infinite; }
+@keyframes auto-pulse { 50% { opacity: 0.35; } }
+
+.auto-sheet { gap: var(--s3); }
+.auto-tab-count { margin-inline-start: var(--s2); color: var(--tx3); font-size: var(--fs-meta); }
+.auto-bar { display: flex; justify-content: flex-end; }
+.auto-body { display: grid; gap: var(--s3); align-content: start; }
+.auto-empty { margin: 0; padding: var(--s4); border: 1px dashed var(--border-strong); border-radius: var(--r-md); color: var(--tx2); font-size: var(--fs-body); line-height: var(--lh-body); }
+.auto-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.auto-item { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel); }
+.auto-item-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 44px; }
+.auto-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; unicode-bidi: plaintext; }
+.auto-sum { margin: 0; color: var(--tx2); font-size: var(--fs-meta); line-height: var(--lh-body); overflow-wrap: anywhere; }
+.auto-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0; color: var(--tx3); font-size: var(--fs-meta); }
+.auto-status { display: inline-flex; align-items: center; gap: var(--s1); color: var(--tx2); }
+.auto-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-waiting); flex: none; }
+.auto-dot.is-ok { background: var(--status-done); }
+.auto-dot.is-running { background: var(--status-running); animation: auto-pulse 1.4s ease-in-out infinite; }
+.auto-dot.is-paused { background: var(--status-stale); }
+.auto-dot.is-error { background: var(--status-error); }
+.auto-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.auto-actions .btn { min-height: 36px; }
+.auto-log { list-style: none; margin: 0; padding: var(--s2); display: grid; gap: var(--s1); max-height: 240px; overflow: auto; background: var(--inset); border-radius: var(--r-md); font-size: var(--fs-meta); }
+.auto-log-status.is-failed { color: var(--status-error); }
+.auto-dim { margin: 0; color: var(--tx3); font-size: var(--fs-meta); line-height: var(--lh-body); }
+
+.auto-overlay { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: var(--s4); background: rgba(0, 0, 0, 0.5); }
+.auto-create { display: flex; flex-direction: column; gap: var(--s3); width: min(520px, 100%); max-height: 100%; overflow-y: auto; padding: var(--s4); border: 1px solid var(--border-strong); border-radius: var(--r-xl); background: var(--panel); }
+.auto-form { display: grid; gap: var(--s3); }
+.auto-field { display: grid; gap: var(--s1); min-width: 0; }
+.auto-label { color: var(--tx2); font-size: var(--fs-meta); font-weight: 600; }
+.auto-text { width: 100%; resize: vertical; min-height: 64px; }
+.auto-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+.auto-chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.auto-chip { min-height: 36px; padding: 0 var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: transparent; color: var(--tx2); font: inherit; font-size: var(--fs-ctl); cursor: pointer; }
+.auto-chip[aria-pressed="true"] { border-color: var(--acct); background: var(--inset); color: var(--tx); }
+.auto-chip:focus-visible { outline: 2px solid var(--acct); outline-offset: 2px; }
+.auto-inline { display: inline-flex; align-items: center; gap: var(--s2); color: var(--tx2); font-size: var(--fs-ctl); }
+.auto-num { width: 88px; }
+.auto-preview { display: grid; gap: var(--s1); padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--inset); }
+.auto-preview:empty { display: none; }
+.auto-preview-text { margin: 0; color: var(--tx); font-size: var(--fs-body); }
+.auto-runs { margin: 0; padding-inline-start: var(--s4); color: var(--tx2); font-size: var(--fs-meta); }
+.auto-error { margin: 0; color: var(--status-error); font-size: var(--fs-meta); }
+.auto-foot { display: flex; justify-content: flex-end; gap: var(--s2); }
+
+/* The block a schedule, loop or monitor posts into the thread. */
+.auto-block { display: grid; gap: var(--s2); }
+.auto-block-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); color: var(--tx2); font-size: var(--fs-meta); }
+.auto-block-title { color: var(--tx); font-weight: 600; unicode-bidi: plaintext; }
+.auto-block-count { color: var(--tx3); }
+.auto-block-link { margin-inline-start: auto; color: var(--acct); }
+.auto-block.is-error { padding: var(--s3); border: 1px solid var(--status-error-bd); border-radius: var(--r-md); background: var(--status-error-bg); }
+.auto-block.is-error .auto-block-title { color: var(--status-error); }
+
+.msg-schedule { color: var(--tx3); }
+.thread-unread { display: inline-block; width: 8px; height: 8px; margin-inline-end: var(--s1); border-radius: 50%; background: var(--acc); vertical-align: middle; }
+.composer-clock { flex: none; }
+
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  .auto-overlay { align-items: flex-end; padding: 0; }
+  .auto-create { width: 100%; border-radius: var(--r-xl) var(--r-xl) 0 0; padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); }
+  .auto-two { grid-template-columns: 1fr; }
+  .auto-chip, .auto-actions .btn, .auto-foot .btn, .chat-head-auto { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .auto-live, .auto-dot.is-running { animation: none; } }
+
+.active-chat, .sched-chat { display: inline-flex; align-items: baseline; gap: var(--s1); font-size: var(--fs-meta); }
+.chat-link { color: var(--acct); }

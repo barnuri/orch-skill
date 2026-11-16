@@ -58,6 +58,12 @@ function serve(list: Schedule[], onPut: (body: Record<string, unknown>) => Respo
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
     calls.push({ method, url, body });
+    if (url.includes("/chats/chat-1") && !url.includes("/schedules")) {
+      return Promise.resolve(json(200, { id: "chat-1", project_id: null, title: "Daily news chat", harness: "claude", profile: "main", model_id: null, session_id: null, status: "idle", created_at: "a", updated_at: "b", archived_at: null, cwd: null, effective_cwd: null, subfolder: null, effort: null, unread: 0, title_manual: 0, warning: null }));
+    }
+    if (method === "POST" && url.includes("/chats/chat-1/schedules/")) {
+      return Promise.resolve(json(200, { ok: true }));
+    }
     if (url.includes("/schedules/preview")) {
       return Promise.resolve(json(200, { next: "2026-11-16 14:30" }));
     }
@@ -254,5 +260,23 @@ describe("schedule model", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByText("Saved morning");
     expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ model: null });
+  });
+});
+
+describe("chat schedules in the global list", () => {
+  test("a Chat column links to the chat, Edit becomes Edit in chat and Run now goes through the chat endpoint", async () => {
+    const calls = serve([schedule({ name: "chat news", kind: "prompt", prompt: "Summarise", command: null, target: { kind: "chat", chat_id: "chat-1", mode: "fresh" }, timezone: "Asia/Jerusalem" })], () => json(200, { ok: true }));
+    page();
+    const chat = await screen.findByTestId("sched-chat");
+    expect(chat.textContent).toContain("fresh session");
+    expect((await screen.findByTestId("chat-link")).getAttribute("href")).toBe("#/chats/chat-1");
+    expect(await screen.findByText("Daily news chat")).toBeTruthy();
+    expect(document.body.textContent).toContain("(Asia/Jerusalem)");
+    expect(screen.queryByRole("button", { name: "Edit chat news" })).toBeNull();
+    expect(screen.getByText("Edit in chat").getAttribute("href")).toBe("#/chats/chat-1");
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/chats/chat-1/schedules/sch-20261115-100000-abcd/run-now"))).toBe(true);
+    });
   });
 });

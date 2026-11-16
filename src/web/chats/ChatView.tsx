@@ -22,6 +22,9 @@ import type { QueueSnapshot } from "./queue-logic";
 import { QuestionCard } from "./QuestionCard";
 import { pendingQuestion, useAnswerQuestion } from "./question-hooks";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { automationApi } from "../api/automation";
+import { AutomationButton, AutomationHost } from "./AutomationSheet";
+import { useAutomation } from "./automation-context";
 import { TodoPanel } from "./Todos";
 import { FolderChip, FolderPicker } from "./FolderPicker";
 import { SubfolderField } from "./SubfolderField";
@@ -72,6 +75,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
   const client = useQueryClient();
   const [pickingFolder, setPickingFolder] = useState(false);
   const [workspace, setWorkspace] = useState(false);
+  const automation = useAutomation();
   const pickFolder = async (path: string | null): Promise<string | null> => {
     const res = await chatsApi.setChatFolder(chat.id, path);
     void refreshChats(client);
@@ -123,6 +127,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
       {workspace ? <WorkspacePanel chat={chat} onClose={() => { setWorkspace(false); }} /> : null}
       <LastReplyStats reply={lastReply} />
       <QueueCounter snapshot={queue} />
+      {automation === null ? null : <AutomationButton api={automation} />}
       <button type="button" className="btn chat-head-ws" aria-haspopup="dialog" onClick={() => { setWorkspace(true); }} data-testid="workspace-btn">
         Workspace
       </button>
@@ -196,8 +201,17 @@ function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat;
   );
 }
 
-export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: () => void }) {
+export function ChatView(props: { chatId: string; onOpenDrawer: () => void }) {
+  return (
+    <AutomationHost chatId={props.chatId}>
+      <ChatViewBody {...props} />
+    </AutomationHost>
+  );
+}
+
+function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: () => void }) {
   const toast = useToast();
+  const automation = useAutomation();
   const chatQuery = useChat(chatId);
   const options = useChatOptions();
   const projects = useProjects(false);
@@ -228,6 +242,13 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
 
+  const unread = chat?.unread === 1;
+  useEffect(() => {
+    if (unread) {
+      void automationApi.markRead(chatId).then(() => refreshChats());
+    }
+  }, [unread, chatId]);
+
   if (chatQuery.isError) {
     return <div className="chat-empty"><p>This chat could not be loaded.</p></div>;
   }
@@ -237,6 +258,10 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const blocked = chat.archived_at !== null ? "Archived chat: unarchive it to continue" : null;
 
   const send = async (text: string, ids: readonly string[]): Promise<string | null> => {
+    const handled = ids.length === 0 ? await automation?.slash(text) : undefined;
+    if (handled !== undefined) {
+      return handled;
+    }
     const failure = await thread.send(artifacts.compose(text), ids);
     if (failure === null) {
       void refreshChats();
@@ -286,7 +311,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
       {asking !== null && !running ? <QuestionCard key={asking.part.id} pinned part={asking.part} now={Date.now()} onSubmit={(answers) => answerQuestion(asking.part.id, answers)} /> : null}
       <ArtifactBar state={artifacts} />
       <QueueTray chatId={chat.id} snapshot={thread.queue} running={running} runningText={[...rows].reverse().find((m) => m.role === "user")?.content ?? null} onStop={() => void thread.stop()} onChange={thread.setQueue} />
-      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} lastFailed={lastReply?.status === "error"} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
+      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} lastFailed={lastReply?.status === "error"} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} onSchedule={automation === null ? undefined : (text) => { automation.openCreate("schedules", text); }} />
       {voice.phase !== "off" ? <ConversationView voice={voice} /> : null}
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>

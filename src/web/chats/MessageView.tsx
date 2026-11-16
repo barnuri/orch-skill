@@ -2,7 +2,7 @@ import { Suspense, lazy, useState } from "react";
 import { formatDuration } from "../lib/duration";
 import { formatTokens, isLive, messageDurationMs, messageNotes } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
-import { fmtUsd } from "../lib/format";
+import { fmtUsd, rel } from "../lib/format";
 import { AttachmentTile } from "./Attachments";
 import { partsOf } from "./chat-group";
 import { CopyButton } from "./CopyButton";
@@ -11,6 +11,7 @@ import { QuestionCard } from "./QuestionCard";
 import { questionOf } from "./question-hooks";
 import { Reasoning } from "./Reasoning";
 import { ToolGroup } from "./ToolCard";
+import { useAutomation } from "./automation-context";
 import { primeSpeech, speak, speechSupported, stopSpeaking, useSpeakingKey } from "./voice";
 
 const Markdown = lazy(() => import("./Markdown"));
@@ -105,6 +106,53 @@ export function ToolsView({ messages, now }: { messages: Message[]; now: number 
   return <ToolGroup calls={calls} now={now} />;
 }
 
+
+function UserMessage({ message, onOpenImage }: { message: Message; onOpenImage: (a: Attachment) => void }) {
+  const automation = useAutomation();
+  const scheduled = /^Scheduled: (.*)\n/.exec(message.content);
+  return (
+    <div className="msg msg-user" data-role="user">
+      <div className="bubble">
+        {scheduled !== null ? <p className="msg-schedule mono" data-testid="msg-scheduled">Scheduled · {scheduled[1]}</p> : null}
+        {message.content !== "" ? <p className="user-text" dir="auto">{scheduled === null ? message.content : message.content.slice(scheduled[0].length).trim()}</p> : null}
+        {message.attachments.length > 0 ? (
+          <div className="att-row msg-atts" data-testid="msg-atts">
+            {message.attachments.map((a) => (
+              <AttachmentTile key={a.id} attachment={a} onOpen={onOpenImage} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {automation !== null && message.content.trim() !== "" ? (
+        <div className="msg-foot">
+          <button type="button" className="msg-act" data-testid="msg-schedule-this" onClick={() => { automation.openCreate("schedules", message.content); }}>Schedule this</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A result a schedule, loop or monitor posted: its title, a quiet counter, the text, and a link to the full run. Red only when it failed. */
+function AutomationBlock({ message, part }: { message: Message; part: Extract<NonNullable<ReturnType<typeof partsOf>>[number], { type: "automation" }> }) {
+  const failed = part.level === "error";
+  const href = part.link === undefined ? null : part.link.startsWith("#") ? `/${part.link}` : part.link;
+  return (
+    <div className="msg msg-assistant" data-role="assistant" data-automation={part.kind}>
+      <div className={`bubble auto-block${failed ? " is-error" : ""}`} role={failed ? "alert" : undefined} data-testid="automation-block">
+        <div className="auto-block-head">
+          <span className="auto-block-title" dir="auto">{part.title}</span>
+          {part.counter !== undefined ? <span className="auto-block-count mono">{part.counter}</span> : null}
+          <span className="auto-block-count">{rel(message.created_at)}</span>
+          {href === null ? null : <a className="auto-block-link" href={href}>Open the full run</a>}
+        </div>
+        <Suspense fallback={<p className="user-text" dir="auto">{message.content}</p>}>
+          <Markdown text={message.content} live={false} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
 export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, fallbackModel }: MessageViewProps) {
   if (message.role === "tool") {
     const parts = partsOf(message);
@@ -121,23 +169,14 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
     }
     return <ToolRow message={message} />;
   }
-  const live = isLive(message);
   if (message.role === "user") {
-    return (
-      <div className="msg msg-user" data-role="user">
-        <div className="bubble">
-          {message.content !== "" ? <p className="user-text" dir="auto">{message.content}</p> : null}
-          {message.attachments.length > 0 ? (
-            <div className="att-row msg-atts" data-testid="msg-atts">
-              {message.attachments.map((a) => (
-                <AttachmentTile key={a.id} attachment={a} onOpen={onOpenImage} />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
+    return <UserMessage message={message} onOpenImage={onOpenImage} />;
   }
+  const block = partsOf(message)?.find((p) => p.type === "automation");
+  if (block?.type === "automation") {
+    return <AutomationBlock message={message} part={block} />;
+  }
+  const live = isLive(message);
   return (
     <div className="msg msg-assistant" data-role={message.role}>
       <div className="bubble">

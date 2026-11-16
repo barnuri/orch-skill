@@ -41,3 +41,39 @@ export interface ChatMonitor {
 }
 
 export interface LogEntry { at: string; status: string; text: string; message_id?: string | null }
+
+export interface MonitorInput {
+  name: string;
+  spec: MonitorSpec;
+  /** Seconds between checks (ignored for a stream). */
+  every?: number;
+  once?: boolean;
+  debounce?: number;
+  /** Seconds until the monitor ends by itself. */
+  expires_in?: number;
+  then?: MonitorThen;
+}
+
+export interface LoopInput {
+  label: string;
+  prompt: string;
+  /** Seconds between iterations; "when done" is the 10 s minimum. */
+  every: number;
+  max?: number;
+  mode?: AutomationMode;
+  until_command?: string;
+  until_regex?: string;
+  until_text?: string;
+  max_runtime?: number;
+}
+
+export interface ScheduleCreate {
+  name: string;
+  prompt: string;
+  cron: string;
+  timezone?: string;
+  mode?: AutomationMode;
+  enabled?: boolean;
+  once?: boolean;
+}
+

@@ -7,7 +7,8 @@ import {
 } from "../../shared/chat-automation";
 import type { AutomationPart } from "../../shared/chat-parts";
 import { type PushCategory, chatUrl, notificationBody, redactSecrets } from "../../shared/push";
-import type { ChatLoop, ChatMonitor, ItemStatus, LogEntry, MonitorThen } from "../../shared/types/chat-automation";
+import type { ChatLoop, ChatMonitor, ItemStatus, LogEntry, LoopInput, MonitorInput, MonitorThen, ScheduleCreate } from "../../shared/types/chat-automation";
+export type { LoopInput, MonitorInput, ScheduleCreate };
 import type { Schedule } from "../../shared/types/schedule";
 import { dispatchPath } from "../dispatch-path";
 import type { NotifyInput } from "../push/hub";
@@ -103,41 +104,6 @@ export function monitorCommand(spec: MonitorSpec, home: string): { cmd: string; 
       }
       return { cmd: `git -C ${SHELL_QUOTE(t)} fetch -q 2>/dev/null; git -C ${SHELL_QUOTE(t)} log -1 --format='%h %s' '@{u}' 2>/dev/null || git -C ${SHELL_QUOTE(t)} log -1 --format='%h %s'`, match: "", baseline: true, stream: false, describe: `New commit in ${t}` };
   }
-}
-
-export interface MonitorInput {
-  name: string;
-  spec: MonitorSpec;
-  /** Seconds between checks (ignored for a stream). */
-  every?: number;
-  once?: boolean;
-  debounce?: number;
-  /** Seconds until the monitor ends by itself. */
-  expires_in?: number;
-  then?: MonitorThen;
-}
-
-export interface LoopInput {
-  label: string;
-  prompt: string;
-  /** Seconds between iterations; "when done" is the 10 s minimum. */
-  every: number;
-  max?: number;
-  mode?: AutomationMode;
-  until_command?: string;
-  until_regex?: string;
-  until_text?: string;
-  max_runtime?: number;
-}
-
-export interface ScheduleCreate {
-  name: string;
-  prompt: string;
-  cron: string;
-  timezone?: string;
-  mode?: AutomationMode;
-  enabled?: boolean;
-  once?: boolean;
 }
 
 interface Cursors { loops: Record<string, { iter: number; ended: boolean }>; watches: Record<string, { n: number; ended: boolean; lastPost: number; held: number; heldText: string }> }

@@ -19,9 +19,13 @@ import { useToast } from "../components/Toast";
 import { Toggle } from "../components/Toggle";
 import { PickerSelect } from "../chats/PickerSelect";
 import { useChatOptions } from "../chats/queries";
+import { ChatLink } from "../chats/ChatLink";
+import { automationApi } from "../api/automation";
 import { asProfilesDocument } from "../lib/documents";
 import { describeCron } from "../lib/cron-text";
 import { fmtDur, rel, until } from "../lib/format";
+
+const fmtMs = (ms: number): string => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 import { useSessionState } from "../lib/session-state";
 import {
   CRON_PRESETS,
@@ -66,6 +70,7 @@ function RunRow({
       <div className="sched-run">
         <StatusChip status={run.status} />
         <span className="sched-run-time">{rel(run.started_at)}</span>
+        {run.kind === "chat" ? <span className="muted">{run.error ?? run.note ?? (run.duration_ms == null ? "" : fmtMs(run.duration_ms))}</span> : null}
         <span className="muted">{run.status === "running" ? "running…" : fmtDur(run.started_at, run.ended_at)}</span>
         <span className="muted mono">{run.exit === null ? "" : `exit ${run.exit}`}</span>
         {run.kind === "prompt" ? (
@@ -73,14 +78,16 @@ function RunRow({
             {modelText(run)}
           </span>
         ) : null}
-        <Button
-          className="sched-view"
-          onClick={() => {
-            onLoadLog(schedule, index, run);
-          }}
-        >
-          {log === undefined ? "Output" : "Reload output"}
-        </Button>
+        {run.kind === "chat" ? null : (
+          <Button
+            className="sched-view"
+            onClick={() => {
+              onLoadLog(schedule, index, run);
+            }}
+          >
+            {log === undefined ? "Output" : "Reload output"}
+          </Button>
+        )}
       </div>
       {log === undefined ? null : <pre className="sched-log">{log.length > 0 ? log : "(no output)"}</pre>}
     </div>
@@ -143,12 +150,13 @@ function ScheduleRow({
       <div className="sched-title">
         <div className="sched-head">
           <h3 className="sched-name">{schedule.name}</h3>
-          <span className="sched-kind">{schedule.kind}</span>
+          <span className="sched-kind">{schedule.target === undefined ? schedule.kind : "chat"}</span>
           {health === "paused" ? <Chip status="default">paused</Chip> : <StatusChip status={schedule.last_status} />}
         </div>
         <div className="sched-sub">
           <span className="mono">{schedule.cron}</span>
-          <span className="muted sched-meaning">{cronMeaning(schedule.cron)}</span>
+          <span className="muted sched-meaning">{cronMeaning(schedule.cron)}{schedule.timezone === undefined ? "" : ` (${schedule.timezone})`}</span>
+          {schedule.target === undefined ? null : <span className="sched-chat" data-testid="sched-chat"><span className="muted">chat</span> <ChatLink id={schedule.target.chat_id} /> <span className="muted">· {schedule.target.mode === "fresh" ? "fresh session" : "continues the chat"}</span></span>}
           {schedule.kind === "prompt" ? (
             <span className={schedule.model ? "sched-model mono" : "sched-model mono muted"} title="Model the prompt runs on">
               {`model: ${modelText(schedule)}`}
@@ -181,9 +189,13 @@ function ScheduleRow({
         >
           Run now
         </Button>
-        <Button disabled={busy} aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
-          Edit
-        </Button>
+        {schedule.target === undefined ? (
+          <Button disabled={busy} aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
+            Edit
+          </Button>
+        ) : (
+          <a className="btn" href={`#/chats/${encodeURIComponent(schedule.target.chat_id)}`}>Edit in chat</a>
+        )}
         <Button aria-expanded={open} onClick={onToggleOpen}>
           {open ? "Hide runs" : `Runs (${schedule.runs.length})`}
         </Button>
@@ -529,7 +541,7 @@ export function SchedulesPage() {
   };
   const act = async (schedule: Schedule, action: "run" | "enable" | "disable"): Promise<void> => {
     setBusyFor(schedule.id, true);
-    const result = await api.scheduleAction(schedule.id, action);
+    const result = schedule.target !== undefined && action === "run" ? await automationApi.scheduleAction(schedule.target.chat_id, schedule.id, "run-now") : await api.scheduleAction(schedule.id, action);
     setBusyFor(schedule.id, false);
     if (result.kind !== "ok") {
       toast("error", result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed"));

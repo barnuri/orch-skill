@@ -27,4 +27,6 @@ export interface ActiveItem {
   events?: number;
   last_event?: string | null;
   cmd?: string;
+  /** Set when it was started from a chat: its results are posted into that chat. */
+  chat_id?: string;
 }

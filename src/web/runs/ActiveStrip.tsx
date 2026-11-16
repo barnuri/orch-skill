@@ -7,6 +7,7 @@ import { useConfirm } from "../components/ConfirmDialog";
 import { Countdown } from "../components/Countdown";
 import { PanelBox } from "../components/Panel";
 import { useToast } from "../components/Toast";
+import { ChatLink } from "../chats/ChatLink";
 import { everyLabel, rel, until } from "../lib/format";
 
 function Cell({ label, children, danger = false }: { label: string; children: React.ReactNode; danger?: boolean }) {
@@ -108,6 +109,7 @@ function ActiveRow({ item }: { item: ActiveItem }) {
           <span className={`chip ${needs ? item.status : "running"}`}>{needs ? item.status : "live"}</span>
         </div>
         <div className="active-id">{item.id}</div>
+        {item.chat_id === undefined ? null : <div className="active-chat"><span className="active-cell-label">chat</span> <ChatLink id={item.chat_id} /></div>}
         <div className={item.kind === "loop" ? "active-note" : "active-note mono"} title={item.cmd ?? ""}>
           {item.kind === "loop" ? loopNote(item) : (item.cmd ?? "")}
         </div>

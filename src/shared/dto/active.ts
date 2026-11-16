@@ -56,6 +56,9 @@ export class ActiveItemDto extends ZodDto {
 
   @ZodField(z.string().optional(), { description: "Monitor: the command it runs." })
   cmd?: string;
+
+  @ZodField(z.string().optional(), { description: "The chat this loop or monitor posts its results into, when it was started from a chat." })
+  chat_id?: string;
 }
 
 @ZodObject({ description: "Running loops and monitors." })

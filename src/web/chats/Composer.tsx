@@ -39,6 +39,8 @@ interface ComposerProps {
   voice?: Conversation;
   /** Microphone, recorder and transcriber; tests pass fakes. */
   voiceDeps?: VoiceDeps;
+  /** Opens the schedule sheet with the typed text. Without it the clock button is not shown. */
+  onSchedule?: ((text: string) => void) | undefined;
 }
 
 const COARSE = "(pointer: coarse)";
@@ -71,7 +73,7 @@ function LevelMeter({ level }: { level: number }) {
   );
 }
 
-export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, onOpenImage, storage, upload = uploadAttachment, removeUpload = chatsApi.removeAttachment, voice, voiceDeps = browserVoice }: ComposerProps) {
+export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, onOpenImage, storage, upload = uploadAttachment, removeUpload = chatsApi.removeAttachment, voice, voiceDeps = browserVoice, onSchedule }: ComposerProps) {
   const store = storage ?? sessionStorage;
   const [text, setText] = useState(() => loadDraft(store, chatId).text);
   const [attachments, setAttachments] = useState<Attachment[]>(() => loadDraft(store, chatId).attachments);
@@ -309,6 +311,11 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
             e.target.value = "";
           }}
         />
+        {onSchedule === undefined ? null : (
+          <button type="button" className="icon-btn composer-clock" aria-label="Schedule, loop or monitor" title="Schedule this prompt, repeat it, or watch something" disabled={blocked !== null} data-testid="composer-clock" onClick={() => { onSchedule(text.trim()); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          </button>
+        )}
         <button type="button" className="icon-btn composer-attach" aria-label="Attach files" title="Attach files" onClick={() => { fileInput.current?.click(); }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m21 11-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
