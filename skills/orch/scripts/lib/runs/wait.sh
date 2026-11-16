@@ -72,6 +72,7 @@ $st[0] as $r
         ($e.to | if . == "gone" or . == "failed" then "dead" else . end) as $k
         | if .health[$e.node] == $k then . else .health[$e.node] = $k | .out += [{kind: $k, node: $e.node, note: $e.note}] end
       elif $e.kind == "health" and $e.to == "ok" then .health[$e.node] = "ok"
+      elif $e.kind == "ask" then .out += [{kind: "ask", node: $e.node, note: $e.note}]
       elif $notes == 1 and ($e.kind == "note" or $e.kind == "ping") then .out += [{kind: "note", node: $e.node, note: ($e.note // "ping")}]
       else . end)) as $a
     | [$now.nodes | to_entries[] | .key as $id | .value as $c | ($a.snap.nodes[$id] // null) as $p

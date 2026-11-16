@@ -66,6 +66,15 @@ node_require() {
 
 node_field() { jq -r --arg n "$2" --arg f "$3" '.nodes[] | select(.id == $n) | .[$f] // empty' "$1"; }
 
+# smart_auto_tier_of <model> - the tier a Smart Auto selector names (hub/smart-auto-balance and
+# hub-smart-auto-balance -> balance); prints nothing for any other model.
+smart_auto_tier_of() {
+  local t
+  [[ "$1" =~ smart-auto-([a-z]+)$ ]] || return 0
+  t="${BASH_REMATCH[1]}"
+  ! in_list "$t" "$SMART_AUTO_TIERS" || printf '%s\n' "$t"
+}
+
 valid_id() { [[ "$1" =~ $ID_PATTERN ]]; }
 
 # run_lock <run-id> / run_unlock <run-id>: the one per-run lock (`run-<id>`, locks.sh) that every
@@ -381,7 +390,22 @@ node_set_status() {
     node_archive_attempt "$run_id" "$node_id" "reset to waiting" "" "" || return 1
   fi
   node_patch "$run_id" "$node_id" \
-    '.status = $s
+    "$TIMING_JQ_DEFS"'
+     (if $s == "running" and $dispatching == "1" and $old != "running" then
+        seg_close($at) | .dispatched_at = $at | .started_at = null | .finished_at = null | .seg_open = true
+      elif $s == "running" and $dispatching == "1" then
+        (if (.seg_open // false) then .dispatched_at = (.dispatched_at // $at)
+         else .dispatched_at = $at | .started_at = null | .finished_at = null | .seg_open = true end)
+      elif $s == "running" and ((.seg_open // false) | not) then
+        .dispatched_at = $at | .started_at = $at | .finished_at = null | .seg_open = true
+      elif $s == "running" and .started_at == null then
+        .started_at = (if .dispatched_at != null and $at < .dispatched_at then .dispatched_at else $at end)
+      elif ($s == "done" or $s == "error" or $s == "skipped" or $s == "stopped") then
+        seg_close($at) | .finished_at = $at
+      elif $s == "waiting" then
+        seg_close($at) | .dispatched_at = null | .started_at = null | .finished_at = null
+      else . end)
+     | .status = $s
      | .updated = $now
      | (if ($s == "done" or $s == "error") and .started == null
         then .started = (.created // $at) | .backfilled = true
@@ -405,7 +429,8 @@ node_set_status() {
     --arg s "$status" --arg job "$job" --arg err "$err" \
     --arg adapter "$adapter" --arg profile "$profile" --arg session "$session" \
     --arg model "$model" --arg model_id "$model_id" \
-    --arg retry_at "$retry_at" --arg at "$at" --arg now "$now" --arg owner "$owner" --arg by "${ORCH_EVENT_BY:-cli}" || return 1
+    --arg retry_at "$retry_at" --arg at "$at" --arg now "$now" --arg owner "$owner" --arg by "${ORCH_EVENT_BY:-cli}" \
+    --arg old "$old" --arg dispatching "${NODE_DISPATCHING:-}" || return 1
   owner_register "$run_id" "$node_id" || true
   run_event "$run_id" status "$node_id" "$old" "$status" "$err"
 }
@@ -651,7 +676,7 @@ cmd_node_report() {
 
 # node dispatch <run> <node> (--profile P | <adapter> | <prompt-using-node-profile>) [<prompt>] [args…]
 cmd_node_dispatch() {
-  local run_id="${1:-}" node_id="${2:-}" file status node_profile job_id raw_prompt args_json start i
+  local run_id="${1:-}" node_id="${2:-}" file status node_profile job_id raw_prompt args_json start i inject
   local -a dispatch_argv pass_args
   if [ -z "$run_id" ] || [ -z "$node_id" ] || [ -z "${3:-}" ]; then
     printf 'usage: %s\n' "$NODE_DISPATCH_USAGE" >&2
@@ -679,6 +704,18 @@ cmd_node_dispatch() {
     raw_prompt="${dispatch_argv[1]:-}"
     start=2
   fi
+  # Run rules and messages sent while the node was not running ride on the prompt (not on @file prompts).
+  # .prompt keeps the raw text, so the job-session binder still matches it as a prefix.
+  case "$raw_prompt" in
+    @*) ;;
+    *) inject=""
+       if [ "$(jq '(.rules // []) | length' "$file")" != 0 ]; then inject=$(inbox_rules_block "$run_id" "$node_id"); fi
+       inject="$inject$(inbox_retry_prefix "$run_id" "$node_id")"
+       if [ -n "$inject" ]; then
+         dispatch_argv[start - 1]="$raw_prompt"$'\n\n'"$inject"
+         set -- "${dispatch_argv[@]}"
+       fi ;;
+  esac
   for ((i = start; i < ${#dispatch_argv[@]}; i++)); do
     pass_args+=("${dispatch_argv[$i]}")
   done
@@ -703,6 +740,12 @@ cmd_node_dispatch() {
   ORCH_NODE_ATTEMPT=$(( $(jq -r --arg n "$node_id" '(.nodes[] | select(.id == $n) | (.attempts // []) | length)' "$file") + 1 ))
   ORCH_NODE_ROLE=$(node_field "$file" "$node_id" role)
   ORCH_NODE_TIER=$(node_field "$file" "$node_id" tier)
+  # A Smart Auto profile names its tier (hub-smart-auto-balance -> balance). Without it the node sends
+  # no Smart Auto headers and the hub cannot tell which node a request belongs to.
+  if [ -z "$ORCH_NODE_TIER" ] && [ "${dispatch_argv[0]}" = "--profile" ]; then
+    ORCH_NODE_TIER=$(smart_auto_tier_of "$(jq -r --arg n "${dispatch_argv[1]}" '.profiles[$n].model // ""' "$PROFILES_FILE" 2>/dev/null)")
+    [ -z "$ORCH_NODE_TIER" ] || node_patch "$run_id" "$node_id" '.tier = $t' --arg t "$ORCH_NODE_TIER" || true
+  fi
   ORCH_NODE_ACCEPTANCE=$(node_field "$file" "$node_id" acceptance)
   export ORCH_NODE_ATTEMPT ORCH_NODE_ROLE ORCH_NODE_TIER ORCH_NODE_ACCEPTANCE
   hub_node_expect "$run_id" "$node_id" "$ORCH_NODE_TIER" "$ORCH_NODE_ROLE" \
@@ -710,7 +753,7 @@ cmd_node_dispatch() {
 
   job_id=$(cmd_start "$@") || return $?
   node_record_worker "$run_id" "$node_id" "$job_id" || return 1
-  node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
+  NODE_DISPATCHING=1 node_set_status "$run_id" "$node_id" running "$job_id" "" "$(cat "$JOBS_HOME/$job_id/adapter" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/profile" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/session" 2>/dev/null)" \
     "$(cat "$JOBS_HOME/$job_id/model" 2>/dev/null)" \
@@ -780,7 +823,24 @@ cmd_node_selections() {
       | .requested_selector = (if ($hist | length) > 0 then ($hist | last | .requested_selector) else .requested_selector end)
       | .main_model = (([$hist[] | select(.stage == "solver" and .model != null)] | last | .model) // .main_model)
       | .active_stages = ([$hist[] | {k: [.attempt_key, .stage], s: .}] | group_by(.k)
-          | map(last | .s) | map(select(.state == "selected" or .state == "started") | .stage) | unique)' \
+          | map(last | .s) | map(select(.state == "selected" or .state == "started") | .stage) | unique)
+      | ([$hist[] | select(.model != null and ((.model | tostring) | test("smart-auto") | not))]
+          | (map(select(.stage == "solver")) | last) // last) as $cur
+      | (if $cur == null then . else
+          .actual_model = ($cur.model // .actual_model)
+          | .role = ($cur.role // .role)
+          | .tier = (.tier // $cur.tier)
+        end)
+      | ([$hist[] | select((.selected_effort // .sent_effort) != null)]) as $eff
+      | (if ($eff | length) == 0 then . else
+          .effort = ($eff | last | (.selected_effort // .sent_effort))
+          | (.effort_history // []) as $old
+          | (($old | last | .seq) // 0) as $hs
+          | .effort_history = (reduce ($eff[] | select(.seq > $hs)
+                | {seq, at: .ts_ms, effort: (.selected_effort // .sent_effort)}) as $e
+              ($old; if (last | .effort) == $e.effort then . else . + [$e] end))
+          | (if (.effort_history | length) > 50 then .effort_history[-50:] else . end)
+        end)' \
     --argjson events "$events" --argjson max "$SELECTION_HISTORY_MAX" || return 1
   printf 'selections: %s new\n' "$count"
 }
@@ -1338,7 +1398,7 @@ run_sync_body() {
     st=$(job_status "$job" 2>/dev/null || printf 'done exit=unknown')
     tail_json=$(tail -n "$LOG_TAIL_LINES" "$JOBS_HOME/$job/log" 2>/dev/null | jq -R -s 'split("\n") | map(select(length > 0))')
     case "$st" in
-      running) ;;
+      running) [ ! -s "$JOBS_HOME/$job/log" ] || node_mark_started "$run_id" "$node" "$(timing_log_mtime "$job")" "job-log" || true ;;
       "done exit=0") node_set_status "$run_id" "$node" "done"; node_done_verify "$run_id" "$node" || true
         hub_node_settle "$run_id" "$node" done || true ;;
       done*)

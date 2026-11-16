@@ -7,10 +7,16 @@ unknown ids. A `finished` event sets the node `done` with `auto`, `unverified` a
 `reported_by: owner-event:<harness>`: a finished owner is not a reviewed result.
 `dispatch.sh` stores its own path in `<home>/.dispatch-path` (on `init` and on every `node update --owner`).
 
-## opencode: `~/.config/opencode/plugins/orch-nodes.js`
+## opencode: `mods/opencode/orch-nodes.js`, linked to `~/.config/opencode/plugins/orch-nodes.js`
+- `install.sh` links it (`scripts/install-opencode-plugin.sh`; a real file there is kept as `.orch-backup-<epoch>`).
 - `session.idle` -> finished, `session.error` -> failed, `session.status` busy/retry -> alive (at most every 30 s).
 - Checks the registry file first. A session that is not an orch worker spawns nothing.
-- Loads on the next opencode start. Undo: move the file away.
+- Inbox: after a tool call, when `runs/<run>/inbox/<node>/` holds a pending message (at most one look per
+  5 s), runs `node inbox <run> <node> --json --via plugin` and appends the messages to the tool result.
+  The node is the registry entry, else `ORCH_RUN_ID`/`ORCH_NODE_ID` of a dispatched opencode process.
+- Usage: counts `tool.<name>`, `skill.<name>` and `subagent.<type>` per call and writes them with one
+  `node usage --add` call on `session.idle` or every 30 s.
+- Loads on the next opencode start. Undo: move the link away.
 - Test: `bun test src/server/runs/orch-nodes-plugin.test.ts`.
 
 ## Claude Code: `SubagentStop` hook

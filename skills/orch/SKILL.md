@@ -390,6 +390,10 @@ Speed rules for the coordinator:
 - Read `state.json` fresh before reporting a status. Keep `run wait --follow` running so a finished node is
   acted on within a minute, not at the next user prompt.
 - Check a node's output files before you accept `done`.
+- Bash tests of this skill (`skills/orch/tests/run.sh`): after an edit run `run.sh --changed` (fast
+  tier plus the tests of the changed files). Before a commit run the fast tier (`run.sh`, under 30 s).
+  Run `run.sh --full` once, at the end, in one node. A path-only or doc-only change runs the fast tier only.
+  Add `--budget 300` to stop a run at 5 minutes. It prints the files that did not finish; rerun only those.
 
 ## Keep the prompt free
 

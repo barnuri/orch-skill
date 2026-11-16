@@ -20,6 +20,21 @@
 
 set -u
 
+# Must equal VERSION in core/cli.ts: tests/parity compares `--version` across both paths.
+ORCH_VERSION="0.1.0"
+
+# ORCH_TRACE_SPAWN=1: counts external-command starts (a wrapper function per command name, then
+# `command`). One line per call is appended to ORCH_TRACE_SPAWN_FILE (default $TMPDIR/orch-spawn-trace).
+# Builtins and subshell forks are not counted, so the count is a lower bound. Defined only when set:
+# sourcing without the flag stays side-effect free.
+if [ "${ORCH_TRACE_SPAWN:-0}" = 1 ]; then
+  _orch_trace_file="${ORCH_TRACE_SPAWN_FILE:-${TMPDIR:-/tmp}/orch-spawn-trace}"
+  for _orch_ext in jq date stat sed awk grep cut tr cat mkdir mv cp sleep cksum curl ps find head tail wc basename dirname uname sort mktemp perl python3 touch ls chmod; do
+    eval "$_orch_ext() { printf '%s\n' '$_orch_ext' >> \"\$_orch_trace_file\"; command $_orch_ext \"\$@\"; }"
+  done
+  unset _orch_ext
+fi
+
 ORCH_HOME="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
 JOBS_HOME="$ORCH_HOME/jobs"
 DEFAULT_BUDGET_THRESHOLD=85
@@ -133,7 +148,11 @@ $NODE_BATCH_USAGE
 $NODE_REMOVE_USAGE
     -> removes a waiting node with no running or done dependents, and its edges
 $NODE_PING_USAGE
-    -> heartbeat: stamps updated, keeps the last 20 notes, records progress
+    -> heartbeat: stamps updated, keeps the last 20 notes, records progress; the first ping stamps started_at
+dispatch.sh $NODE_STARTED_USAGE
+    -> stamps started_at (first real activity) on a dispatched node still \`starting\`; idempotent
+dispatch.sh $RUN_BACKFILL_TIMING_USAGE
+    -> fills dispatched_at/started_at/run_segments on older nodes from job logs and owner events
 $NODE_RETRY_USAGE
 $RUN_WAIT_USAGE
     -> coordinator wake-up: blocks until the run needs you (status change, ready, needs-user, stalled,
@@ -250,9 +269,9 @@ fi
 # symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
-  runs/delegate dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub core/locks
+  runs/delegate dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
   automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
-  automation/schedules dashboard/serve dashboard/suggest runs/visibility runs/wait"
+  automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
   [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
@@ -634,8 +653,25 @@ run_create_with_monitor() {
   return $rc
 }
 
+# Ported `<group> <verb>` pairs that run in bin/orch (Bun) instead of this bash file. Phase 0: empty.
+PORTED_COMMANDS=(
+)
+
+is_ported() {
+  local pair="$1 $2" p
+  for p in "${PORTED_COMMANDS[@]+"${PORTED_COMMANDS[@]}"}"; do
+    [ "$p" = "$pair" ] && return 0
+  done
+  return 1
+}
+
 main() {
   local sub="${1:-}" verb rid
+  # ORCH_BASH=1 forces bash. ORCH_DIRECT=1 is passed to bin/orch (skip the server socket).
+  if [ "${ORCH_BASH:-0}" != 1 ] && is_ported "$sub" "${2:-}"; then
+    export ORCH_DIRECT="${ORCH_DIRECT:-0}"
+    exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" "$@"
+  fi
   # A run id of `.` means the run saved by `dispatch.sh use` (lib/runs/current-run.sh).
   case "$sub ${2:-} ${3:-}" in
     "node update ."|"node report ."|"node batch ."|"run sync .")
@@ -643,6 +679,7 @@ main() {
       set -- "$1" "$2" "$rid" "${@:4}" ;;
   esac
   case "$sub" in
+    --version|version) printf 'orch %s\n' "$ORCH_VERSION"; exit 0 ;;
     use) shift; cmd_use "$@" ;;
     classify) shift; classify_cmd "$@" ;;
     budget-check) budget_check; exit $? ;;
@@ -659,7 +696,8 @@ main() {
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_paused "${1:-}" || printf 'paused: true\n' ;; esac
           case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_stopped "${1:-}" || printf 'stopped: true\n' ;; esac
           exit $rc ;;
-        finish|list|advance|retry|wait|health) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        finish|list|advance|retry|wait|health|broadcast|rule|messages) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        backfill-timing) shift 2; cmd_run_backfill_timing "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
@@ -667,11 +705,11 @@ main() {
       case "${2:-}" in update|report|ping|dispatch|batch) trap announce_hook EXIT ;; esac
       case "${2:-}" in
         dispatch) shift 2; pause_guard "${1:-}" >&2 || exit 3; cmd_node_dispatch "$@" ;;
-        add|update|report|ping|remove|retry|usage|cost|out|digest|selections|brief|activity|batch) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        add|update|report|ping|remove|retry|usage|cost|out|digest|selections|brief|activity|batch|started|tell|ask|answer|inbox) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
         cancel) shift 2; cmd_node_cancel "$@" ;;
         verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
         bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|cancel|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
+        *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|cancel|usage|cost|out|digest|selections|brief|activity|started|verify-owners|bind-owners|tell|ask|answer|inbox ...\n' >&2; exit 2 ;;
       esac
       ;;
     owner) shift; cmd_owner_event "$@" ;;

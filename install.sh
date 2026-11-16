@@ -10,6 +10,7 @@
 #   ./install.sh --restart        restart the dashboard service even when sources are unchanged
 #   ./install.sh --no-restart     never restart the dashboard service
 #   ./install.sh --bin-name NAME  CLI command name (default: orch; saved in <home>/cli.json)
+# Also links the opencode plugin mods/opencode/orch-nodes.js into ~/.config/opencode/plugins.
 
 set -u
 
@@ -37,7 +38,7 @@ STATE_DIR="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
 CLI_CONFIG_FILE="$STATE_DIR/cli.json"
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's|^# \{0,1\}||'
+  sed -n '2,13p' "$0" | sed 's|^# \{0,1\}||'
 }
 
 valid_bin_name() {
@@ -423,9 +424,29 @@ EOF
   printf '\nRe-run ./install.sh after git pull; use --restart to bounce the service anyway.\n'
 }
 
+# The orch CLI runs on Bun (>= 1.2). ORCH_BUN overrides the binary path.
+check_bun() {
+  local bun_bin="${ORCH_BUN:-bun}" ver major minor
+  if ! command -v "$bun_bin" >/dev/null 2>&1; then
+    printf 'install: bun not found. Install it with:\n  curl -fsSL https://bun.sh/install | bash\n' >&2
+    return 1
+  fi
+  ver=$("$bun_bin" --version 2>/dev/null) || ver=""
+  major=${ver%%.*}
+  minor=${ver#*.}; minor=${minor%%.*}
+  case "$major$minor" in
+    *[!0-9]*|'') printf 'install: could not read bun version from %s\n' "$bun_bin" >&2; return 1 ;;
+  esac
+  if [ "$major" -lt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -lt 2 ]; }; then
+    printf 'install: bun %s is older than 1.2. Upgrade with:\n  bun upgrade\n' "$ver" >&2
+    return 1
+  fi
+}
+
 main() {
   parse_args "$@" || return $?
   adopt_cli_config || return $?
+  check_bun || return 1
 
   printf 'orch-skill install/update (%s)\n\n' "$REPO_DIR"
 
@@ -433,6 +454,7 @@ main() {
   install_cli || return 1
   ensure_local_bin_path
   install_dashboard_deps
+  bash "$REPO_DIR/scripts/install-opencode-plugin.sh" || printf 'install: opencode plugin not linked (see above)\n' >&2
 
   if [ "$CLI_ONLY" -eq 0 ]; then
     install_claude_plugin || return 1

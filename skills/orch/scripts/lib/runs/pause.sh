@@ -144,7 +144,7 @@ cmd_run_stop() {
   done <<EOF
 $(jq -r '.nodes[] | select(.status == "running") | "\(.id)\t\(.job_id // "")"' "$file")
 EOF
-  state_write "$run_id" '.nodes |= map(if .status == "running" then .status = "stopped" | .stopped_at = $ts | .next_retry_at = null else . end)' \
+  state_write "$run_id" "$TIMING_JQ_DEFS"'.nodes |= map(if .status == "running" then seg_close($ts) | .finished_at = $ts | .status = "stopped" | .stopped_at = $ts | .next_retry_at = null else . end)' \
     --arg ts "$(now_iso)" || return 1
   run_event "$run_id" note "" "" "" "run stopped" 2>/dev/null || true
   printf 'stopped: %s (killed %s job(s))\n' "$run_id" "$killed"
@@ -165,7 +165,11 @@ cmd_run_resume() {
     printf 'run resume: %s was stopped by a user; resume it with --stopped (the run page Resume button)\n' "$run_id" >&2
     return 3
   fi
-  state_write "$run_id" '.paused = false | .auto_resume = false | .paused_at = null | .stopped = false | .stopped_at = null' || return 1
+  # The paused or stopped stretch is recorded in .pauses so durations leave it out.
+  state_write "$run_id" '((.paused_at // .stopped_at) as $from
+     | if $from != null and $from < $ts then .pauses = ((.pauses // []) + [{from: $from, to: $ts}]) else . end)
+     | .paused = false | .auto_resume = false | .paused_at = null | .stopped = false | .stopped_at = null' \
+    --arg ts "$(now_iso)" || return 1
   run_event "$run_id" note "" "" "" "run resumed" 2>/dev/null || true
   printf 'resumed: %s\n' "$run_id"
   while IFS=$'\t' read -r node job; do

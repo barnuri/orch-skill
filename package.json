@@ -5,9 +5,12 @@
   "description": "orch dashboard server and client. The skill itself (skills/orch) needs none of this to run the CLI.",
   "scripts": {
     "test": "ORCH_HERDR=0 bash scripts/heavy-test-lock.sh run -- bun test --timeout 300000 --parallel=6 --retry=1 --timings=${TMPDIR:-/tmp}/orch-bun-test-timings.json --update-timings src",
+    "test:fast": "bash scripts/test-fast.sh",
     "test:random": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --randomize src",
     "test:changed": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --changed src",
     "test:bash": "bash skills/orch/tests/run.sh",
+    "test:bash:changed": "bash skills/orch/tests/run.sh --changed",
+    "test:bash:full": "bash skills/orch/tests/run.sh --full",
     "test:all": "bash scripts/test-all.sh",
     "typecheck": "bash scripts/typecheck.sh",
     "format": "bunx oxfmt src",

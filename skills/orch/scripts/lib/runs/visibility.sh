@@ -132,6 +132,8 @@ cmd_node_ping() {
      | (if $note != "" then .notes = (((.notes // []) + [{at: $ts, text: $note}]) | .[-($keep):]) else . end)
      | (if $progress != "" then .progress = $progress else . end)' \
     --arg ts "$(now_iso)" --arg note "$note" --arg progress "$progress" --argjson keep "$NODE_NOTES_KEEP" || return 1
+  # A ping is the agent's own activity: the first one ends the `starting` phase.
+  node_mark_started "$run_id" "$node_id" "" "ping" || true
   if [ -n "$note" ]; then
     run_event "$run_id" note "$node_id" "" "" "$note"
   else

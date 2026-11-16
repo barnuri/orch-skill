@@ -197,8 +197,9 @@ owners_verify_run() {
     | [.[] | select(.id as $i | $w | index($i)) | "\(.id)=\(if .busy then "alive" else "idle" end)"] | join(" ")' \
     "$(owner_session_index_file)" 2>/dev/null)
   # A bound session id (owner_id) wins over the free text: the text may hold only a prefix of it.
+  # A job-bound session (owner_bind "job") checks as its job: `run sync` settles it, so it is skipped.
   rows=$(jq -r '.nodes[] | select(.status == "running" and ((.owner // "") != "") and ((.owner_kind // "") | IN("unbound", "umbrella") | not))
-    | "\(.id)\t\(if .owner_kind == "session" and ((.owner_id // "") | startswith("ses_")) then "ses " + .owner_id else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_state // "") == "" then "-" else .owner_state end)\t\(if (.job_id // "") == "" then "-" else .job_id end)"' "$file")
+    | "\(.id)\t\(if .owner_bind == "job" and (.job_id // "") != "" then .job_id elif .owner_kind == "session" and ((.owner_id // "") | startswith("ses_")) then "ses " + .owner_id else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_state // "") == "" then "-" else .owner_state end)\t\(if (.job_id // "") == "" then "-" else .job_id end)"' "$file")
   while IFS=$'\t' read -r node owner prev jobid; do
     [ -n "$node" ] || continue
     [ "$prev" != "-" ] || prev=""
@@ -348,9 +349,12 @@ cmd_owner_event() {
     started)
       if [ "$status" = waiting ]; then
         ORCH_EVENT_BY="owner-event:$harness" NODE_OWNER="$sid" node_set_status "$run_id" "$node" running || true
+      elif [ "$status" = running ]; then
+        node_mark_started "$run_id" "$node" "$now" "owner-event:$harness" || true
       fi ;;
     alive)
       [ "$status" = running ] || return 0
+      node_mark_started "$run_id" "$node" "$now" "owner-event:$harness" || true
       last=$(node_field "$file" "$node" owner_checked)
       if [ -n "$last" ] && last=$(to_epoch_iso "$last" 2>/dev/null) && [ $(( $(date -u +%s) - last )) -lt "$OWNER_HEARTBEAT_DEBOUNCE_SECS" ]; then return 0; fi
       owner_apply_state "$run_id" "$node" alive "" "$sid" "owner-event:$harness" "$now" ;;
@@ -618,6 +622,58 @@ owners_prefix_run() {
 # {child,how,reason} on stdin -> "child<TAB>how<TAB>reason" (one jq instead of three).
 owner_match_fields() { jq -r '[.child // "", .how // "", .reason // ""] | join("\u001f")'; }
 
+OWNER_JOB_BEFORE_SECS=5
+OWNER_JOB_AFTER_SECS=300
+
+# owners_job_bind_run <run> - links each dispatched job (owner_kind "job") to the opencode session it
+# started. opencode mints its own ses_ id, so the job's `session` file never holds it. Candidates are
+# root sessions created within [job start - 5 s, + 300 s] that no other node owns; the first user
+# message equal to the node prompt wins, else a single candidate in the window. Job start is the UTC
+# YYYYmmddHHMMSS prefix of the job id. Liveness stays with the job (owner_bind "job").
+owners_job_bind_run() {
+  local run_id="$1" file db nodes lo hi sessions rows node sid how
+  [ "${ORCH_OWNER_BIND:-1}" != 0 ] || return 0
+  file=$(run_state_file "$run_id")
+  [ -f "$file" ] || return 0
+  db=$(opencode_db_path)
+  [ -f "$db" ] && opencode_db_reader >/dev/null || return 0
+  nodes=$(jq -c 'def jstart: (.job_id | .[0:14] | try (strptime("%Y%m%d%H%M%S") | mktime) catch null);
+    [.nodes[] | select((.job_id // "") != "" and (.status | IN("running", "done", "error"))
+        and (.owner_bind // "") != "job" and ((.owner_kind // "job") == "job"))
+      | {id, start: jstart, prompt: (.prompt // "")} | select(.start != null)]' "$file" 2>/dev/null)
+  [ -n "$nodes" ] && [ "$nodes" != "[]" ] || return 0
+  IFS=$'\t' read -r lo hi <<< "$(printf '%s' "$nodes" | jq -r --argjson b "$OWNER_JOB_BEFORE_SECS" --argjson a "$OWNER_JOB_AFTER_SECS" \
+    '"\(((map(.start) | min) - $b) * 1000)\t\(((map(.start) | max) + $a) * 1000)"')"
+  sessions=$(opencode_db_query "$db" "select s.id, s.time_created,
+      (select json_extract(m.data, '\$.text') from session_message m
+        where m.session_id = s.id and m.type = 'user' order by m.seq limit 1) as first
+      from session_v2 s where s.parent_id is null and s.time_created between $lo and $hi" 2>/dev/null)
+  [ -n "$sessions" ] || return 0
+  rows=$(jq -r --argjson nodes "$nodes" --argjson ses "$sessions" --argjson b "$OWNER_JOB_BEFORE_SECS" --argjson a "$OWNER_JOB_AFTER_SECS" '
+    def norm: (. // "") | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ");
+    def same($p; $t): ($p | length) > 0 and ($t | length) > 0 and (($t | startswith($p)) or ($p | startswith($t)));
+    [.nodes[] | .owner_id // empty | select(startswith("ses_"))] as $taken
+    | reduce $nodes[] as $n ({taken: $taken, out: []};
+        .taken as $t
+        | ($n.prompt | norm) as $p
+        | [$ses[] | select(.id as $i | $t | index($i) | not)
+            | ((.time_created / 1000) - $n.start) as $d | select($d >= -$b and $d <= $a)
+            | {id, ad: ($d | fabs), m: same($p; (.first | norm))}] as $c
+        | ([$c[] | select(.m)] | sort_by(.ad)) as $pm
+        | (if ($pm | length) > 0 then {id: $pm[0].id, how: "job-prompt"}
+           elif ($c | length) == 1 then {id: $c[0].id, how: "job-time"} else null end) as $pick
+        | if $pick == null then . else .taken += [$pick.id] | .out += [[$n.id, $pick.id, $pick.how] | join("\t")] end)
+    | .out[]' "$file" 2>/dev/null)
+  while IFS=$'\t' read -r node sid how; do
+    [ -n "$node" ] || continue
+    node_patch "$run_id" "$node" '.owner_kind = "session" | .owner_id = $i | .owner_bind = "job" | .owner_reason = null | .unowned = null' \
+      --arg i "$sid" || continue
+    [ "$(node_field "$file" "$node" status)" != running ] || owner_registry_write "$run_id" "$node" "$sid"
+    ORCH_EVENT_BY=owner-binder run_event "$run_id" owner "$node" "" bound "owner $sid bound ($how)"
+    printf '%s\tbound %s (%s)\n' "$node" "$sid" "$how"
+  done <<< "$rows"
+}
+
 # owners_bind_run <run> - prints "<node><TAB><result>" per node it looked at.
 owners_bind_run() {
   local run_id="$1" file rows node owner jobid kind id nodes_json need=() left=() parent cands res child how why n reason started_epoch age ix
@@ -625,6 +681,7 @@ owners_bind_run() {
   file=$(run_state_file "$run_id")
   [ -f "$file" ] || return 0
   owners_umbrella_run "$run_id"
+  owners_job_bind_run "$run_id"
   rows=$(jq -r '.nodes[] | select(.status == "running" and ((.job_id // "") == "") and ((.owner // "") != "coordinator") and .owner_kind != "umbrella")
     | "\(.id)\t\(if (.owner // "") == "" then "-" else (.owner | gsub("[\t\r\n]"; " ")) end)\t\(if (.owner_id // "") == "" or ((.owner_kind // "") | IN("unbound", "unknown")) then "-" else .owner_id end)"' "$file")
   while IFS=$'\t' read -r node owner id; do
@@ -755,7 +812,8 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
        input_tokens: $sh.tokens.input, output_tokens: $sh.tokens.output,
        cache_read_tokens: $sh.tokens.cache_read, cache_creation_tokens: $sh.tokens.cache_write}] end)};
   # Session figures onto the node: empty fields only, but session_stats, a session-derived cost and
-  # session-captured report numbers refresh. A job cost (job_id) or an explicit `node report` figure wins.
+  # session-captured report numbers refresh. A job cost (job_id) or an explicit `node report` figure wins;
+  # a job bound to its session (owner_bind "job") takes the session cost while it has no job cost.
   def fill($s; $final):
     ($s.updated | todate) as $upd
     | (if (.session // "") == "" then .session = $s.id else . end)
@@ -767,11 +825,14 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
     | (if $s.model != null and (($s.model | smart_auto_selector) | not) and .actual_model != $s.model
        then .actual_model = $s.model else . end)
     | (if .started == null then .started = ($s.created | todate) else . end)
+    # A Smart Auto selector names its tier (hub/smart-auto-balance -> balance).
+    | (if .tier == null and ((.model // "") | test("(^|/)smart-auto-[a-z]+$"))
+       then .tier = (.model | capture("smart-auto-(?<t>[a-z]+)$").t) else . end)
     | share($s) as $sh
     | .session_stats = ({session: $s.id, cost: $sh.cost, tokens: $sh.tokens, baseline: $sh.base,
                         session_total: {cost: $s.cost, tokens: $s.tokens}, created: ($s.created | todate), updated: $upd,
                         duration_s: ($s.updated - $s.created), busy: $s.busy} + (if $final then {final: true} else {} end))
-    | (if ((.job_id // "") == "") and (.cost == null or .cost.cost_basis == "opencode-session") then
+    | (if (((.job_id // "") == "") or .owner_bind == "job") and (.cost == null or .cost.cost_basis == "opencode-session") then
          (if machine_report then .cost = session_cost($s; $sh) elif .cost != null then .cost = null else . end)
        else . end)
     | ({input_tokens: $sh.tokens.input, output_tokens: $sh.tokens.output, cache_read_tokens: $sh.tokens.cache_read, usd: $sh.cost}) as $v
@@ -789,7 +850,7 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
 .nodes |= map(
   if (.status | IN("done", "error", "skipped")) then
     # Final totals once: when the node ends, and as a one-off backfill for older terminal nodes.
-    (if (.job_id // "") == "" and (.session_stats.final // false) != true and (bound_session as $b | $b != null and $by[$b] != null)
+    (if (((.job_id // "") == "") or .owner_bind == "job") and (.session_stats.final // false) != true and (bound_session as $b | $b != null and $by[$b] != null)
      then $by[bound_session] as $s | fill($s; true) | .stalled = null | .stalled_reason = null
      else . end)
   elif .status != "running" then .
@@ -798,7 +859,15 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
     | ($s.updated | todate) as $upd
     | fill($s; false)
     | (if $upd > (.last_activity // "") then .last_activity = $upd else . end)
-    | (if ($now - $s.updated) >= $stall and ($s.busy | not) then
+    # First session activity after the dispatch ends the `starting` phase (a resumed session keeps
+    # its old created time, so its first update after the dispatch counts instead).
+    | (if (.seg_open // false) and .started_at == null and .dispatched_at != null then
+         (($s.created | todate) as $c
+          | if $c >= .dispatched_at then .started_at = $c
+            elif $upd >= .dispatched_at then .started_at = $upd else . end)
+       else . end)
+    | (if .owner_bind == "job" then .
+       elif ($now - $s.updated) >= $stall and ($s.busy | not) then
          .stalled = true | .stalled_reason = ("no activity since " + $upd)
        elif .stalled != null then .stalled = null | .stalled_reason = null else . end)
   elif .owner_state == "idle" and ((.owner_idle_since // "") != "") then
@@ -858,39 +927,111 @@ hub_session_model() {
     | jq -r '.selection.main.model // empty' 2>/dev/null
 }
 
+# opencode_db_session_model <ses> - "<provider>/<model>" of the newest assistant message of an opencode
+# session, from opencode.db (session_message, else the legacy message table). Prints nothing for a
+# Smart Auto selector, a missing database or no message: a selector name is never a real model.
+opencode_db_session_model() {
+  local ses="$1" db q
+  [[ "$ses" =~ ^ses_[A-Za-z0-9]+$ ]] || return 0
+  db=$(opencode_db_path)
+  [ -f "$db" ] && opencode_db_reader >/dev/null || return 0
+  q="select coalesce(json_extract(data,'\$.model.providerID'), json_extract(data,'\$.providerID')) as p,
+       coalesce(json_extract(data,'\$.model.id'), json_extract(data,'\$.modelID')) as m"
+  { opencode_db_query "$db" "$q from session_message where session_id='$ses' and type='assistant' order by seq desc limit 1" 2>/dev/null
+    opencode_db_query "$db" "$q from message where session_id='$ses' and json_extract(data,'\$.role')='assistant' order by time_created desc limit 1" 2>/dev/null
+  } | jq -rs 'map(.[]?) | map(select((.m // "") != "")) | first // empty
+      | (if (.p // "") != "" then "\(.p)/\(.m)" else .m end)
+      | select(test("(^|/|-)smart-auto(-|$)") | not)' 2>/dev/null
+}
+
+# hub_worker_selection <worker-identity> - the hub's latest main pick for a node attempt
+# ("<run>/<node>/<attempt>", sent in the Smart Auto worker header) as {model,role,tier}. Empty otherwise.
+hub_worker_selection() {
+  [ "${ORCH_OWNER_HUB:-1}" != 0 ] && [ -n "$1" ] || return 0
+  orch_load_env_file
+  [ -n "${LLM_HUB_URL:-}" ] || return 0
+  hub_api GET "/api/smart-auto/current?worker=$(jq -rn --arg w "$1" '$w | @uri')" 2>/dev/null \
+    | jq -c '.selection.main // empty | select(.model != null) | {model, role, tier}' 2>/dev/null
+}
+
 # owners_actual_run <run> [deadline] - records each node's real model as `actual_model` (the
 # requested alias stays in `model`). opencode sessions with a real model are handled by the fill
 # filter; this covers a Smart Auto alias (asked of llm-hub by session id) and copilot sessions
 # (read from Copilot's own events.jsonl). Running nodes refresh; finished nodes are filled once.
 owners_actual_run() {
-  local run_id="$1" deadline="${2:-}" file rows node kind sid model n=0
+  local run_id="$1" deadline="${2:-}" file rows node kind sid worker model sel n=0
   file=$(run_state_file "$run_id")
   [ -f "$file" ] || return 0
+  # A pick the hub already handed back at settle time (.hub.actual) fills empty fields with no call.
+  if jq -e '[.nodes[] | select(.hub.actual.model != null and (((.actual_model // "") == "") or .role == null or .tier == null))] | length > 0' "$file" >/dev/null 2>&1; then
+    state_write_raw "$run_id" '.nodes |= map(if .hub.actual.model != null then
+        (if (.actual_model // "") == "" then .actual_model = .hub.actual.model else . end)
+        | (if .role == null and .hub.actual.role != null then .role = .hub.actual.role else . end)
+        | (if .tier == null and .hub.actual.tier != null then .tier = .hub.actual.tier else . end)
+      else . end)' || true
+  fi
   rows=$(jq -r --slurpfile ix "$(owner_session_index_file)" '
     ($ix[0] | map({key: .id, value: .model}) | from_entries) as $m
-    | def selector: (. // "") | test("(^|/)smart-auto(-|$)");
+    | def selector: (. // "") | test("(^|/|-)smart-auto(-|$)");
     .nodes[] | select(.status == "running" or (((.actual_model // "") == "") and (.status | IN("done", "error"))))
     | ((if ((.owner_id // "") | startswith("ses_")) and ((.owner_kind // "session") == "session") then .owner_id
         elif ((.session // "") | startswith("ses_")) then .session else "" end)) as $ses
-    | if (.adapter // .harness // "") == "copilot" and (.session // "") != "" then [.id, "copilot", .session]
-      elif $ses != "" and (($m[$ses] | selector) or (.model_id | selector) or (.model | selector)) then [.id, "hub", $ses]
+    | if (.adapter // .harness // "") == "copilot" and (.session // "") != "" then [.id, "copilot", .session, ""]
+      elif ($ses != "" or (.worker_identity // "") != "") and (($m[$ses] | selector) or (.model_id | selector) or (.model | selector))
+      then [.id, "hub", $ses, (.worker_identity // "")]
       else empty end
     | join("\u001f")' "$file" 2>/dev/null)
-  while IFS=$'\x1f' read -r node kind sid; do
+  while IFS=$'\x1f' read -r node kind sid worker; do
     [ -n "$node" ] || continue
     [ -z "$deadline" ] || [ "$(date +%s)" -lt "$deadline" ] || break
-    model=""
+    model="" sel=""
     case "$kind" in
       copilot) model=$(copilot_actual_model "$sid") ;;
       hub)
         [ "$n" -lt "$OWNER_FILL_MAX_NODES" ] || continue
         owner_throttle "actual-$run_id-$node" "${ORCH_OWNER_BIND_SECS:-$OWNER_THROTTLE_SECS_DEFAULT}" || continue
         n=$((n + 1))
-        model=$(hub_session_model "$sid") ;;
+        # The worker header names this node attempt exactly; the session id is the fallback.
+        sel=$(hub_worker_selection "$worker")
+        if [ -n "$sel" ]; then model=$(printf '%s' "$sel" | jq -r '.model')
+        elif [ -n "$sid" ]; then
+          model=$(hub_session_model "$sid")
+          [ -n "$model" ] || model=$(opencode_db_session_model "$sid")
+        fi ;;
     esac
     [ -n "$model" ] || continue
-    [ "$(node_field "$file" "$node" actual_model)" != "$model" ] || continue
-    node_patch "$run_id" "$node" '.actual_model = $m' --arg m "$model" || true
+    [ -n "$sel" ] || sel=$(jq -cn --arg m "$model" '{model: $m, role: null, tier: null}')
+    jq -e --arg n "$node" --argjson s "$sel" '.nodes[] | select(.id == $n)
+      | (.actual_model != $s.model) or (.role == null and $s.role != null) or (.tier == null and $s.tier != null)' "$file" >/dev/null 2>&1 || continue
+    node_patch "$run_id" "$node" '.actual_model = $s.model
+      | (if .role == null and $s.role != null then .role = $s.role else . end)
+      | (if .tier == null and $s.tier != null then .tier = $s.tier else . end)' --argjson s "$sel" || true
+  done <<< "$rows"
+}
+
+# owners_selections_run <run> [deadline] - pulls the hub's selection events (`node selections`) for
+# nodes with a worker identity: running nodes on the owner throttle, finished nodes once
+# (marked `.selections_final`). Fills effort, actual_model, role and tier on the cards.
+owners_selections_run() {
+  local run_id="$1" deadline="${2:-}" file rows node status n=0
+  [ "${ORCH_OWNER_HUB:-1}" != 0 ] || return 0
+  file=$(run_state_file "$run_id")
+  [ -f "$file" ] || return 0
+  orch_load_env_file
+  [ -n "${LLM_HUB_URL:-}" ] || return 0
+  rows=$(jq -r '.nodes[] | select((.worker_identity // "") != "")
+      | select(.status == "running" or ((.status | IN("done", "error", "stopped", "skipped")) and (.selections_final != true)))
+      | "\(.id)\t\(.status)"' "$file" 2>/dev/null)
+  while IFS=$'\t' read -r node status; do
+    [ -n "$node" ] || continue
+    [ "$n" -lt "$OWNER_FILL_MAX_NODES" ] || break
+    [ -z "$deadline" ] || [ "$(date +%s)" -lt "$deadline" ] || break
+    if [ "$status" = running ]; then
+      owner_throttle "selections-$run_id-$node" "${ORCH_OWNER_BIND_SECS:-$OWNER_THROTTLE_SECS_DEFAULT}" || continue
+    fi
+    n=$((n + 1))
+    cmd_node_selections "$run_id" "$node" >/dev/null 2>&1 || continue
+    [ "$status" = running ] || node_patch "$run_id" "$node" '.selections_final = true' || true
   done <<< "$rows"
 }
 
@@ -901,6 +1042,7 @@ owners_fill_run() {
   [ -f "$file" ] || return 0
   owners_fill_index_run "$run_id"
   owners_actual_run "$run_id" "$deadline" || true
+  owners_selections_run "$run_id" "$deadline" || true
   # Nodes the session table already filled need no per-node API call.
   rows=$(jq -r --slurpfile ix "$(owner_session_index_file)" '($ix[0] | map(.id)) as $known
     | .nodes[] | select(.status == "running" and .owner_kind == "session" and (.owner_id // "") != "" and (.owner_id as $o | $known | index($o) | not))
