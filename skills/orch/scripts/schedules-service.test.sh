@@ -119,6 +119,33 @@ done
 expect_match "a prompt run goes through the profile's harness" 'say hi' "$(cat "$sch_home/claude-argv" 2>/dev/null)"
 expect_match "a prompt run ends ok" '^ok$' "$(sch show "$prompt_id" | jq -r '.runs[0].status')"
 
+expect_match "a default-model run records model null" '^null$' "$(sch show "$prompt_id" | jq -r '.runs[0].model')"
+expect_match "a default-model run passes the profile's model" '^sonnet$' "$(grep -A1 -- '^--model$' "$sch_home/claude-argv" | tail -1)"
+
+# --- a prompt schedule with its own model ------------------------------------------------------
+edit_json "$sch_home/profiles.json" '.profiles["claude-default"].allowed_models = ["claude-sonnet", "claude-opus"]'
+out=$(sch add --name m --cron "* * * * *" --prompt hi --profile claude-default --model claude-haiku 2>&1); rc=$?
+expect_exit "schedule add refuses a model the profile does not allow" 2 "$rc"
+expect_match "the error names the model" 'claude-haiku is not allowed' "$out"
+out=$(sch add --name m --cron "* * * * *" --command true --model claude-opus 2>&1); rc=$?
+expect_exit "schedule add refuses --model on a command schedule" 2 "$rc"
+model_id=$(sch add --name modeled --cron "0 9 * * *" --prompt "use opus" --profile claude-default --model claude-opus 2>&1)
+expect_match "schedule add accepts an allowed --model" '^sch-' "$model_id"
+expect_match "the model is stored" '^claude-opus$' "$(sch show "$model_id" | jq -r '.model')"
+expect_match "a schedule without --model stores null" '^null$' "$(sch show "$prompt_id" | jq -r '.model')"
+clear_argv() { : > "$sch_home/claude-argv"; }
+clear_argv
+out=$(sch run "$model_id" 2>&1); rc=$?
+expect_exit "run a schedule with a model exits 0" 0 "$rc"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(sch show "$model_id" | jq -r '.runs[0].status')" = running ] || break
+  sleep 1
+done
+expect_match "the run passes the schedule's model slug as --model" '^opus$' "$(grep -A1 -- '^--model$' "$sch_home/claude-argv" | tail -1)"
+expect_match "the run records its model" '^claude-opus$' "$(sch show "$model_id" | jq -r '.runs[0].model')"
+expect_match "the job records the model's slug" '^opus$' "$(cat "$sch_home/jobs/$(sch show "$model_id" | jq -r '.runs[0].ref')/model")"
+sch remove "$model_id" >/dev/null 2>&1
+
 out=$(sch list --json 2>&1)
 expect_match "list --json has the two schedules still there" '^2$' "$(printf '%s' "$out" | jq 'length')"
 out=$(sch show "$kill_id" 2>&1); rc=$?

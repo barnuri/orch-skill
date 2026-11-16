@@ -1,13 +1,11 @@
-# Visibility: the activity feed, node pings, staleness, `run wait` and `run status`.
+# Visibility: the activity feed, node pings, staleness and `run status` (`run wait`: lib/wait.sh).
 # Sourced by dispatch.sh after runs.sh; only defines functions. Every write still goes through
 # state_write_raw / node_patch (runs.sh) or appends to runs/<run>/events.jsonl.
 
 NODE_PING_USAGE='dispatch.sh node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]'
-RUN_WAIT_USAGE='dispatch.sh run wait <run-id> [--timeout S] [--include-notes]'
 RUN_STATUS_USAGE='dispatch.sh run status <run-id> [--json]'
 STALE_MINUTES_DEFAULT=10
 NODE_NOTES_KEEP=20
-RUN_WAIT_POLL_SECS_DEFAULT=2
 
 run_events_file() { printf '%s/%s/events.jsonl\n' "$RUNS_HOME" "$1"; }
 
@@ -141,83 +139,7 @@ cmd_node_ping() {
   fi
 }
 
-wait_cursor_file() { printf '%s/%s/wait.cursor\n' "$RUNS_HOME" "$1"; }
-
-# Number of nodes that are running, and waiting with every dependency done.
-run_live_counts() {
-  jq -r "$NODE_READY_JQ_DEF"'. as $r
-    | ([.nodes[] | select(.status == "running")] | length) as $run
-    | ([.nodes[] | select(.status == "waiting") | .id as $n
-        | select(node_ready($r))]
-       | length) as $rdy
-    | "\($run) \($rdy)"' "$1"
-}
-
-cmd_run_wait() {
-  local run_id="${1:-}" timeout=300 notes=0 file cursor n total seen stale new elapsed=0 poll tick=0 counts
-  [ -n "$run_id" ] || { printf 'usage: %s\n' "$RUN_WAIT_USAGE" >&2; return 2; }
-  shift
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --timeout) shift; timeout="${1:-300}" ;;
-      --include-notes) notes=1 ;;
-      *) printf 'run wait: unknown argument %s\n' "$1" >&2; return 2 ;;
-    esac
-    shift
-  done
-  is_uint "$timeout" || { printf 'run wait: --timeout must be whole seconds\n' >&2; return 2; }
-  require_jq "run wait"
-  file=$(run_require "$run_id") || return $?
-  poll="${ORCH_WAIT_POLL_SECS:-$RUN_WAIT_POLL_SECS_DEFAULT}"
-  cursor=$(wait_cursor_file "$run_id")
-  if [ -f "$cursor" ]; then
-    n=$(jq -r '.n // 0' "$cursor" 2>/dev/null || printf 0)
-    seen=$(jq -r '.stale // ""' "$cursor" 2>/dev/null || printf '')
-  else
-    n=$( [ -f "$(run_events_file "$run_id")" ] && wc -l < "$(run_events_file "$run_id")" | tr -d ' ' || printf 0 )
-    seen=""
-    jq -nc --argjson n "$n" '{n: $n, stale: ""}' > "$cursor"
-  fi
-  while :; do
-    total=0
-    [ -f "$(run_events_file "$run_id")" ] && total=$(wc -l < "$(run_events_file "$run_id")" | tr -d ' ')
-    if [ "$total" -gt "$n" ]; then
-      new=$(tail -n "+$((n + 1))" "$(run_events_file "$run_id")" | jq -r --argjson notes "$notes" \
-        'select(.node != null)
-         | if .kind == "status" then "\(.node) \(.from // "-")->\(.to)"
-           elif .kind == "owner" then "\(.node) owner \(.to)"
-           elif $notes == 1 and (.kind == "note" or .kind == "ping") then "\(.node) note: \(.note // "ping")"
-           else empty end')
-      n="$total"
-      jq -nc --argjson n "$n" --arg s "$seen" '{n: $n, stale: $s}' > "$cursor"
-      if [ -n "$new" ]; then printf '%s\n' "$new"; return 0; fi
-    fi
-    stale=$(run_stale_nodes "$run_id")
-    if [ "$stale" != "$seen" ]; then
-      new=""
-      local s
-      for s in $(printf '%s' "$stale" | tr ',' ' '); do
-        case ",$seen," in *",$s,"*) ;; *) new="$new$s stale"$'\n' ;; esac
-      done
-      seen="$stale"
-      jq -nc --argjson n "$n" --arg s "$seen" '{n: $n, stale: $s}' > "$cursor"
-      if [ -n "$new" ]; then printf '%s' "$new"; return 0; fi
-    fi
-    counts=$(run_live_counts "$file")
-    if [ "$counts" = "0 0" ]; then
-      printf 'settled: no running or ready nodes\n'
-      return 3
-    fi
-    if [ "$elapsed" -ge "$timeout" ]; then
-      printf 'run wait: timed out after %ss (no changes)\n' "$timeout" >&2
-      return 124
-    fi
-    tick=$((tick + 1))
-    if [ $((tick % 3)) -eq 0 ]; then cmd_run_sync "$run_id" --no-retry >/dev/null 2>&1 || true; fi
-    sleep "$poll"
-    elapsed=$((elapsed + poll))
-  done
-}
+# `run wait`, its cursor and run_live_counts live in lib/wait.sh.
 
 fmt_age() {
   local s="$1"

@@ -77,11 +77,32 @@ expect_match "history survives a kind switch" '^1$' "$(jq -r '.runs | length' "$
 printf 'from a file\n' > "$wd/p.md"
 out=$(se edit "$cid" --prompt "@$wd/p.md" 2>&1); rc=$?
 expect_match "--prompt @file reads the file and keeps the profile" '^from a file\|claude-default$' "$(jq -r '"\(.prompt)|\(.profile)"' "$cfile")"
+edit_json "$se_home/profiles.json" '.profiles["claude-default"].allowed_models = ["claude-sonnet", "claude-opus"]'
+out=$(se edit "$cid" --model claude-opus 2>&1); rc=$?
+expect_exit "edit --model exits 0" 0 "$rc"
+expect_match "the model changed and the prompt is kept" '^claude-opus\|from a file$' "$(jq -r '"\(.model)|\(.prompt)"' "$cfile")"
+out=$(se edit "$cid" --model claude-haiku 2>&1); rc=$?
+expect_exit "a model the profile does not allow is rejected" 2 "$rc"
+expect_match "a rejected model leaves the old one" '^claude-opus$' "$(jq -r '.model' "$cfile")"
+out=$(se edit "$cid" --model "" 2>&1); rc=$?
+expect_match "--model \"\" goes back to the profile default" '^null$' "$(jq -r '.model' "$cfile")"
+se edit "$cid" --model claude-opus >/dev/null 2>&1
+out=$(se edit "$cid" --profile claude-default 2>&1); rc=$?
+expect_match "a profile edit keeps a model the profile allows" '^claude-opus$' "$(jq -r '.model' "$cfile")"
+edit_json "$se_home/profiles.json" '.profiles["claude-default"].allowed_models = ["claude-sonnet"]'
+out=$(se edit "$cid" --profile claude-default 2>&1); rc=$?
+expect_match "a profile edit drops a model the profile no longer allows" '^null$' "$(jq -r '.model' "$cfile")"
+edit_json "$se_home/profiles.json" '.profiles["claude-default"].allowed_models = ["claude-sonnet", "claude-opus"]'
+se edit "$cid" --model claude-opus >/dev/null 2>&1
+
 out=$(se edit "$cid" --timeout 5m 2>&1); rc=$?
 expect_exit "--timeout on a prompt schedule is rejected" 2 "$rc"
 
 out=$(se edit "$cid" --command 'echo back' 2>&1); rc=$?
 expect_match "a switch back to command clears the prompt fields" '^command\|echo back\|null\|null$' "$(jq -r '"\(.kind)|\(.command)|\(.prompt)|\(.profile)"' "$cfile")"
+expect_match "a switch to command clears the model" '^null$' "$(jq -r '.model' "$cfile")"
+out=$(se edit "$cid" --model claude-opus 2>&1); rc=$?
+expect_exit "--model on a command schedule is rejected" 2 "$rc"
 
 out=$(se edit "$cid" --prompt a --command b 2>&1); rc=$?
 expect_exit "--prompt with --command is rejected" 2 "$rc"

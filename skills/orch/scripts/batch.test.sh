@@ -226,5 +226,45 @@ for msg in 'cannot depend on itself' 'dependency zz is not in run' 'would make a
   expect_match "single call says: $msg" "$msg" "$e3"
 done
 
+# hold / clear_hold: fast path vs fallback vs single calls; running clears the hold
+hops=$(printf '%s\n' \
+  '{"op":"add","id":"a","goal":"A"}' \
+  '{"op":"add","id":"b","goal":"B"}' \
+  '{"op":"update","id":"a","hold":"until load < 4"}' \
+  '{"op":"update","id":"b","hold":"later"}' \
+  '{"op":"update","id":"b","clear_hold":true}' \
+  '{"op":"update","id":"b","hold":"again"}' \
+  '{"op":"update","id":"b","status":"running","owner":"coordinator"}')
+HF=$(o run start "hold fast" --id hold-fast)
+HB=$(o run start "hold fallback" --id hold-fallback)
+HS=$(o run start "hold single" --id hold-single)
+hfo=$(printf '%s\n' "$hops" | o node batch "$HF" 2>&1); rc=$?
+expect_exit "hold batch (fast) exits 0" 0 "$rc"
+hbo=$(printf '%s\n' "$hops" | ORCH_BATCH_FAST=0 HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node batch "$HB" 2>&1); rc=$?
+expect_exit "hold batch (fallback) exits 0" 0 "$rc"
+o node add "$HS" a A >/dev/null; o node add "$HS" b B >/dev/null
+o node update "$HS" a --hold "until load < 4" >/dev/null
+o node update "$HS" b --hold later >/dev/null
+o node update "$HS" b --clear-hold >/dev/null
+o node update "$HS" b --hold again >/dev/null
+o node update "$HS" b running --owner coordinator >/dev/null
+if [ "$hfo" = "$hbo" ]; then pass_count=$((pass_count + 1)); else
+  failures=$((failures + 1)); printf 'FAIL: hold fast and fallback output differ\n%s\n---\n%s\n' "$hfo" "$hbo" >&2; fi
+expect_match "hold set" '^until load < 4$' "$(st "$HF" '.nodes[] | select(.id == "a") | .hold')"
+expect_match "running cleared the hold" '^null$' "$(st "$HF" '.nodes[] | select(.id == "b") | .hold')"
+expect_match "hold events" '^until load < 4,later,cleared,again$' "$(jq -rs '[.[] | select(.kind == "hold") | .note] | join(",")' "$home/runs/$HF/events.jsonl")"
+for other in "$HB" "$HS"; do
+  if [ "$(norm "$HF")" = "$(norm "$other")" ] && [ "$(evk "$HF")" = "$(evk "$other")" ]; then pass_count=$((pass_count + 1)); else
+    failures=$((failures + 1)); printf 'FAIL: hold batch differs from %s\n' "$other" >&2
+    diff <(norm "$HF") <(norm "$other") >&2; diff <(evk "$HF") <(evk "$other") >&2; fi
+done
+hbad=$(printf '%s\n' '{"op":"update","id":"a","hold":""}' '{"op":"update","id":"a","hold":"x","clear_hold":true}')
+h1=$(printf '%s\n' "$hbad" | o node batch "$HF" 2>&1)
+h2=$(printf '%s\n' "$hbad" | ORCH_BATCH_FAST=0 HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node batch "$HF" 2>&1)
+expect_match "empty hold refused" '^line 1: node update: --hold expects a reason' "$h1"
+expect_match "hold with clear_hold refused" 'line 2: "hold" and "clear_hold" cannot be combined' "$h1"
+if [ "$h1" = "$h2" ]; then pass_count=$((pass_count + 1)); else
+  failures=$((failures + 1)); printf 'FAIL: hold fast and fallback errors differ\n%s\n---\n%s\n' "$h1" "$h2" >&2; fi
+
 printf '%s passed, %s failed\n' "$pass_count" "$failures"
 [ "$failures" -eq 0 ]

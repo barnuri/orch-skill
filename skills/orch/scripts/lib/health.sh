@@ -45,7 +45,7 @@ def hhmm: if . == null then "?" else (floor | strflocaltime("%H:%M")) end;
 | ($runn | length) as $running
 | ([0, $maxp - $running] | max) as $slots
 | [$r.nodes[] | select(.status == "waiting") | . as $n
-    | {id, needs: (.needs_user // null | if . == "" then null else . end), ready: node_ready($r), gate: (.after_all // false),
+    | {id, needs: (.needs_user // null | if . == "" then null else . end), hold: (.hold // null | if . == "" then null else . end), ready: node_ready($r), gate: (.after_all // false),
        deps: [($r.edges // [])[] | select(.[1] == $n.id) | .[0]]}] as $waiting
 | [$waiting[] | select(.ready) | .id] as $ready
 | [$runn[]
@@ -69,8 +69,8 @@ def hhmm: if . == null then "?" else (floor | strflocaltime("%H:%M")) end;
               else null end),
        _session: (if .owner_kind == "session" and ((.owner_id // "") | startswith("ses_")) then .owner_id else null end),
        _due: (if $h == "ok" or $h == "no-report" then (if $last == null then null else $last + $stall end) else null end)}] as $rn
-| [$waiting[] | . as $w | {id, status: "waiting", health: (if .needs != null then "needs-user" else "ok" end), owner_id: null, last_activity: null, idle_min: null,
-    note: (if .needs != null then "needs the user: \(.needs)" elif .ready then "ready"
+| [$waiting[] | . as $w | {id, status: "waiting", health: (if .needs != null then "needs-user" elif .hold != null then "held" else "ok" end), owner_id: null, last_activity: null, idle_min: null,
+    note: (if .needs != null then "needs the user: \(.needs)" elif .hold != null then "held: \(.hold)" elif .ready then "ready"
            else "waiting on " + (([.deps[] | select($st[.] != "done")]
              + (if .gate then [$r.nodes[] | select(.id != $w.id and ((.after_all // false) | not) and (.status | IN("done", "skipped") | not)) | .id] else [] end))
              | unique | join(",")) end)}] as $wn

@@ -23,7 +23,7 @@ SERVE_CONFIG_TEMPLATE="$TEMPLATES_DIR/serve.json"
 SRC_DIR="$SCRIPT_DIR/../../../src"
 SERVE_ENTRY="$SRC_DIR/server/main.ts"
 ARTIFACT_ENTRY="$SRC_DIR/server/artifact/main.ts"
-SERVE_SOURCE_DIRS="$SRC_DIR/server $SRC_DIR/snapshot $SRC_DIR/web $SRC_DIR/shared"
+SERVE_SOURCE_DIRS="${ORCH_SERVE_SOURCE_DIRS:-$SRC_DIR/server $SRC_DIR/snapshot $SRC_DIR/web $SRC_DIR/shared}"
 SERVE_DEFAULT_HOST=0.0.0.0
 SERVE_DEFAULT_PORT=6724
 SERVE_MAX_PORT=65535
@@ -524,6 +524,8 @@ cmd_serve() {
   [ "$rc" -ne 3 ] || return 1
 
   serve_prepare_home || return 1
+  # The orch herdr instance: ensured and registered with herdr web in the background.
+  herdr_serve_boot
   # shellcheck disable=SC2046
   set -- "$SERVE_ENTRY" --home "$ORCH_HOME" --host "$SERVE_HOST" --port "$SERVE_PORT" \
     --harnesses "$VALID_HARNESSES" --outcomes "$VALID_OUTCOMES" $(serve_auth_argv)

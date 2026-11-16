@@ -217,15 +217,14 @@ with_stop bash "$SCRIPT" node add stop-run b "b" --after a >/dev/null
 stop_job=$(with_stop bash "$SCRIPT" node dispatch stop-run a claude "sleep" 2>/dev/null)
 out=$(with_stop bash "$SCRIPT" run stop stop-run 2>&1); rc=$?
 expect_exit "run stop exits 0" 0 "$rc"
-expect_match "run stop reports the stopped job" 'stopped 1 job' "$out"
+expect_match "run stop reports the killed job" 'killed 1 job' "$out"
 with_stop bash "$SCRIPT" wait "$stop_job" --timeout 60 --interval 1 >/dev/null 2>&1
 expect_match "the stopped job records SIGTERM" '^done exit=143$' "$(with_stop bash "$SCRIPT" status "$stop_job")"
 stop_state="$stop_home/runs/stop-run/state.json"
-expect_match "run stop sets the run to cancelled" '^cancelled$' "$(jq -r '.status' "$stop_state")"
-expect_match "run stop marks nodes error and skipped" '^error skipped$' "$(jq -r '[.nodes[].status] | join(" ")' "$stop_state")"
-expect_match "the running node's error says cancelled" '^cancelled$' "$(jq -r '.nodes[0].error' "$stop_state")"
+expect_match "run stop sets stopped (resumable, not cancelled)" '^true running$' "$(jq -r '"\(.stopped) \(.status)"' "$stop_state")"
+expect_match "run stop marks the running node stopped, waiting stays" '^stopped waiting$' "$(jq -r '[.nodes[].status] | join(" ")' "$stop_state")"
 with_stop bash "$SCRIPT" run sync stop-run >/dev/null 2>&1
-expect_match "run sync does not retry a cancelled run" '^error$' "$(jq -r '.nodes[0].status' "$stop_state")"
+expect_match "run sync does not restart a stopped run" '^stopped$' "$(jq -r '.nodes[0].status' "$stop_state")"
 out=$(with_stop bash "$SCRIPT" run stop 2>&1); rc=$?
 expect_exit "run stop without a run id exits 2" 2 "$rc"
 out=$(with_stop bash "$SCRIPT" run stop no-such-run 2>&1); rc=$?

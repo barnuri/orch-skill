@@ -8,7 +8,7 @@
 # jq programs are single-quoted on purpose — their $vars are jq's, bound with --arg.
 # shellcheck disable=SC2016
 
-NODE_STATUSES="waiting running done error skipped"
+NODE_STATUSES="waiting running done error skipped stopped"
 RUN_STATUSES="done error cancelled"
 ID_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 USAGE_CATEGORIES="tool mcp skill subagent agent"
@@ -35,7 +35,7 @@ SELECTION_HTTP_TIMEOUT=5
 NODE_SELECTIONS_USAGE='dispatch.sh node selections <run-id> <node-id>'
 NODE_ADD_USAGE='dispatch.sh node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"]'
 NODE_REPORT_USAGE='dispatch.sh node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note "text"]'
-NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> [$(printf '%s' "$NODE_STATUSES" | tr ' ' '|')] [--job J] [--error \"msg\"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|\"\"] [--needs-user \"reason\"|--clear-needs-user]"
+NODE_UPDATE_USAGE="dispatch.sh node update <run-id> <node-id> [$(printf '%s' "$NODE_STATUSES" | tr ' ' '|')] [--job J] [--error \"msg\"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|\"\"] [--needs-user \"reason\"|--clear-needs-user] [--hold \"reason\"|--clear-hold]"
 
 NODE_DISPATCH_USAGE='dispatch.sh node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]'
 NODE_RETRY_USAGE='dispatch.sh node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]'
@@ -68,17 +68,42 @@ node_field() { jq -r --arg n "$2" --arg f "$3" '.nodes[] | select(.id == $n) | .
 
 valid_id() { [[ "$1" =~ $ID_PATTERN ]]; }
 
-# state_write_raw <run-id> <jq-filter> [jq --arg ...]: atomic rewrite of the run's state.json.
+# run_lock <run-id> / run_unlock <run-id>: the one per-run lock (`run-<id>`, locks.sh) that every
+# read-modify-write of state.json holds from the read to the mv; `node batch` takes the same one.
+# Re-entrant: when this process already holds it (node batch -> owner fill -> state_write_raw), the
+# inner call neither waits nor releases. Sets RUN_LOCK_NESTED for the matching run_unlock.
+RUN_LOCK_WAIT_SECS=30
+run_lock() {
+  local f waited=0
+  f="$(locks_dir)/$(printf '%s' "run-$1" | tr -c 'A-Za-z0-9._-' '_').pid"
+  if [ "$(cat "$f" 2>/dev/null)" = "$$" ]; then RUN_LOCK_NESTED=1; return 0; fi
+  RUN_LOCK_NESTED=0
+  while ! orch_lock_acquire "run-$1"; do
+    [ "$waited" -lt $((${ORCH_RUN_LOCK_WAIT_SECS:-$RUN_LOCK_WAIT_SECS} * 20)) ] \
+      || { printf 'run %s: state is locked by another writer\n' "$1" >&2; return 75; }
+    sleep 0.05; waited=$((waited + 1))
+  done
+}
+run_unlock() { [ "${RUN_LOCK_NESTED:-0}" = 1 ] || orch_lock_release "run-$1"; }
+
+# state_write_raw <run-id> <jq-filter> [jq --arg ...]: atomic rewrite of the run's state.json. The
+# read (jq) and the mv both happen under run_lock, so a concurrent writer can never base its write
+# on a state that misses another writer's change (a lost node add).
 state_write_raw() {
-  local run_id="$1" filter="$2" file tmp
+  local run_id="$1" filter="$2" file tmp rc=0 nested
   shift 2
   file=$(run_state_file "$run_id")
   tmp="$file.tmp.$$"
+  run_lock "$run_id" || return $?
+  nested=$RUN_LOCK_NESTED
   if ! jq "$@" "$filter" "$file" > "$tmp"; then
     printf 'run %s: state update failed\n' "$run_id" >&2
-    return 1
+    rc=1
+  else
+    mv -f "$tmp" "$file" || rc=1
   fi
-  mv -f "$tmp" "$file"
+  RUN_LOCK_NESTED=$nested run_unlock "$run_id"
+  return $rc
 }
 
 # Kept as the name every mutation calls; it no longer adds anything to the raw write.
@@ -150,12 +175,14 @@ cmd_run_finish() {
   printf '%s\n' "$status"
 }
 
+# run_cancel <run-id>: ends a run for good (loops use it): kills its live jobs, marks running nodes
+# error, skips waiting nodes and sets the run cancelled. `run stop` (lib/pause.sh) is the resumable stop.
 # Jobs lead their own process group, so SIGTERM goes to the group. A node whose job is already gone
 # is marked the same way, which is how a run abandoned by its coordinator gets closed.
-cmd_run_stop() {
+run_cancel() {
   local run_id="${1:-}" file job_id pid stopped=0
   [ -n "$run_id" ] && [ $# -eq 1 ] || { printf 'usage: %s\n' "$RUN_STOP_USAGE" >&2; return 2; }
-  require_jq "run stop"
+  require_jq "run cancel"
   file=$(run_require "$run_id") || return $?
   while IFS= read -r job_id; do
     [ -n "$job_id" ] || continue
@@ -367,7 +394,7 @@ node_set_status() {
      | (if $model != "" then .model = $model else . end)
      | (if $model_id != "" then .model_id = $model_id else . end)
      | (if $s == "running" and .started == null then .started = $at else . end)
-     | (if $s == "running" then .backfilled = false else . end)
+     | (if $s == "running" then .backfilled = false | .hold = null else . end)
      | (if $owner != "" then .owner = $owner else . end)
      | (if $s == "waiting" then .started = null | .finished = null | .error = null | .owner = null | .job_id = null | .owner_kind = null | .owner_id = null | .owner_state = null else . end)
      | (if $s == "done" and $by != "owner-liveness" then .unverified = null | .auto = null else . end)
@@ -453,11 +480,12 @@ node_deps_check() {
   printf '%s\n' "$out"
 }
 
-# node_set_deps_block <run> <node> <deps_set> <deps> <needs_set> <needs> - replaces the node's
-# incoming edges (and its `after_all` gate flag) and/or sets or clears `needs_user`. One state write;
-# one `deps` and/or `needs-user` event.
+# node_set_deps_block <run> <node> <deps_set> <deps> <needs_set> <needs> [<hold_set> <hold>] - replaces
+# the node's incoming edges (and its `after_all` gate flag) and/or sets or clears `needs_user` and/or
+# `hold` (why the coordinator holds a ready node back). One state write; one `deps`, `needs-user`
+# and/or `hold` event.
 node_set_deps_block() {
-  local run_id="$1" node_id="$2" deps_set="$3" deps="$4" needs_set="$5" needs="$6"
+  local run_id="$1" node_id="$2" deps_set="$3" deps="$4" needs_set="$5" needs="$6" hold_set="${7:-0}" hold="${8:-}"
   state_write "$run_id" '
     ($deps | split(",") | map(select(length > 0))) as $d
     | (if $ds == 1 then
@@ -466,17 +494,21 @@ node_set_deps_block() {
        else . end)
     | (if $ns == 1 then
          .nodes |= map(if .id == $n then .needs_user = (if $needs == "" then null else $needs end) | .updated = $ts else . end)
+       else . end)
+    | (if $hs == 1 then
+         .nodes |= map(if .id == $n then .hold = (if $hold == "" then null else $hold end) | .updated = $ts else . end)
        else . end)' \
     --arg n "$node_id" --arg deps "$deps" --argjson ds "$deps_set" --argjson ns "$needs_set" \
-    --arg needs "$needs" --arg ts "$(now_iso)" || return 1
+    --arg needs "$needs" --argjson hs "$hold_set" --arg hold "$hold" --arg ts "$(now_iso)" || return 1
   [ "$deps_set" = 0 ] || run_event "$run_id" deps "$node_id" "" "" "after: ${deps:-none}"
   [ "$needs_set" = 0 ] || run_event "$run_id" needs-user "$node_id" "" "" "${needs:-cleared}"
+  [ "$hold_set" = 0 ] || run_event "$run_id" hold "$node_id" "" "" "${hold:-cleared}"
   return 0
 }
 
 cmd_node_update() {
   local run_id="${1:-}" node_id="${2:-}" status="${3:-}" job="" err="" at="" owner="" force=0 epoch old allowed file
-  local deps="" deps_set=0 needs="" needs_set=0
+  local deps="" deps_set=0 needs="" needs_set=0 hold="" hold_set=0
   if [ -z "$run_id" ] || [ -z "$node_id" ]; then
     printf 'usage: %s\n' "$NODE_UPDATE_USAGE" >&2
     return 2
@@ -495,11 +527,14 @@ cmd_node_update() {
       --needs-user) shift; needs="${1:-}"; needs_set=1
         [ -n "$needs" ] || { printf 'node update: --needs-user expects a reason (use --clear-needs-user to clear)\n' >&2; return 2; } ;;
       --clear-needs-user) needs=""; needs_set=1 ;;
+      --hold) shift; hold="${1:-}"; hold_set=1
+        [ -n "$hold" ] || { printf 'node update: --hold expects a reason (use --clear-hold to clear)\n' >&2; return 2; } ;;
+      --clear-hold) hold=""; hold_set=1 ;;
       *) printf 'node update: unknown argument %s\n' "$1" >&2; return 2 ;;
     esac
     shift
   done
-  if [ -z "$status" ] && [ "$deps_set$needs_set" = 00 ]; then
+  if [ -z "$status" ] && [ "$deps_set$needs_set$hold_set" = 000 ]; then
     printf 'usage: %s\n' "$NODE_UPDATE_USAGE" >&2
     return 2
   fi
@@ -509,7 +544,7 @@ cmd_node_update() {
   [ -z "$status" ] || in_list "$status" "$NODE_STATUSES" || { printf 'node update: status must be one of: %s\n' "$NODE_STATUSES" >&2; return 2; }
   if [ "$deps_set" = 1 ]; then deps=$(node_deps_check "$run_id" "$file" "$node_id" "$deps") || return 2; fi
   if [ -z "$status" ]; then
-    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs"
+    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs" "$hold_set" "$hold"
     return $?
   fi
   old=$(node_field "$file" "$node_id" status)
@@ -541,8 +576,8 @@ cmd_node_update() {
     [ "$epoch" -le "$(date -u +%s)" ] || { printf 'node update: --at is in the future\n' >&2; return 2; }
   fi
   NODE_EVENT_AT="$at" NODE_OWNER="$owner" node_set_status "$run_id" "$node_id" "$status" "$job" "$err" || return $?
-  if [ "$deps_set" = 1 ] || [ "$needs_set" = 1 ]; then
-    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs" || return 1
+  if [ "$deps_set" = 1 ] || [ "$needs_set" = 1 ] || [ "$hold_set" = 1 ]; then
+    node_set_deps_block "$run_id" "$node_id" "$deps_set" "$deps" "$needs_set" "$needs" "$hold_set" "$hold" || return 1
   fi
   # A session-bound node that just ended takes its final session totals now: the reconciler may
   # never look at the run again once its last node is done.
@@ -776,6 +811,7 @@ node_archive_attempt() {
        adapter: .adapter,
        model: (.model // null),
        model_id: (.model_id // null),
+       actual_model: (.actual_model // null),
        cost: (.cost // null),
        session: (.session // null),
        reason: (if $reason == "" then null else $reason end),
@@ -798,6 +834,7 @@ node_reset_for_retry() {
      | .error = null
      | .log_tail = []
      | .cost = null
+     | .actual_model = null
      | .updated = $ts
      | .next_retry_at = null' \
     --arg profile "$profile" --arg adapter "$adapter" --arg ts "$(now_iso)" || return 1

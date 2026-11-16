@@ -9,7 +9,7 @@ SCHEDULES_HOME="$ORCH_HOME/schedules"
 SCHED_RUNS_KEEP=30
 SCHED_CMD_TIMEOUT_DEFAULT=3600
 SCHED_NEXT_DAYS=366
-SCHEDULE_USAGE='dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"'
+SCHEDULE_USAGE='dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"'
 
 # sched_cron_next <expr> <from-epoch>: the first matching minute after <from>, as epoch seconds
 # (local time). Fields: * , - / lists, plus @hourly @daily @weekly @monthly. Exit 1 on a bad expression
@@ -55,6 +55,16 @@ sched_cron_next() {
 }
 
 sched_file() { printf '%s/%s/schedule.json\n' "$SCHEDULES_HOME" "$1"; }
+
+# sched_model_ok <profile> <model-id>: 0 when the catalog model id is one the profile may run (the
+# same list `model list --profile P` prints and the dashboard's model picker offers).
+sched_model_ok() {
+  local m
+  for m in $(profile_allowed_model_ids "$1"); do
+    [ "$m" = "$2" ] && return 0
+  done
+  return 1
+}
 
 sched_exists() { [ -n "${1:-}" ] && [ -f "$(sched_file "$1")" ]; }
 
@@ -146,7 +156,7 @@ sched_running() {
 
 # sched_fire <id>: starts one run now; records it. Prints the run's reference.
 sched_fire() {
-  local id="$1" file dir kind stamp rundir ref pid
+  local id="$1" file dir kind stamp rundir ref pid model=""
   file=$(sched_file "$id")
   dir="$SCHEDULES_HOME/$id"
   kind=$(jq -r '.kind' "$file")
@@ -154,10 +164,14 @@ sched_fire() {
   if [ "$kind" = prompt ]; then
     local profile
     profile=$(jq -r '.profile' "$file")
+    model=$(jq -r '.model // ""' "$file")
     jq -r '.prompt' "$file" > "$dir/prompt.md"
-    ref=$(cmd_start --profile "$profile" "@$dir/prompt.md") || {
-      sched_patch "$id" '.runs = ([{started_at: $t, ended_at: $t, kind: "prompt", ref: "", status: "failed", exit: null}] + .runs)[:$k]' \
-        --arg t "$(now_iso)" --argjson k "$SCHED_RUNS_KEEP"
+    # The model goes in as ORCH_MODEL_ID, the same override a chat turn uses: profile_load checks
+    # it against the profile's allowed_models and the adapter passes its slug as --model / -m.
+    ref=$(if [ -n "$model" ]; then export ORCH_MODEL_ID="$model"; else unset ORCH_MODEL_ID; fi
+          cmd_start --profile "$profile" "@$dir/prompt.md") || {
+      sched_patch "$id" '.runs = ([{started_at: $t, ended_at: $t, kind: "prompt", ref: "", status: "failed", exit: null, model: (if $m == "" then null else $m end)}] + .runs)[:$k]' \
+        --arg t "$(now_iso)" --argjson k "$SCHED_RUNS_KEEP" --arg m "$model"
       return 1
     }
   else
@@ -184,19 +198,20 @@ sched_fire() {
     disown "$pid" 2>/dev/null || true
     printf '%s\n' "$pid" > "$rundir/pid"
   fi
-  sched_patch "$id" '.last_run_at = $t | .runs = ([{started_at: $t, ended_at: null, kind: $k, ref: $r, status: "running", exit: null}] + .runs)[:$keep]' \
-    --arg t "$(now_iso)" --arg k "$kind" --arg r "$ref" --argjson keep "$SCHED_RUNS_KEEP"
+  sched_patch "$id" '.last_run_at = $t | .runs = ([{started_at: $t, ended_at: null, kind: $k, ref: $r, status: "running", exit: null, model: (if $m == "" then null else $m end)}] + .runs)[:$keep]' \
+    --arg t "$(now_iso)" --arg k "$kind" --arg r "$ref" --arg m "$model" --argjson keep "$SCHED_RUNS_KEEP"
   printf '%s\n' "$ref"
 }
 
 cmd_schedule_add() {
-  local name="" cron="" prompt="" profile="" command="" workdir="" timeout="" id dir secs=0 kind
+  local name="" cron="" prompt="" profile="" model="" command="" workdir="" timeout="" id dir secs=0 kind
   while [ $# -gt 0 ]; do
     case "$1" in
       --name) name="${2:-}"; shift 2 ;;
       --cron) cron="${2:-}"; shift 2 ;;
       --prompt) prompt="${2:-}"; shift 2 ;;
       --profile) profile="${2:-}"; shift 2 ;;
+      --model) model="${2:-}"; shift 2 ;;
       --command) command="${2:-}"; shift 2 ;;
       --workdir) workdir="${2:-}"; shift 2 ;;
       --timeout) timeout="${2:-}"; shift 2 ;;
@@ -211,12 +226,15 @@ cmd_schedule_add() {
     kind=prompt
     [ -n "$profile" ] || { printf 'schedule add: --prompt needs --profile\n' >&2; return 2; }
     profile_load "$profile" || return $?
+    [ -z "$model" ] || sched_model_ok "$profile" "$model" ||
+      { printf 'schedule add: model %s is not allowed for profile %s (see: dispatch.sh model list --profile %s)\n' "$model" "$profile" "$profile" >&2; return 2; }
     case "$prompt" in
       @*) [ -f "${prompt#@}" ] || { printf 'schedule add: no such prompt file: %s\n' "${prompt#@}" >&2; return 2; }
           prompt=$(cat "${prompt#@}") ;;
     esac
   elif [ -n "$command" ]; then
     kind=command
+    [ -z "$model" ] || { printf 'schedule add: --model belongs to a prompt schedule\n' >&2; return 2; }
     [ -z "$workdir" ] || [ -d "$workdir" ] || { printf 'schedule add: no such directory: %s\n' "$workdir" >&2; return 2; }
   else
     printf 'schedule add: give --prompt or --command\n' >&2; return 2
@@ -227,25 +245,28 @@ cmd_schedule_add() {
   dir="$SCHEDULES_HOME/$id"
   mkdir -p "$dir" || return 1
   jq -n --arg id "$id" --arg name "$name" --arg cron "$cron" --arg kind "$kind" --arg prompt "$prompt" \
-    --arg profile "$profile" --arg command "$command" --arg workdir "$workdir" --argjson timeout "$secs" --arg t "$(now_iso)" \
+    --arg profile "$profile" --arg model "$model" --arg command "$command" --arg workdir "$workdir" --argjson timeout "$secs" --arg t "$(now_iso)" \
     '{id: $id, name: $name, cron: $cron, kind: $kind, enabled: true, created_at: $t,
       prompt: (if $kind == "prompt" then $prompt else null end), profile: (if $kind == "prompt" then $profile else null end),
+      model: (if $kind == "prompt" and $model != "" then $model else null end),
       command: (if $kind == "command" then $command else null end), workdir: (if $workdir == "" then null else $workdir end),
       timeout: $timeout, next_at: null, last_run_at: null, runs: []}' > "$dir/schedule.json"
   sched_set_next "$id"
   printf '%s\n' "$id"
 }
 
-# edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR]
+# edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR]
 # [--timeout DUR]: changes the given fields and keeps id, created_at, enabled and the run history.
+# --model "" goes back to the profile's default model; a --profile change without --model keeps the
+# model only while the new profile allows it.
 # Each value is checked as `add` checks it. --prompt makes it a prompt schedule and --command a
 # command schedule; a kind switch clears the other kind's fields. --workdir "" and --timeout 0 clear
 # those. No lock is needed against a run in progress: a run copies its prompt or command when it
 # starts, and the server's claim files are keyed by next_at, so an edit cannot double-fire a time.
 cmd_schedule_edit() {
   local id="${1:-}" file kind new_kind secs cur old_cron old_next
-  local name="" cron="" prompt="" profile="" command="" workdir="" timeout=""
-  local has_name=0 has_cron=0 has_prompt=0 has_profile=0 has_command=0 has_workdir=0 has_timeout=0
+  local name="" cron="" prompt="" profile="" model="" command="" workdir="" timeout=""
+  local has_name=0 has_cron=0 has_prompt=0 has_profile=0 has_model=0 has_command=0 has_workdir=0 has_timeout=0
   sched_exists "$id" || { printf 'unknown schedule: %s\n' "$id" >&2; return 2; }
   shift
   while [ $# -gt 0 ]; do
@@ -255,6 +276,7 @@ cmd_schedule_edit() {
       --cron) cron="$2"; has_cron=1 ;;
       --prompt) prompt="$2"; has_prompt=1 ;;
       --profile) profile="$2"; has_profile=1 ;;
+      --model) model="$2"; has_model=1 ;;
       --command) command="$2"; has_command=1 ;;
       --workdir) workdir="$2"; has_workdir=1 ;;
       --timeout) timeout="$2"; has_timeout=1 ;;
@@ -262,7 +284,7 @@ cmd_schedule_edit() {
     esac
     shift 2
   done
-  [ $((has_name + has_cron + has_prompt + has_profile + has_command + has_workdir + has_timeout)) -gt 0 ] ||
+  [ $((has_name + has_cron + has_prompt + has_profile + has_model + has_command + has_workdir + has_timeout)) -gt 0 ] ||
     { printf 'schedule edit: nothing to change\n' >&2; return 2; }
   file=$(sched_file "$id")
   kind=$(jq -r '.kind' "$file")
@@ -296,9 +318,18 @@ cmd_schedule_edit() {
       [ -n "$profile" ] || { printf 'schedule edit: --profile cannot be empty\n' >&2; return 2; }
       profile_load "$profile" || return $?
     fi
+    local eff_profile="$profile"
+    [ "$has_profile" -eq 1 ] || eff_profile=$(jq -r '.profile // ""' "$file")
+    if [ "$has_model" -eq 1 ]; then
+      [ -z "$model" ] || sched_model_ok "$eff_profile" "$model" ||
+        { printf 'schedule edit: model %s is not allowed for profile %s (see: dispatch.sh model list --profile %s)\n' "$model" "$eff_profile" "$eff_profile" >&2; return 2; }
+    elif [ "$has_profile" -eq 1 ]; then
+      cur=$(jq -r '.model // ""' "$file")
+      if [ -n "$cur" ] && ! sched_model_ok "$eff_profile" "$cur"; then model=""; has_model=1; fi
+    fi
   else
-    if [ "$has_profile" -eq 1 ]; then
-      printf 'schedule edit: --profile belongs to a prompt schedule\n' >&2; return 2
+    if [ "$has_profile" -eq 1 ] || [ "$has_model" -eq 1 ]; then
+      printf 'schedule edit: --profile and --model belong to a prompt schedule\n' >&2; return 2
     fi
     if [ "$has_command" -eq 1 ] && [ -z "$command" ]; then printf 'schedule edit: --command cannot be empty\n' >&2; return 2; fi
     [ "$has_workdir" -eq 0 ] || [ -z "$workdir" ] || [ -d "$workdir" ] || { printf 'schedule edit: no such directory: %s\n' "$workdir" >&2; return 2; }
@@ -315,14 +346,15 @@ cmd_schedule_edit() {
          (if .kind != "prompt" then .kind = "prompt" | .command = null | .workdir = null | .timeout = 0 else . end)
          | (if $hp == 1 then .prompt = $prompt else . end)
          | (if $hpr == 1 then .profile = $profile else . end)
+         | (if $hm == 1 then .model = (if $model == "" then null else $model end) else . end)
        else
-         .kind = "command" | .prompt = null | .profile = null
+         .kind = "command" | .prompt = null | .profile = null | .model = null
          | (if $hcm == 1 then .command = $command else . end)
          | (if $hw == 1 then .workdir = (if $workdir == "" then null else $workdir end) else . end)
          | (if $ht == 1 then .timeout = ($secs | tonumber) else . end)
        end)
     | .updated_at = $t' \
-    --arg kind "$new_kind" --arg name "$name" --arg cron "$cron" --arg prompt "$prompt" --arg profile "$profile" \
+    --arg kind "$new_kind" --arg name "$name" --arg cron "$cron" --arg prompt "$prompt" --arg profile "$profile" --arg model "$model" --argjson hm "$has_model" \
     --arg command "$command" --arg workdir "$workdir" --arg secs "${secs:-0}" --arg t "$(now_iso)" \
     --argjson hn "$has_name" --argjson hc "$has_cron" --argjson hp "$has_prompt" --argjson hpr "$has_profile" \
     --argjson hcm "$has_command" --argjson hw "$has_workdir" --argjson ht "$has_timeout" || return 1

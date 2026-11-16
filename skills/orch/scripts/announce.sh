@@ -103,9 +103,17 @@ main() {
   fi
   if [ -n "$bin" ]; then
     local a
-    local tmpc="${TMPDIR:-/tmp}/orch-announce-pane-$(id -u)"
-    run_limited "$HERDR_TIMEOUT" "$bin" pane current >"$tmpc" 2>/dev/null </dev/null || true
-    a=$(jq -r '.result.pane.agent // empty' "$tmpc" 2>/dev/null)
+    # One scratch file per state home and session, overwritten on every call, so nothing is ever
+    # deleted. The old shared per-uid path let concurrent announces from other homes or panes (the
+    # daemon, parallel tests) overwrite each other's answer between the write and the read, so a
+    # pane got another pane's agent label. Calls that share this file share the home and session,
+    # so they ask about the same pane. A file, not $(...), so a herdr child that keeps stdout open
+    # cannot hang us. The name has no .json suffix, so daemon_tick does not pick it up.
+    local tmpc="$HOME_DIR/activity/.pane-$sid.out"
+    if ( umask 077; mkdir -p "$HOME_DIR/activity" ) 2>/dev/null; then
+      ( umask 077; run_limited "$HERDR_TIMEOUT" "$bin" pane current >"$tmpc" ) 2>/dev/null </dev/null || true
+      a=$(jq -r '.result.pane.agent // empty' "$tmpc" 2>/dev/null)
+    fi
     [ -n "$a" ] && label="$a"
     local -a args
     if [ "$active" = true ]; then

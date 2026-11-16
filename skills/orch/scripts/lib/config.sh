@@ -65,10 +65,10 @@ new_uuid() {
 
 # The one readiness rule (shared by runs, visibility, plan and health; here because config.sh is
 # sourced before them) (jq def; call as `node_ready($r)` on a node, $r = the run state). A node is
-# ready when it is waiting, not blocked on the user (`needs_user`), every incoming edge's source is
-# done, and, for an `after_all` gate node, every other non-gate node is done or skipped.
+# ready when it is waiting, not blocked on the user (`needs_user`), not held back by the coordinator
+# (`hold`), every incoming edge's source is done, and, for an `after_all` gate node, every other non-gate node is done or skipped.
 NODE_READY_JQ_DEF='def node_ready($r): . as $x
-  | $x.status == "waiting" and (($x.needs_user // "") == "")
+  | $x.status == "waiting" and (($x.needs_user // "") == "") and (($x.hold // "") == "")
     and all(($r.edges // [])[] | select(.[1] == $x.id) | .[0] as $d | ($r.nodes[] | select(.id == $d) | .status); . == "done")
     and (if ($x.after_all // false) then all($r.nodes[] | select(.id != $x.id and ((.after_all // false) | not)); .status | IN("done", "skipped")) else true end);'
 

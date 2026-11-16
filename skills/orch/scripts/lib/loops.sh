@@ -135,12 +135,12 @@ loop_run_tick_end() {
   fi
 }
 
-# loop_run_close <id> <status>: done | error | cancelled. cancelled goes through `run stop`.
+# loop_run_close <id> <status>: done | error | cancelled. cancelled goes through run_cancel.
 loop_run_close() {
   local id="$1" status="$2"
   [ -f "$(run_state_file "$id")" ] || return 0
   if [ "$status" = cancelled ]; then
-    cmd_run_stop "$id" >/dev/null 2>&1 || true
+    run_cancel "$id" >/dev/null 2>&1 || true
   else
     cmd_run_finish "$id" --status "$status" >/dev/null 2>&1 || true
   fi

@@ -146,6 +146,28 @@ expect_exit "late: no status and no flag is a usage error" 2 "$(o node update "$
 o node update "$R" gate running --needs-user "confirm" >/dev/null
 expect_eq "late: status and block in one call" "running confirm" "$(jq -r '.nodes[] | select(.id == "gate") | "\(.status) \(.needs_user)"' "$home/runs/$R/state.json")"
 
+# 4b2. a coordinator hold: --hold keeps a ready node out of ready, shows as held; running clears it
+new_home
+R=$(o run start "holds")
+for n in h1 h2; do o node add "$R" "$n" "$n" >/dev/null; done
+o node update "$R" h1 --hold "until load < 4" >/dev/null
+out=$(hj "$R")
+expect_eq "hold: held node not ready" '["h2"]' "$(printf '%s' "$out" | jq -c .ready)"
+expect_eq "hold: health held" held "$(health_of "$out" h1)"
+expect_eq "hold: note has the reason" 'held: until load < 4' "$(printf '%s' "$out" | jq -r '.nodes[] | select(.id == "h1") | .note')"
+expect_match "hold: text report lists it" '^held: h1 — held: until load < 4$' "$(o run health "$R" 2>/dev/null)"
+expect_eq "hold: run sync agrees" 'ready: h2' "$(o run sync "$R" --no-retry 2>/dev/null | grep '^ready:')"
+expect_eq "hold: event recorded" 'until load < 4' "$(jq -rs '[.[] | select(.kind == "hold")][0].note' "$home/runs/$R/events.jsonl")"
+expect_exit "hold: empty reason refused" 2 "$(o node update "$R" h1 --hold "" >/dev/null 2>&1; echo $?)"
+o node update "$R" h2 --needs-user "pick" --hold "later" >/dev/null
+expect_eq "hold: needs-user wins over held" needs-user "$(health_of "$(hj "$R")" h2)"
+o node update "$R" h1 --clear-hold >/dev/null
+expect_eq "hold: cleared hold is ready again" '["h1"]' "$(hj "$R" | jq -c .ready)"
+expect_eq "hold: cleared event" 'cleared' "$(jq -rs '[.[] | select(.kind == "hold")] | last | .note' "$home/runs/$R/events.jsonl")"
+o node update "$R" h1 --hold "wait" >/dev/null
+o node update "$R" h1 running --owner coordinator >/dev/null
+expect_eq "hold: running clears the hold" null "$(jq '.nodes[] | select(.id == "h1") | .hold' "$home/runs/$R/state.json")"
+
 # 4c. 120 nodes: one pass stays one jq call and stays fast
 new_home
 R=$(o run start "big")

@@ -31,6 +31,13 @@ chmod +x "$shims/bun"
 printf '#!/usr/bin/env bash\nprintf 200\n' > "$shims/curl"
 chmod +x "$shims/curl"
 
+# The "sources changed" check compares src/ mtimes to the pid marker. Against the live checkout, any
+# edit under src/ during the run (another session, a build) turns a healthy fake server "stale", so
+# the tests watch a private fixture dir whose file predates every marker the shim writes.
+srcfix=$(new_tmp)
+printf 'x\n' > "$srcfix/main.ts"
+touch -t 201001010000 "$srcfix/main.ts"
+export ORCH_SERVE_SOURCE_DIRS="$srcfix"
 orch() { env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 fake_orch() { env HARNESS_ORCH_HOME="$home" PATH="$shims:$PATH" ORCH_BUN="$shims/bun" ORCH_NO_OPEN=1 \
   bash "$SCRIPT" "$@"; }

@@ -200,6 +200,14 @@ Loop until every node is terminal:
    exit code, size, and a head+tail excerpt. Never `tail` or `TaskOutput` the whole log.
 5. Skip a node the plan no longer needs: `orch node update <run-id> <node-id> skipped`.
 
+Keep coordinator output short:
+- Run `orch use <run-id>` once. Then pass `.` as the run id to `node update|report|batch` and
+  `run sync` (for example `orch run sync .`).
+- Do not repeat the shared subagent rules in each prompt. Write one line instead:
+  "Follow `<skill-dir>/references/agent-rules.md`." Add only the rules that are specific to the task.
+- Set the shell tool's working directory with its workdir argument. Do not prefix commands with
+  `cd <repo> &&`. One measured run had 173 repeated shell preambles (153k chars) and 52 repeated
+  rule blocks in prompts (178k chars).
 ### Planned run (a planner agent splits the work)
 
 When the split itself is the hard part, hand it to the planner instead of writing nodes by hand:
@@ -356,7 +364,20 @@ Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run 
 - When a node finishes, re-check `ready` at once and start those nodes. React to the monitor's change events (kind `health` in the run's activity feed) instead of polling. Without a monitor, run `run health <run>` every 5–10 min.
 - `stalled` (no session activity for 15 min, `ORCH_STALL_MIN`): the monitor nudges opencode sessions (once per node per 30 min; `settings.auto_nudge: false` turns it off; `run health --nudge` does it by hand). If the session stays stalled, respawn the node. `dead`: respawn it. `unowned`: bind an owner or restart the node. `no-report`: read the session and record the result.
 - A node added before its deps were known: `node update <run> <node> --after a,b` (or `--after '*'` for a gate that waits on every other node). A node that waits on the user: `node update <run> <node> --needs-user "<reason>"` (`--clear-needs-user` when answered). `run health` then never lists it as ready, and shows it as `needs-user`.
+- A ready node you hold back on purpose (for example until load < 4): `node update <run> <node> --hold "<reason>"`. `run health` then never lists it as ready, and shows it as `held`; the card says `held: <reason>`.
+- Release the hold: `node update <run> <node> --clear-hold` (setting the node `running` clears it as well). In `node batch`: `"hold":"reason"` / `"clear_hold":true`.
 - Never leave a node `running` with no activity. Ask the user only about nodes that truly need them, and keep the rest running meanwhile.
+
+## Coordinator wake-up
+
+`orch run wait <run>` blocks until the run needs you, then prints one line per event and exits 0: a node status change (`a running->done`), `ready: b,c`, `q needs-user: <reason>`, a node `stalled` (no session activity for `--stall-min`, default `settings.stall_minutes` or 15), `dead` (owner session gone), `no-report` (owner idle, node not reported), a dead health monitor (restarted for you), `run ended: <status>`. Exit 3 = nothing running or ready, 124 = `--timeout` passed with no change. A cursor in the run keeps what was already reported, so nothing between two waits is lost and nothing is reported twice. `--json` prints one object per event. Never write your own polling script for this.
+
+Pick the form by what this session can do:
+- **Background shell that tells you when a command ends** (opencode, Claude Code background Bash): run `orch run wait <run>` in the background. When it ends, act on the events, then start it again at once.
+- **A Monitor tool that streams a command's lines**: monitor `orch run wait <run> --follow` (it ends by itself when the run ends).
+- **Neither** (pi and similar): call `orch run wait <run> --timeout 600` once per turn.
+
+After each wake, handle every event (start ready nodes, respawn dead or stalled ones, ask about needs-user), then restart the wait. Stop when it reports `run ended`.
 
 ## Work like ultracode
 

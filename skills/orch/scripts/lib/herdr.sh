@@ -4,7 +4,7 @@
 # under <orch-home>/herdr/ with its own HOME, minimal config.toml (no plugins), socket, pidfile
 # and log. Every herdr call here is best effort; when it fails the caller starts the job detached.
 
-HERDR_USAGE='dispatch.sh herdr on|off|auto|status|attach|ensure|stop'
+HERDR_USAGE='dispatch.sh herdr on|off|auto|status|attach|ensure|stop | herdr health [--json] [--nudge]'
 HERDR_WORKSPACE_LABEL="orch"
 HERDR_NO_RUN_TAB_LABEL="jobs"
 HERDR_PID_WAIT_SECS=15
@@ -111,6 +111,127 @@ herdr_web_register() {
 
 herdr_web_unregister() {
   recoverable_remove "$(herdr_web_envs_dir)/$HERDR_WEB_ENV_ID.json" 2>/dev/null
+  return 0
+}
+
+# herdr_web_entry_state: ok | missing | wrong — the registry file against the current instance.
+herdr_web_entry_state() {
+  local file inst
+  file="$(herdr_web_envs_dir)/$HERDR_WEB_ENV_ID.json"
+  [ -f "$file" ] || { printf 'missing\n'; return; }
+  inst=$(herdr_inst_home 2>/dev/null) || { printf 'wrong\n'; return; }
+  if jq -e --arg id "$HERDR_WEB_ENV_ID" --arg home "$inst" --arg sock "$inst/.config/herdr/herdr.sock" \
+    '.id == $id and .label == $id and .home == $home and .socket == $sock' "$file" >/dev/null 2>&1; then
+    printf 'ok\n'
+  else
+    printf 'wrong\n'
+  fi
+}
+
+# The herdr web plugin's base URL. ORCH_HERDR_WEB_URL overrides it; "off" skips the check.
+herdr_web_url() { printf '%s\n' "${ORCH_HERDR_WEB_URL:-http://127.0.0.1:2222}"; }
+
+# herdr_web_listed: listed | unreachable | missing | no-plugin | skipped — what GET /api/envs of the
+# web plugin says about the orch-skill env ("unreachable": listed, but the plugin cannot reach its socket).
+herdr_web_listed() {
+  local url body
+  url=$(herdr_web_url)
+  [ "$url" != off ] && command -v curl >/dev/null 2>&1 || { printf 'skipped\n'; return; }
+  body=$(curl -fsS -m 3 "$url/api/envs" 2>/dev/null) || { printf 'no-plugin\n'; return; }
+  printf '%s' "$body" | jq -r --arg id "$HERDR_WEB_ENV_ID" \
+    '[.[]? | select(.id == $id)][0] | if . == null then "missing" elif .reachable == true then "listed" else "unreachable" end' \
+    2>/dev/null || printf 'no-plugin\n'
+}
+
+# herdr_server_pid_alive <pid>: the pidfile's process is alive and is a herdr server.
+herdr_server_pid_alive() {
+  [ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
+  ps -p "$1" -o command= 2>/dev/null | grep -q 'herdr'
+}
+
+# herdr_health [--json] [--nudge]: is the orch herdr instance up and listed in herdr web.
+# state: ok | degraded (up, but the registry file or the web listing is wrong) | down | off.
+# --nudge re-ensures the server and re-registers the env when either is broken (self-heal). Only
+# ever acts on the instance under <orch-home>/herdr; the user's own herdr is never touched.
+herdr_health() {
+  local json=0 nudge=0 a nudged=false pid="" pid_alive=false socket_ok=false registry=missing web=skipped state problems
+  for a in "$@"; do
+    case "$a" in
+      --json) json=1 ;;
+      --nudge) nudge=1 ;;
+      *) printf 'usage: dispatch.sh herdr health [--json] [--nudge]\n' >&2; return 2 ;;
+    esac
+  done
+  if ! herdr_enabled; then
+    state=off
+  else
+    herdr_health_collect
+    if [ "$nudge" -eq 1 ] && { [ "$socket_ok" != true ] || [ "$registry" != ok ]; }; then
+      herdr_orch ensure >/dev/null 2>&1 || true
+      nudged=true
+      herdr_health_collect
+    fi
+    if [ "$socket_ok" != true ]; then state=down
+    elif [ "$registry" != ok ] || [ "$web" = missing ] || [ "$web" = unreachable ]; then state=degraded
+    else state=ok
+    fi
+  fi
+  problems=$(herdr_health_problems)
+  if [ "$json" -eq 1 ]; then
+    jq -nc --arg state "$state" --arg reason "$(herdr_enabled_reason)" --arg pid "$pid" \
+      --argjson pid_alive "$pid_alive" --argjson socket_ok "$socket_ok" --arg registry "$registry" \
+      --arg registry_path "$(herdr_web_envs_dir)/$HERDR_WEB_ENV_ID.json" --arg web "$web" \
+      --arg web_url "$(herdr_web_url)" --arg env_id "$HERDR_WEB_ENV_ID" --argjson nudged "$nudged" \
+      --arg problems "$problems" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{state: $state, enabled: ($state != "off"), reason: $reason, env_id: $env_id,
+        pid: (if $pid == "" then null else ($pid | tonumber? // null) end), pid_alive: $pid_alive,
+        socket_ok: $socket_ok, registry: $registry, registry_path: $registry_path, web: $web,
+        web_url: $web_url, nudged: $nudged, at: $at,
+        problems: ($problems | split("\n") | map(select(. != "")))}'
+  else
+    printf 'herdr health: %s (%s)\n' "$state" "$(herdr_enabled_reason)"
+    if [ "$state" != off ]; then
+      printf 'server pid: %s (%s)\nsocket: %s\nregistry: %s (%s)\nweb: %s (%s)\n' "${pid:-none}" \
+        "$([ "$pid_alive" = true ] && echo alive || echo dead)" "$([ "$socket_ok" = true ] && echo answers || echo no answer)" \
+        "$registry" "$(herdr_web_envs_dir)/$HERDR_WEB_ENV_ID.json" "$web" "$(herdr_web_url)"
+      [ "$nudged" = false ] || printf 'nudged: re-ensured the instance and its registry\n'
+      [ -z "$problems" ] || printf '%s\n' "$problems" | sed 's/^/problem: /'
+    fi
+  fi
+  case "$state" in ok|off) return 0 ;; degraded) return 1 ;; *) return 3 ;; esac
+}
+
+# Sets pid, pid_alive, socket_ok, registry and web in the caller (herdr_health).
+herdr_health_collect() {
+  pid=$(tr -d ' \n' < "$(herdr_dir)/server.pid" 2>/dev/null || true)
+  pid_alive=false; herdr_server_pid_alive "$pid" && pid_alive=true
+  socket_ok=false; herdr_server_running && socket_ok=true
+  registry=$(herdr_web_entry_state)
+  web=$(herdr_web_listed)
+}
+
+herdr_health_problems() {
+  [ "$state" != off ] || return 0
+  [ "$socket_ok" = true ] || printf 'the orch herdr instance does not answer on its socket\n'
+  [ "$pid_alive" = true ] || [ "$socket_ok" != true ] || printf 'the server pidfile is stale\n'
+  case "$registry" in
+    missing) printf 'herdr web registry file is missing\n' ;;
+    wrong) printf 'herdr web registry file does not match the instance\n' ;;
+  esac
+  case "$web" in
+    missing) printf 'herdr web does not list %s\n' "$HERDR_WEB_ENV_ID" ;;
+    unreachable) printf 'herdr web lists %s but cannot reach its socket\n' "$HERDR_WEB_ENV_ID" ;;
+    no-plugin) printf 'herdr web plugin does not answer at %s\n' "$(herdr_web_url)" ;;
+  esac
+}
+
+# herdr_serve_boot: `dispatch.sh serve` (and so the service) ensures and registers the instance at
+# start, in the background so the server's start is never delayed. The server's herdr watcher keeps
+# it alive afterwards (`herdr health --nudge`).
+herdr_serve_boot() {
+  herdr_enabled || return 0
+  ( herdr_orch ensure ) </dev/null >/dev/null 2>&1 &
+  disown $! 2>/dev/null || true
   return 0
 }
 
@@ -291,13 +412,14 @@ cmd_herdr() {
     ensure)
       herdr_orch ensure || { printf 'herdr: could not start the orch instance\n' >&2; return 1; } ;;
     stop) herdr_orch stop || return 1 ;;
+    health) shift; herdr_health "$@"; return $? ;;
     *) printf 'usage: %s\n' "$HERDR_USAGE" >&2; return 2 ;;
   esac
   printf 'herdr: %s\n' "$(herdr_enabled_reason)"
   if herdr_server_running; then
     printf 'server: running\n'
   elif herdr_bin_present; then
-    printf 'server: not running (started on the first job; jobs start detached if it cannot start)\n'
+    printf 'server: not running (started by serve and on the first job; jobs start detached if it cannot start)\n'
   else
     printf 'server: herdr not on PATH (jobs start detached)\n'
   fi

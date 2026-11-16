@@ -124,6 +124,55 @@ expect_match "ensure rewrites a stale web env file" '/herdr\.sock$' "$(jq -r .so
 expect_no_match "the user's real config dir is untouched" 'herdr-web' "$(cat "$fake_log")"
 expect_missing "the real HOME got no herdr-web dir" "$realhome/.config/herdr-web"
 
+# --- herdr health: server pid, socket, registry file, web plugin listing; --nudge self-heals
+hj() { d env ORCH_HERDR_WEB_URL="${WEB_URL:-off}" bash "$SCRIPT" herdr health --json "$@" 2>/dev/null; }
+out=$(hj)
+expect_match "health is ok with the instance up" '^ok$' "$(printf '%s' "$out" | jq -r .state)"
+expect_match "health sees the pid, socket and registry" '^true true ok skipped orch-skill$' \
+  "$(printf '%s' "$out" | jq -r '"\(.pid_alive) \(.socket_ok) \(.registry) \(.web) \(.env_id)"')"
+expect_match "health names the registry path" "^$webdir/orch-skill.json\$" "$(printf '%s' "$out" | jq -r .registry_path)"
+expect_match "plain health prints the state" '^herdr health: ok' "$(d env ORCH_HERDR_WEB_URL=off bash "$SCRIPT" herdr health 2>&1)"
+# A stand-in for the web plugin's GET /api/envs.
+webroot="$root/webroot"; mkdir -p "$webroot/api"
+web_port=$(( 20000 + RANDOM % 20000 ))
+( cd "$webroot" && exec python3 -m http.server "$web_port" --bind 127.0.0.1 ) >/dev/null 2>&1 &
+web_srv=$!
+printf '[{"id":"default","label":"default","default":true,"reachable":true},{"id":"orch-skill","label":"orch-skill","default":false,"reachable":true}]' > "$webroot/api/envs"
+wait_until "curl -fs http://127.0.0.1:$web_port/api/envs" 20
+WEB_URL="http://127.0.0.1:$web_port"
+expect_match "health sees the env listed in herdr web" '^ok listed$' "$(hj | jq -r '"\(.state) \(.web)"')"
+printf '[{"id":"default","label":"default","default":true,"reachable":true}]' > "$webroot/api/envs"
+expect_match "an env herdr web does not list is degraded" '^degraded missing$' "$(hj | jq -r '"\(.state) \(.web)"')"
+d env ORCH_HERDR_WEB_URL="$WEB_URL" bash "$SCRIPT" herdr health >/dev/null 2>&1; expect_exit "degraded health exits 1" 1 $?
+kill "$web_srv" 2>/dev/null; wait "$web_srv" 2>/dev/null
+expect_match "a plugin that does not answer is reported, not degraded" '^ok no-plugin$' "$(hj | jq -r '"\(.state) \(.web)"')"
+WEB_URL=off
+mv "$wf" "$root/wf.moved"
+expect_match "a missing registry file is degraded" '^degraded missing$' "$(hj | jq -r '"\(.state) \(.registry)"')"
+expect_match "--nudge re-registers the env" '^ok ok true$' "$(hj --nudge | jq -r '"\(.state) \(.registry) \(.nudged)"')"
+expect_file "--nudge wrote the registry file back" "$wf"
+d bash "$SCRIPT" herdr stop >/dev/null 2>&1
+mkdir -p "$webdir"; jq -n '{id:"orch-skill",label:"orch-skill",home:"/x",socket:"/x/s"}' > "$wf"
+out=$(hj)
+expect_match "a stopped instance is down" '^down false wrong$' "$(printf '%s' "$out" | jq -r '"\(.state) \(.socket_ok) \(.registry)"')"
+expect_match "down health lists the socket problem" 'does not answer' "$(printf '%s' "$out" | jq -r '.problems[]')"
+d env ORCH_HERDR_WEB_URL=off bash "$SCRIPT" herdr health >/dev/null 2>&1; expect_exit "down health exits 3" 3 $?
+expect_match "--nudge restarts a dead instance" '^ok true true$' "$(hj --nudge | jq -r '"\(.state) \(.socket_ok) \(.nudged)"')"
+expect_match "the restarted instance was started a second time" '^2$' "$(wc -l < "$inst_cfg/fake/starts" | tr -d ' ')"
+expect_match "--nudge fixed the wrong registry file" '/herdr\.sock$' "$(jq -r .socket "$wf")"
+: > "$fake_log"
+expect_match "ORCH_HERDR=0 health is off" '^off false$' "$(d env ORCH_HERDR=0 ORCH_HERDR_WEB_URL=off bash "$SCRIPT" herdr health --json --nudge | jq -r '"\(.state) \(.enabled)"')"
+expect_match "off health makes no herdr call" '^0$' "$(wc -l < "$fake_log" | tr -d ' ')"
+# serve boot: `dispatch.sh serve` ensures and registers the instance in the background.
+d bash "$SCRIPT" herdr stop >/dev/null 2>&1
+expect_missing "stop removed the registry before the serve boot" "$wf"
+d bash -c 'source "$1"; herdr_serve_boot' _ "$SCRIPT"
+wait_until "[ -f '$wf' ]" 30
+expect_file "the serve boot registers the env" "$wf"
+expect_match "the serve boot started the instance" '^ok$' "$(hj | jq -r .state)"
+d env ORCH_HERDR=0 bash -c 'source "$1"; herdr_serve_boot' _ "$SCRIPT"; expect_exit "serve boot with ORCH_HERDR=0 is a no-op" 0 $?
+grep -q 'herdr_serve_boot' "$SCRIPT_DIR/lib/serve.sh"; expect_exit "cmd_serve calls the herdr serve boot" 0 $?
+
 # --- a job runs in a pane; the wrapper writes the exit file; HOME and env are restored
 job=$(d env ORCH_HERDR_CLOSE_AFTER=6 ORCH_TEST_MARKER=m1 bash "$SCRIPT" start claude "pane probe" 2>/dev/null)
 wait_job "$job"
@@ -243,6 +292,7 @@ if command -v herdr >/dev/null 2>&1; then
     kill "$web_pid" 2>/dev/null
     expect_match "real herdr: the second web plugin lists orch-skill" '"id":"orch-skill"' "$web_out"
     expect_match "real herdr: orch-skill is labelled orch-skill" '"label":"orch-skill"' "$web_out"
+    expect_no_match "real herdr: the registered instance is not listed twice (no auto orch env)" '"id":"orch"' "$web_out"
   else
     printf 'SKIP: web plugin discovery (node or plugin missing)\n'
   fi

@@ -318,10 +318,71 @@ if command -v sqlite3 >/dev/null 2>&1; then
   expect_eq "seq: baseline recorded" 4.11 "$(nf "$R" seq2 .session_stats.baseline.cost)"
   expect_eq "seq: first unchanged" 4.11 "$(nf "$R" seq1 .cost.usd)"
   expect_eq "seq: run total counts the session once" 504 "$(jq '[.nodes[] | select(.id | IN("seq1","seq2")) | .cost.usd] | add * 100 | round' "$home/runs/$R/state.json")"
+
+  # actual_model: the session's real model next to the requested alias, which stays in `model`.
+  expect_eq "actual: real model recorded" prov/changed "$(nf "$R" chats .actual_model)"
+  expect_eq "actual: alias kept" prov/m1 "$(nf "$R" chats .model)"
+  # A Smart Auto alias is not a real model: the hub says what served the session.
+  if command -v python3 >/dev/null 2>&1; then
+    hub_dir=$(mktemp -d)
+    cat > "$hub_dir/hub.py" <<'PY'
+import http.server, json, sys
+from urllib.parse import urlparse, parse_qs
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        q = parse_qs(urlparse(self.path).query)
+        body = {"selection": {"main": {"model": "copilot/claude-opus-5-5", "stage": "solver"}}} \
+            if q.get("session") == ["ses_autoXXXXXXXXXXXXXXXXXXXXXX"] else {"selection": None}
+        data = json.dumps(body).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
+    def log_message(self, *_): pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1], "w").write(str(s.server_address[1]))
+s.serve_forever()
+PY
+    python3 "$hub_dir/hub.py" "$hub_dir/port" & hub_pid=$!
+    for _ in $(seq 1 100); do [ -s "$hub_dir/port" ] && break; sleep 0.1; done
+    printf 'LLM_HUB_URL=http://127.0.0.1:%s\n' "$(cat "$hub_dir/port")" >> "$home/env"
+    sqlite3 "$db" "insert into session_v2 values ('ses_autoXXXXXXXXXXXXXXXXXXXXXX', 'ses_root', 'auto', '{\"id\":\"hub/smart-auto-balance\"}', 0, 1, 1, 0, 0, 0, $now_ms, $now_ms, $now_ms, NULL)"
+    trash "$home/owners/cache" 2>/dev/null
+    o node add "$R" auto "Smart Auto node" >/dev/null
+    o node update "$R" auto running --owner "ses_autoXXXXXXXXXXXXXXXXXXXXXX" >/dev/null
+    o node bind-owners --run "$R" >/dev/null
+    expect_eq "actual: alias stays the model" hub/smart-auto-balance "$(nf "$R" auto .model)"
+    expect_eq "actual: hub names the served model" copilot/claude-opus-5-5 "$(nf "$R" auto .actual_model)"
+    kill "$hub_pid" 2>/dev/null; wait "$hub_pid" 2>/dev/null
+  else
+    printf 'owner-bind: SKIP hub actual-model test (no python3)\n'
+  fi
   export ORCH_OPENCODE_DB=/nonexistent/opencode.db
 else
   printf 'owner-bind: SKIP session table tests (no sqlite3)\n'
 fi
+
+# 8. copilot: the real model from Copilot's own events.jsonl (main agent only, latest call wins).
+new_home
+cp_dir=$(mktemp -d)
+export ORCH_COPILOT_SESSION_DIR="$cp_dir"
+mkdir -p "$cp_dir/11111111-2222-3333-4444-555555555555"
+{
+  echo '{"type":"session.start","data":{"selectedModel":"auto"}}'
+  echo '{"type":"session.usage_record","data":{"usage":{"initiator":"user","model":"gpt-6-luna","responseModel":"gpt-6-luna"}}}'
+  echo '{"type":"session.usage_record","data":{"usage":{"initiator":"agent","model":"gpt-6.1-sol","responseModel":"gpt-6.1-sol"}}}'
+  echo '{"type":"session.usage_record","data":{"usage":{"initiator":"sub-agent","model":"claude-sonnet-5.5","responseModel":"claude-sonnet-5-5"}}}'
+} > "$cp_dir/11111111-2222-3333-4444-555555555555/events.jsonl"
+R=$(o run start "copilot")
+o node add "$R" cp "Copilot node" >/dev/null
+o node update "$R" cp running --owner coordinator >/dev/null
+( source "$SCRIPT"; node_patch "$R" cp '.adapter = "copilot" | .model = "copilot-auto" | .session = "11111111-2222-3333-4444-555555555555"' )
+o node bind-owners --run "$R" >/dev/null
+expect_eq "copilot: actual model from events.jsonl" gpt-6.1-sol "$(nf "$R" cp .actual_model)"
+expect_eq "copilot: alias kept" copilot-auto "$(nf "$R" cp .model)"
+o node add "$R" cq "Copilot no session file" >/dev/null
+o node update "$R" cq running --owner coordinator >/dev/null
+( source "$SCRIPT"; node_patch "$R" cq '.adapter = "copilot" | .session = "99999999-0000-0000-0000-000000000000"' )
+o node bind-owners --run "$R" >/dev/null
+expect_eq "copilot: no session file leaves actual unset" null "$(nf "$R" cq .actual_model)"
+unset ORCH_COPILOT_SESSION_DIR
 
 printf 'owner-bind: %s passed, %s failed\n' "$pass_count" "$failures"
 [ "$failures" -eq 0 ]

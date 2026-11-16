@@ -98,7 +98,7 @@ expect_exit "re-dispatch exits 2" 2 "$rc"
 
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'SKIP: node dispatch fixture test (python3 not found)\n' >&2
-elif start_fixture 10; then
+elif start_fixture 30; then
   job=$(LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" orch node dispatch disp-1 b "ping" 2>/dev/null); rc=$?
   expect_exit "node dispatch with the node's own profile exits 0" 0 "$rc"
   out=$(orch run sync disp-1 2>&1)

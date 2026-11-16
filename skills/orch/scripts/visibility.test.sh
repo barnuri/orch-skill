@@ -82,7 +82,7 @@ expect_match "status link" '^http://127.0.0.1:[0-9]+/#/run/' "$(o run status "$R
 expect_match "status json" '"done": ?2|"done":2' "$(o run status "$R" --json)"
 
 # run wait: change, then cursor, then timeout, then settled
-(sleep 2; o node update "$R" s done >/dev/null) &
+(while [ ! -f "$home/runs/$R/wait.cursor" ]; do sleep 0.3; done; o node update "$R" s done >/dev/null) &
 out=$(o run wait "$R" --timeout 20); rc=$?
 expect_exit "wait wakes on change" 0 "$rc"
 expect_match "wait prints the change" '^s running->done$' "$out"

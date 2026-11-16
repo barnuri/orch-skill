@@ -496,6 +496,31 @@ OWNER_PREFIX_MIN_LEN=12
 
 opencode_db_path() { printf '%s\n' "${ORCH_OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"; }
 
+# The first read-only SQLite reader present: the sqlite3 CLI (ORCH_SQLITE3), else python3's sqlite3
+# module, else bun:sqlite (ORCH_BUN). Prints its kind; fails when none is there.
+opencode_db_reader() {
+  if command -v "${ORCH_SQLITE3:-sqlite3}" >/dev/null 2>&1; then printf 'cli\n'
+  elif command -v "${ORCH_PYTHON3:-python3}" >/dev/null 2>&1 && "${ORCH_PYTHON3:-python3}" -c 'import sqlite3' >/dev/null 2>&1; then printf 'python\n'
+  elif command -v "${ORCH_BUN:-bun}" >/dev/null 2>&1; then printf 'bun\n'
+  else return 1; fi
+}
+
+# opencode_db_query <db> <sql> - the rows as one JSON array, opened read-only (mode=ro).
+opencode_db_query() {
+  local db="$1" sql="$2"
+  case "$(opencode_db_reader)" in
+    cli) "${ORCH_SQLITE3:-sqlite3}" -json "file:$db?mode=ro" "$sql" ;;
+    python) "${ORCH_PYTHON3:-python3}" -c 'import json, sqlite3, sys
+c = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+c.row_factory = sqlite3.Row
+print(json.dumps([dict(r) for r in c.execute(sys.argv[2])]))' "$db" "$sql" ;;
+    bun) "${ORCH_BUN:-bun}" -e 'import { Database } from "bun:sqlite";
+const [db, sql] = process.argv.slice(-2);
+console.log(JSON.stringify(new Database(db, { readonly: true }).query(sql).all()));' "$db" "$sql" ;;
+    *) return 1 ;;
+  esac
+}
+
 # owner_session_index_file - prints the path of a JSON array of recent opencode sessions:
 # {id, parent, title, model, cost, tokens{...}, created, updated (epoch s), busy}. Read-only on the
 # database (mode=ro, never the live file for writing), cached under owners/cache keyed by the
@@ -506,14 +531,14 @@ owner_session_index_file() {
   mkdir -p "$dir" 2>/dev/null
   cache="$dir/sessions.json"; keyf="$dir/sessions.key"
   db=$(opencode_db_path)
-  if [ "${ORCH_OWNER_INDEX:-1}" = 0 ] || [ ! -f "$db" ] || ! command -v sqlite3 >/dev/null 2>&1; then
+  if [ "${ORCH_OWNER_INDEX:-1}" = 0 ] || [ ! -f "$db" ] || ! opencode_db_reader >/dev/null; then
     [ -f "$dir/sessions-none.json" ] || printf '[]\n' > "$dir/sessions-none.json" 2>/dev/null
     printf '%s\n' "$dir/sessions-none.json"
     return 0
   fi
   key="$db $(file_mtime "$db") $(file_mtime "$db-wal" 2>/dev/null)"
   if [ -f "$cache" ] && [ "$(cat "$keyf" 2>/dev/null)" = "$key" ]; then printf '%s\n' "$cache"; return 0; fi
-  out=$(sqlite3 -json "file:$db?mode=ro" \
+  out=$(opencode_db_query "$db" \
     "select id, parent_id, title, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read,
             tokens_cache_write, time_created, time_updated, time_busy, time_idle
        from session_v2 where time_updated > (strftime('%s','now') - $OWNER_INDEX_DAYS * 86400) * 1000" 2>/dev/null \
@@ -684,7 +709,8 @@ owners_bind_run() {
 # fields; session_stats (tokens, cost, duration) and a report written by this filler refresh each pass.
 OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
 | .nodes as $all
-| def machine_report: .report == null or ((.report.reported_by // "") | IN("owner-fill", "owner-liveness"))
+| def smart_auto_selector: test("(^|/)smart-auto(-|$)");
+  def machine_report: .report == null or ((.report.reported_by // "") | IN("owner-fill", "owner-liveness"))
     # or no figure the coordinator gave itself: every non-null number was captured from the session
     or ((.report.auto // []) as $a | [.report | to_entries[]
         | select((.key | IN("input_tokens", "output_tokens", "cache_read_tokens", "usd")) and .value != null and (.key as $k | $a | index($k) | not))]
@@ -724,6 +750,10 @@ OWNER_FILL_FILTER='($ix[0] | map({key: .id, value: .}) | from_entries) as $by
     | (if (.harness // "") == "" then .harness = "opencode" else . end)
     | (if ((.model // "") == "") and $s.model != null then .model = $s.model else . end)
     | (if ((.model_id // "") == "") and $s.model != null then .model_id = $s.model else . end)
+    # The model the session really ran on; `model` stays the requested alias. A Smart Auto selector
+    # is not a real model: owners_actual_from_hub_run asks the hub what served it instead.
+    | (if $s.model != null and (($s.model | smart_auto_selector) | not) and .actual_model != $s.model
+       then .actual_model = $s.model else . end)
     | (if .started == null then .started = ($s.created | todate) else . end)
     | share($s) as $sh
     | .session_stats = ({session: $s.id, cost: $sh.cost, tokens: $sh.tokens, baseline: $sh.base,
@@ -791,12 +821,74 @@ owners_fill_index_run() {
   done <<< "$(printf '%s\n' "$out" | tail -n +2)"
 }
 
+# copilot_session_dir - where Copilot CLI keeps one folder per session (events.jsonl inside).
+copilot_session_dir() { printf '%s\n' "${ORCH_COPILOT_SESSION_DIR:-${COPILOT_HOME:-$HOME/.copilot}/session-state}"; }
+
+# copilot_actual_model <session-id> - the model that served the session's latest main-agent call:
+# events.jsonl `session.usage_record` .usage.responseModel (or .model), sub-agent calls left out.
+# Prints nothing when the session or a usable record is missing. Read-only.
+copilot_actual_model() {
+  local f
+  f="$(copilot_session_dir)/$1/events.jsonl"
+  [ -f "$f" ] || return 0
+  jq -r 'select(.type == "session.usage_record") | .data.usage
+    | select((.initiator // "") != "sub-agent") | (.responseModel // .model // empty)
+    | select(. != "" and . != "auto" and (test("(^|/)smart-auto(-|$)") | not))' "$f" 2>/dev/null | tail -n 1
+}
+
+# hub_session_model <session-id> - the model llm-hub served last for a session (Smart Auto main
+# stage), from /api/smart-auto/current. Prints nothing when the hub is unset, down or has no pick.
+hub_session_model() {
+  [ "${ORCH_OWNER_HUB:-1}" != 0 ] || return 0
+  orch_load_env_file
+  [ -n "${LLM_HUB_URL:-}" ] || return 0
+  hub_api GET "/api/smart-auto/current?session=$(jq -rn --arg s "$1" '$s | @uri')" 2>/dev/null \
+    | jq -r '.selection.main.model // empty' 2>/dev/null
+}
+
+# owners_actual_run <run> [deadline] - records each node's real model as `actual_model` (the
+# requested alias stays in `model`). opencode sessions with a real model are handled by the fill
+# filter; this covers a Smart Auto alias (asked of llm-hub by session id) and copilot sessions
+# (read from Copilot's own events.jsonl). Running nodes refresh; finished nodes are filled once.
+owners_actual_run() {
+  local run_id="$1" deadline="${2:-}" file rows node kind sid model n=0
+  file=$(run_state_file "$run_id")
+  [ -f "$file" ] || return 0
+  rows=$(jq -r --slurpfile ix "$(owner_session_index_file)" '
+    ($ix[0] | map({key: .id, value: .model}) | from_entries) as $m
+    | def selector: (. // "") | test("(^|/)smart-auto(-|$)");
+    .nodes[] | select(.status == "running" or (((.actual_model // "") == "") and (.status | IN("done", "error"))))
+    | ((if ((.owner_id // "") | startswith("ses_")) and ((.owner_kind // "session") == "session") then .owner_id
+        elif ((.session // "") | startswith("ses_")) then .session else "" end)) as $ses
+    | if (.adapter // .harness // "") == "copilot" and (.session // "") != "" then [.id, "copilot", .session]
+      elif $ses != "" and (($m[$ses] | selector) or (.model_id | selector) or (.model | selector)) then [.id, "hub", $ses]
+      else empty end
+    | join("\u001f")' "$file" 2>/dev/null)
+  while IFS=$'\x1f' read -r node kind sid; do
+    [ -n "$node" ] || continue
+    [ -z "$deadline" ] || [ "$(date +%s)" -lt "$deadline" ] || break
+    model=""
+    case "$kind" in
+      copilot) model=$(copilot_actual_model "$sid") ;;
+      hub)
+        [ "$n" -lt "$OWNER_FILL_MAX_NODES" ] || continue
+        owner_throttle "actual-$run_id-$node" "${ORCH_OWNER_BIND_SECS:-$OWNER_THROTTLE_SECS_DEFAULT}" || continue
+        n=$((n + 1))
+        model=$(hub_session_model "$sid") ;;
+    esac
+    [ -n "$model" ] || continue
+    [ "$(node_field "$file" "$node" actual_model)" != "$model" ] || continue
+    node_patch "$run_id" "$node" '.actual_model = $m' --arg m "$model" || true
+  done <<< "$rows"
+}
+
 owners_fill_run() {
   local run_id="$1" deadline="${2:-}" file rows node id left out n=0 model tokens_in tokens_out usd created updated cur_model have_tok have_usd harness last tmo
   [ "${ORCH_OWNER_FILL:-1}" != 0 ] || return 0
   file=$(run_state_file "$run_id")
   [ -f "$file" ] || return 0
   owners_fill_index_run "$run_id"
+  owners_actual_run "$run_id" "$deadline" || true
   # Nodes the session table already filled need no per-node API call.
   rows=$(jq -r --slurpfile ix "$(owner_session_index_file)" '($ix[0] | map(.id)) as $known
     | .nodes[] | select(.status == "running" and .owner_kind == "session" and (.owner_id // "") != "" and (.owner_id as $o | $known | index($o) | not))

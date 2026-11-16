@@ -35,10 +35,12 @@ poll "[ \"\$(jq -r .pane \"$home/activity/sess1.json\" 2>/dev/null)\" = p1 ] && 
 ok "single shot wrote the activity file with pane" "$([ "$(jq -r .pane "$home/activity/sess1.json")" = p1 ] && echo 1 || echo 0)"
 pid=$(cat "$home/announce.pid" 2>/dev/null)
 ok "daemon started with a live pidfile" "$(kill -0 "$pid" 2>/dev/null && echo 1 || echo 0)"
-u1=$(upd); sleep 4; u2=$(upd)
+# Wait for each refresh instead of sleeping a fixed 4 s / 8 s: a loaded machine stretches a 1 s tick.
+u1=$(upd); poll "[ \"\$(jq -r .updated_at \"$home/activity/sess1.json\" 2>/dev/null)\" -gt $u1 ]" 30; u2=$(upd)
 ok "daemon refreshed the file (updated_at advanced)" "$([ "$u2" -gt "$u1" ] && echo 1 || echo 0)"
-sleep 8; u3=$(upd)
+poll "[ \"\$(jq -r .updated_at \"$home/activity/sess1.json\" 2>/dev/null)\" -gt $u2 ]" 30; u3=$(upd)
 ok "daemon refreshed twice" "$([ "$u3" -gt "$u2" ] && echo 1 || echo 0)"
+poll "[ \"\$(grep -c report-metadata \"$fake/herdr.log\")\" -ge 3 ]" 30
 ok "herdr metadata reported by the daemon" "$([ "$(grep -c report-metadata "$fake/herdr.log")" -ge 3 ] && echo 1 || echo 0)"
 
 bash "$ANN" --quiet; bash "$ANN" --quiet; sleep 2

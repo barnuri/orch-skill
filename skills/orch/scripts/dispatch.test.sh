@@ -60,7 +60,9 @@ names=()
 started=$SECONDS
 running_count() {
   local p n=0
-  for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done
+  # ${a[@]+...}: bash 3.2 (macOS) treats "${a[@]}" of an empty array as unbound under set -u, and
+  # the first call runs before any job has started.
+  for p in ${pids[@]+"${pids[@]}"}; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done
   printf '%s' "$n"
 }
 for f in "${files[@]}"; do

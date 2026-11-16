@@ -86,8 +86,8 @@ dispatch.sh active [--json]
     -> one line per running loop or watch; --json for harnesses and the dashboard
 
 Schedules (cron; each fires a prompt through a profile, or a shell command; the dashboard server ticks them):
-dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P | --command CMD [--workdir DIR] [--timeout DUR])
-dispatch.sh schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--command CMD] [--workdir DIR] [--timeout DUR]
+dispatch.sh schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR])
+dispatch.sh schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR]
     -> changes only the given fields; keeps id, created_at, enabled and run history; --prompt/--command switch the kind
 dispatch.sh schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
 EOF
@@ -97,7 +97,9 @@ EOF
 $HERDR_USAGE
     -> on/off/auto set settings.herdr (auto = on when herdr is installed). status and attach print
        the state of the dedicated orch herdr instance and the command to look at it; ensure/stop
-       start/stop that instance.
+       start/stop that instance (serve ensures it at start). health checks the server, its socket,
+       the herdr web registry file and the web plugin's listing (ok/degraded/down/off);
+       --nudge re-ensures and re-registers. The user's own herdr is never touched.
 $HUB_USAGE
     -> llm-hub native mode: the hub picks every model by node role and tier; orch runs the graph.
        setup makes <harness>-smart-auto (default opencode) the default and planner profile.
@@ -106,6 +108,9 @@ dispatch.sh memory list [--profile P] [-n N]
 
 Run/node state (one orchestration run = a DAG of nodes; the dashboard reads state live):
 $RUN_START_USAGE          -> prints run-id
+dispatch.sh use [<run-id>]
+    -> saves the current run in <orch-home>/current-run (no arg: print it). A run id of '.' in
+       node update|report|batch and run sync means the saved run.
 $NODE_ADD_USAGE
 $NODE_DISPATCH_USAGE
     -> start + marks the node running; omit the target to use the node's own --profile.
@@ -129,7 +134,9 @@ $NODE_PING_USAGE
     -> heartbeat: stamps updated, keeps the last 20 notes, records progress
 $NODE_RETRY_USAGE
 $RUN_WAIT_USAGE
-    -> blocks until a node changes status or goes stale; exit 0 = change, 3 = nothing left to run, 124 = timeout
+    -> coordinator wake-up: blocks until the run needs you (status change, ready, needs-user, stalled,
+       dead or no-report owner, dead health monitor (restarted), run ended); prints one line per event
+       (--json: one object). --follow keeps printing. Exit 0 = event, 3 = nothing left to run, 124 = timeout
 $RUN_STATUS_USAGE
 $RUN_HEALTH_USAGE
     -> one pass: ok/stalled/unowned/dead/no-report per running node, ready nodes, free slots; records
@@ -142,8 +149,10 @@ $RUN_SYNC_USAGE     -> flips running nodes from their jobs; prints id<TAB>status
 $RUN_FINISH_USAGE   -> default: error if any node errored
 $RUN_RETRY_USAGE
 $RUN_STOP_USAGE
-    -> stops the run's running jobs (SIGTERM), marks running nodes error "cancelled" and waiting
-       nodes skipped, and sets the run status to cancelled.
+    -> kills the run's running jobs (SIGTERM, then SIGKILL), marks those nodes stopped and sets
+       stopped=true. A stopped run never auto-resumes and sync starts nothing for it.
+$RUN_RESUME_USAGE
+    -> --stopped is required to resume a stopped run (the run page Resume button).
 $RUN_ADVANCE_USAGE
     -> one scheduler step: sync, apply a finished plan, dispatch ready nodes that have a stored
        prompt up to settings.max_parallel. --until-done loops (and finishes the run); exit 3 = blocked.
@@ -617,8 +626,15 @@ run_create_with_monitor() {
 }
 
 main() {
-  local sub="${1:-}" verb
+  local sub="${1:-}" verb rid
+  # A run id of `.` means the run saved by `dispatch.sh use` (lib/current-run.sh).
+  case "$sub ${2:-} ${3:-}" in
+    "node update ."|"node report ."|"node batch ."|"run sync .")
+      rid=$(current_run_resolve .) || exit 1
+      set -- "$1" "$2" "$rid" "${@:4}" ;;
+  esac
   case "$sub" in
+    use) shift; cmd_use "$@" ;;
     classify) shift; classify_cmd "$@" ;;
     budget-check) budget_check; exit $? ;;
     run)
@@ -626,14 +642,23 @@ main() {
       # `run start|finish|list|sync` is run-state; anything else is v1 `run <adapter|--profile>`.
       case "${2:-}" in
         start|carry) verb="$2"; shift 2; run_create_with_monitor "cmd_run_$verb" "$@" ;;
-        finish|list|sync|advance|retry|stop|wait|status|health) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        pause|resume|stop) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
+        # A paused or stopped run (lib/pause.sh) starts nothing on sync.
+        sync) shift 2; pause_guard "${1:-}" || exit 0; cmd_run_sync "$@" ;;
+        status)
+          shift 2; cmd_run_status "$@"; rc=$?
+          case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_paused "${1:-}" || printf 'paused: true\n' ;; esac
+          case " $* " in *" --json "*) ;; *) [ "$rc" -ne 0 ] || ! run_is_stopped "${1:-}" || printf 'stopped: true\n' ;; esac
+          exit $rc ;;
+        finish|list|advance|retry|wait|health) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
         *) shift; cmd_run "$@" ;;
       esac
       ;;
     node)
       case "${2:-}" in update|report|ping|dispatch|batch) trap announce_hook EXIT ;; esac
       case "${2:-}" in
-        add|update|report|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|batch) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        dispatch) shift 2; pause_guard "${1:-}" >&2 || exit 3; cmd_node_dispatch "$@" ;;
+        add|update|report|ping|remove|retry|usage|cost|out|digest|selections|brief|activity|batch) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
         verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
         bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
         *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;

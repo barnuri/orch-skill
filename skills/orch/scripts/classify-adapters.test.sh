@@ -116,16 +116,16 @@ expect_match "copilot missing is reported" 'copilot not found on PATH' "$out"
 expect_exit "copilot missing exits 127" 127 "$rc"
 
 hub_home=$(new_tmp)
-out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= -u LLM_HUB_V1_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
 expect_match "local-llm with no LLM_HUB_URL is reported" 'LLM_HUB_URL not set' "$out"
 expect_exit "local-llm with no LLM_HUB_URL exits 1" 1 "$rc"
 
 # The env file must not resurrect a value the caller explicitly cleared.
 printf 'LLM_HUB_URL=http://127.0.0.1:9\n' > "$hub_home/env"
-out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$hub_home" LLM_HUB_URL= -u LLM_HUB_V1_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
 expect_match "an explicitly cleared var is not refilled from the env file" 'LLM_HUB_URL not set' "$out"
 # Unset entirely, the file is what supplies it — that is the point of the file.
-out=$(env HARNESS_ORCH_HOME="$hub_home" -u LLM_HUB_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
+out=$(env HARNESS_ORCH_HOME="$hub_home" -u LLM_HUB_URL -u LLM_HUB_V1_URL bash "$SCRIPT" run local-llm "hi" 2>&1); rc=$?
 expect_no_match "an unset var is supplied by the env file" 'LLM_HUB_URL not set' "$out"
 
 # LLM_HUB_V1_URL derivation: exactly one trailing /v1, whatever shape LLM_HUB_URL has. Sourced as
@@ -260,7 +260,7 @@ else
     promptfile="$fixture_dir/prompt.txt"
     printf 'hello from a file' > "$promptfile"
 
-    job_id=$(env HARNESS_ORCH_HOME="$home" LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" \
+    job_id=$(env HARNESS_ORCH_HOME="$home" LLM_HUB_URL="http://127.0.0.1:$FIXTURE_PORT" -u LLM_HUB_V1_URL \
       bash "$SCRIPT" start local-llm "@$promptfile" 2>/dev/null)
 
     sleep 0.5

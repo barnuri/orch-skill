@@ -21,7 +21,7 @@ NODE_BATCH_DEFS='
   def known: {
     add: ["op","id","label","goal","after","profile","role","tier","model","plan_backed","acceptance"],
     report: ["op","id","model","input_tokens","output_tokens","cache_read_tokens","usd","note"],
-    update: ["op","id","status","job","error","at","owner","force","after","needs_user","clear_needs_user"]};
+    update: ["op","id","status","job","error","at","owner","force","after","needs_user","clear_needs_user","hold","clear_hold"]};
   def req($k): if (.[$k] | type) == "string" and .[$k] != "" then .[$k]
                else error("\"\($k)\" is required (a non-empty string)") end;
   def opt($k; $flag): if (.[$k] // null) == null then []
@@ -56,10 +56,12 @@ NODE_BATCH_DEFS='
           + opt("usd"; "--usd") + opt("note"; "--note")
       else
         (if .needs_user != null and .clear_needs_user == true then error("\"needs_user\" and \"clear_needs_user\" cannot be combined") else . end)
+        | (if .hold != null and .clear_hold == true then error("\"hold\" and \"clear_hold\" cannot be combined") else . end)
         | (if .status != null and .status != "" then req("status") | [.] elif has("status") and .status != null then error("\"status\" must be a non-empty string") else [] end) as $s
         | ["update", req("id")] + $s + opt("job"; "--job") + opt("error"; "--error")
           + opt("at"; "--at") + opt("owner"; "--owner") + flag("force"; "--force")
           + update_after + opt("needs_user"; "--needs-user") + flag("clear_needs_user"; "--clear-needs-user")
+          + opt("hold"; "--hold") + flag("clear_hold"; "--clear-hold")
       end
     | if any(.[]; contains("\u0000")) then error("values must not contain NUL") else . end;
 '
@@ -257,7 +259,7 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
   def trimnl: gsub("\n"; " ") | sub(" +$"; "");
   def argmap: . as $a | {m: {}, i: 0}
     | until(.i >= ($a | length);
-        if $a[.i] == "--plan-backed" or $a[.i] == "--force" or $a[.i] == "--clear-needs-user" then .m[$a[.i]] = true | .i += 1
+        if $a[.i] == "--plan-backed" or $a[.i] == "--force" or $a[.i] == "--clear-needs-user" or $a[.i] == "--clear-hold" then .m[$a[.i]] = true | .i += 1
         else .m[$a[.i]] = $a[.i + 1] | .i += 2 end) | .m;
   def nd($id): first(.s.nodes[] | select(.id == $id)) // null;
   def patch($id; f): .s.nodes |= map(if .id != $id then . else f end);
@@ -327,7 +329,7 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
         | (if $job != "" then .job_id = $job else . end)
         | (if $err != "" then .error = $err else . end)
         | (if $s == "running" and .started == null then .started = $at else . end)
-        | (if $s == "running" then .backfilled = false else . end)
+        | (if $s == "running" then .backfilled = false | .hold = null else . end)
         | (if $owner != "" then .owner = $owner else . end)
         | (if $s == "waiting" then .started = null | .finished = null | .error = null | .owner = null | .job_id = null | .owner_kind = null | .owner_id = null | .owner_state = null else . end)
         | (if $s == "done" and $by != "owner-liveness" then .unverified = null | .auto = null else . end)
@@ -387,15 +389,17 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
         | ([$parts[] | select(. != "*") | select(. as $x | $reach | index($x))] | join(",")) as $cyc
         | if $cyc != "" then "!node update: --after \($out) would make a cycle (\($cyc) already waits on \($id))" else $out end
       end;
-  def deps_block($id; $dset; $deps; $nset; $needs):
+  def deps_block($id; $dset; $deps; $nset; $needs; $hset; $hold):
     ($deps | split(",") | map(select(length > 0))) as $d
     | (if $dset then
          .s.edges = ([(.s.edges // [])[] | select(.[1] != $id)] + [$d[] | select(. != "*") | [., $id]])
          | patch($id; .after_all = ($d | index("*") != null) | .updated = $now)
        else . end)
     | (if $nset then patch($id; .needs_user = ($needs | nn) | .updated = $now) else . end)
+    | (if $hset then patch($id; .hold = ($hold | nn) | .updated = $now) else . end)
     | (if $dset then ev("deps"; $id; ""; ""; "after: \(if $deps == "" then "none" else $deps end)"; $by) else . end)
-    | (if $nset then ev("needs-user"; $id; ""; ""; (if $needs == "" then "cleared" else $needs end); $by) else . end);
+    | (if $nset then ev("needs-user"; $id; ""; ""; (if $needs == "" then "cleared" else $needs end); $by) else . end)
+    | (if $hset then ev("hold"; $id; ""; ""; (if $hold == "" then "cleared" else $hold end); $by) else . end);
   def do_update($line; $a):
     $a[1] as $id
     | (if ($a[2] // "-") | startswith("-") then "" else $a[2] end) as $s
@@ -404,12 +408,15 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
     | ($m["--owner"] // "") as $owner | ($m["--force"] // false) as $force
     | ($m | has("--after")) as $dset | ($m | has("--needs-user") or has("--clear-needs-user")) as $nset
     | (if $m["--clear-needs-user"] then "" else ($m["--needs-user"] // "") end) as $needs
+    | ($m | has("--hold") or has("--clear-hold")) as $hset
+    | (if $m["--clear-hold"] then "" else ($m["--hold"] // "") end) as $hold
     | (nd($id).status | sval) as $old
     | ({waiting: "running done error skipped", running: "done error waiting skipped",
         error: "waiting running skipped", skipped: "waiting running", done: ""} | .[$old] // $statuses) as $allowed
     | (if nd($id) == null then null elif $dset then deps_check($id; $m["--after"]) else "" end) as $deps
     | (if ($m | has("--needs-user")) and $m["--needs-user"] == "" then "node update: --needs-user expects a reason (use --clear-needs-user to clear)"
-       elif $s == "" and ($dset | not) and ($nset | not) then "usage: \($updateusage)"
+       elif ($m | has("--hold")) and $m["--hold"] == "" then "node update: --hold expects a reason (use --clear-hold to clear)"
+       elif $s == "" and ($dset | not) and ($nset | not) and ($hset | not) then "usage: \($updateusage)"
        elif nd($id) == null then "node \($id): not in this run"
        elif $s != "" and (inl($s; $statuses) | not) then "node update: status must be one of: \($statuses)"
        elif $deps | startswith("!") then $deps[1:]
@@ -423,7 +430,7 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
        else null end) as $e
     | if $e != null then fail($line; $e)
       else (if $s == "" then . else set_status($id; $s; $job; $err; (if $at == "" then $now else $at end); $owner) end)
-        | deps_block($id; $dset; $deps; $nset; $needs)
+        | deps_block($id; $dset; $deps; $nset; $needs; $hset; $hold)
         | ok($line; (if $s == "" then "update \($id)" else "update \($id) -> \($s)" end))
       end;
   def do_report($line; $a):
