@@ -1,0 +1,15 @@
+# Phase 5 parity: suggest. Ids are random, so cases print counts and statuses only.
+suggest
+suggest bogus
+suggest list
+suggest list --pending
+suggest list --bogus
+suggest scan
+suggest apply
+suggest apply sug-none
+suggest apply --bogus
+suggest apply --id sug-none --json
+suggest apply --all
+suggest dismiss
+suggest dismiss sug-none
+sync --bogus

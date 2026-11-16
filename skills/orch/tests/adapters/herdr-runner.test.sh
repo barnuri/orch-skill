@@ -171,7 +171,7 @@ wait_until "[ -f '$wf' ]" 30
 expect_file "the serve boot registers the env" "$wf"
 expect_match "the serve boot started the instance" '^ok$' "$(hj | jq -r .state)"
 d env ORCH_HERDR=0 bash -c 'source "$1"; herdr_serve_boot' _ "$SCRIPT"; expect_exit "serve boot with ORCH_HERDR=0 is a no-op" 0 $?
-grep -q 'herdr_serve_boot' "$SCRIPT_DIR/lib/dashboard/serve.sh"; expect_exit "cmd_serve calls the herdr serve boot" 0 $?
+grep -q 'herdrBoot' "$SCRIPT_DIR/../core/commands/serve.ts"; expect_exit "serve calls the herdr serve boot" 0 $?
 
 # --- a job runs in a pane; the wrapper writes the exit file; HOME and env are restored
 job=$(d env ORCH_HERDR_CLOSE_AFTER=6 ORCH_TEST_MARKER=m1 bash "$SCRIPT" start claude "pane probe" 2>/dev/null)

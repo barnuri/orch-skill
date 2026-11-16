@@ -8,6 +8,11 @@ import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
 import { doctor } from "./commands/doctor.ts";
+import { serveCommand, serveStatus, serveConfig, serveRecover, uiCommand, artifactCommand } from "./commands/serve.ts";
+import { suggestCommand, syncCommand } from "./commands/suggest.ts";
+import { demoCommand } from "./commands/demo.ts";
+import { orchHome } from "./state/home.ts";
+import { viaServer } from "./client.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 export const VERSION = "0.1.0";
@@ -34,7 +39,34 @@ export const COMMANDS: Record<string, Handler> = {
   "delegate task": (a) => delegateTask(a),
   "delegate finding": (a) => delegateFinding(a),
   "delegate show": (a) => delegateShow(a),
+  // One-word commands: the verb is the first handler argument (or a flag).
+  serve: serveCommand,
+  "serve status": serveStatus,
+  "serve config": serveConfig,
+  "serve recover": serveRecover,
+  ui: uiCommand,
+  artifact: artifactCommand,
+  suggest: suggestCommand,
+  demo: demoCommand,
+  sync: syncCommand,
 };
+
+const ONE_WORD = new Set(["serve", "ui", "artifact", "suggest", "demo", "sync"]);
+// Commands the dashboard server answers on its socket (same core function, in its process).
+const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
+
+function resolveCommand(words: string[]): { key: string; skip: number } | null {
+  const two = `${words[0]} ${words[1] ?? ""}`.trim();
+  if (COMMANDS[two]) return { key: two, skip: 2 };
+  if (ONE_WORD.has(words[0]) && COMMANDS[words[0]]) return { key: words[0], skip: 1 };
+  return null;
+}
+
+export function isSocketable(argv: string[]): boolean {
+  const { words } = parseArgv(argv);
+  const r = words.length ? resolveCommand(words) : null;
+  return !!r && SOCKET_KEYS.has(r.key);
+}
 
 export function parseArgv(argv: string[]): { flags: Set<string>; words: string[] } {
   const flags = new Set<string>();
@@ -53,7 +85,7 @@ function usage(): string {
   ].join("\n");
 }
 
-export async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[], opts: { direct?: boolean } = {}): Promise<number> {
   const { flags, words } = parseArgv(argv);
   if (flags.has("--version")) {
     process.stdout.write(`orch ${VERSION}\n`);
@@ -86,17 +118,26 @@ export async function main(argv: string[]): Promise<number> {
     }
     return await dh(drest);
   }
-  const key = `${words[0]} ${words[1] ?? ""}`.trim();
-  const handler = COMMANDS[key];
-  if (!handler) {
+  const resolved = resolveCommand(words);
+  if (!resolved) {
+    const key = `${words[0]} ${words[1] ?? ""}`.trim();
     process.stderr.write(`orch: unknown command '${key}'\n${usage()}\n`);
     return 2;
   }
-  // Handlers get every argument after the two command words, flags included.
+  const handler = COMMANDS[resolved.key];
+  if (!opts.direct && process.env.ORCH_DIRECT !== "1" && SOCKET_KEYS.has(resolved.key)) {
+    const r = await viaServer(orchHome(), argv);
+    if (r) {
+      process.stdout.write(r.stdout);
+      process.stderr.write(r.stderr);
+      return r.code;
+    }
+  }
+  // Handlers get every argument after the command words, flags included.
   const rest: string[] = [];
   let skipped = 0;
   for (const a of argv) {
-    if (!a.startsWith("--") && skipped < 2) skipped++;
+    if (!a.startsWith("--") && skipped < resolved.skip) skipped++;
     else rest.push(a);
   }
   return await handler(rest);

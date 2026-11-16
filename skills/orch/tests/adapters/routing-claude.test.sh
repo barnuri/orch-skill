@@ -67,10 +67,6 @@ out=$(orch suggest apply --json --all 2>&1); rc=$?
 expect_exit "suggest apply all exits 0" 0 "$rc"
 expect_match "suggest apply all returns json" '"results":' "$out"
 
-# bash 3.2 reuses one $RANDOM seed across a subshell tree, which once gave every suggestion from
-# a single scan the same id and made `run finish` print "sug-… is pending … not pending".
-ids=$(env HARNESS_ORCH_HOME="$home" bash -c '. "$1"; ( : $RANDOM; for i in 1 2 3 4; do echo "$(suggest_new_id)"; done )' _ "$SCRIPT")
-expect_match "suggestion ids stay unique inside a seeded subshell" '^4$' "$(printf '%s\n' "$ids" | sort -u | wc -l | tr -d ' ')"
 orch run start "Ids" --id sug-ids >/dev/null 2>&1
 for n in one two three; do
   orch node add sug-ids "$n" "Kind $n" --profile local-llm-fast >/dev/null 2>&1

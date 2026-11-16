@@ -180,7 +180,7 @@ cmd_run_finish() {
   in_list "$status" "$RUN_STATUSES" || { printf 'run finish: status must be one of: %s\n' "$RUN_STATUSES" >&2; return 2; }
   state_write "$run_id" '.status = $s | .finished = $ts' --arg s "$status" --arg ts "$(now_iso)" || return 1
   run_event "$run_id" run "" "" "$status" ""
-  learning_after_finish "$run_id" || true
+  "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" suggest finish || true
   printf '%s\n' "$status"
 }
 
