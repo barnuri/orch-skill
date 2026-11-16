@@ -151,9 +151,9 @@ describe("opencode as a chat harness", () => {
     service.sendMessage(chat.id, { content: "read", attachment_ids: [add("d.pdf", "application/pdf", new TextEncoder().encode("%PDF-1.4"), "12".repeat(32))] });
     await service.settled(chat.id);
     const third = readFileSync(log, "utf8").split("opencode\t")[3] ?? "";
-    expect(third).toContain("read\n\nAttached files (read them from these absolute paths):\n- ");
+    expect(third).toContain("read\\n\\nAttached files (read them from these absolute paths):\\n- ");
     expect(third).toContain("/d.pdf\t");
-    expect(third).toEndWith("\tstandalone\t\n");
+    expect(third).toEndWith("\tstandalone\t\tprov/m\n");
   });
 
   test("images and text files attach natively; a PDF or an archive does not", () => {
