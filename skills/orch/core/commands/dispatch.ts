@@ -81,7 +81,7 @@ async function inboxAnswersPrefix(home: string, runId: string, node: string): Pr
 
 export function smartAutoTierOf(model: string): string {
   const m = /smart-auto-([a-z]+)$/.exec(model);
-  return m && SMART_AUTO_TIERS.includes(m[1]) ? m[1] : "";
+  return m && SMART_AUTO_TIERS.includes(m[1]!) ? m[1]! : "";
 }
 
 export interface DispatchOpts {
@@ -102,13 +102,13 @@ export async function dispatchNodeJob(home: string, runId: string, nodeId: strin
     const live = await nodeLiveJob(home, runId, nodeId);
     if (live) return fail(`node dispatch: ${nodeId} already has live job ${live}; pass --force to start another`);
   }
-  if (rest[0] !== "--profile" && !ADAPTER_NAMES.includes(rest[0])) {
+  if (rest[0] !== "--profile" && !ADAPTER_NAMES.includes(rest[0] ?? "")) {
     const p = String(node.profile ?? "");
     if (!p) return fail(`node dispatch: ${nodeId} has no profile; pass --profile or an adapter`);
     rest = ["--profile", p, ...rest];
   }
   const isProfile = rest[0] === "--profile";
-  const targetName = isProfile ? rest[1] ?? "" : rest[0];
+  const targetName = isProfile ? rest[1] ?? "" : rest[0]!;
   const promptIdx = isProfile ? 2 : 1;
   const rawPrompt = rest[promptIdx] ?? "";
   let prompt = rawPrompt;
@@ -321,7 +321,7 @@ export async function nodeRetry(args: string[]): Promise<number> {
   let prompt = "";
   const rest = args.slice(2);
   for (let i = 0; i < rest.length; i++) {
-    const a = rest[i];
+    const a = rest[i]!;
     if (a === "--profile") override = rest[++i] ?? "";
     else if (a === "--no-dispatch") noDispatch = true;
     else if (a === "--force") force = true;

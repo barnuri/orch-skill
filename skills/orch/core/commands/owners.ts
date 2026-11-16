@@ -161,12 +161,12 @@ function dbSessionModel(ses: string): string {
 // owner_literal_id: a session id, claude uuid or pid inside free text.
 export function ownerLiteralId(t: string): [string, string] {
   const s = /(ses_[A-Za-z0-9]+)/.exec(t);
-  if (s) return ["session", s[1]];
+  if (s) return ["session", s[1]!];
   const lower = t.toLowerCase();
   const u = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(lower);
-  if (u) return ["claude", u[1]];
+  if (u) return ["claude", u[1]!];
   const p = /(^|[^a-z])pid[:\s-]*([0-9]+)/.exec(lower);
-  if (p) return ["process", p[2]];
+  if (p) return ["process", p[2]!];
   return ["none", ""];
 }
 
@@ -318,14 +318,14 @@ export function ownerBindMatch(nodes: MatchNode[], id: string, cands: Cand[], ne
   const top = Math.max(...e.map((x) => x.s));
   if (top > 0) {
     const t = e.filter((x) => x.s === top);
-    return t.length === 1 ? { child: t[0].child, how: "title" } : { reason: `tie on title between ${t.map((x) => x.child).join(", ")}` };
+    return t.length === 1 ? { child: t[0]!.child, how: "title" } : { reason: `tie on title between ${t.map((x) => x.child).join(", ")}` };
   }
   if (needTitle) return { reason: "no session title near the node start shares a word with it" };
   const s = [...e].sort((a, b) => a.ad - b.ad);
-  if (s.length > 1 && s[1].ad - s[0].ad < BIND_TIE_SECS) return { reason: `tie on time between ${s.map((x) => x.child).join(", ")}` };
-  const clash = others.filter((o) => Math.abs(s[0].created - o.start) <= s[0].ad + BIND_TIE_SECS);
-  if (clash.length > 0) return { reason: `candidate ${s[0].child} also fits node ${clash.map((o) => o.id).join(", ")}` };
-  return { child: s[0].child, how: "time" };
+  if (s.length > 1 && s[1]!.ad - s[0]!.ad < BIND_TIE_SECS) return { reason: `tie on time between ${s.map((x) => x.child).join(", ")}` };
+  const clash = others.filter((o) => Math.abs(s[0]!.created - o.start) <= s[0]!.ad + BIND_TIE_SECS);
+  if (clash.length > 0) return { reason: `candidate ${s[0]!.child} also fits node ${clash.map((o) => o.id).join(", ")}` };
+  return { child: s[0]!.child, how: "time" };
 }
 
 function pendingCands(home: string, parent: string): Cand[] {
@@ -417,7 +417,7 @@ async function jobBindRun(home: string, runId: string): Promise<string[]> {
     .filter((n) => (n.job_id ?? "") !== "" && ["running", "done", "error"].includes(n.status) && (n.owner_bind ?? "") !== "job" && alt(n.owner_kind, "job") === "job")
     .map((n) => {
       const m = /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/.exec(String(n.job_id).slice(0, 14));
-      const start = m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) / 1000 : null;
+      const start = m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) / 1000 : null;
       return { id: n.id as string, start, prompt: String(n.prompt ?? "") };
     })
     .filter((n): n is { id: string; start: number; prompt: string } => n.start !== null);
@@ -442,7 +442,7 @@ async function jobBindRun(home: string, runId: string): Promise<string[]> {
       .filter((x) => x.d >= -JOB_BEFORE_SECS && x.d <= JOB_AFTER_SECS)
       .map((x) => ({ ...x, ad: Math.abs(x.d) }));
     const pm = c.filter((x) => x.m).sort((a, b) => a.ad - b.ad);
-    const pick = pm.length > 0 ? { id: pm[0].id, how: "job-prompt" } : c.length === 1 ? { id: c[0].id, how: "job-time" } : null;
+    const pick = pm.length > 0 ? { id: pm[0]!.id, how: "job-prompt" } : c.length === 1 ? { id: c[0]!.id, how: "job-time" } : null;
     if (!pick) continue;
     taken.add(pick.id);
     const node = n.id;
@@ -488,7 +488,7 @@ async function prefixRun(home: string, runId: string, ix: Sess[]): Promise<strin
       }
       lines.push(`${node}\tunbound: prefix ${p} is ambiguous`);
     } else {
-      ops.push((r, ctx) => bindApply(r, ctx, node, "session", m[0], "prefix"));
+      ops.push((r, ctx) => bindApply(r, ctx, node, "session", m[0]!, "prefix"));
       lines.push(`${node}\tbound ${m[0]} (prefix)`);
     }
   }

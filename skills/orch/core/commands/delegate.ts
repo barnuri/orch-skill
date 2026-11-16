@@ -35,7 +35,7 @@ function stripTrailingNewlines(s: string): string {
 
 // strong (quality high or best) or cheap. Null when the profile does not exist.
 async function profileClass(home: string, name: string): Promise<"strong" | "cheap" | null> {
-  const doc = await readJson<{ profiles?: Record<string, any> }>(paths.profiles(home)).catch(() => ({}));
+  const doc = await readJson<{ profiles?: Record<string, any> }>(paths.profiles(home)).catch((): { profiles?: Record<string, any> } => ({}));
   const p = doc.profiles?.[name];
   if (!p) return null;
   return p.quality === "high" || p.quality === "best" ? "strong" : "cheap";

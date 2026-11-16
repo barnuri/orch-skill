@@ -33,7 +33,7 @@ export async function runCarry(args: string[]): Promise<number> {
   if (!title) title = `${old.title} (continued)`;
   const r = await dispatchSh(["run", "start", title, ...(newId ? ["--id", newId] : [])]);
   if (r.code !== 0) { process.stderr.write(r.err); return r.code; }
-  const newRun = r.out.split("\n")[0].trim();
+  const newRun = r.out.split("\n")[0]!.trim();
   process.stderr.write(r.err);
 
   const outRoot = `${home}/runs/${runId}/out`;

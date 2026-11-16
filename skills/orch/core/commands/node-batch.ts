@@ -81,7 +81,7 @@ export function buildOp(obj: unknown): string[] {
   const o = obj as Obj;
   const op = o.op;
   if (typeof op !== "string" || !Object.hasOwn(KNOWN, op)) throw new OpError(`"op" must be add, report or update`);
-  const extra = Object.keys(o).filter((k) => !KNOWN[op].includes(k)).sort();
+  const extra = Object.keys(o).filter((k) => !KNOWN[op]!.includes(k)).sort();
   if (extra.length > 0) throw new OpError(`unknown field(s) for ${op}: ${extra.join(", ")}`);
   if (op === "add") {
     if (isNull(o.label) && isNull(o.goal)) throw new OpError(`"label" (or "goal") is required`);

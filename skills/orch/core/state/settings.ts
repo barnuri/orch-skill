@@ -2,7 +2,7 @@
 import { paths } from "./home.ts";
 import { readJson } from "./store.ts";
 
-type Doc = { settings?: Record<string, any>; defaults?: Record<string, any> };
+type Doc = { settings?: Record<string, any>; defaults?: Record<string, any>; profiles?: Record<string, any> };
 
 async function loadDoc(home: string): Promise<Doc> {
   return readJson<Doc>(paths.profiles(home)).catch(() => ({}));

@@ -178,7 +178,7 @@ export function validatePlan(plan: any, doc: any, existing: string[], max: numbe
       profile = dflt;
       warnings.push(`task ${x.id}: profile ${p} is disabled, using ${dflt}`);
     }
-    return { id: x.id, layer: layer[x.id], _i: i, profile, prompt: x.prompt, label: String(x.label ?? x.id).slice(0, PLAN_LABEL_MAX), after: x.after ?? [] };
+    return { id: x.id, layer: layer[x.id]!, _i: i, profile, prompt: x.prompt, label: String(x.label ?? x.id).slice(0, PLAN_LABEL_MAX), after: x.after ?? [] };
   });
   tasks.sort((a, b) => a.layer - b.layer || a._i - b._i);
   return { summary: plan.summary ?? "", warnings, tasks };

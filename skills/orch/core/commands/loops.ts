@@ -631,7 +631,7 @@ async function watchStream(id: string, cmd: string, match: string, ignore: strin
   const dec = new TextDecoder();
   let buf = "";
   let ended = "";
-  let pending: Promise<ReadableStreamReadResult<Uint8Array>> | null = null;
+  let pending: Promise<Awaited<ReturnType<typeof reader.read>>> | null = null;
   outer: for (;;) {
     if (nowEpoch() >= deadline) { ended = "max-runtime"; break; }
     pending ??= reader.read();
