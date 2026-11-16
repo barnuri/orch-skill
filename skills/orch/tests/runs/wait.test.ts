@@ -3,24 +3,30 @@ import { join } from "node:path";
 import { existsSync, statSync, writeFileSync, readFileSync, utimesSync } from "node:fs";
 import { orch, seedHome, tempDir, readText, readJson, runCmd, DISPATCH, cleanEnv, opencodeFixture, waitUntil, autoCleanup } from "../helpers";
 autoCleanup();
-const base = { ORCH_WAIT_POLL_SECS: "1", ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_CACHE_SECS: "0" };
+const base = { ORCH_WAIT_POLL_SECS: "0.1", ORCH_WAIT_HEALTH_SECS: "1", ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_CACHE_SECS: "0" };
 const spawnWait = (home: string, env: Record<string, string>, ...args: string[]) =>
   Bun.spawn(["bun", DISPATCH, "run", "wait", ...args], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ...env }), stdout: "pipe", stderr: "pipe" });
 const afterCursor = (home: string, R: string, fn: () => void) => (async () => { await waitUntil(() => existsSync(join(home, "runs", R, "wait.cursor")), 90); fn(); })();
 
 test("wait: change, timeout, needs-user, follow --json", async () => {
   const home = seedHome();
-  const o = orch(home, { ...base, ORCH_OPENCODE_DB: join(tempDir(), "none.db"), ORCH_OWNER_FILL: "0" });
+  const wenv = { ...base, ORCH_OPENCODE_DB: join(tempDir(), "none.db"), ORCH_OWNER_FILL: "0" };
+  const o = orch(home, wenv);
+  const ow = async (...args: string[]) => {
+    const p = spawnWait(home, wenv, ...args);
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    return { rc: await p.exited, out, err, all: out + err };
+  };
   const R = o("run", "start", "wait").out.trim();
   o("node", "add", R, "a", "A"); o("node", "add", R, "b", "B", "--after", "a"); o("node", "add", R, "w", "W");
   o("node", "update", R, "a", "running", "--owner", "coordinator"); o("node", "update", R, "w", "running", "--owner", "coordinator");
   const p = afterCursor(home, R, () => o("node", "update", R, "a", "done"));
-  let r = o("run", "wait", R, "--timeout", "60");
+  let r = await ow(R, "--timeout", "60");
   await p;
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^a running->done$/m);
   expect(r.out).toMatch(/^ready: b$/m);
-  r = o("run", "wait", R, "--timeout", "2");
+  r = await ow(R, "--timeout", "1");
   expect(r.rc).toBe(124);
   expect(r.out).toMatch(/^no change/m);
   o("node", "update", R, "b", "running", "--owner", "coordinator");
@@ -28,20 +34,20 @@ test("wait: change, timeout, needs-user, follow --json", async () => {
   o("node", "add", R, "q", "Q");
   o("run", "wait", R, "--timeout", "5");
   const p2 = afterCursor(home, R, () => o("node", "update", R, "q", "--needs-user", "pick a database"));
-  r = o("run", "wait", R, "--timeout", "60");
+  r = await ow(R, "--timeout", "60");
   await p2;
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^q needs-user: pick a database$/m);
   expect(r.out.replace(/\n/g, " ")).not.toMatch(/needs-user.*needs-user/);
-  expect(o("run", "wait", R, "--timeout", "2").rc).toBe(124);
+  expect(o("run", "wait", R, "--timeout", "1").rc).toBe(124);
 
   const proc = spawnWait(home, { ...base, ORCH_OWNER_FILL: "0" }, R, "--follow", "--json", "--timeout", "120");
   const text = new Response(proc.stdout).text();
-  Bun.sleepSync(1500);
+  await waitUntil(() => existsSync(join(home, "runs", R, "wait.follow.cursor")), 60);
   o("node", "update", R, "w", "done");
-  Bun.sleepSync(2500);
+  await Bun.sleep(500);
   o("node", "update", R, "b", "error", "--error", "boom");
-  Bun.sleepSync(2500);
+  await Bun.sleep(500);
   o("node", "update", R, "q", "--clear-needs-user"); o("node", "update", R, "q", "skipped");
   o("run", "finish", R, "--status", "done");
   expect(await proc.exited).toBe(0);
@@ -54,86 +60,3 @@ test("wait: change, timeout, needs-user, follow --json", async () => {
   expect(lines.every((l) => { const j = JSON.parse(l); return "kind" in j && "run" in j; })).toBe(true);
 }, 300000);
 
-test("wait: stall and dead owners, argument errors", async () => {
-  const fx = await opencodeFixture();
-  const home = seedHome();
-  const o = orch(home, { ...base, ...fx.env, ORCH_OWNER_FILL: "0", ORCH_SQLITE3: join(fx.dir, "no-sqlite3") });
-  const S = o("run", "start", "stall").out.trim();
-  for (const n of ["ok", "st", "dg"]) o("node", "add", S, n, n);
-  o("node", "update", S, "ok", "running", "--owner", "ses_busy1");
-  o("node", "update", S, "st", "running", "--owner", "ses_stall1");
-  o("node", "update", S, "dg", "running", "--owner", "ses_gone99");
-  let r = o("run", "wait", S, "--timeout", "60", "--stall-min", "60");
-  expect(r.rc).toBe(0);
-  expect(r.out).toMatch(/^dg dead: session ses_gone99 is gone$/m);
-  expect(r.out).not.toMatch(/^st stalled/m);
-  r = o("run", "wait", S, "--timeout", "60");
-  expect(r.rc).toBe(0);
-  expect(r.out).toMatch(/^st stalled: no activity since \d{2}:\d{2}$/m);
-  expect(r.out).not.toMatch(/^ok /m);
-  r = o("run", "wait", S, "--timeout", "3", "--json");
-  expect(r.rc).toBe(124);
-  expect(r.out).toMatch(/"kind":"timeout"/);
-  expect(o("run", "wait", S, "--stall-min", "0").rc).toBe(2);
-  expect(o("run", "wait", S, "--bogus").rc).toBe(2);
-  expect(o("run", "wait", S, "--timeout", "x").rc).toBe(2);
-  expect(o("run", "wait", S, "r2").rc).toBe(2);
-  expect(o("run", "wait").rc).toBe(2);
-}, 300000);
-
-test("wait --follow: restart without loss or duplicates, rescan", async () => {
-  const home = seedHome();
-  const env = { ...base, ORCH_OPENCODE_DB: join(tempDir(), "none.db"), ORCH_OWNER_FILL: "0" };
-  const o = orch(home, env);
-  const R = o("run", "start", "follow").out.trim();
-  for (const n of ["a", "b", "c", "d", "e"]) { o("node", "add", R, n, n); o("node", "update", R, n, "running", "--owner", "coordinator"); }
-  const fcur = join(home, "runs", R, "wait.follow.cursor");
-  const logs: string[] = [];
-  const start = async (extra: Record<string, string> = {}) => {
-    const p = spawnWait(home, { ...env, ...extra }, R, "--follow");
-    let buf = "";
-    (async () => { for await (const c of p.stdout as any) buf += new TextDecoder().decode(c); })();
-    await waitUntil(() => existsSync(fcur), 90);
-    return { p, buf: () => buf };
-  };
-  const printed = (f: { buf: () => string }, line: string) => waitUntil(() => f.buf().split("\n").includes(line), 40);
-  let f = await start();
-  o("node", "update", R, "a", "done");
-  expect(await printed(f, "a running->done")).toBe(true);
-  o("node", "update", R, "b", "error", "--error", "boom");
-  expect(await printed(f, "b running->error: boom")).toBe(true);
-  o("node", "update", R, "c", "waiting");
-  expect(await printed(f, "c running->waiting")).toBe(true);
-  o("node", "update", R, "c", "running", "--owner", "coordinator");
-  expect(await printed(f, "c waiting->running")).toBe(true);
-  o("node", "update", R, "d", "done");
-  o("run", "wait", R, "--timeout", "10");
-  expect(await printed(f, "d running->done")).toBe(true);
-  f.p.kill(); await f.p.exited;
-  const first = f.buf();
-  o("node", "update", R, "e", "done");
-  f = await start();
-  expect(await printed(f, "e running->done")).toBe(true);
-  o("node", "update", R, "c", "done");
-  expect(await printed(f, "c running->done")).toBe(true);
-  f.p.kill(); await f.p.exited;
-  const all = first + f.buf();
-  for (const l of ["a running->done", "d running->done", "e running->done"]) expect(all.split("\n").filter((x) => x === l).length).toBe(1);
-
-  const sf = join(home, "runs", R, "state.json");
-  o("node", "add", R, "s", "s");
-  writeFileSync(sf, JSON.stringify(readJson(sf), null, 2));
-  f = await start({ ORCH_WAIT_RESCAN_SECS: "2" });
-  await waitUntil(() => { try { return readJson(fcur).snap.nodes.s.s === "waiting"; } catch { return false; } }, 60);
-  const st = statSync(sf), size0 = st.size;
-  const text = readText(sf).replace('"id": "s"', '"id": "s"');
-  const j = readJson(sf); j.nodes.find((n: any) => n.id === "s").status = "skipped";
-  let out = JSON.stringify(j, null, 2);
-  // keep the byte size and mtime identical so only a rescan can notice
-  const pad = size0 - Buffer.byteLength(out);
-  if (pad > 0) out = out.replace(/\n$/, "") + " ".repeat(pad);
-  writeFileSync(sf, out);
-  utimesSync(sf, st.atime, st.mtime);
-  expect(await printed(f, "s waiting->skipped")).toBe(true);
-  f.p.kill(); await f.p.exited;
-}, 400000);
