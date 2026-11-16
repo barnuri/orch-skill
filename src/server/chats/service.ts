@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 
 import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
-import { ensureSubfolder, normaliseSubfolder, SubfolderError } from "./subfolder";
+import { ensureSubfolder, normaliseSubfolder, reasonOf, SubfolderError, subfolderProblem } from "./subfolder";
 import { chatRoots, FolderError, folderUsable, type FolderList, listFolders, validateFolder } from "./folders";
 import { alternativeHint, buildOptions, chatUsageRefusal, EFFORTS, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
@@ -487,26 +487,36 @@ export class ChatService {
     return row;
   }
 
-  /** The folder the chat's next turn runs in: its own, else its project's, else null (a scratch folder). */
+  /**
+   * The folder the chat's next turn runs in: its own, else its project's (with the subfolder when it can be used), else null (a
+   * scratch folder). The subfolder is resolved with realpath on every call, so a symlink swapped in after it was set sends the
+   * chat back to the project folder here, in every API read, and at the next turn alike.
+   */
   effectiveCwd(chat: ChatRow): string | null {
     const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
-    if (chat.cwd === null && project?.path != null && chat.subfolder !== null) {
+    if (chat.cwd === null && project?.path != null && chat.subfolder !== null && subfolderProblem(project.path, chat.subfolder) === null) {
       return join(project.path, chat.subfolder);
     }
     return chat.cwd ?? project?.path ?? null;
   }
 
-  /** Creates the chat's subfolder when missing (a deleted one comes back). False when it cannot be created or leaves the project folder. */
-  private prepareSubfolder(chat: ChatRow): boolean {
+  /** Why the chat's subfolder is not used (it resolves outside the project folder, a level is a file or a broken link), or null. Creates nothing. */
+  private subfolderIssue(chat: ChatRow): string | null {
+    const own = this.projectOwnPath(chat);
+    return chat.cwd !== null || chat.subfolder === null || own === null ? null : subfolderProblem(own, chat.subfolder);
+  }
+
+  /** Creates the chat's subfolder when missing (a deleted one comes back). Returns why it cannot be used, or null when it is ready. */
+  private prepareSubfolder(chat: ChatRow): string | null {
     const path = chat.project_id === null ? null : (this.store.getProject(chat.project_id)?.path ?? null);
     if (path === null || chat.subfolder === null) {
-      return false;
+      return "the chat has no project folder";
     }
     try {
       ensureSubfolder(path, chat.subfolder);
-      return true;
-    } catch {
-      return false;
+      return null;
+    } catch (err) {
+      return err instanceof SubfolderError ? reasonOf(err) : String(err);
     }
   }
 
@@ -519,7 +529,7 @@ export class ChatService {
     let wanted = this.effectiveCwd(chat);
     if (chat.cwd === null && chat.subfolder !== null && wanted !== null && wanted !== this.projectOwnPath(chat)) {
       // the folder is created again whenever it is needed, so a deleted one never breaks a turn; on failure the project folder applies
-      wanted = this.prepareSubfolder(chat) ? wanted : this.projectOwnPath(chat);
+      wanted = this.prepareSubfolder(chat) === null ? wanted : this.projectOwnPath(chat);
     }
     // A chat folder is checked again at every turn: a symlink swapped after it was picked must not lead outside the roots.
     if (wanted !== null && existsSync(wanted) && statSync(wanted).isDirectory() && (chat.cwd === null || folderUsable(wanted, chatRoots(this.home)))) {
@@ -606,12 +616,15 @@ export class ChatService {
     return path !== null && existsSync(path) ? path : null;
   }
 
-  /** Why the chat will not run where the user expects, or null: its folder is gone or no longer allowed. */
+  /** Why the chat will not run where the user expects, or null: its folder is gone, no longer allowed, or its subfolder is not usable. Names the reason. */
   warningFor(chat: ChatRow): string | null {
     const cwd = this.effectiveCwd(chat);
     const own = this.projectOwnPath(chat);
-    if (chat.cwd === null && chat.subfolder !== null && own !== null && cwd !== own && existsSync(own) && !this.prepareSubfolder(chat)) {
-      return `Subfolder ${chat.subfolder} could not be created in ${own}: the agent runs in the project folder instead.`;
+    if (chat.cwd === null && chat.subfolder !== null && own !== null && existsSync(own)) {
+      const issue = this.subfolderIssue(chat) ?? (cwd !== own ? this.prepareSubfolder(chat) : null);
+      if (issue !== null) {
+        return `Subfolder ${chat.subfolder} is not used (${issue}): the agent runs in the project folder instead.`;
+      }
     }
     if (cwd !== null && !existsSync(cwd) && !(cwd !== own && own !== null && existsSync(own))) {
       return `${chat.cwd === null ? "Project" : "Chat"} directory ${cwd} no longer exists: the agent runs in a scratch folder instead.`;

@@ -14,6 +14,37 @@ function inside(root: string, path: string): boolean {
  * symlink that leaves the project folder is refused before anything is created through it.
  */
 export function ensureSubfolder(projectPath: string, subfolder: string): string {
+  return walk(projectPath, subfolder, true);
+}
+
+/** The reason without its `subfolder: ` prefix, for a sentence. */
+export function reasonOf(err: SubfolderError): string {
+  return err.message.replace(/^subfolder: /, "");
+}
+
+/**
+ * Why the subfolder cannot be used now, or null: the real path of every level that exists is checked again (a symlink swapped in
+ * after the subfolder was set, a level that became a file). Creates nothing, so reads can call it. A project folder that is gone
+ * is not a subfolder problem (the caller reports it); a level that does not exist yet is fine (it is created at the next turn).
+ */
+export function subfolderProblem(projectPath: string, subfolder: string): string | null {
+  try {
+    realpathSync(projectPath);
+  } catch {
+    return null;
+  }
+  try {
+    walk(projectPath, subfolder, false);
+    return null;
+  } catch (err) {
+    if (err instanceof SubfolderError) {
+      return reasonOf(err);
+    }
+    throw err;
+  }
+}
+
+function walk(projectPath: string, subfolder: string, create: boolean): string {
   let root: string;
   try {
     root = realpathSync(projectPath);
@@ -30,7 +61,12 @@ export function ensureSubfolder(projectPath: string, subfolder: string): string 
       exists = false;
     }
     if (exists) {
-      const real = realpathSync(next);
+      let real: string;
+      try {
+        real = realpathSync(next);
+      } catch {
+        throw new SubfolderError("subfolder: a level of the path is a broken link");
+      }
       if (!inside(root, real)) {
         throw new SubfolderError("subfolder: resolves outside the project folder");
       }
@@ -38,6 +74,8 @@ export function ensureSubfolder(projectPath: string, subfolder: string): string 
         throw new SubfolderError("subfolder: a level of the path is a file, not a folder");
       }
       current = real;
+    } else if (!create) {
+      return current;
     } else {
       try {
         mkdirSync(next);

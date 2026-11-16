@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -66,4 +66,33 @@ test("subfolder over HTTP: create, update, clear, list, get, errors, depth-2 sug
   expect(one.items.map((i) => i.name).sort()).toEqual(["app", "new", "x"]);
   expect(two.items.map((i) => i.name)).toContain("app/src");
   expect(two.items.some((i) => i.name.includes(".git"))).toBe(false);
+});
+
+test("a symlink swapped in after the subfolder was set: read, list and update answer with the project folder and the reason", async () => {
+  const srv = startTestServer();
+  servers.push(srv);
+  const proj = join(base, "root/swapped");
+  mkdirSync(proj, { recursive: true });
+  mkdirSync(join(base, "outside"), { recursive: true });
+  srv.home.write("profiles.json", JSON.stringify({
+    settings: { chat_roots: [join(base, "root")] },
+    models: { "m-a": { slug: "alpha", harnesses: ["claude"] } },
+    profiles: { main: { harness: "claude", model: "m-a" } },
+  }));
+  const project = (await (await json(srv, "/api/projects", "POST", { name: "p" })).json()) as { id: string };
+  await json(srv, `/api/projects/${project.id}/folder`, "PATCH", { path: proj });
+  const chat = (await (await json(srv, "/api/chats", "POST", { harness: "claude", profile: "main", project_id: project.id, subfolder: "app" })).json()) as { id: string };
+  expect(((await (await srv.api(`/api/chats/${chat.id}`)).json()) as { effective_cwd: string; warning: string | null })).toMatchObject({ effective_cwd: join(proj, "app"), warning: null });
+
+  rmSync(join(proj, "app"), { recursive: true });
+  symlinkSync(join(base, "outside"), join(proj, "app"));
+  const reason = "Subfolder app is not used (resolves outside the project folder): the agent runs in the project folder instead.";
+  expect(await (await srv.api(`/api/chats/${chat.id}`)).json()).toMatchObject({ effective_cwd: proj, warning: reason });
+  const list = (await (await srv.api("/api/chats")).json()) as { items: Array<{ id: string; effective_cwd: string }> };
+  expect(list.items.find((i) => i.id === chat.id)?.effective_cwd).toBe(proj);
+  const upd = await json(srv, `/api/chats/${chat.id}`, "PATCH", { subfolder: null });
+  expect(((await upd.json()) as { chat: { effective_cwd: string; warning: string | null } }).chat).toMatchObject({ effective_cwd: proj, warning: null });
+  const again = await json(srv, `/api/chats/${chat.id}`, "PATCH", { subfolder: "app" });
+  expect(again.status).toBe(400);
+  expect(((await again.json()) as { error: string }).error).toBe("subfolder: resolves outside the project folder");
 });

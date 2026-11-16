@@ -9,7 +9,7 @@ import { TempHome } from "../test-support/temp-home";
 import type { ServerContext } from "../types/server-context";
 import { ChatService, HttpError } from "./service";
 import { ChatStore } from "./store";
-import { ensureSubfolder, normaliseSubfolder, SubfolderError } from "./subfolder";
+import { ensureSubfolder, normaliseSubfolder, SubfolderError, subfolderProblem } from "./subfolder";
 
 const FAKE_CLAUDE = resolve(import.meta.dir, "testing/fake-claude.ts");
 const base = realpathSync(mkdtempSync(join(tmpdir(), "chat-subfolder-")));
@@ -166,7 +166,7 @@ describe("effective folder", () => {
     rmSync(join(root, "proj/gone"), { recursive: true });
     writeFileSync(join(root, "proj/gone"), "a file");
     expect(service.usableCwd(chat)).toBe(join(root, "proj"));
-    expect(service.warningFor(chat)).toMatch(/could not be created.*project folder instead/);
+    expect(service.warningFor(chat)).toMatch(/Subfolder gone is not used \(a level of the path is a file, not a folder\).*project folder instead/);
     rmSync(join(root, "proj/gone"));
   });
 
@@ -175,6 +175,56 @@ describe("effective folder", () => {
     const proj = projectWith(service, join(root, "proj"));
     const chat = service.createChat({ harness: "claude", profile: "main", project_id: proj, subfolder: "ws" });
     expect(service.workspace(chat, "chat").root).toBe(join(root, "proj/ws/.orch/chats", chat.id));
+  });
+});
+
+describe("a symlink swapped in after the subfolder was set", () => {
+  const swapRoot = (name: string): string => {
+    const dir = join(root, name);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+
+  test("subfolderProblem resolves every level with realpath, creates nothing, and names the reason", () => {
+    const dir = swapRoot("probe");
+    mkdirSync(join(dir, "ok/deeper"), { recursive: true });
+    expect(subfolderProblem(dir, "ok/deeper")).toBeNull();
+    expect(subfolderProblem(dir, "not/made/yet")).toBeNull();
+    expect(existsSync(join(dir, "not"))).toBe(false);
+    symlinkSync(join(base, "out"), join(dir, "evil"));
+    expect(subfolderProblem(dir, "evil")).toBe("resolves outside the project folder");
+    expect(subfolderProblem(dir, "evil/more")).toBe("resolves outside the project folder");
+    symlinkSync(join(dir, "missing-target"), join(dir, "dangling"));
+    expect(subfolderProblem(dir, "dangling")).toBe("a level of the path is a broken link");
+    symlinkSync(join(dir, "ok"), join(dir, "inside-link"));
+    expect(subfolderProblem(dir, "inside-link/deeper")).toBeNull();
+    expect(subfolderProblem(join(dir, "no-such-project"), "x")).toBeNull();
+    expect(existsSync(join(base, "out", "more"))).toBe(false);
+  });
+
+  test("reads, the warning and the next turn all fall back to the project folder, and the agent never starts outside it", async () => {
+    const { service, spawns } = setup();
+    const dir = swapRoot("swap");
+    const proj = projectWith(service, dir);
+    const chat = service.createChat({ harness: "claude", profile: "main", project_id: proj, subfolder: "work/inner" });
+    expect(service.effectiveCwd(chat)).toBe(join(dir, "work/inner"));
+    expect(service.warningFor(chat)).toBeNull();
+
+    rmSync(join(dir, "work"), { recursive: true });
+    symlinkSync(join(base, "out"), join(dir, "work"));
+    expect(service.effectiveCwd(chat)).toBe(dir);
+    expect(service.usableCwd(chat)).toBe(dir);
+    expect(service.warningFor(chat)).toBe("Subfolder work/inner is not used (resolves outside the project folder): the agent runs in the project folder instead.");
+    expect(existsSync(join(base, "out", "inner"))).toBe(false);
+
+    service.sendMessage(chat.id, { content: "hi" });
+    await service.settled(chat.id);
+    expect(spawns().at(-1)).toBe(dir);
+    expect(existsSync(join(base, "out", "inner"))).toBe(false);
+
+    rmSync(join(dir, "work"));
+    expect(service.warningFor(service.chat(chat.id))).toBeNull();
+    expect(service.effectiveCwd(service.chat(chat.id))).toBe(join(dir, "work/inner"));
   });
 });
 
