@@ -21,8 +21,9 @@ import { formatHttpsLine, readTlsStatus } from "../src/server/tls/status-file.ts
 import { DISPATCH, HOME, REPO_DIR, run, sleep, trashPath, which } from "./lib/util.ts";
 
 const SKILL_DIR = join(REPO_DIR, "skills/orch");
-const SERVICE_LABEL = "io.github.barnuri.orch";
-const SYSTEMD_UNIT_NAME = "orch-dashboard.service";
+// ORCH_SERVICE_LABEL / ORCH_SERVICE_UNIT name a second, throwaway service (tests, sandbox checks); the defaults are the real one.
+const SERVICE_LABEL = process.env["ORCH_SERVICE_LABEL"] || "io.github.barnuri.orch";
+const SYSTEMD_UNIT_NAME = process.env["ORCH_SERVICE_UNIT"] || "orch-dashboard.service";
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = "6724";
 const THROTTLE_SECS = 10;
