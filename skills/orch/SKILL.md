@@ -356,6 +356,16 @@ Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 - Verify with `run status` after you change the graph.
 - Set a node back to `waiting` only with `node update waiting`: it resets the node. Remove a mistaken node with `node remove`.
 
+## Commit and restart at safe points
+
+When the user has allowed commits without push, the coordinator commits and refreshes the service as
+work lands, not at the end. After a node's own tests pass: commit that node's files by path as one
+logical commit (no co-author, never push, never another session's files), run
+`bash scripts/service.sh restart` if the repo has the orch dashboard service, and confirm
+`/api/build` reports `stale:false`. Without commit permission, do not commit; ask once through the
+user-question tool and remember the answer for the session. A restart pauses and resumes active runs by
+itself; do not restart while a node is still editing `src/`.
+
 ## Babysitting
 
 Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run health --ensure-monitors` restores lost ones). It runs `run health <run> --json` every 30 s (`settings.health_every_sec`), and records an event only on a change: a node finished, nodes became ready, a node stalled, died, lost its owner or recovered.

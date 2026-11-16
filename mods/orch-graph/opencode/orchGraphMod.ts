@@ -25,6 +25,8 @@ export class OrchGraphMod {
   private readonly orchSessions = new Set<string>()
   private pinned = ''
   private last = ''
+  // Auto-open happens once per load: a pane the user closed stays closed until `/orch-graph`.
+  private isAutoOpened = false
 
   constructor(private readonly api: ModHostApi) {}
 
@@ -76,7 +78,8 @@ export class OrchGraphMod {
       this.last = serial
       await this.api.publish(OrchGraphMod.PANE_KEY, { view, pinned: this.pinned })
     }
-    if (view.run && this.isOrchSession()) {
+    if (view.run && !this.isAutoOpened && this.isOrchSession()) {
+      this.isAutoOpened = true
       await this.api.openPane(OrchGraphMod.PANE_KEY)
     }
   }

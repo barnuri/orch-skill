@@ -128,6 +128,17 @@ Do not use `dispatch.sh ui` for this when the service is installed: it stops the
 own `nohup` copy, which the supervisor then races. If the unit is not installed there is nothing to
 restart; the next `ui` picks the change up.
 
+## Commit and restart when the user allows commits
+
+If the user allowed local commits (no push), commit and restart at every safe point instead of
+batching to the end: after a task's touched tests and `typecheck.sh` pass, commit that task's files
+as one logical commit, then `bash scripts/service.sh restart`, then check `/api/build` returns
+`stale:false`. Rules: stage only your own task's files by path (never `git add -A`, never another
+session's files such as `mods/orch-graph/**` unless the user asked), no co-author, never push, never
+rewrite history. No commit permission means no commit; the restart rule still applies. A restart is
+safe while a run is active: the service pauses running runs on SIGTERM and resumes `auto_resume` runs at
+boot (stopped runs stay stopped). Skip the restart only while a node is mid-write in `src/`.
+
 ## Tests
 
 ```bash
