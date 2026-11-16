@@ -10,7 +10,7 @@ export function stamp(d: Date = new Date()): string {
 export async function trashPath(home: string, target: string): Promise<boolean> {
   const t = target.replace(/\/+$/, "");
   if (!(await stat(t).catch(() => null))) return true;
-  if (Bun.which("trash")) {
+  if (Bun.which("trash", { PATH: process.env.PATH ?? "" })) {
     const p = Bun.spawn(["trash", t], { stdout: "ignore", stderr: "ignore" });
     if ((await p.exited) === 0) return true;
   }

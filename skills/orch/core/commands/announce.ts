@@ -92,7 +92,7 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
   let bin = "";
   if (env.HERDR_ENV === "1" && pane) {
     if (env.HERDR_BIN_PATH && existsSync(env.HERDR_BIN_PATH)) bin = env.HERDR_BIN_PATH;
-    else bin = Bun.which("herdr") ?? "";
+    else bin = Bun.which("herdr", { PATH: process.env.PATH ?? "" }) ?? "";
   }
   const timeout = Number(env.ANNOUNCE_HERDR_TIMEOUT ?? 5) || 5;
   if (bin) {

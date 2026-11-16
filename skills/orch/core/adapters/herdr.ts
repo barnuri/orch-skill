@@ -30,7 +30,7 @@ delivery = "off"
 const callTimeoutMs = () => Number(process.env.ORCH_HERDR_CALL_TIMEOUT || 8) * 1000;
 const startWaitSecs = () => Number(process.env.ORCH_HERDR_START_WAIT || 15);
 const herdrDir = (home: string) => join(home, "herdr");
-const binPresent = () => Bun.which("herdr") !== null;
+const binPresent = () => Bun.which("herdr", { PATH: process.env.PATH ?? "" }) !== null;
 const readText = (f: string) => { try { return readFileSync(f, "utf8"); } catch { return ""; } };
 const readTrim = (f: string) => readText(f).trim();
 const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -242,7 +242,7 @@ async function ensureServer(home: string): Promise<boolean> {
     if (existsSync(sock)) await trashPath(home, sock);
     mkdirSync(dir, { recursive: true });
     const log = join(dir, "server.log");
-    const p = Bun.spawn(["sh", "-c", `exec herdr server >>"${log}" 2>&1 </dev/null`], { env: instEnv(inst), stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const p = Bun.spawn(["sh", "-c", `exec herdr server >>"${log}" 2>&1 </dev/null`], { env: instEnv(inst), stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
     p.unref();
     writeFileSync(join(dir, "server.pid"), `${p.pid}\n`);
     for (let i = 0; i < startWaitSecs() * 4; i++) {
@@ -402,7 +402,8 @@ export async function sweep(home: string): Promise<number> {
   const jobsDir = paths.jobs(home);
   const byPane = new Map<string, string>();
   try {
-    for (const d of readdirSync(jobsDir)) {
+    // Pane ids restart at w1:p2 with each server, so the newest job dir wins a shared id.
+    for (const d of readdirSync(jobsDir).sort()) {
       const pane = readTrim(join(jobsDir, d, "herdr_pane"));
       if (pane) byPane.set(pane, join(jobsDir, d));
     }

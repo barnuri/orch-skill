@@ -469,7 +469,7 @@ export { ensureHome } from "../state/profiles.ts";
 
 function herdrBoot(home: string): void {
   const flag = env().ORCH_HERDR ?? "";
-  if (["0", "false", "off"].includes(flag) || !Bun.which("herdr")) return;
+  if (["0", "false", "off"].includes(flag) || !Bun.which("herdr", { PATH: process.env.PATH ?? "" })) return;
   try {
     const dispatch = resolve(import.meta.dir, "../../scripts/dispatch.ts");
     Bun.spawn([process.execPath, dispatch, "herdr", "ensure"], {
@@ -536,7 +536,7 @@ export async function uiCommand(args: string[]): Promise<number> {
   const url = serveUrl(home);
   out(url);
   if (env().ORCH_NO_OPEN) return 0;
-  const opener = Bun.which("open") ?? Bun.which("xdg-open");
+  const opener = Bun.which("open", { PATH: process.env.PATH ?? "" }) ?? Bun.which("xdg-open", { PATH: process.env.PATH ?? "" });
   if (opener) Bun.spawn([opener, url.trim()], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref();
   return 0;
 }

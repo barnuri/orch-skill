@@ -8,6 +8,7 @@ const fx = await opencodeFixture();
 const setup = () => {
   const home = seedHome();
   const o = orch(home, fx.env);
+  o("settings", "set", "defaults.max_parallel", "4");
   const hj = (R: string) => JSON.parse(o("run", "health", R, "--json").out);
   const hOf = (out: any, n: string) => out.nodes.find((x: any) => x.id === n);
   const R = o("run", "start", "health").out.trim();
@@ -152,11 +153,11 @@ test("holds, big run, corrupt state, usage", () => {
 
 test("health monitor", async () => {
   const home = seedHome();
-  const o = orch(home, { ...fx.env, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "12" });
+  const o = orch(home, { ...fx.env, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "2", ORCH_EVERY_MIN_SECS: "1" });
   const active = () => JSON.parse(o("active", "--json").out) as any[];
   const R = o("run", "start", "monitored").out.trim();
   expect(active().find((a) => a.kind === "watch").name).toBe(`health:${R}`);
-  expect(Number(active()[0].interval)).toBe(12);
+  expect(Number(active()[0].interval)).toBe(2);
   expect(readText(join(home, "runs", R, "events.jsonl"))).toMatch(/monitor started/);
   o("run", "start", "monitored", "--id", R);
   expect(active().filter((a) => a.name === `health:${R}`).length).toBe(1);
@@ -179,14 +180,14 @@ test("health monitor", async () => {
   const w2 = active().find((a) => a.status === "running").id;
   try { process.kill(-readJson(join(home, "watches", w2, "state.json")).pid, "SIGTERM"); } catch {}
   await waitUntil(() => active().filter((a) => a.status === "running").length === 0, 20);
-  await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "12", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
+  await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "2", ORCH_EVERY_MIN_SECS: "1", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
   expect(active().filter((a) => a.status === "running" && a.name === `health:${R}`).length).toBe(1);
   renameSync(join(home, "runs/0000-bad"), join(home, "bad-run"));
   o("run", "finish", R);
   await waitUntil(() => active().filter((a) => a.status === "running").length === 0, 60);
   expect(active().filter((a) => a.status === "running").length).toBe(0);
   expect(readText(join(home, "runs", R, "events.jsonl"))).toMatch(/monitor stopped \(run done\)/);
-  o.env({ ORCH_HEALTH_EVERY_SEC: "3" }, "run", "start", "fast");
+  o.env({ ORCH_HEALTH_EVERY_SEC: "3", ORCH_EVERY_MIN_SECS: "" }, "run", "start", "fast");
   expect(Number(active().find((a) => a.status === "running").interval)).toBe(10);
   for (const a of active()) o("watch", "stop", a.id);
 }, 240000);

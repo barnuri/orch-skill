@@ -126,7 +126,7 @@ async function reopenRun(id: string): Promise<void> {
 // ---- loops ----------------------------------------------------------------------------------------
 
 async function opencodeSessionState(session: string): Promise<string> {
-  const bin = Bun.which("opencode") ?? [`${process.env.HOME}/.bun/bin`, `${process.env.HOME}/.opencode/bin`, "/opt/homebrew/bin", "/usr/local/bin"].map((d) => join(d, "opencode")).find((p) => existsSync(p));
+  const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" }) ?? [`${process.env.HOME}/.bun/bin`, `${process.env.HOME}/.opencode/bin`, "/opt/homebrew/bin", "/usr/local/bin"].map((d) => join(d, "opencode")).find((p) => existsSync(p));
   if (!bin) return "unknown";
   const r = await runLimited(30, [bin, "api", "GET", `/api/session/${session}/message`, "--param", "limit=1", "--param", "order=desc"]);
   if (r.code !== 0) return "unknown";
@@ -571,7 +571,7 @@ async function watchStart(args: string[]): Promise<number> {
   let interval = 0;
   if (every) {
     const d = parseDuration(every);
-    if (d === null || d < 10) { err("watch start: --every must be a duration of at least 10s\n"); return 2; }
+    if (d === null || d < (Number(process.env.ORCH_EVERY_MIN_SECS) >= 1 ? Number(process.env.ORCH_EVERY_MIN_SECS) : 10)) { err("watch start: --every must be a duration of at least 10s\n"); return 2; }
     interval = d;
   }
   const runtime = parseDuration(maxRuntime || "24h");

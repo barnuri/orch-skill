@@ -11,7 +11,7 @@ export function orchHome(): string {
 
 export function doctorLines(): string[] {
   const home = orchHome();
-  const herdr = Bun.which("herdr");
+  const herdr = Bun.which("herdr", { PATH: process.env.PATH ?? "" });
   return [
     `bun: ${Bun.version}`,
     "state: read by orch CLI, jq not required",

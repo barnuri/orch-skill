@@ -14,7 +14,7 @@ const MSG_MAX_BYTES = 4000;
 const messagesFile = (home: string, run: string) => join(home, "runs", run, "messages.jsonl");
 
 async function herdrNotify(run: string, from: string, to: string, text: string): Promise<void> {
-  if (process.env.HERDR_ENV !== "1" || !Bun.which("herdr")) return;
+  if (process.env.HERDR_ENV !== "1" || !Bun.which("herdr", { PATH: process.env.PATH ?? "" })) return;
   try {
     const p = Bun.spawn(["herdr", "notification", "show", `orch ${run}: ${from} → ${to}`, "--body", text, "--sound", "request"], { stdout: "ignore", stderr: "ignore" });
     await p.exited;

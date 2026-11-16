@@ -38,7 +38,8 @@ export async function healthEverySec(home: string): Promise<number> {
   let v: string = process.env.ORCH_HEALTH_EVERY_SEC ?? "";
   if (!v) v = settingFrom(await loadProfilesDoc(home), "health_every_sec", String(EVERY_SEC_DEFAULT));
   let n = isUint(v) ? Number(v) : EVERY_SEC_DEFAULT;
-  if (n < EVERY_SEC_MIN) n = EVERY_SEC_MIN;
+  const min = isUint(process.env.ORCH_EVERY_MIN_SECS) && Number(process.env.ORCH_EVERY_MIN_SECS) >= 1 ? Number(process.env.ORCH_EVERY_MIN_SECS) : EVERY_SEC_MIN;
+  if (n < min) n = min;
   return n;
 }
 
@@ -166,7 +167,7 @@ async function appendHealthEvents(home: string, run: string, evs: Array<[string,
 }
 
 async function sendNudges(home: string, run: string, line: Snap): Promise<string[]> {
-  const bin = Bun.which("opencode");
+  const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" });
   if (!bin) return (err("health: opencode not found, no nudge sent\n"), []);
   const sent: string[] = [];
   for (const n of line._nudge as any[]) {

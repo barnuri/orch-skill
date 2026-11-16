@@ -7,6 +7,8 @@ import { runHealth } from "./commands/health.ts";
 import { nodeAdd, nodeUpdate, nodeReport } from "./commands/node.ts";
 import { runWait } from "./commands/wait.ts";
 import { nodeStarted, runBackfillTiming } from "./commands/timing.ts";
+import { coordinatorAutoRecord } from "./commands/inbox.ts";
+import { healthMonitorAutostart } from "./commands/health.ts";
 import { runCarry } from "./commands/carry.ts";
 import { useCommand } from "./commands/use.ts";
 import { nodeBatch } from "./commands/node-batch.ts";
@@ -48,8 +50,28 @@ export const VERSION = "0.1.0";
 export type Handler = (args: string[]) => Promise<number> | number;
 
 // `<group> <verb>` commands.
+// run_create_with_monitor: after a run is created (start or carry), record the coordinator and start its health monitor.
+function withMonitor(h: Handler): Handler {
+  return async (args) => {
+    const w = process.stdout.write;
+    let first = "";
+    process.stdout.write = ((chunk: any, ...rest: any[]) => {
+      if (!first) first = String(chunk).split("\n")[0] ?? "";
+      return (w as any).call(process.stdout, chunk, ...rest);
+    }) as any;
+    let rc: number;
+    try { rc = await h(args); } finally { process.stdout.write = w; }
+    if (rc === 0 && first) {
+      const home = orchHome();
+      await coordinatorAutoRecord(home, first).catch(() => undefined);
+      await healthMonitorAutostart(home, first).catch(() => undefined);
+    }
+    return rc;
+  };
+}
+
 export const COMMANDS: Record<string, Handler> = {
-  "run start": runStart, "run list": runList, "run retry": runRetry, "run sync": runSync, "__run-cancel": runCancel, prune: (a) => prune(a),
+  "run start": withMonitor(runStart), "run list": runList, "run retry": runRetry, "run sync": runSync, "__run-cancel": runCancel, prune: (a) => prune(a),
   "node usage": nodeUsage, "node cost": nodeCost, "node out": nodeOut, "node digest": nodeDigest, "node remove": nodeRemove, "node ping": nodePing,
   "node dispatch": nodeDispatch,
   "node retry": nodeRetry,
@@ -79,7 +101,7 @@ export const COMMANDS: Record<string, Handler> = {
   "node started": nodeStarted,
   "run backfill-timing": runBackfillTiming,
   "run wait": runWait,
-  "run carry": runCarry,
+  "run carry": withMonitor(runCarry),
   use: useCommand,
   "run status": runStatusCommand,
   "node selections": nodeSelections,
