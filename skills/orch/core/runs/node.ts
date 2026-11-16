@@ -265,7 +265,7 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
 // ---- timing and retry ----------------------------------------------------------------------------
 
 // seg_close($at) from lib/runs/timing.sh: closes the open segment into run_segments.
-function segClose(n: Record<string, any>, at: string): void {
+export function segClose(n: Record<string, any>, at: string): void {
   if (!n.seg_open) return;
   if (n.started_at == null && (n.dispatched_at ?? at) >= at) {
     // A segment that never started and ends at its own dispatch time is dropped.
