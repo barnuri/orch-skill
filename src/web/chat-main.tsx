@@ -1,4 +1,5 @@
 import "./zod-config";
+import "./pwa/head";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { adoptTokenFromUrl } from "./api/token";

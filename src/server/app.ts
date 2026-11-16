@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 
 import chatIndex from "../web/chat.html";
 import webIndex from "../web/index.html";
-import { CHAT_ICON_DARK, CHAT_ICON_LIGHT, chatManifestResponse, chatIconResponse } from "./chat-only-routes";
+import { CHAT_ICON_DARK, CHAT_ICON_LIGHT, chatIconResponse } from "./chat-only-routes";
+import { pwaRoutes } from "./pwa/routes";
 import { buildApi } from "./api/build-api";
 import { orchPaths } from "./files/paths";
 import { jsonResponse } from "./http/responses";
@@ -75,7 +76,7 @@ function listen(options: ServerOptions, api: Api, hostPort: { port: number; tls?
       "/": webIndex,
       "/chat": chatIndex,
       "/chat/": chatIndex,
-      "/chat/manifest.webmanifest": () => chatManifestResponse(),
+      ...pwaRoutes(),
       "/chat/icon.svg": () => chatIconResponse(CHAT_ICON_LIGHT),
       "/chat/icon-dark.svg": () => chatIconResponse(CHAT_ICON_DARK),
       "/chat/:id": chatIndex,

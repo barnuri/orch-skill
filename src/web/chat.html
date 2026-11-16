@@ -4,16 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark light">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; img-src 'self' data: blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; img-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
 <title>Orch chat</title>
+<meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Orch chat">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="./pwa/static/icons/chat-apple-touch-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./pwa/static/icons/chat-favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="./pwa/static/icons/chat-favicon-48.png">
 <script src="./theme-boot.js"></script>
 <link rel="stylesheet" href="./styles.css">
 <link rel="stylesheet" href="./chats/chat-only.css">
-<link rel="manifest" href="./chat.webmanifest">
 <link rel="icon" type="image/svg+xml" href="../snapshot/favicon.svg" media="(prefers-color-scheme: light)">
 <link rel="icon" type="image/svg+xml" href="../snapshot/favicon-dark.svg" media="(prefers-color-scheme: dark)">
 </head>
