@@ -19,7 +19,7 @@ case "$mode" in
 esac` });
   const mode = (id: string, m: string) => writeFileSync(join(fake, "modes", id), m + "\n");
   const home = seedHome();
-  const env = { ORCH_OPENCODE_DB: "/nonexistent/opencode.db", PATH: `${bin}:${process.env.PATH}`, ORCH_OWNER_CALL_TIMEOUT: "5", ORCH_OWNER_CACHE_SECS: "0", ORCH_OWNER_TOTAL_SECS: "120" };
+  const env = { ORCH_OPENCODE_DB: "/nonexistent/opencode.db", PATH: `${bin}:${process.env.PATH}`, ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OWNER_CACHE_SECS: "0", ORCH_OWNER_TOTAL_SECS: "120" };
   return { fake, mode, home, env, o: orch(home, env), calls: () => readText(join(fake, "calls")) };
 };
 
@@ -43,7 +43,6 @@ test("verify-owners classifies and applies", () => {
   expect(out.find((x: any) => x.node === "idle").owner_state).toBe("idle");
   expect(nd("idle").status).toBe("running");
   expect(out.filter((x: any) => x.node === "coord").length).toBe(0);
-  Bun.sleepSync(1000);
   out = JSON.parse(o("node", "verify-owners", R, "--json").out);
   const st = (n: string) => out.find((x: any) => x.node === n).owner_state;
   expect([st("idle"), st("busy"), st("gone"), st("err"), st("slow"), st("pid"), st("dead")]).toEqual(["idle", "alive", "gone", "unknown", "unknown", "alive", "gone"]);

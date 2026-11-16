@@ -3,10 +3,11 @@
 // tokens and cost from that session and moves the node when the owner finished or vanished.
 // Reads opencode.db through bun:sqlite (read-only). Every state write goes through mutateRun.
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { runLimited } from "../state/proc.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
@@ -215,8 +216,51 @@ export function jobStatus(home: string, id: string): string | null {
   return "done exit=unknown (job process gone without an exit code: killed?)";
 }
 
+// owner_session_messages + the session branch of owner_probe: asks the opencode CLI for the newest message.
+async function sessionApiProbe(id: string, tmo: number): Promise<[string, string]> {
+  const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" });
+  if (!bin) return ["unknown", ""];
+  const r = await runLimited(tmo, [bin, "api", "GET", `/api/session/${id}/message`, "--param", "limit=1", "--param", "order=desc"]);
+  if (r.code !== 0) return /404|not.?found/i.test(r.out) ? ["gone", ""] : ["unknown", ""];
+  let j: any;
+  try { j = JSON.parse(r.out); } catch { return ["unknown", ""]; }
+  if (!Array.isArray(j.data)) return (j?.status === 404 || /NotFound/i.test(String(j?.error?.name ?? j?.name ?? ""))) ? ["gone", ""] : ["unknown", ""];
+  const m = j.data[0];
+  if (!m) return ["unknown", ""];
+  if (m.type === "assistant" && m.time?.completed != null) {
+    const texts: string[] = [];
+    const walk = (v: any) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") { if (v.type === "text" && typeof v.text === "string") texts.push(v.text); Object.values(v).forEach(walk); } };
+    walk(m);
+    return ["finished", texts.join(" ").replace(/[\r\n\t]+/g, " ").slice(0, 300)];
+  }
+  return ["alive", ""];
+}
+
+// owner_state: owner_probe cached for ORCH_OWNER_CACHE_SECS (default 20) per kind-id.
+async function ownerStateCached(home: string, kind: string, id: string, dl: number): Promise<[string, string]> {
+  const cache = join(paths.owners(home), "cache", `${ownerSafe(`${kind}-${id}`)}.json`);
+  const now = Math.floor(Date.now() / 1000);
+  const ttl = /^[0-9]+$/.test(process.env.ORCH_OWNER_CACHE_SECS ?? "") ? Number(process.env.ORCH_OWNER_CACHE_SECS) : 20;
+  try {
+    const c = JSON.parse(readFileSync(cache, "utf8"));
+    if (now - (Number(c.at) || 0) < ttl) return [String(c.state), String(c.note ?? "")];
+  } catch {}
+  const left = dl - now;
+  if (left < 1) return ["unknown", ""];
+  const callT = /^[0-9]+$/.test(process.env.ORCH_OWNER_CALL_TIMEOUT ?? "") && Number(process.env.ORCH_OWNER_CALL_TIMEOUT) > 0 ? Number(process.env.ORCH_OWNER_CALL_TIMEOUT) : 3;
+  const res = await ownerProbe(home, kind, id, Math.min(callT, left));
+  if (res[0] !== "unknown") {
+    try {
+      mkdirSync(join(cache, ".."), { recursive: true });
+      writeFileSync(`${cache}.tmp.${process.pid}`, JSON.stringify({ at: Math.floor(Date.now() / 1000), state: res[0], note: res[1] }) + "\n");
+      renameSync(`${cache}.tmp.${process.pid}`, cache);
+    } catch {}
+  }
+  return res;
+}
+
 // owner_probe: [state, note]; state alive | finished | gone | unknown.
-export function ownerProbe(home: string, kind: string, id: string): [string, string] {
+export async function ownerProbe(home: string, kind: string, id: string, tmo = 3): Promise<[string, string]> {
   if (kind === "process") return [alive(Number(id)) ? "alive" : "gone", ""];
   if (kind === "job") {
     const st = jobStatus(home, id);
@@ -228,7 +272,7 @@ export function ownerProbe(home: string, kind: string, id: string): [string, str
   }
   if (kind === "session") {
     const rows = dbQuery("select time_busy, time_idle from session_v2 where id = ?", id);
-    if (rows === null) return ["unknown", ""];
+    if (rows === null) return sessionApiProbe(id, tmo);
     if (rows.length === 0) return ["gone", ""];
     const r = rows[0];
     return r.time_busy != null && (r.time_idle == null || r.time_busy > r.time_idle) ? ["alive", ""] : ["finished", ""];
@@ -929,8 +973,7 @@ export async function ownersVerifyRun(home: string, runId: string, apply: boolea
     let state: string, note = "";
     const k = known.get(id);
     if (k) state = k;
-    else if (Date.now() / 1000 >= dl) state = "unknown";
-    else [state, note] = ownerProbe(home, kind, id);
+    else [state, note] = await ownerStateCached(home, kind, id, dl);
     if (state === "finished" && kind !== "job") state = "idle";
     const prev = n.owner_state ?? "";
     const node = n.id;

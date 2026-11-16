@@ -39,16 +39,21 @@ export function parseDuration(spec: string): number | null {
 
 // Runs argv with a time limit; stdout and stderr are returned together.
 export async function runLimited(secs: number, argv: string[], opts: { env?: Record<string, string | undefined> } = {}): Promise<{ code: number; out: string }> {
-  const p = Bun.spawn(argv, {
+  const bin = argv[0]!.includes("/") ? argv[0]! : (Bun.which(argv[0]!, { PATH: (opts.env ?? process.env).PATH ?? "" }) ?? argv[0]!);
+  const p = Bun.spawn([bin, ...argv.slice(1)], {
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
     timeout: secs * 1000,
     killSignal: "SIGALRM",
-    env: opts.env as any,
+    env: (opts.env ?? process.env) as any,
   });
-  const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+  // A killed shell can leave a grandchild holding the pipes: stop reading shortly after the process ends.
+  let o = "", e = "";
+  const rd = async (s: ReadableStream, set: (t: string) => void) => { for await (const c of s as any) set(new TextDecoder().decode(c)); };
+  const readers = Promise.all([rd(p.stdout as any, (t) => (o += t)), rd(p.stderr as any, (t) => (e += t))]);
   const code = await p.exited;
+  await Promise.race([readers, Bun.sleep(200)]);
   return { code: code ?? 128 + 14, out: o + e };
 }
 
