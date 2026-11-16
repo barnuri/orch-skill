@@ -77,10 +77,9 @@ test("owner probe cache", () => {
   const { mode, home, env, calls } = setup();
   mode("ses_busy", "busy");
   const R = orch(home, env)("run", "start", "cache").out.trim();
-  const oc = orch(home, { ...env, ORCH_OWNER_CACHE_SECS: "900" });
+  const oc = orch(home, { ...env, ORCH_OWNER_CACHE_SECS: "900", ORCH_OWNER_CALL_TIMEOUT: "20" });
   oc("node", "add", R, "b", "b"); oc("node", "update", R, "b", "running", "--owner", "ses_busy");
   Bun.spawnSync(["trash", join(home, "owners/cache")]);
-  writeFileSync(join(home, "calls-reset"), "");
   const count = () => calls().split("\n").filter((l) => l === "ses_busy").length;
   const c0 = count();
   oc("node", "verify-owners", R);

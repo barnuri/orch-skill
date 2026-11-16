@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { readdirSync, readFileSync } from "node:fs";
 import { ORCH_DIR, DISPATCH, runCmd, tempHome, orch, tempDir, CLI_TS, autoCleanup } from "../helpers";
-import { COMMANDS, main } from "../../core/cli.ts";
+import { COMMANDS, HERDR_VERB_KEYS, LOOP_KEYS, SCHEDULE_KEYS, main } from "../../core/cli.ts";
 autoCleanup();
 
 test("every core command module loads and the command table is wired", async () => {
@@ -10,6 +10,12 @@ test("every core command module loads and the command table is wired", async () 
   expect(Object.keys(COMMANDS).length).toBeGreaterThan(10);
   const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? files(join(dir, e.name)) : /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [join(dir, e.name)] : []);
   for (const f of files(join(ORCH_DIR, "core"))) await import(f);
+});
+
+test("the lazy command table lists exactly the keys its modules export", async () => {
+  expect(HERDR_VERB_KEYS).toEqual((await import("../../core/adapters/herdr.ts")).HERDR_VERBS);
+  expect(LOOP_KEYS.slice().sort()).toEqual(Object.keys((await import("../../core/commands/loops.ts")).loopCommands).sort());
+  expect(SCHEDULE_KEYS.slice().sort()).toEqual(Object.keys((await import("../../core/commands/schedules.ts")).scheduleCommands).sort());
 });
 
 test("sourcing the CLI prints and creates nothing; --help and --version", () => {
