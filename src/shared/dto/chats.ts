@@ -167,6 +167,8 @@ export class ChatDto extends ZodDto {
 
   @ZodField(z.string().nullable().optional(), { description: "In chat reads and lists: the folder the next turn runs in (the chat's own, else its project's). Null means a scratch folder." })
   effective_cwd?: string | null;
+  /** True while the agent asked a question that the user has not answered yet. */
+  awaiting_answer?: boolean;
 
   @ZodField(z.boolean().optional(), { description: "In chat lists only: true when the chat has no message and no attachment. Empty chats older than 24 hours are archived at server start." })
   empty?: boolean;

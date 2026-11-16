@@ -91,7 +91,7 @@ export class ChatsController {
   setFolder(c: ApiContext): Response {
     try {
       const chat = this.service.setChatFolder(idOf(c), valid<{ path: string | null }>(c, "json").path);
-      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat) } });
+      return jsonResponse(200, { chat: { ...chat, effective_cwd: this.service.effectiveCwd(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) } });
     } catch (err) {
       return failure(err);
     }
@@ -106,7 +106,8 @@ export class ChatsController {
   list(c: ApiContext): Response {
     const q = valid<{ limit?: number; cursor?: string; project_id?: string; archived?: string }>(c, "query");
     const page = this.service.store.listChats({ projectId: q.project_id, archived: q.archived === "1" || q.archived === "true", limit: q.limit, cursor: q.cursor });
-    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...row, effective_cwd: this.service.effectiveCwd(row), empty: this.service.store.chatIsEmpty(row.id) })) });
+    const waiting = new Set(this.service.chatsWaitingForAnswer());
+    return jsonResponse(200, { ...page, items: page.items.map((row) => ({ ...row, effective_cwd: this.service.effectiveCwd(row), empty: this.service.store.chatIsEmpty(row.id), awaiting_answer: waiting.has(row.id) })) });
   }
 
   @Post("/chats", {
@@ -134,7 +135,7 @@ export class ChatsController {
   read(c: ApiContext): Response {
     try {
       const chat = this.service.chat(idOf(c));
-      return jsonResponse(200, { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat) });
+      return jsonResponse(200, { ...chat, effective_cwd: this.service.effectiveCwd(chat), warning: this.service.warningFor(chat), awaiting_answer: this.service.chatsWaitingForAnswer().includes(chat.id) });
     } catch (err) {
       return failure(err);
     }
