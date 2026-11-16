@@ -32,7 +32,7 @@ import { connection } from "./status";
 import type { StatusStore } from "./status";
 import { getToken } from "./token";
 
-type Method = "GET" | "PUT" | "POST" | "PATCH";
+type Method = "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
 
 interface RequestOptions {
   etag?: string | null;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { takeComposerFocus } from "./composer-focus";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode } from "react";
 import { chatsApi, uploadAttachment } from "../api/chats";
 import { filesFromClipboard, formatBytes, isImageMime, loadDraft, saveDraft, validateFile } from "../lib/chat-logic";
@@ -92,6 +93,11 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
   const talking = voice !== undefined && voice.phase !== "off";
   const now = useNow(dictation.state === "recording");
   const voiceErrors = [dictation.error, voice?.error ?? null].filter((e): e is string => e !== null);
+  useEffect(() => {
+    if (takeComposerFocus()) {
+      area.current?.focus();
+    }
+  }, []);
   useEffect(
     () => () => {
       for (const p of pendingRef.current) {

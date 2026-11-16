@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
 import { chatRoots, FolderError, folderUsable, type FolderList, listFolders, validateFolder } from "./folders";
-import { alternativeHint, buildOptions, type ChatOptions, resolveLaunch } from "./options";
+import { alternativeHint, buildOptions, chatUsageRefusal, EFFORTS, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
 import { OpencodeServerPool } from "./sessions/opencode-server";
 import { ClaudeSession } from "./sessions/claude-session";
@@ -213,11 +213,11 @@ export class ChatService {
   // ---- chats ----
 
   /** Never rejected for a disabled, missing or unconfigured harness: the check happens when a turn is sent. */
-  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null }): ChatRow {
+  createChat(input: { project_id?: string | null; title?: string; harness: string; profile: string; model_id?: string | null; cwd?: string | null; effort?: string | null }): ChatRow {
     this.checkProject(input.project_id);
     const cwd = input.cwd === undefined ? null : this.checkedFolder(input.cwd);
     const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
-    const row = this.store.createChat({ ...input, cwd, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+    const row = this.store.createChat({ ...input, cwd, effort: this.checkedEffort(input.harness, input.effort), title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
     this.indexChat(row);
     return row;
   }
@@ -238,7 +238,17 @@ export class ChatService {
   }
 
   /** Harness, profile and model may change at any time between turns. A new harness cannot resume the old one's session, so its history is replayed. */
-  configureChat(id: string, input: { harness: string; profile: string; model_id: string | null }): ChatRow {
+  private checkedEffort(harness: string, effort: string | null | undefined): string | null {
+    if (effort === null || effort === undefined) {
+      return null;
+    }
+    if (!(EFFORTS[harness] ?? []).includes(effort)) {
+      throw new HttpError(400, `effort: harness "${harness}" has no "${effort}" level`);
+    }
+    return effort;
+  }
+
+  configureChat(id: string, input: { harness: string; profile: string; model_id: string | null; effort?: string | null }): ChatRow {
     const chat = this.chat(id);
     if (this.turns.has(id) || chat.status === "running") {
       throw new HttpError(409, "a reply is running; change harness, profile or model between turns");
@@ -246,7 +256,10 @@ export class ChatService {
     this.checkSelection(input.harness, input.profile, input.model_id);
     this.liveness.begin(chat.id, meta.message_id);
     const sameHarness = chat.harness === input.harness;
-    const row = this.store.updateChat(id, sameHarness ? input : { ...input, session_id: null }) as ChatRow;
+    const { effort: wanted, ...rest } = input;
+    // A harness switch clears an effort it does not take; an omitted effort keeps the stored one while it still applies.
+    const effort = this.checkedEffort(input.harness, wanted === undefined ? ((EFFORTS[input.harness] ?? []).includes(chat.effort ?? "") ? chat.effort : null) : wanted);
+    const row = this.store.updateChat(id, sameHarness ? { ...rest, effort } : { ...rest, effort, session_id: null }) as ChatRow;
     void this.manager.drop(id);
     return row;
   }
@@ -503,7 +516,7 @@ export class ChatService {
   private paramsFor(chat: ChatRow): SessionParams {
     const cwd = this.usableCwd(chat) ?? join(this.home, "chats", "workspace");
     mkdirSync(cwd, { recursive: true });
-    return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, history: () => this.historyFor(chat.id) };
+    return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, effort: (EFFORTS[chat.harness] ?? []).includes(chat.effort ?? "") ? chat.effort : null, history: () => this.historyFor(chat.id) };
   }
 
   /** Finished user and assistant messages before the reply now streaming, oldest first. */
@@ -681,7 +694,99 @@ export class ChatService {
     const set = this.listeners.get(chatId) ?? new Set<Listener>();
     set.add(listener);
     this.listeners.set(chatId, set);
-    return { replay: this.replayFor(chat, lastEventId), unsubscribe: () => set.delete(listener) };
+    this.artifactAttach(chat);
+    this.artifactHub.retain(chatId);
+    let open = true;
+    return {
+      replay: this.replayFor(chat, lastEventId),
+      unsubscribe: () => {
+        set.delete(listener);
+        if (open) {
+          open = false;
+          this.artifactHub.release(chatId);
+        }
+      },
+    };
+  }
+
+  // ---- artifacts (see artifacts.ts) ----
+
+  artifactStore(chat: ChatRow): ArtifactStore {
+    return new ArtifactStore(this.workspace(chat, "chat"));
+  }
+
+  emitArtifact(ev: ArtifactEvent): void {
+    this.emit(ev.chat_id, { event: "artifact", data: { ...ev } });
+  }
+
+  private artifactAttach(chat: ChatRow): void {
+    try {
+      this.artifactHub.attach(chat.id, this.artifactStore(chat), (ev) => this.emitArtifact(ev));
+    } catch {
+      // a broken folder must not break the event stream
+    }
+  }
+
+  private artifactTurnStart(chat: ChatRow, turnId: string): void {
+    this.artifactAttach(chat);
+    this.artifactHub.setTurn(chat.id, turnId);
+    this.artifactPaths.set(chat.id, new Set());
+  }
+
+  /** A Write or Edit of an opted-in file type under the chat folder: copy it into artifacts/ once the tool has run. */
+  private artifactTool(chat: ChatRow, name: string, input: unknown): void {
+    try {
+      const folder = this.usableCwd(chat);
+      const file = folder === null ? null : externalCandidate(name, input, folder, readSettings(this.home));
+      if (folder === null || file === null) {
+        return;
+      }
+      this.artifactPaths.get(chat.id)?.add(file);
+      for (const delay of [400, 2000]) {
+        setTimeout(() => {
+          this.artifactMirror(chat, folder, file);
+        }, delay).unref();
+      }
+    } catch {
+      // never fail a turn over an artifact
+    }
+  }
+
+  private artifactMirror(chat: ChatRow, folder: string, file: string): void {
+    try {
+      this.artifactAttach(chat);
+      if (this.artifactStore(chat).mirror(file, folder) !== null) {
+        this.artifactHub.scan(chat.id);
+      }
+    } catch {
+      // ignored: the file may be gone or the folder unusable
+    }
+  }
+
+  private artifactTurnEnd(chat: ChatRow): void {
+    try {
+      const folder = this.usableCwd(chat);
+      for (const file of this.artifactPaths.get(chat.id) ?? []) {
+        if (folder !== null) {
+          this.artifactMirror(chat, folder, file);
+        }
+      }
+      this.artifactPaths.delete(chat.id);
+      this.artifactHub.scan(chat.id);
+      this.artifactHub.setTurn(chat.id, null);
+    } catch {
+      // ignored
+    }
+  }
+
+  /** One line for the next prompt when the user edited artifacts since the last turn, else "". */
+  artifactUserNote(chat: ChatRow): string {
+    try {
+      const names = this.artifactStore(chat).takeUserEdits();
+      return names.length === 0 ? "" : `[The user edited ${names.map((n) => `artifacts/${n}`).join(", ")} since your last turn: read the file again before you change it.]`;
+    } catch {
+      return "";
+    }
   }
 
   private replayFor(chat: ChatRow, lastEventId: string | null): ChatEvent[] {

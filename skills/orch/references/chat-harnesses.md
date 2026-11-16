@@ -66,3 +66,34 @@ Libraries (installed at the repo root, one adapter file each in `src/web/chats` 
 - Not used: `@assistant-ui/react` and Vercel `ai-elements` (they assume Tailwind or shadcn and their own state model; our thread is virtualized and SSE-driven). `ToolCard`, `Reasoning`, `Todos` are small and use our tokens.
 
 Bundle (`bun build src/web/index.html --splitting --target=browser`): entry chunk 1,882,856 to 1,883,502 bytes; the lazy Markdown chunk grew from 436 KB to about 1,008 KB (streamdown plus `diff`). First load is unchanged.
+
+## Workspace per chat and per folder
+
+Every chat has a workspace that stores artifacts, knowledge and memory, so the chat gets better over time. One `Workspace` class (`src/server/chats/workspace.ts`) serves two scopes; only the root differs.
+
+| Scope | Root (chat has a folder) | Root (no folder) |
+|---|---|---|
+| `chat` | `<cwd>/.orch/chats/<chat-id>/` | `<orch home>/chats/data/<chat-id>/` |
+| `folder` | `<cwd>/.orch/shared/` (all chats of the folder) | none: the folder scope answers 400 |
+
+Layout of a root: `MEMORY.md`, `knowledge/`, `artifacts/`, and for the chat scope `chat.json` (id, title, created, harness, `moved_from`). It is created lazily by the first write or the first agent turn. `<cwd>/.orch/.gitignore` holds `*`, so the repository stays clean. `<cwd>/.orch/chats/index.json` lists the chats of the folder (id, title, updated); it is kept when a chat is created, renamed or moved (only when the index already exists, or when a workspace is created).
+
+- **Agent.** `ChatService.workspaceInstructions` appends a block under 1,000 characters to the prompt of the first turn (per server run) and again when a `MEMORY.md` changed. It is not stored in the visible message. local-llm gets it every turn (no session). The block names both roots (shared first), the rule "write to the chat scope; write to the shared scope only for facts every chat of the folder should know, one short dated line each; never edit another chat's directory", and the project description as project instructions (cut to fit).
+- **API** (`workspace.controller.ts`, DTOs in `src/shared/dto/workspace.ts`): `GET /api/chats/{id}/workspace`, `GET|PUT .../workspace/memory`, `GET .../workspace/files/{area}/{name}` (images and text inline, the rest downloads), `POST .../workspace/files/{area}` (multipart or `X-Filename`), `DELETE .../workspace/files/{area}/{name}` (moves to `.trash/`), `GET .../workspace/export` (zip). All take `?scope=chat|folder`. Limits: upload 20 MB, memory 200 KB. Names are bare (no separator, no leading dot); every file is checked to be a regular file inside the area after `realpath`; symbolic links are never read, written or served; an `.orch` link that leaves the folder is refused.
+- **Move.** A chat that moves to another folder keeps its old workspace where it was; the new `chat.json` records `moved_from` and the panel shows a note. Nothing is copied.
+- **UI.** A Workspace button in the chat header (also on phones) opens a side sheet (full screen on phones): scope switch (This chat, This folder), tabs Memory (editable, Save), Knowledge (upload) and Artifacts, preview, download, delete to trash, copy folder path and Download workspace (zip).
+
+## Chat settings fold and effort
+
+The harness, profile, model and effort row above the composer is folded into one summary line (`ChatSettings.tsx`, preference `orch.chat.prefs` in `localStorage`, closed by default, global). A badge on the summary shows a picker problem or a failed last reply (red) and a chat warning or an unset harness (amber).
+
+Effort is stored per chat (`chats.effort`, migration adds a nullable column; null is Auto and passes nothing). Mapping, checked with `--help`:
+
+| Harness | Levels | Argument |
+|---|---|---|
+| claude | low, medium, high, max | `--effort <level>` (the CLI also has `xhigh`) |
+| opencode | low, medium, high, max | `-m provider/model#<level>` (variant names depend on the provider; not checked per model) |
+| copilot | none offered | the CLI has `--reasoning-effort`, but chat turns go through dispatch.ts, which has no pass-through |
+| cursor-agent, pi, local-llm | none | no flag |
+
+`/api/chat-options` lists `efforts` per harness. A change applies from the next turn; switching to a harness without the level clears it. The hub reads a requested effort from the request body (`reasoning_effort`), which opencode and claude set from these arguments, so the hub needed no change. Not done: showing `selected_effort` from `/api/smart-auto/history` in the message footer (the history is keyed by a salted worker hash the dashboard cannot derive).

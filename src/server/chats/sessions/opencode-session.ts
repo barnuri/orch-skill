@@ -219,7 +219,7 @@ export class OpencodeSession implements AgentSession {
       args.push("--session", session);
     }
     if (launch.modelSlug !== "") {
-      args.push("-m", launch.modelSlug);
+      args.push("-m", this.params.effort == null ? launch.modelSlug : `${launch.modelSlug}#${this.params.effort}`);
     }
     // `opencode run` has no --dir flag: the directory is the cwd of the spawned process (startTurn gets cwd below).
     args.push(...launch.flags.filter((flag) => flag !== "--pure" && flag !== "--standalone"));

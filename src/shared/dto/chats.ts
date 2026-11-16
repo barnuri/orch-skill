@@ -162,6 +162,9 @@ export class ChatDto extends ZodDto {
   @ZodField(z.string().nullable().optional(), { description: "Absolute folder the agent runs in for this chat. Null means the project's folder, else a scratch folder." })
   cwd?: string | null;
 
+  @ZodField(z.enum(["low", "medium", "high", "max"]).nullable().optional(), { description: "Effort asked of the harness. Null is Auto: nothing is passed." })
+  effort?: "low" | "medium" | "high" | "max" | null;
+
   @ZodField(z.string().nullable().optional(), { description: "In chat reads and lists: the folder the next turn runs in (the chat's own, else its project's). Null means a scratch folder." })
   effective_cwd?: string | null;
 
@@ -200,6 +203,9 @@ export class ChatInputDto extends ZodDto {
 
   @ZodField(z.string().max(1000).nullable().optional(), { description: "Folder to run in. Same rules as PATCH /api/chats/{id}/folder. Omit to use the project's folder." })
   cwd?: string | null;
+
+  @ZodField(z.enum(["low", "medium", "high", "max"]).nullable().optional(), { description: "Effort. Omit or null for Auto. 400 when the harness has no effort control." })
+  effort?: "low" | "medium" | "high" | "max" | null;
 }
 
 @ZodObject({ description: "A new harness, profile and model for the next turn. Allowed between turns, not while a reply runs." })
@@ -212,6 +218,9 @@ export class ChatConfigDto extends ZodDto {
 
   @ZodField(z.string().max(200).nullable(), { description: "Catalog model id, or null for the profile's default." })
   model_id!: string | null;
+
+  @ZodField(z.enum(["low", "medium", "high", "max"]).nullable().optional(), { description: "Effort for the next turn; omit or null for Auto. 400 when the harness has no effort control." })
+  effort?: "low" | "medium" | "high" | "max" | null;
 }
 
 /** Longest chat title; the server enforces the same cap (MAX_TITLE_CHARS). */
@@ -506,6 +515,9 @@ export class HarnessOptionDto extends ZodDto {
   @ZodField(z.array(ProfileOptionDto.schema), { description: "Profiles on this harness." })
   profiles!: ProfileOptionDto[];
 }
+  @ZodField(z.array(z.string()).optional(), { description: "Effort levels the harness takes, lowest first. Empty: no effort control." })
+  efforts?: string[];
+
 
 @ZodObject({ description: "Everything the harness, profile and model pickers need." })
 export class ChatOptionsDto extends ZodDto {

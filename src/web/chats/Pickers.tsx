@@ -21,6 +21,8 @@ interface PickersProps {
   locked: boolean;
   /** Model the last reply actually used. */
   modelUsed: string | null;
+  /** The chat's effort (null is Auto) and how to change it. Omitted: no effort row. */
+  effort?: { value: string | null; onChange: (next: string | null) => void };
 }
 
 function withCurrent(list: PickerOption[], value: string, label: string): PickerOption[] {
@@ -28,7 +30,9 @@ function withCurrent(list: PickerOption[], value: string, label: string): Picker
 }
 
 /** Harness, profile and model selects. A select with one usable choice is disabled and shows it. */
-export function Pickers({ options, selection, onChange, locked, modelUsed }: PickersProps) {
+export const EFFORT_LABELS: Readonly<Record<string, string>> = { low: "Low", medium: "Medium", high: "High", max: "Max" };
+
+export function Pickers({ options, selection, onChange, locked, modelUsed, effort }: PickersProps) {
   const state = resolvePickers(options, selection);
   const sel = state.selection;
   const harnessOpts = withCurrent(
@@ -46,6 +50,7 @@ export function Pickers({ options, selection, onChange, locked, modelUsed }: Pic
     sel.model ?? "",
     modelLabel(options, sel),
   );
+  const levels = state.harness.options.find((h) => h.id === state.harness.value)?.efforts ?? [];
   const lockNote = locked ? "locked while a reply is running" : null;
   const only = (n: number, what: string): string | null => (n === 1 ? `only ${what} available` : null);
   const harnessNote = lockNote ?? state.harness.reason ?? (state.harness.locked ? only(1, "harness") : null);
@@ -86,6 +91,21 @@ export function Pickers({ options, selection, onChange, locked, modelUsed }: Pic
           onChange({ ...sel, model });
         }}
       />
+      {effort === undefined ? null : levels.length === 0 ? (
+        <p className="picker-note effort-hint" data-testid="effort-hint">This harness has no effort setting.</p>
+      ) : (
+        <PickerSelect
+          testId="picker-effort"
+          label="Effort"
+          value={effort.value ?? ""}
+          options={[{ value: "", label: "Auto" }, ...levels.map((l) => ({ value: l, label: EFFORT_LABELS[l] ?? l }))]}
+          disabled={locked}
+          note={lockNote}
+          onChange={(v) => {
+            effort.onChange(v === "" ? null : v);
+          }}
+        />
+      )}
       <p className="pickers-meta">
         {memoryNote(state.harness.options.find((h) => h.id === state.harness.value))}
         {modelUsed !== null ? <span> · last reply used <code>{modelUsed}</code></span> : null}
@@ -98,7 +118,7 @@ export function Pickers({ options, selection, onChange, locked, modelUsed }: Pic
 /** Which model a chat is using: the one the agent reported, else the one the chat is set to. */
 export function pickerSummary(chat: Chat, options: ChatOptions | undefined, modelUsed: string | null): string {
   const configured = modelLabel(options, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
-  return `${chat.harness} · ${chat.profile} · ${modelUsed ?? configured}`;
+  return `${chat.harness} · ${chat.profile} · ${modelUsed ?? configured}${chat.effort == null ? "" : ` · ${chat.effort}`}`;
 }
 
 /** Whether replies share one live process or each message starts its own. Null while the options load. */

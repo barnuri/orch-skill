@@ -169,6 +169,9 @@ export class ClaudeSession implements AgentSession {
     args.push(...launch.flags);
     return args;
   }
+    if (params.effort != null) {
+      args.push("--effort", params.effort);
+    }
 
   async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
     const signal = this.handle.begin();

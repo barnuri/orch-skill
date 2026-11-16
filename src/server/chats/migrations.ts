@@ -74,4 +74,26 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE messages ADD COLUMN parts TEXT;
   `,
+  `
+  ALTER TABLE chats ADD COLUMN effort TEXT;
+  `,
+  `
+  CREATE TABLE chat_queue (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL REFERENCES chats(id),
+    text TEXT NOT NULL DEFAULT '',
+    attachments TEXT NOT NULL DEFAULT '[]',
+    position INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('queued','running','sent','cancelled')),
+    created_at TEXT NOT NULL,
+    edited_at TEXT,
+    message_id TEXT
+  );
+  CREATE INDEX chat_queue_chat ON chat_queue(chat_id, state, position);
+  CREATE TABLE chat_queue_state (
+    chat_id TEXT PRIMARY KEY REFERENCES chats(id),
+    paused INTEGER NOT NULL DEFAULT 0,
+    reason TEXT
+  );
+  `,
 ];

@@ -10,7 +10,17 @@ import { formatDuration } from "../lib/duration";
 import type { Attachment, Chat, ChatOptions, Message, Project } from "../lib/chat-types";
 import { Lightbox } from "./Attachments";
 import { latestTodos } from "../../shared/chat-parts";
+import { ChatSettings } from "./ChatSettings";
+import type { SettingsBadge } from "./ChatSettings";
+import { ArtifactBar, ArtifactLayout } from "./artifacts/ArtifactLayout";
+import { useArtifacts } from "./artifacts/use-artifacts";
 import { Composer } from "./Composer";
+import { QueueBubbles, QueueCounter, QueueTray } from "./MessageQueue";
+import { EMPTY_QUEUE, waiting } from "./queue-logic";
+import type { QueueSnapshot } from "./queue-logic";
+import { QuestionCard } from "./QuestionCard";
+import { pendingQuestion, useAnswerQuestion } from "./question-hooks";
+import { WorkspacePanel } from "./WorkspacePanel";
 import { TodoPanel } from "./Todos";
 import { FolderChip, FolderPicker } from "./FolderPicker";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
@@ -59,6 +69,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
   const client = useQueryClient();
   const [pickingFolder, setPickingFolder] = useState(false);
   const pickFolder = async (path: string | null): Promise<string | null> => {
+  const [workspace, setWorkspace] = useState(false);
     const res = await chatsApi.setChatFolder(chat.id, path);
     void refreshChats(client);
     return res.kind === "ok" ? null : describeFailure(res, "could not set the folder");
@@ -107,7 +118,12 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
         ) : null}
       </div>
       <LastReplyStats reply={lastReply} />
+      {workspace ? <WorkspacePanel chat={chat} onClose={() => { setWorkspace(false); }} /> : null}
       <div className="chat-head-actions">
+      <QueueCounter snapshot={queue} />
+      <button type="button" className="btn chat-head-ws" aria-haspopup="dialog" onClick={() => { setWorkspace(true); }} data-testid="workspace-btn">
+        Workspace
+      </button>
         <div className="move-select">
           <Select aria-label="Move to project" value={chat.project_id ?? NO_PROJECT} options={projectOptions} onChange={(v) => void move(v)} />
         </div>
@@ -125,13 +141,21 @@ function Config({ chat, options, running, modelUsed }: { chat: Chat; options: Ch
   useEffect(() => {
     setSel({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
   }, [chat.harness, chat.profile, chat.model_id]);
-  const change = async (next: Selection): Promise<void> => {
+  const [effort, setEffort] = useState<string | null>(chat.effort ?? null);
+  useEffect(() => {
+    setEffort(chat.effort ?? null);
+  }, [chat.effort]);
+  const levelsOf = (harness: string): string[] => options.harnesses.find((h) => h.id === harness)?.efforts ?? [];
+  const change = async (next: Selection, nextEffort: string | null = effort): Promise<void> => {
+    const kept = nextEffort !== null && levelsOf(next.harness).includes(nextEffort) ? nextEffort : null;
     setSel(next);
-    const res = await chatsApi.configure(chat.id, { harness: next.harness, profile: next.profile, model_id: next.model });
+    setEffort(kept);
+    const res = await chatsApi.configure(chat.id, { harness: next.harness, profile: next.profile, model_id: next.model, effort: kept });
     if (res.kind !== "ok") {
       toast("error", res.kind === "error" && res.status === 409 ? "A reply is running: change this between turns" : describeFailure(res, "could not change"));
       setSel({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
     }
+      setEffort(chat.effort ?? null);
     void refreshChats();
   };
   // Store the pickers' choice when the chat's own profile or model is unusable; otherwise every send fails and the
@@ -144,7 +168,19 @@ function Config({ chat, options, running, modelUsed }: { chat: Chat; options: Ch
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the repair itself, so it runs once per bad selection
   }, [repairKey]);
-  return <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} onChange={(n) => void change(n)} />;
+  const problem = runsOnlyReason !== null ? null : resolvePickers(options, sel).problem;
+  const badge: SettingsBadge | null =
+    problem !== null ? { tone: "error", text: problem }
+    : runsOnlyReason !== null ? { tone: "warn", text: `Not offered for new chats: ${runsOnlyReason}` }
+    : lastFailed ? { tone: "error", text: "Last reply failed" }
+    : chat.warning != null ? { tone: "warn", text: chat.warning }
+    : chat.harness === "" || chat.profile === "" ? { tone: "warn", text: "Harness or model not set" }
+    : null;
+  return (
+    <ChatSettings summary={pickerSummary({ ...chat, effort: effort as Chat["effort"] }, options, modelUsed)} badge={badge}>
+      <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} onChange={(n) => void change(n)} effort={{ value: effort, onChange: (e) => void change(sel, e) }} />
+    </ChatSettings>
+  );
 }
 
 export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: () => void }) {

@@ -39,6 +39,8 @@ export interface SessionParams {
   harness: string;
   profile: string;
   modelId: string | null;
+  /** low, medium, high or max for a harness that takes an effort; null passes nothing. */
+  effort?: string | null;
   cwd: string;
   /** The chat's stored session id, when it has had a turn before. */
   resumeSessionId: string | null;

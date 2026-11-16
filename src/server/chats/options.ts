@@ -14,8 +14,9 @@ interface ProfilesDoc {
 
 export interface ModelOption { id: string; label: string; slug: string; description: string; default: boolean }
 export interface ProfileOption { name: string; description: string; enabled: boolean; configured: boolean; problem: string | null; models: ModelOption[] }
-export interface HarnessOption { id: string; label: string; enabled: boolean; available: boolean; persistent: boolean; memory: "process" | "session" | "replay"; profiles: ProfileOption[] }
-export interface ChatOptions { harnesses: HarnessOption[]; default_harness: string | null; default_profile: string | null }
+export interface HarnessOption { id: string; label: string; enabled: boolean; available: boolean; persistent: boolean; efforts: string[]; memory: "process" | "session" | "replay"; profiles: ProfileOption[] }
+/** `not_for_chat` maps a profile that is left out of the pickers (limited to orch runs) to the reason, so a chat that already uses it can warn. */
+export interface ChatOptions { harnesses: HarnessOption[]; default_harness: string | null; default_profile: string | null; not_for_chat: Record<string, string> }
 
 const LABELS: Record<string, string> = {
   claude: "Claude Code", "cursor-agent": "Cursor", opencode: "opencode", "local-llm": "Local LLM", copilot: "Copilot CLI", pi: "pi",
@@ -28,6 +29,12 @@ export const MEMORY: Readonly<Record<string, "process" | "session" | "replay">> 
 /** Install folders a harness's installer uses that a supervisor's minimal PATH often lacks (opencode installs to ~/.opencode/bin). */
 const EXTRA_BIN_DIRS: Readonly<Record<string, string>> = { opencode: join(".opencode", "bin") };
 
+/**
+ * Effort levels a harness can be asked for, and how each takes them (verified with `--help`):
+ * claude `--effort <level>` (low, medium, high, xhigh, max); opencode `-m provider/model#variant`.
+ * copilot has `--reasoning-effort`, but its chat turns run through dispatch.ts, which has no such pass-through; the others have no flag.
+ */
+export const EFFORTS: Readonly<Record<string, readonly string[]>> = { claude: ["low", "medium", "high", "max"], opencode: ["low", "medium", "high", "max"] };
 /** True when the harness binary is on PATH or in its installer's own folder, the same places the chat session looks. */
 export function harnessAvailable(id: string): boolean {
   const bin = BINARY[id] ?? id;
@@ -121,9 +128,10 @@ export function buildOptions(home: string, harnessIds: readonly string[]): ChatO
         name, description: p.description ?? "", enabled: enabled && p.enabled !== false, configured: problem === null, problem, models,
       };
     });
-    return { id, label: LABELS[id] ?? id, enabled, available: harnessAvailable(id), persistent: PERSISTENT_HARNESSES.has(id), memory: MEMORY[id] ?? "replay", profiles };
-  });
-  const def = doc.settings?.default_profile ?? null;
+    return { id, label: LABELS[id] ?? id, enabled, available: harnessAvailable(id), persistent: PERSISTENT_HARNESSES.has(id), efforts: [...(EFFORTS[id] ?? [])], memory: MEMORY[id] ?? "replay", profiles };
+  }).filter((h) => harnessUsage(doc, h.id).includes(use));
+  const given = doc.settings?.default_profile ?? null;
+  const def = given !== null && notForChat[given] === undefined ? given : null;
   const defHarness = def === null ? null : (doc.profiles?.[def]?.harness ?? null);
   return { harnesses, default_harness: defHarness, default_profile: defHarness === null ? null : def };
 }

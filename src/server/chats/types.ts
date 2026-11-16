@@ -12,6 +12,8 @@ export interface ChatRow {
   title_manual: number;
   /** Absolute folder the agent runs in; null falls back to the project's folder, then to a scratch folder. */
   cwd: string | null;
+  /** low, medium, high or max; null is Auto: the harness gets no effort argument. */
+  effort: string | null;
 }
 
 export interface MessageRow {
