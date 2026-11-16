@@ -62,5 +62,5 @@ dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@fil
 dispatch.ts schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR]
     -> changes only the given fields; keeps id, created_at, enabled and run history; --prompt/--command switch the kind
 dispatch.ts schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
-scripts/dispatch.ts: line 113: HERDR_USAGE: unbound variable
+dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]
 `;

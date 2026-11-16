@@ -16,8 +16,8 @@ test("sourcing the CLI prints and creates nothing; --help and --version", () => 
   const home = tempHome();
   const r = runCmd(["bun", CLI_TS, "--help"], { home });
   expect(r.rc).toBe(0); expect(r.err).toBe("");
-  expect(r.out).toMatch(/^usage: orch /m);
-  for (const k of Object.keys(COMMANDS)) expect(r.out).toContain(k);
+  expect(r.out).toMatch(/^dispatch\.ts classify/m);
+  for (const k of ["classify", "run", "start", "profile", "schedule", "loop", "watch", "herdr", "demo"]) expect(r.out).toContain(`dispatch.ts ${k}`);
   expect(runCmd(["bun", CLI_TS, "--version"], { home }).out).toMatch(/^orch \d/);
 });
 
@@ -25,7 +25,7 @@ test("dispatch --help names every subcommand and an unknown one fails cleanly", 
   const home = tempHome();
   const r = runCmd(["bun", DISPATCH, "--help"], { home });
   expect(r.rc).toBe(0); expect(r.err).toBe("");
-  expect(r.out).toMatch(/dispatch\.sh classify/);
+  expect(r.out).toMatch(/dispatch\.ts classify/);
   const unk = runCmd(["bun", DISPATCH, "no-such-subcommand"], { home });
   expect(unk.rc).not.toBe(0);
   expect(unk.err).not.toMatch(/command not found|unbound variable|syntax error/);
