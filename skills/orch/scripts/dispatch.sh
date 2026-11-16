@@ -274,8 +274,8 @@ RUN_BACKFILL_TIMING_USAGE="run backfill-timing [<run-id>]"
 RUN_WAIT_USAGE='dispatch.sh run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]'
 ORCH_LIB_FILES="core/config
   runs/health runs/inbox core/locks
-  runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
-  runs/timing runs/visibility"
+  runs/pause runs/plan adapters/profile-sanity adapters/routing
+  runs/timing"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
   [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
@@ -291,6 +291,7 @@ herdr_orch_bun() { "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" herdr "$@"; }
 herdr_enabled() { herdr_orch_bun enabled; }
 herdr_cli() { herdr_orch_bun cli "$@"; }
 herdr_start_job() { herdr_orch_bun start-job "$@"; }
+cmd_run_start() { "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" run start "$@"; }
 herdr_close_job_tab() { herdr_orch_bun close-tab "$1" >/dev/null 2>&1 || true; }
 herdr_job_gone_note() { herdr_orch_bun job-gone-note "$1"; }
 herdr_serve_boot() { ( herdr_orch_bun serve-boot ) </dev/null >/dev/null 2>&1 & disown $! 2>/dev/null || true; }
@@ -613,6 +614,7 @@ owner_write_dispatch_path() {
 
 # Ported `<group> <verb>` pairs that run in bin/orch (Bun) instead of this bash file. Phase 0: empty.
 PORTED_COMMANDS=(
+  "run list" "run retry" "run sync" "__run-cancel" "prune" "node usage" "node cost" "node out" "node digest" "node remove" "node ping"
   "node tell"
   "node ask"
   "node inbox"

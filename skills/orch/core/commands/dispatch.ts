@@ -232,7 +232,7 @@ export async function profileRequire(home: string, name: string): Promise<boolea
   return false;
 }
 
-async function retryDispatch(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean): Promise<{ rc: number; jobId: string; out?: string }> {
+export async function retryDispatch(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean): Promise<{ rc: number; jobId: string; out?: string }> {
   const fail = (m: string) => (errLine(m), { rc: 2, jobId: "" });
   const run = (await loadRun(home, runId))!;
   const n = findNode(run, nodeId)!;

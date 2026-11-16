@@ -30,6 +30,8 @@ import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USA
 import { cmdRun, cmdStart, cmdJobRun } from "./adapters/spawn.ts";
 import { cmdHarness } from "./adapters/harness.ts";
 import { cmdHub } from "./adapters/hub.ts";
+import { runStart, runList, runRetry, runSync, runCancel, prune } from "./commands/runs.ts";
+import { nodeUsage, nodeCost, nodeOut, nodeDigest, nodeRemove, nodePing } from "./commands/node-ops.ts";
 import { adapterUtil } from "./commands/adapter-util.ts";
 
 export const VERSION = "0.1.0";
@@ -38,6 +40,8 @@ export type Handler = (args: string[]) => Promise<number> | number;
 
 // Ported `<group> <verb>` commands. Keep in step with PORTED_COMMANDS in scripts/dispatch.sh.
 export const COMMANDS: Record<string, Handler> = {
+  "run start": runStart, "run list": runList, "run retry": runRetry, "run sync": runSync, "__run-cancel": runCancel, prune: (a) => prune(a),
+  "node usage": nodeUsage, "node cost": nodeCost, "node out": nodeOut, "node digest": nodeDigest, "node remove": nodeRemove, "node ping": nodePing,
   "node dispatch": nodeDispatch,
   "node retry": nodeRetry,
   "run finish": runFinish,
@@ -93,7 +97,7 @@ export const COMMANDS: Record<string, Handler> = {
   announce,
 };
 
-const ONE_WORD = new Set(["serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
+const ONE_WORD = new Set(["__run-cancel", "prune", "serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
 // Commands the dashboard server answers on its socket (same core function, in its process).
 const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
 
