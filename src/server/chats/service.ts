@@ -100,6 +100,8 @@ export class ChatService {
   readonly store: ChatStore;
   readonly manager: SessionManager;
   private readonly listeners = new Map<string, Set<Listener>>();
+  /** Every chat's events, for observers that are not a page (push notifications). */
+  readonly events = new Set<(chatId: string, event: ChatEvent) => void>();
   private readonly turns = new Map<string, Turn>();
   /** Fingerprint of the memories the agent last heard about, per chat (see workspaceInstructions). */
   private readonly lastBlock = new Map<string, string>();
@@ -927,6 +929,13 @@ export class ChatService {
   private emit(chatId: string, event: ChatEvent): void {
     for (const listener of this.listeners.get(chatId) ?? []) {
       listener(event);
+    }
+    for (const observer of this.events) {
+      try {
+        observer(chatId, event);
+      } catch (err) {
+        console.error(`chats: event observer failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 

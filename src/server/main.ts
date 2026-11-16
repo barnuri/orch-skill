@@ -20,6 +20,8 @@ import { startBootResume } from "./runs/boot-resume";
 import { startReconciler } from "./runs/run-reconciler";
 import { pauseRunsOnShutdown } from "./runs/shutdown-pause";
 import { startTicker } from "./schedules/ticker";
+import { pushHubFor } from "./push/hub";
+import { startRunWatcher } from "./push/run-watcher";
 import { startWatchdog } from "./watchdog/watchdog-service";
 
 export const MIN_BUN: string = ">=1.3.0";
@@ -215,6 +217,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   // Event-driven watchdog: owns the auto-dispatch engine (ready nodes, done/error pushes) and the
   // lost, stalled, unverified, infra-retry and finish rules.
   startWatchdog(args.home);
+  // Run, watchdog and schedule notifications: read-only on orch state, sent only to the browser push services of subscriptions.
+  startRunWatcher(args.home, (category, input) => void pushHubFor(args.home).notify(category, input).catch(() => {}));
   // A run paused with auto_resume (a PC restart) resumes by itself; never blocks or crashes boot.
   startBootResume(args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.

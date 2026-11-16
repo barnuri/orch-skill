@@ -19,6 +19,7 @@ import { SuggestionsController } from "./controllers/suggestions.controller";
 import { ArtifactsController } from "./controllers/artifacts.controller";
 import { BrowserProfilesController } from "./controllers/browser-profiles.controller";
 import { WorkspaceController } from "./controllers/workspace.controller";
+import { PushController } from "./controllers/push.controller";
 import { VoiceController } from "./controllers/voice.controller";
 import { UsageController } from "./controllers/usage.controller";
 import { WatchdogController } from "./controllers/watchdog.controller";
@@ -59,6 +60,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, artifacts, options);
   api.get("/artifact-view/:token", (c) => artifacts.view(c.req.raw, c.req.param("token")));
   registerController(api, new VoiceController(ctx), options);
+  registerController(api, new PushController(ctx), options);
 
   // The document describes the API's surface, so it asks for the same Host check and token as the API.
   api.use(OPENAPI_PATH, guard(ctx));
