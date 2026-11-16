@@ -73,9 +73,15 @@ function resolveBun(cmd: string[]): string[] {
 export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string; stdin?: string; spawn?: boolean } = {}): Result {
   const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const oargs = orchArgs(cmd);
-  if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs, { ...opts.env })) return inProcess(oargs, env, opts.stdin);
+  if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs, { ...opts.env })) {
+    const t1 = Date.now(), r = inProcess(oargs, env, opts.stdin);
+    if (process.env.ORCH_TEST_TRACE && Date.now() - t1 > 700) console.error(`SLOW-IP ${Date.now() - t1}ms ${oargs.join(" ").slice(0, 100)}`);
+    return r;
+  }
+  const t0 = Date.now();
   const p = Bun.spawnSync(resolveBun(cmd), { env, cwd: opts.cwd, stdin: opts.stdin !== undefined ? Buffer.from(opts.stdin) : undefined });
   const out = p.stdout.toString(), err = p.stderr.toString();
+  if (process.env.ORCH_TEST_TRACE && Date.now() - t0 > 700) console.error(`SLOW ${Date.now() - t0}ms ${cmd.slice(2).join(" ").slice(0, 100)}`);
   return { rc: p.exitCode ?? 1, out, err, all: out + err };
 }
 
@@ -137,7 +143,7 @@ export function fakeHub(delayMs = 0) {
 
 export async function waitUntil(cond: () => boolean | Promise<boolean>, seconds = 60): Promise<boolean> {
   const end = Date.now() + seconds * 1000;
-  while (Date.now() < end) { if (await cond()) return true; await Bun.sleep(200); }
+  while (Date.now() < end) { if (await cond()) return true; await Bun.sleep(25); }
   return false;
 }
 export const listFiles = (d: string) => (existsSync(d) ? readdirSync(d) : []);

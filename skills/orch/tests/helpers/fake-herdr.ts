@@ -54,9 +54,9 @@ switch (k) {
     if (a[0] === "server") {
       if (e.ORCH_HERDR_FAKE_DOWN) process.exit(1);
       appendFileSync(join(S, "starts"), "x\n");
-      await Bun.sleep(300);
+      await Bun.sleep(50);
       writeFileSync(sock, String(process.pid));
-      while (existsSync(sock)) await Bun.sleep(200);
+      while (existsSync(sock)) await Bun.sleep(50);
       process.exit(0);
     }
     console.error(`fake herdr: unsupported ${a.join(" ")}`); process.exit(2);

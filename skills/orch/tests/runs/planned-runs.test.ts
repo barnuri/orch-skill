@@ -47,7 +47,7 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   expect(r.rc).toBe(0);
   expect(r.all).toMatch(/applied: 4 task\(s\)/);
   expect(r.all).toMatch(/stages: a\+b\+c -> merge/);
-  expect(r.all).toMatch(/profile claude-default is disabled, using local-llm-fast/);
+  expect(r.all).toMatch(/profile claude-default is disabled or not for orch runs, using local-llm-fast/);
   expect(r.out).toMatch(/^dispatched: a,b$/m);
   expect(r.out).toMatch(/^queued: c$/m);
   const edges = JSON.stringify(st().edges);

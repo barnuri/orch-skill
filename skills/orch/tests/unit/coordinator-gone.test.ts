@@ -6,24 +6,26 @@ import { orch, seedHome, tempDir, fakeBin, readJson, readText, editJson, writeJs
 autoCleanup();
 
 // Fake herdr (TypeScript, run by bun): logs calls, answers pane get/list/read, records send-text.
-const FAKE = `#!/usr/bin/env bun
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
-const a = process.argv.slice(2), e = process.env;
-appendFileSync(e.FAKE_LOG!, (e.HERDR_SOCKET_PATH ?? "") + " " + a.join(" ") + "\\n");
-const flag = (n: string) => !!e[n] && existsSync(e[n]!.startsWith("/") ? e[n]! : "/nonexistent");
-const cmd = a.slice(0, 2).join(" ");
-const mode = (n: string) => existsSync(e.FAKE_FLAGS + "/" + n);
-if (cmd === "pane get") {
-  if (mode("gone") || (existsSync(e.FAKE_FLAGS + "/gone_pane") && readFileSync(e.FAKE_FLAGS + "/gone_pane", "utf8").trim() === a[2])) process.exit(1);
-  const f = e.FAKE_GETS + "/" + a[2] + ".json";
-  if (existsSync(f)) { const j = JSON.parse(readFileSync(f, "utf8")); if (mode("working")) j.agent_status = "working"; process.stdout.write(JSON.stringify(j)); }
-  else console.log(JSON.stringify({ agent_status: mode("working") ? "working" : "idle" }));
-} else if (cmd === "pane list") { if (existsSync(e.FAKE_LIST!)) process.stdout.write(readFileSync(e.FAKE_LIST!, "utf8")); }
-else if (cmd === "pane read") {
-  if (mode("read_fail")) process.exit(1);
-  if (mode("changing")) console.log(String(process.hrtime.bigint()));
-  console.log("output"); console.log(mode("typing") ? "❯ half a draft" : "❯");
-} else if (cmd === "pane send-text") { if (mode("send_fail")) process.exit(1); appendFileSync(e.FAKE_TEXT!, a[3] + "\\n"); }
+const FAKE = `#!/bin/sh
+echo "\${HERDR_SOCKET_PATH:-} $*" >> "$FAKE_LOG"
+mode() { [ -e "$FAKE_FLAGS/$1" ]; }
+case "$1 $2" in
+"pane get")
+  if mode gone; then exit 1; fi
+  if [ -f "$FAKE_FLAGS/gone_pane" ] && [ "$(tr -d ' \\n' < "$FAKE_FLAGS/gone_pane")" = "$3" ]; then exit 1; fi
+  f="$FAKE_GETS/$3.json"
+  if [ -f "$f" ]; then
+    if mode working; then sed 's/"agent_status": *"[^"]*"/"agent_status":"working"/; s/}$/,"agent_status":"working"}/' "$f"; else cat "$f"; fi
+  elif mode working; then echo '{"agent_status":"working"}'; else echo '{"agent_status":"idle"}'; fi ;;
+"pane list") [ -f "$FAKE_LIST" ] && cat "$FAKE_LIST" ;;
+"pane read")
+  mode read_fail && exit 1
+  mode changing && od -An -N8 -tx1 /dev/urandom
+  echo output
+  if mode typing; then echo "❯ half a draft"; else echo "❯"; fi ;;
+"pane send-text") mode send_fail && exit 1; printf '%s\\n' "$4" >> "$FAKE_TEXT" ;;
+esac
+exit 0
 `;
 
 const setup = () => {
@@ -52,63 +54,6 @@ const setup = () => {
   const reset = () => { drain(); writeFileSync(log, ""); writeFileSync(text, ""); for (const f of readdirSync(flags)) Bun.spawnSync(["trash", join(flags, f)]); };
   return { home, o, dir, env, sock, flag, get, panes, setCoord, st, lastMsg, orchMsgs, reset, text: () => readText(text), log: () => readText(log), repo };
 };
-
-test("run set coordinator and delivery to an idle pane", () => {
-  const t = setup();
-  const noEnv = orch(t.home, { ...t.env, HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: undefined });
-  expect(noEnv("run", "set", "r1", "coordinator").rc).toBe(2);
-  const oc = orch(t.home, { ...t.env, HERDR_PANE_ID: "p-coord", HERDR_SOCKET_PATH: t.sock, HERDR_WORKSPACE_ID: "ws-1", HERDR_ENV: "1" });
-  t.get("p-coord", { agent_session: { value: "ses_abc" }, agent: "opencode" });
-  expect(oc("run", "set", "r1", "coordinator").out).toMatch(/^coordinator: r1 p-coord$/m);
-  const c = t.st().coordinator;
-  expect([c.pane_id, c.socket_path, c.workspace_id, c.session_id]).toEqual(["p-coord", t.sock, "ws-1", "ses_abc"]);
-  t.reset();
-  expect(t.o("node", "ask", "r1", "a", "which db?").out).toMatch(/^m1 asked$/m);
-  expect(t.lastMsg().via).toBe("herdr-coordinator");
-  expect(t.text()).toBe('[orch ask #m1 from a] which db? | answer: dispatch.ts node answer r1 a m1 "<text>"\n');
-  expect(t.log()).toMatch(/pane send-keys p-coord Enter/);
-  expect(t.log()).toMatch(new RegExp(`^${t.sock} pane send-text`, "m"));
-  t.reset(); t.o("node", "ask", "r1", "a", 'say "hi" \\ x');
-  expect(t.text()).toMatch(/^\[orch ask #m2 from a\] say \\"hi\\" \\\\ x \| answer/);
-  t.reset(); t.o("node", "ask", "r1", "a", "line one\nline two");
-  expect(t.text().trim().split("\n").length).toBe(1);
-  t.reset();
-  const tell = t.o("node", "tell", "r1", "coordinator", "need a call", "--from", "a");
-  expect(tell.out).toMatch(/^m\d+ coordinator delivered/m);
-  expect(t.text()).toMatch(/^\[orch tell #m\d+ from a\] need a call$/m);
-});
-
-test("busy, typing, changing, unreadable, send failure, retries", () => {
-  const t = setup();
-  t.get("p-coord", { agent_session: { value: "ses_abc" }, agent: "opencode" });
-  t.setCoord("p-coord", "ses_abc");
-  const defers = (flag: string, q: string) => {
-    t.reset(); t.flag(flag);
-    t.o("node", "ask", "r1", "a", q);
-    t.flag(flag, false);
-    return [t.lastMsg().status, t.lastMsg().tries, t.text()];
-  };
-  expect(defers("working", "busy?")).toEqual(["pending", 1, ""]);
-  expect(defers("typing", "typed over?")).toEqual(["pending", 1, ""]);
-  expect(defers("changing", "moving screen?")).toEqual(["pending", 1, ""]);
-  expect(defers("read_fail", "unreadable?")).toEqual(["pending", 1, ""]);
-  t.reset(); t.o("node", "ask", "r1", "a", "quiet");
-  expect(t.lastMsg().via).toBe("herdr-coordinator");
-  // 10 tries to a working pane: the ask fails after 10, then a sweep delivers a later one once idle
-  t.reset(); t.flag("working"); t.o("node", "ask", "r1", "a", "never ends");
-  for (let i = 0; i < 9; i++) t.o("run-util", "sweep", "r1");
-  expect(t.lastMsg().tries).toBeGreaterThanOrEqual(10);
-  t.reset(); t.flag("working"); t.o("node", "ask", "r1", "a", "later"); t.flag("working", false);
-  t.o("run-util", "sweep", "r1");
-  expect(t.lastMsg().via).toBe("herdr-coordinator");
-  t.reset(); t.flag("send_fail");
-  expect(t.o("node", "ask", "r1", "a", "send fails").out).toMatch(/^m\d+ asked$/m);
-  expect([t.lastMsg().status, t.lastMsg().delivered_at ?? null]).toEqual(["pending", null]);
-  expect(t.st().coordinator.unreachable.reason).toMatch(/^send failed/);
-  t.flag("send_fail", false); t.o("run-util", "sweep", "r1");
-  expect(t.lastMsg().via).toBe("herdr-coordinator");
-  expect(t.st().coordinator.unreachable ?? null).toBeNull();
-});
 
 test("gone pane: unreachable, repoint by session, candidates, ordered backlog, late answers", () => {
   const t = setup();

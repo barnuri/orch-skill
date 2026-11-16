@@ -1,0 +1,73 @@
+import { test, expect } from "bun:test";
+import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { orch, seedHome, tempDir, fakeBin, fakeHerdrBin, readJson, readText, runState, waitUntil, pidAlive, pathWithout, autoCleanup } from "../helpers";
+autoCleanup();
+
+const setup = () => {
+  const root = tempDir();
+  const fake = fakeHerdrBin();
+  const shims = fakeBin({ claude: `printf 'shim HOME=%s marker=%s\\n' "$HOME" "\${ORCH_TEST_MARKER:-none}"\n[ -z "\${ORCH_TEST_SLEEP:-}" ] || sleep "$ORCH_TEST_SLEEP"\nexit "\${ORCH_TEST_EXIT:-0}"` });
+  const realhome = join(root, "realhome"), home = join(root, "orch home"), webdir = join(root, "envs.d"), log = join(root, "herdr-calls.log");
+  mkdirSync(realhome, { recursive: true }); mkdirSync(home, { recursive: true }); writeFileSync(log, "");
+  const env = { HOME: realhome, PATH: `${fake}:${shims}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_HERDR_FAKE_LOG: log, ORCH_HERDR_CLOSE_AFTER: "1", ORCH_HERDR_START_WAIT: "8", ORCH_HERDR_CALL_TIMEOUT: "40",
+    ORCH_HERDR_WEB_ENVS_DIR: webdir, HERDR_SOCKET_PATH: join(realhome, "live-session.sock"), HERDR_ENV: "1", HERDR_PANE_ID: "live:p1", ORCH_RUN_ID: undefined, ORCH_NODE_ID: undefined, ORCH_NODE_ATTEMPT: undefined };
+  const d = orch(home, env as any);
+  const instCfg = join(home, "herdr/home/.config/herdr");
+  const fakeState = () => { try { return readJson(join(instCfg, "fake/state.json")); } catch { return { workspaces: [], tabs: [], panes: [] }; } };
+  const waitJob = (j: string) => d("wait", j, "--timeout", "90", "--interval", "0.2");
+  return { root, home, webdir, log, d, env, instCfg, fakeState, waitJob, realhome, shims, fake, calls: () => readText(log) };
+};
+
+test("ensure, status, web env file, health", async () => {
+  const t = setup();
+  const { d } = t;
+  d("init");
+  expect(d("herdr", "ensure").rc).toBe(0); expect(d("herdr", "ensure").rc).toBe(0);
+  await Promise.all([1, 2, 3].map(() => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "herdr", "ensure"], { env: { ...process.env, ...t.env, HARNESS_ORCH_HOME: t.home, ORCH_NO_ANNOUNCE: "1" } as any, stdout: "ignore", stderr: "ignore" }).exited));
+  expect(readText(join(t.instCfg, "fake/starts")).trim().split("\n").length).toBe(1);
+  expect(existsSync(join(t.instCfg, "config.toml"))).toBe(true);
+  expect(readText(join(t.instCfg, "config.toml")).split("\n").filter((l) => !l.startsWith("#")).join("\n")).not.toMatch(/plugin|sound|delivery = "(os|all)"/);
+  expect(readText(join(t.home, "herdr/server.pid")).trim()).toMatch(/^\d+$/);
+  const st = d("herdr", "status").all;
+  expect(st).toMatch(/^server: running/m); expect(st).toMatch(/HOME=.*herdr/); expect(st).toMatch(/^herdr: on \(ORCH_HERDR=1\)/m);
+  const wf = join(t.webdir, "orch-skill.json");
+  expect(existsSync(wf)).toBe(true);
+  const env = readJson(wf);
+  expect(`${env.id} ${env.label}`).toBe("orch-skill orch-skill");
+  expect(env.socket).toMatch(/^\/tmp\/orch-herdr-\d+-[0-9a-f]+\/\.config\/herdr\/herdr\.sock$/);
+  expect(env.home).toMatch(/^\/tmp\/orch-herdr-/);
+  expect(existsSync(env.socket)).toBe(true);
+  expect(readdirSync(t.webdir)).toEqual(["orch-skill.json"]);
+  writeFileSync(wf, JSON.stringify({ ...env, socket: "/stale/path.sock" }));
+  d("herdr", "ensure");
+  expect(readJson(wf).socket).toMatch(/\/herdr\.sock$/);
+  expect(t.calls()).not.toMatch(/herdr-web/);
+
+  const hj = (...x: string[]) => JSON.parse(orch(t.home, { ...t.env, ORCH_HERDR_WEB_URL: "off" } as any)("herdr", "health", "--json", ...x).out);
+  let h = hj();
+  expect([h.state, h.pid_alive, h.socket_ok, h.registry, h.web, h.env_id]).toEqual(["ok", true, true, "ok", "skipped", "orch-skill"]);
+  expect(h.registry_path).toBe(wf);
+  expect(orch(t.home, { ...t.env, ORCH_HERDR_WEB_URL: "off" } as any)("herdr", "health").all).toMatch(/^herdr health: ok/m);
+  Bun.spawnSync(["mv", wf, join(t.root, "wf.moved")]);
+  h = hj(); expect([h.state, h.registry]).toEqual(["degraded", "missing"]);
+  h = hj("--nudge"); expect([h.state, h.registry, h.nudged]).toEqual(["ok", "ok", true]);
+  d("herdr", "stop");
+  mkdirSync(t.webdir, { recursive: true });
+  writeFileSync(wf, JSON.stringify({ id: "orch-skill", label: "orch-skill", home: "/x", socket: "/x/s" }));
+  h = hj(); expect([h.state, h.socket_ok, h.registry]).toEqual(["down", false, "wrong"]);
+  expect(h.problems.join(" ")).toMatch(/does not answer/);
+  expect(orch(t.home, { ...t.env, ORCH_HERDR_WEB_URL: "off" } as any)("herdr", "health").rc).toBe(3);
+  h = hj("--nudge"); expect([h.state, h.socket_ok, h.nudged]).toEqual(["ok", true, true]);
+  expect(readText(join(t.instCfg, "fake/starts")).trim().split("\n").length).toBe(2);
+  expect(readJson(wf).socket).toMatch(/\/herdr\.sock$/);
+  writeFileSync(t.log, "");
+  const off = JSON.parse(orch(t.home, { ...t.env, ORCH_HERDR: "0", ORCH_HERDR_WEB_URL: "off" } as any)("herdr", "health", "--json", "--nudge").out);
+  expect([off.state, off.enabled]).toEqual(["off", false]);
+  expect(t.calls().trim()).toBe("");
+  d("herdr", "stop");
+  expect(existsSync(wf)).toBe(false);
+  d.env({ ORCH_HERDR: "0" }, "herdr", "ensure");
+  expect(existsSync(wf)).toBe(false);
+  expect(d("herdr", "maybe").rc).toBe(2);
+}, 180000);

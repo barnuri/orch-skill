@@ -245,9 +245,9 @@ async function ensureServer(home: string): Promise<boolean> {
     const p = Bun.spawn(["sh", "-c", `exec herdr server >>"${log}" 2>&1 </dev/null`], { env: instEnv(inst), stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
     p.unref();
     writeFileSync(join(dir, "server.pid"), `${p.pid}\n`);
-    for (let i = 0; i < startWaitSecs() * 4; i++) {
+    for (let i = 0; i < startWaitSecs() * 10; i++) {
       if (await serverRunning(home)) return true;
-      await Bun.sleep(250);
+      await Bun.sleep(100);
     }
     return false;
   } finally {
@@ -266,7 +266,7 @@ export async function herdrOrch(home: string, sub: string): Promise<number> {
   if (sub === "stop") {
     if (!(await serverRunning(home))) { await webUnregister(home); return 0; }
     await herdrCli(home, ["server", "stop"]);
-    for (let i = 0; i < 20 && (await serverRunning(home)); i++) await Bun.sleep(500);
+    for (let i = 0; i < 100 && (await serverRunning(home)); i++) await Bun.sleep(100);
     if (await serverRunning(home)) return 1;
     writeFileSync(join(herdrDir(home), "server.pid"), "");
     await webUnregister(home);
