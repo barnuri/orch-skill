@@ -4,7 +4,7 @@
 
 set -u
 
-# TESTS_DIR is skills/orch/tests; SCRIPT_DIR is skills/orch/scripts (dispatch.sh, announce.sh, lib/).
+# TESTS_DIR is skills/orch/tests; SCRIPT_DIR is skills/orch/scripts (dispatch.sh, lib/).
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_DIR="$(cd "$TESTS_DIR/../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"

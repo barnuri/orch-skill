@@ -1,6 +1,6 @@
 # Status bridge
 
-`scripts/announce.sh` makes orch work visible where the harness only sees its own turn. While agents, background commands, watches and loops run, Herdr and the status line otherwise show the session as idle.
+`core/commands/announce.ts` makes orch work visible where the harness only sees its own turn. While agents, background commands, watches and loops run, Herdr and the status line otherwise show the session as idle.
 
 ## What it does
 
@@ -24,7 +24,7 @@ Session id: `agent_session_id` from `hooks/agent-env.sh` when present, else `$CL
 
 ## Automatic wiring
 
-`dispatch.sh` calls `announce.sh --quiet` in the background from an EXIT trap after `run start|finish|sync|carry` and `node update|report|ping|dispatch`. The caller's exit code and output do not change. Rules:
+`dispatch.sh` calls `orch announce --quiet` in the background from an EXIT trap after `run start|finish|sync|carry` and `node update|report|ping|dispatch`. The caller's exit code and output do not change. Rules:
 
 1. Debounce: skipped when the last announce started under 5 s ago (`<home>/.announce-ts`, written atomically). The last change inside a window shows at the next mutation or the next refresh; the TTL covers the rest.
 2. No-op when neither `HERDR_ENV=1` nor `CLAUDE_CODE_SESSION_ID`/`OPENCODE_SESSION_ID` is set.
@@ -34,7 +34,7 @@ Session id: `agent_session_id` from `hooks/agent-env.sh` when present, else `$CL
 
 ## TTL refresh
 
-The label expires after 120 s. `announce.sh --daemon` keeps it fresh: the announce hook starts one daemon per home the first time it runs while something is running (pidfile `<home>/announce.pid`, log `<home>/announce.log` capped at 100 KB). It refreshes every activity file and Herdr label every 20 s, exits after 10 minutes with nothing running, and stops on `announce.sh --clear`. Do not run a `run sync` watch for freshness. Env: `ANNOUNCE_INTERVAL` (s), `ANNOUNCE_IDLE_SECS`, `ANNOUNCE_NO_DAEMON=1`.
+The label expires after 120 s. `orch announce --daemon` keeps it fresh: the announce hook starts one daemon per home the first time it runs while something is running (pidfile `<home>/announce.pid`, log `<home>/announce.log` capped at 100 KB). It refreshes every activity file and Herdr label every 20 s, exits after 10 minutes with nothing running, and stops on `orch announce --clear`. Do not run a `run sync` watch for freshness. Env: `ANNOUNCE_INTERVAL` (s), `ANNOUNCE_IDLE_SECS`, `ANNOUNCE_NO_DAEMON=1`.
 
 ## Clearing semantics (Herdr 0.9.5 docs)
 

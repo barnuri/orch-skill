@@ -270,8 +270,8 @@ fi
 # read variables another file sets at file scope. A new lib file must be added here.
 ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
   dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub runs/inbox core/locks
-  automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
-  automation/schedules dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
+  runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
+  dashboard/serve dashboard/suggest runs/timing runs/visibility runs/wait"
 for lib_file in $ORCH_LIB_FILES; do
   lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
   [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
@@ -617,14 +617,13 @@ cmd_list() {
 announce_hook() {
   [ "${ORCH_NO_ANNOUNCE:-}" = 1 ] && return 0
   [ "${HERDR_ENV:-}" = 1 ] || [ -n "${CLAUDE_CODE_SESSION_ID:-}${OPENCODE_SESSION_ID:-}" ] || return 0
-  [ -f "$SCRIPT_DIR/announce.sh" ] || return 0
   local stamp="$ORCH_HOME/.announce-ts" now last tmp
   now=$(date +%s); last=$(cat "$stamp" 2>/dev/null || echo 0)
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   [ $((now - last)) -ge 5 ] || return 0
   tmp="$stamp.$$"
   { printf '%s\n' "$now" > "$tmp" && mv -f "$tmp" "$stamp"; } 2>/dev/null || return 0
-  ( bash "$SCRIPT_DIR/announce.sh" --quiet >/dev/null 2>&1 </dev/null & ) 2>/dev/null
+  ( "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" announce --quiet >/dev/null 2>&1 </dev/null & ) 2>/dev/null
   return 0
 }
 
@@ -675,6 +674,10 @@ PORTED_COMMANDS=(
   "delegate task"
   "delegate finding"
   "delegate show"
+  "loop start" "loop list" "loop stop" "loop resume" "loop tail" "loop recover" "loop prune"
+  "watch start" "watch wait" "watch events" "watch list" "watch stop" "watch status-of"
+  "schedule add" "schedule edit" "schedule list" "schedule show" "schedule enable" "schedule disable"
+  "schedule remove" "schedule run" "schedule log" "schedule tick" "schedule next"
 )
 
 is_ported() {
@@ -776,11 +779,8 @@ main() {
     memory) shift; cmd_memory "$@" ;;
     suggest) shift; cmd_suggest "$@" ;;
     demo) shift; cmd_demo "$@" ;;
-    loop) shift; cmd_loop "$@" ;;
-    watch) shift; cmd_watch "$@" ;;
-    active) shift; cmd_active "$@" ;;
-    announce) shift; bash "$SCRIPT_DIR/announce.sh" "$@" ;;
-    schedule) shift; cmd_schedule "$@" ;;
+    loop|watch|schedule|active|announce) exec "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" "$@" ;;
+    __run-cancel) shift; run_cancel "$@" ;;
     ""|-h|--help) usage ;;
     *) printf 'unknown subcommand: %s\n' "$sub" >&2; usage >&2; exit 2 ;;
   esac

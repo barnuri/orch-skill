@@ -468,7 +468,7 @@ cmd_sync() {
 $(run_state_files)
 EOF
 
-  loops_recover || true
+  "${ORCH_BUN:-bun}" "$SCRIPT_DIR/../bin/orch" loop recover || true
   suggest_scan || true
   if [ "$(learning_get auto_apply_safe true)" = "true" ]; then
     suggest_apply_safe || true

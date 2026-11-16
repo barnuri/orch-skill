@@ -1,0 +1,22 @@
+# Phase 5 parity: loops, watches, active. Each line runs on a fresh seeded home. No process is started.
+loop
+loop list
+loop start
+loop start --every 5s --profile claude-haiku hi
+loop start --every 10m --max x --profile claude-haiku hi
+loop start --every 10m
+loop start --every 10m --bogus
+loop stop
+loop stop no-such-loop
+loop resume no-such-loop
+loop tail no-such-loop
+watch
+watch list
+watch start
+watch start --on-match hi "echo x"
+watch start --every 5s "echo x"
+watch wait no-such-watch
+watch events no-such-watch
+watch stop no-such-watch
+active
+active --json

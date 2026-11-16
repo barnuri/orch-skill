@@ -8,6 +8,9 @@ import { runStatusCommand } from "./commands/run.ts";
 import { nodeSelections } from "./commands/selections.ts";
 import { profileList, profileShow, profilePickCommand, modelList } from "./commands/profile.ts";
 import { doctor } from "./commands/doctor.ts";
+import { loopCommands } from "./commands/loops.ts";
+import { scheduleCommands } from "./commands/schedules.ts";
+import { announce } from "./commands/announce.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 export const VERSION = "0.1.0";
@@ -34,6 +37,9 @@ export const COMMANDS: Record<string, Handler> = {
   "delegate task": (a) => delegateTask(a),
   "delegate finding": (a) => delegateFinding(a),
   "delegate show": (a) => delegateShow(a),
+  ...loopCommands,
+  ...scheduleCommands,
+  announce,
 };
 
 export function parseArgv(argv: string[]): { flags: Set<string>; words: string[] } {
@@ -64,6 +70,11 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (words[0] === "doctor" && words.length === 1) return doctor();
+  // Single-word commands take every later argument, so `announce --run <id>` is not read as a verb.
+  if (words[0] === "announce" || words[0] === "active") {
+    const first = argv.indexOf(words[0]);
+    return await COMMANDS[words[0]]!(argv.slice(first + 1));
+  }
   // `delegate <run> <verb> ...`: the verb is the third word. The handler gets the run id first, then
   // the rest, so the verb is dropped from argv.
   if (words[0] === "delegate") {
