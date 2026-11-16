@@ -116,3 +116,54 @@ export async function waitUntil(cond: () => boolean | Promise<boolean>, seconds 
   return false;
 }
 export const listFiles = (d: string) => (existsSync(d) ? readdirSync(d) : []);
+
+/** orch(home, env?) -> o(...args): runs dispatch.sh (routes to the Bun CLI where ported) in a home. */
+export function orch(home: string, env: Record<string, string | undefined> = {}) {
+  const o = (...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env });
+  o.in = (stdin: string, ...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env, stdin });
+  o.env = (extra: Record<string, string | undefined>, ...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env: { ...env, ...extra } });
+  return o;
+}
+export const runState = (home: string, run: string) => readJson(join(home, "runs", run, "state.json"));
+export const nodeOf = (home: string, run: string, id: string) => runState(home, run).nodes.find((n: any) => n.id === id);
+export const readText = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : "");
+export const events = (home: string, run: string) =>
+  readText(join(home, "runs", run, "events.jsonl")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+/** Fake `opencode` binary (logs argv to <dir>/calls) plus an opencode sqlite db with busy/stalled/idle sessions. */
+export async function opencodeFixture() {
+  const { Database } = await import("bun:sqlite");
+  const dir = tempDir("orch-oc-");
+  const bin = fakeBin({ opencode: `echo "$*" >> "${dir}/calls"\necho '{"data":{"id":"msg_1"}}'` });
+  const db = join(dir, "opencode.db");
+  const now = Date.now(), old = now - 40 * 60 * 1000;
+  const d = new Database(db);
+  d.run(`create table session_v2 (id text primary key, parent_id text, title text, model text,
+    cost real default 0, tokens_input integer default 0, tokens_output integer default 0, tokens_reasoning integer default 0,
+    tokens_cache_read integer default 0, tokens_cache_write integer default 0, time_created integer, time_updated integer,
+    time_busy integer, time_idle integer)`);
+  const ins = d.prepare("insert into session_v2 (id, title, time_created, time_updated, time_busy, time_idle) values (?,?,?,?,?,?)");
+  ins.run("ses_busy1", "busy", old, now, now, null);
+  ins.run("ses_stall1", "stalled", old, old, old, null);
+  ins.run("ses_idle1", "idle", old, now, now - 5000, now);
+  d.close();
+  const env = { PATH: `${bin}:${process.env.PATH}`, ORCH_OPENCODE_DB: db, ORCH_OWNER_CACHE_SECS: "0", ORCH_HEALTH_MONITOR: "0" };
+  return { dir, bin, db, env, calls: () => readText(join(dir, "calls")) };
+}
+export const ndjson = (rows: object[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+
+/** State with volatile timestamps removed, for comparing two runs. */
+export function normState(home: string, run: string): string {
+  const strip = (v: any): any => Array.isArray(v) ? v.map(strip) : v && typeof v === "object"
+    ? Object.fromEntries(Object.entries(v).filter(([k]) => !["created", "updated", "started", "finished", "at", "next_retry_at", "owner_checked", "run_id", "title"].includes(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, strip(x)])) : v;
+  return JSON.stringify(strip(runState(home, run)));
+}
+export const eventKeys = (home: string, run: string) => JSON.stringify(events(home, run).map((e) => [e.kind, e.node, e.from, e.to, e.note, e.by]));
+export const handoff = (home: string, run: string, node: string) => {
+  mkdirSync(join(home, "runs", run, "out", node), { recursive: true });
+  writeFileSync(join(home, "runs", run, "out", node, "handoff.md"), "handoff\n");
+};
+
+export const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/** Run state of a node, shorthand. */
+export const jqNode = (home: string, run: string, id: string) => nodeOf(home, run, id);
