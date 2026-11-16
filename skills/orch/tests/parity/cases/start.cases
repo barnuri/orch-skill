@@ -1,0 +1,6 @@
+# Adapter start (detached job). Only the synchronous failures are compared: a started job has a random id.
+start
+start --profile
+start --profile nope "hi"
+start claude-native
+start claude-native @/no/such/prompt-file

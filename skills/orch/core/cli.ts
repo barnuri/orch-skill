@@ -10,6 +10,11 @@ import { profileList, profileShow, profilePickCommand, modelList } from "./comma
 import { doctor } from "./commands/doctor.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
+import { cmdRun, cmdStart, cmdJobRun } from "./adapters/spawn.ts";
+import { cmdHarness } from "./adapters/harness.ts";
+import { cmdHub } from "./adapters/hub.ts";
+import { adapterUtil } from "./commands/adapter-util.ts";
+
 export const VERSION = "0.1.0";
 
 export type Handler = (args: string[]) => Promise<number> | number;
@@ -29,6 +34,11 @@ export const COMMANDS: Record<string, Handler> = {
   "profile show": profileShow,
   "profile pick": profilePickCommand,
   "model list": modelList,
+  "harness list": (a) => cmdHarness(["list", ...a]),
+  "hub setup": (a) => cmdHub(["setup", ...a]),
+  "hub off": (a) => cmdHub(["off", ...a]),
+  "hub status": (a) => cmdHub(["status", ...a]),
+  "hub resolve": (a) => cmdHub(["resolve", ...a]),
   // `delegate <run> <verb>`: the run id is the second word, so the key is built in main().
   "delegate plan": (a) => delegatePlan(a),
   "delegate task": (a) => delegateTask(a),
@@ -64,6 +74,15 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (words[0] === "doctor" && words.length === 1) return doctor();
+  // `run (--profile P | <adapter>) <prompt>` and `start ...` spawn an adapter. They take the raw argv
+  // (flags included). `run <verb>` stays with the run-state commands.
+  const RUN_ADAPTERS = ["--profile", "claude", "claude-native", "cursor-agent", "local-llm", "opencode", "copilot", "pi"];
+  if (words[0] === "start" || (words[0] === "run" && RUN_ADAPTERS.includes(argv[1] ?? ""))) {
+    const rest = argv.slice(1);
+    return words[0] === "start" ? cmdStart(rest) : cmdRun(rest);
+  }
+  if (words[0] === "adapter-util") return adapterUtil(argv.slice(1));
+  if (words[0] === "job-run") return cmdJobRun(argv.slice(1));
   // `delegate <run> <verb> ...`: the verb is the third word. The handler gets the run id first, then
   // the rest, so the verb is dropped from argv.
   if (words[0] === "delegate") {
