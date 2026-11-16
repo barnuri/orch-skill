@@ -1,3 +1,4 @@
+import { withLanguageHint } from "../language";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -167,7 +168,7 @@ export class ClaudeSession implements AgentSession {
 
   async *send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent> {
     const signal = this.handle.begin();
-    const line = `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: withAttachments(prompt, attachments) }] } })}\n`;
+    const line = `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: withLanguageHint(withAttachments(prompt, attachments)) }] } })}\n`;
     let started: { paths: TurnPaths; meta: TurnMeta };
     try {
       started = startTurn({

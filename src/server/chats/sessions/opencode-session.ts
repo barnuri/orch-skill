@@ -1,3 +1,4 @@
+import { withLanguageHint } from "../language";
 import type { Launch } from "../options";
 import { buildReplayPrompt } from "./history-replay";
 import type { OpencodeServerPool } from "./opencode-server";
@@ -225,7 +226,7 @@ export class OpencodeSession implements AgentSession {
     for (const path of attachments) {
       args.push("-f", path);
     }
-    args.push(text);
+    args.push(withLanguageHint(text));
     const signal = this.handle.begin();
     let started: ReturnType<typeof startTurn>;
     try {
