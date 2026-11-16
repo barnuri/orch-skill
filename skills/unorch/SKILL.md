@@ -16,6 +16,11 @@ bun <orch-skill repo>/scripts/unorch.ts [run-id]   # repo: /Users/barnu/sandbox/
 - Without a run id it takes the newest running run.
 - It sets `auto_dispatch false` and pauses the run, so no node starts behind your back. Running agents are not killed. `--no-pause` prints the report only.
 - The report lists every unfinished node: status, profile, goal, unmet dependencies, error, job liveness (ALIVE or dead), the last log lines, handoff path, and the node's pending asks.
+- It also writes the takeover record as markdown, the source of truth for the whole takeover, in `agent-spec/unorch/<run>/` of the repo:
+  - `tasks.md`: one checkbox per node with its status, handoff link and a `| notes:` field (owner, branch, state). Done nodes are checked. A re-run keeps your checked boxes and notes.
+  - `handoffs/<node>.md`: a copy of every node handoff, so the main session reads them in one place.
+  - `asks.md`: every node ask and whether it is answered.
+- Manage the work through these files: write the branch or subagent that owns a task in its `notes`, tick `[x]` when it is merged, and re-run the script to refresh statuses and handoffs.
 
 ## Step 2: Order the work
 
@@ -25,9 +30,12 @@ bun <orch-skill repo>/scripts/unorch.ts [run-id]   # repo: /Users/barnu/sandbox/
 
 ## Step 3: Do the work here
 
+- Parallel work: for each independent task, make a git worktree and branch (`git worktree add -b take-<task> ../<repo>-take-<task> master`), start one subagent of the main session in it (never an orch node), and tell it the rules: work only in that worktree, commit on its branch, no push, no question tool. Record the branch in `tasks.md`.
+- Tests: when the user wants speed, subagents run no tests. The main session merges the branches, resolves conflicts (usually `cli.ts`, `PORTED_COMMANDS` and similar lists), and runs every test once at the end, with a 5 minute cap per call and `--resume` after exit 75.
+
 - Follow the repo rules (`CLAUDE.md`): touched tests only, a 5 minute cap, commit by path, no push, restart the service after a `src/` change.
 - Answer a node's pending ask yourself when you take its work over. Ask the user only for a user decision, through the question tool.
-- After each node: run its checks, commit its files, and record it with `dispatch.sh node update <run> <node> done --force` and a handoff written into the node's out folder (`runs/<run>/out/<node>/handoff.md`), so the run page and `run status` stay true.
+- After each task: merge its branch, tick its box in `tasks.md`, commit its files, and record it with `dispatch.sh node update <run> <node> done --force` and a handoff written into the node's out folder (`runs/<run>/out/<node>/handoff.md`), so the run page and `run status` stay true.
 
 ## Step 4: Close
 
