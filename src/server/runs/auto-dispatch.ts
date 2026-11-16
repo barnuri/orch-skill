@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, watch, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -177,7 +177,12 @@ export interface EngineOptions {
   start?: Starter;
   log?: Logger;
   now?: () => Date;
+  /** Delay before a failed start is retried (default 20 s). */
+  retryMs?: number;
 }
+
+const RETRY_LIMIT = 3;
+const RETRY_DELAY_MS = 20000;
 
 /** One engine over one home. `evaluate` is idempotent: claims make a second call start nothing. */
 export class RunEngine {
@@ -186,6 +191,8 @@ export class RunEngine {
   private readonly now: () => Date;
   private readonly lastStatus = new Map<string, Map<string, string>>();
   private readonly lastSkip = new Map<string, string>();
+  private readonly failures = new Map<string, number>();
+  private readonly retryMs: number;
   private readonly watchers = new Map<string, FSWatcher>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -197,6 +204,7 @@ export class RunEngine {
     this.start = opts.start ?? spawnDispatch;
     this.log = opts.log ?? stderrLog;
     this.now = opts.now ?? ((): Date => new Date());
+    this.retryMs = opts.retryMs ?? RETRY_DELAY_MS;
   }
 
   evaluate(runId: string): void {
@@ -226,13 +234,31 @@ export class RunEngine {
       const p = this.start(["node", "dispatch", runId, d.node, "--profile", d.profile, d.prompt], this.home)
         .then((rc) => {
           if (rc !== 0) {
-            this.log(`start failed ${runId} ${d.node}: dispatch exit ${rc} (claim kept: ${claim})`);
+            this.releaseFailed(runId, d.node, claim, `dispatch exit ${rc}`);
           }
         })
-        .catch((err: unknown) => this.log(`start failed ${runId} ${d.node}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err: unknown) => this.releaseFailed(runId, d.node, claim, err instanceof Error ? err.message : String(err)))
         .finally(() => this.inflight.delete(p));
       this.inflight.add(p);
     }
+  }
+
+  /** A failed start frees its claim (kept as `.failed-<n>`) and retries after a backoff, up to 3 times. */
+  private releaseFailed(runId: string, node: string, claim: string, reason: string): void {
+    const key = `${runId}/${node}`;
+    const count = (this.failures.get(key) ?? 0) + 1;
+    this.failures.set(key, count);
+    try {
+      renameSync(claim, `${claim}.failed-${count}`);
+    } catch {
+      // the claim is already gone
+    }
+    if (count >= RETRY_LIMIT) {
+      this.log(`start failed ${runId} ${node}: ${reason} (gave up after ${count} tries)`);
+      return;
+    }
+    this.log(`start failed ${runId} ${node}: ${reason} (retry ${count}/${RETRY_LIMIT - 1} in ${this.retryMs / 1000}s)`);
+    setTimeout(() => this.evaluate(runId), this.retryMs).unref();
   }
 
   private notifyChanges(runId: string, state: RunState): void {

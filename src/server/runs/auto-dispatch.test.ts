@@ -65,6 +65,32 @@ describe("auto-dispatch", () => {
     home.dispose();
   });
 
+  test("a failed start frees its claim and is retried, then stops after 3 tries", async () => {
+    const home = homeWith(run({}));
+    const logs: string[] = [];
+    let tries = 0;
+    const engine = new RunEngine(home.path, {
+      log: (l) => void logs.push(l),
+      retryMs: 20,
+      start: async () => {
+        tries += 1;
+        return tries < 2 ? 1 : 0;
+      },
+    });
+    engine.evaluate("r1");
+    await settle(engine);
+    await new Promise((r) => setTimeout(r, 120));
+    await settle(engine);
+    expect(tries).toBe(2);
+    expect(logs.some((l) => l.includes("retry 1/2"))).toBe(true);
+
+    const always = new RunEngine(homeWith(run({})).path, { log: (l) => void logs.push(l), retryMs: 10, start: async () => 1 });
+    always.evaluate("r1");
+    await new Promise((r) => setTimeout(r, 200));
+    await settle(always);
+    expect(logs.some((l) => l.includes("gave up after 3 tries"))).toBe(true);
+  });
+
   test("a double event starts the node once", async () => {
     const home = homeWith(run({}));
     const engine = new RunEngine(home.path, { log: () => {} });
