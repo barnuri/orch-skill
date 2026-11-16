@@ -7,7 +7,7 @@
 //   --budget SECS   stop starting files after SECS, give running files ORCH_TEST_BUDGET_GRACE (20) more, then kill;
 //                   progress goes to $TMPDIR/orch-test-progress.json (ORCH_TEST_PROGRESS); exit 75
 //   --resume        run only the files not passed in the recorded run
-//   ORCH_TEST_JOBS=N (default: cores minus current load, between half the cores and all cores), ORCH_TEST_FILE_CAP=SECS (15 fast, 240 otherwise)
+//   ORCH_TEST_JOBS=N (default: cores minus current load, between half the cores and all cores), ORCH_TEST_FILE_CAP=SECS (15 fast, 30 otherwise)
 //   ORCH_TEST_SPAWN=1  run every orch command as a real process instead of in-process (tests/helpers/inproc.ts)
 //   Each file runs as its own `bun test` process; the tests inside a file run in order. `bun test skills/orch/tests --parallel` also works.
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } from "node:fs";
@@ -56,7 +56,7 @@ const budget = budgetArg ? Number(budgetArg) : mode === "full" ? 300 : 0;
 const jobsEnv = process.env.ORCH_TEST_JOBS;
 const ncpu = cpus().length;
 const jobs = jobsEnv ? Number(jobsEnv) : Math.max(Math.ceil(ncpu / 2), Math.min(ncpu, Math.ceil(ncpu - loadavg()[0])));
-const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 15 : 240));
+const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 15 : 30));
 
 const idOf = (f: string) => `${basename(dirname(f))}/${basename(f).replace(/\.test\.ts$/, "")}`;
 const fileOf = (id: string) => join(TESTS_DIR, `${id}.test.ts`);
