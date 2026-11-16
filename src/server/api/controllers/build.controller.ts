@@ -54,7 +54,7 @@ export class BuildController {
 
   @Post("/build/restart", {
     summary: "Restart the service under its supervisor",
-    description: "Schedules `scripts/service.sh restart` detached, about 1 s after the response. Answers 409 when the service is not installed or a restart was requested in the last 60 s.",
+    description: "Schedules `scripts/service.ts restart` detached, about 1 s after the response. Answers 409 when the service is not installed or a restart was requested in the last 60 s.",
   })
   @ResponseSchema(RestartAcceptedDto.schema, { status: 202, description: "The restart is scheduled." })
   @ResponseSchema(RestartRefusedDto.schema, { status: 409, description: "Not installed, or already requested." })

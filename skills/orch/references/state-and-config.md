@@ -5,7 +5,7 @@ Everything lives under `${HARNESS_ORCH_HOME:-~/.harness-orch}`:
 ```
 profiles.json          settings + named profiles (from templates/profiles.json on first use)
 serve.json             dashboard bind address, port and auth policy (from templates/serve.json on first use)
-cli.json               global CLI command name and bin dir (written by install.sh; default name: orch)
+cli.json               global CLI command name and bin dir (written by install.ts; default name: orch)
 memory.json            learnings log — [] on first use
 runs/<run-id>/state.json
 runs/<run-id>/prompts/<node-id>.md   stored task prompts written by `plan apply`
@@ -256,8 +256,8 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 | `require_token` | when `true`, loopback peers must present the bearer token too |
 | `allow_remote` | when `true`, non-loopback peers need no bearer token |
 
-`orch serve config show|get|set` reads and writes this file. `service.sh install` updates it;
-`service.sh restart` (or `orch serve --stop` then `orch serve`) picks up edits. CLI
+`orch serve config show|get|set` reads and writes this file. `service.ts install` updates it;
+`service.ts restart` (or `orch serve --stop` then `orch serve`) picks up edits. CLI
 `--host`/`--port` on `orch serve` override for one shot only.
 
 ## chats.db (chat history)

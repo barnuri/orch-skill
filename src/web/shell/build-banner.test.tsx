@@ -85,7 +85,7 @@ describe("BuildBanner", () => {
     expect(panel.textContent).toContain("2 files changed since start");
     expect(panel.textContent).toContain("src/web/y.tsx");
     expect(panel.textContent).toContain("Uncommitted changes in the checkout: 3");
-    expect(panel.textContent).toContain("bash scripts/service.sh restart");
+    expect(panel.textContent).toContain("bun scripts/service.ts restart");
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Server out of date" })).toBeNull());
   });
@@ -98,7 +98,7 @@ describe("BuildBanner", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Server out of date/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Copy command" }));
     await screen.findByRole("button", { name: "Copied" });
-    expect(written).toEqual(["bash scripts/service.sh restart"]);
+    expect(written).toEqual(["bun scripts/service.ts restart"]);
   });
 
   test("confirm body states busy numbers and that history is kept", () => {
@@ -179,7 +179,7 @@ describe("BuildBanner", () => {
     fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
     const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
     expect(alert.textContent).toContain("did not come back within");
-    expect(alert.textContent).toContain("bash scripts/service.sh restart");
+    expect(alert.textContent).toContain("bun scripts/service.ts restart");
     expect(reloads).toBe(0);
   });
 

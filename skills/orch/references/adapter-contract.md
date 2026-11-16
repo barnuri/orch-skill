@@ -18,7 +18,7 @@ The dashboard server and browser client are not part of the skill: they live in 
 
 | Path | Role |
 | --- | --- |
-| `<repo>/scripts/typecheck.sh` | Type gate for the TypeScript half: bundles the dashboard, then `tsc` over browser and server sources. Exits 0 with a SKIP line when bun is absent |
+| `<repo>/scripts/typecheck.ts` | Type gate for the TypeScript half: bundles the dashboard, then `tsc` over browser and server sources. Exits 0 with a SKIP line when bun is absent |
 | `<repo>/src/server/` | The Bun HTTP server: `main.ts` entrypoint, `app.ts` routes, plus `routes/`, `validation/`, `documents/`, `runs/`, `files/`, `http/`, `schedules/` |
 | `<repo>/src/snapshot/` | `index.html` shell and the `src/` browser modules it bundles |
 | `<repo>/src/shared/` | Types shared by the server and the dashboard |

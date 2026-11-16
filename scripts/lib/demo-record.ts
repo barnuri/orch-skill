@@ -1,9 +1,9 @@
 /**
- * Records the dashboard as a sequence of PNG frames, for `scripts/demo-gif.sh` to hand to
+ * Records the dashboard as a sequence of PNG frames, for `scripts/demo-gif.ts` to hand to
  * ffmpeg. Entry point, not a library — the storyboard lives here because it is choreography,
  * while the protocol lives in CdpSession.
  *
- * The storyboard advances the demo run between shots (via `dispatch.sh demo advance`) rather
+ * The storyboard advances the demo run between shots (via `dispatch.ts demo advance`) rather
  * than letting a separate loop race it, so the recording is deterministic: advance, settle,
  * capture.
  */
@@ -64,7 +64,7 @@ class DemoRecorder {
   }
 
   private advance(): void {
-    const result = Bun.spawnSync(["bash", this.options.dispatch, "demo", "advance"], {
+    const result = Bun.spawnSync([process.execPath, this.options.dispatch, "demo", "advance"], {
       env: { ...process.env, HARNESS_ORCH_HOME: this.options.home },
       stdout: "pipe",
       stderr: "pipe",

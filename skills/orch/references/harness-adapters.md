@@ -8,7 +8,7 @@ unknown ids. A `finished` event sets the node `done` with `auto`, `unverified` a
 `dispatch.sh` stores its own path in `<home>/.dispatch-path` (on `init` and on every `node update --owner`).
 
 ## opencode: `mods/opencode/orch-nodes.js`, linked to `~/.config/opencode/plugins/orch-nodes.js`
-- `install.sh` links it (`scripts/install-opencode-plugin.sh`; a real file there is kept as `.orch-backup-<epoch>`).
+- `install.ts` links it (`scripts/install-opencode-plugin.ts`; a real file there is kept as `.orch-backup-<epoch>`).
 - `session.idle` -> finished, `session.error` -> failed, `session.status` busy/retry -> alive (at most every 30 s).
 - Checks the registry file first. A session that is not an orch worker spawns nothing.
 - Inbox: after a tool call, when `runs/<run>/inbox/<node>/` holds a pending message (at most one look per

@@ -18,7 +18,7 @@ export type RestartOutcome = { kind: "accepted" } | { kind: "already" } | { kind
 
 /** ORCH_SERVICE_SH exists only so tests never touch the real supervisor. */
 export function serviceScript(): string {
-  return process.env["ORCH_SERVICE_SH"] ?? join(REPO_ROOT, "scripts", "service.sh");
+  return process.env["ORCH_SERVICE_SH"] ?? join(REPO_ROOT, "scripts", "service.ts");
 }
 
 export function capLog(path: string): void {
@@ -41,7 +41,7 @@ export class Restarter {
 
   private async installed(): Promise<boolean> {
     try {
-      const proc = Bun.spawn(["bash", this.script(), "status"], {
+      const proc = Bun.spawn([process.execPath, this.script(), "status"], {
         stdout: "ignore",
         stderr: "ignore",
         env: { ...process.env, HARNESS_ORCH_HOME: this.home },
@@ -91,9 +91,9 @@ export class Restarter {
       const fd = openSync(log, "a");
       const useSystemd = process.platform === "linux" && Bun.which("systemd-run") !== null;
       const argv = useSystemd
-        ? ["systemd-run", "--user", "--collect", "--pipe", `--setenv=HARNESS_ORCH_HOME=${this.home}`, "bash", this.script(), "restart"]
-        : ["bash", this.script(), "restart"];
-      const child = spawn(argv[0] ?? "bash", argv.slice(1), {
+        ? ["systemd-run", "--user", "--collect", "--pipe", `--setenv=HARNESS_ORCH_HOME=${this.home}`, process.execPath, this.script(), "restart"]
+        : [process.execPath, this.script(), "restart"];
+      const child = spawn(argv[0] ?? process.execPath, argv.slice(1), {
         detached: true,
         stdio: ["ignore", fd, fd],
         env: { ...process.env, HARNESS_ORCH_HOME: this.home },

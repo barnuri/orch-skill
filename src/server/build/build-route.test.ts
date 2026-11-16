@@ -14,17 +14,17 @@ let fake: string;
 const saved = process.env["ORCH_SERVICE_SH"];
 
 function installFake(installed: boolean): void {
-  fake = join(dir, "service.sh");
+  fake = join(dir, "service.ts");
   writeFileSync(
     fake,
-    `#!/bin/bash\ncase "$1" in\n  status) ${installed ? "exit 0" : "exit 1"} ;;\n  restart) echo run >> "${dir}/calls" ;;\nesac\n`,
+    `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nconst sub = process.argv[2];\nif (sub === "status") process.exit(${installed ? 0 : 1});\nif (sub === "restart") appendFileSync("${dir}/calls", "run\\n");\n`,
   );
   chmodSync(fake, 0o755);
 }
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "orch-restart-"));
-  process.env["ORCH_SERVICE_SH"] = join(dir, "service.sh");
+  process.env["ORCH_SERVICE_SH"] = join(dir, "service.ts");
 });
 
 afterEach(() => {

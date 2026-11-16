@@ -11,16 +11,16 @@ The skill and its scripts live in the orch-skill repo: `.claude/skills/verify/SK
 
 ## Fast order (about 30 seconds)
 
-1. `$V/check-api.sh` - service up, `/api/build` `stale:false`, watchdog on, run counts.
-2. `$V/check-run-page.sh <run-id> [text ...]` - opens the run page headless, waits for cards, fails if any given text is missing, saves a screenshot.
-3. `$V/check-herdr.sh` - orch herdr instance panes and agent states (read only).
-4. `$V/check-herdr-web.sh [url]` - herdr-web pad answers and renders.
+1. `$V/check-api.ts` - service up, `/api/build` `stale:false`, watchdog on, run counts.
+2. `$V/check-run-page.ts <run-id> [text ...]` - opens the run page headless, waits for cards, fails if any given text is missing, saves a screenshot.
+3. `$V/check-herdr.ts` - orch herdr instance panes and agent states (read only).
+4. `$V/check-herdr-web.ts [url]` - herdr-web pad answers and renders.
 
-Run 1 first. If the service is stale, restart it (`bash scripts/service.sh restart` in the orch-skill repo) before the browser checks, or the page shows old code.
+Run 1 first. If the service is stale, restart it (`bun scripts/service.ts restart` in the orch-skill repo) before the browser checks, or the page shows old code.
 
 ## Rules
 
-- Prove UI claims with `check-run-page.sh` text checks plus the screenshot path, not with unit tests alone.
+- Prove UI claims with `check-run-page.ts` text checks plus the screenshot path, not with unit tests alone.
 - A card check passes only when the value text is on the page (model, role, tier, usage, cost), not when the label is.
 - Never touch the user's own herdr (pid in `pgrep -x herdr`, `HOME=~`). The orch instance uses `HOME=~/.harness-orch/herdr/home`.
 - Use one named browser session (`-s=verify`). The scripts close it at the end.

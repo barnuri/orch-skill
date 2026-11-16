@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { TempHome } from "../test-support/temp-home.ts";
 
-// The repo copy; install.sh links it into ~/.config/opencode/plugins.
+// The repo copy; install.ts links it into ~/.config/opencode/plugins.
 const plugin = await import(resolve(import.meta.dir, "../../../mods/opencode/orch-nodes.js"));
 const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 
