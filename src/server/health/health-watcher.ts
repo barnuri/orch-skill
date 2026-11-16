@@ -82,7 +82,7 @@ export function parseHealth(text: string | null): RunHealth | null {
       nodes: (value["nodes"] as unknown[]).filter(isObject).map((n) => ({
         id: String(n["id"] ?? ""),
         status: String(n["status"] ?? ""),
-        health: (["ok", "stalled", "unowned", "dead", "no-report", "needs-user"].includes(String(n["health"])) ? n["health"] : "ok") as RunHealth["nodes"][number]["health"],
+        health: (["ok", "stalled", "unowned", "dead", "no-report", "needs-user", "held"].includes(String(n["health"])) ? n["health"] : "ok") as RunHealth["nodes"][number]["health"],
         owner_id: typeof n["owner_id"] === "string" ? n["owner_id"] : null,
         last_activity: typeof n["last_activity"] === "string" ? n["last_activity"] : null,
         idle_min: typeof n["idle_min"] === "number" ? n["idle_min"] : null,
@@ -232,6 +232,9 @@ export class HealthWatcher {
         }
         if (node.health === "needs-user") {
           out.needs_user += 1;
+          continue;
+        }
+        if (node.health === "held") {
           continue;
         }
         flagged = true;

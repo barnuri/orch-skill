@@ -5,6 +5,8 @@ import { readRun } from "../runs/runs-reader";
 import type { ServerContext } from "../types/server-context";
 import type { HealthWatcher } from "./health-watcher";
 import { healthWatcherFor } from "./health-watcher";
+import type { HerdrWatcher } from "./herdr-watcher";
+import { herdrWatcherFor } from "./herdr-watcher";
 
 /** `GET /api/runs/{id}/health`: the latest in-memory check; one pass when nothing is cached yet. 404 for an unknown run. */
 export function readRunHealthHandler(ctx: ServerContext, watcher: HealthWatcher = healthWatcherFor(ctx.paths)): RouteHandler {
@@ -23,7 +25,11 @@ export function readRunHealthHandler(ctx: ServerContext, watcher: HealthWatcher 
   };
 }
 
-/** `GET /api/health/summary`: counts from the watcher's memory; no dispatch call. */
-export function healthSummaryHandler(ctx: ServerContext, watcher: HealthWatcher = healthWatcherFor(ctx.paths)): RouteHandler {
-  return (): Response => jsonResponse(200, watcher.summary());
+/** `GET /api/health/summary`: counts from the watcher's memory, plus the orch herdr instance's latest check. */
+export function healthSummaryHandler(
+  ctx: ServerContext,
+  watcher: HealthWatcher = healthWatcherFor(ctx.paths),
+  herdr: HerdrWatcher = herdrWatcherFor(ctx.paths.home),
+): RouteHandler {
+  return async (): Promise<Response> => jsonResponse(200, { ...watcher.summary(), herdr: await herdr.read() });
 }

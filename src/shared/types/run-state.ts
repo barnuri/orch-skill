@@ -13,4 +13,6 @@ export interface RunState {
   edges: [string, string][];
   /** Present on runs started through `orch plan`; absent on hand-built runs. */
   plan?: RunPlan | null;
+  /** Set by `dispatch.sh run stop`: never auto-resumes; the run page Resume button resumes it. */
+  stopped?: boolean;
 }

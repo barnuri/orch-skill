@@ -140,6 +140,24 @@ describe.concurrent("/api/schedules", () => {
     expect((await put(srv, `/api/schedules/${id}`, { timeout: "soon" })).status).toBe(400);
   });
 
+  test("a prompt schedule stores its model through the CLI, refuses one the profile does not allow, and clears it with null", async () => {
+    const srv = server();
+    const prompt = { name: "modeled", cron: "0 9 * * *", kind: "prompt", prompt: "hi", profile: "claude-default" };
+    const refused = await post(srv, "/api/schedules", { ...prompt, model: "claude-opus" });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toContain("not allowed for profile claude-default");
+    const created = await post(srv, "/api/schedules", { ...prompt, model: "claude-sonnet" });
+    expect(created.status).toBe(201);
+    const { id } = await created.json();
+    expect((await (await srv.api("/api/schedules")).json()).schedules[0]).toMatchObject({ id, model: "claude-sonnet", profile: "claude-default" });
+    expect((await put(srv, `/api/schedules/${id}`, { model: "claude-haiku" })).status).toBe(400);
+    expect((await put(srv, `/api/schedules/${id}`, { model: null })).status).toBe(200);
+    expect((await (await srv.api("/api/schedules")).json()).schedules[0].model).toBeNull();
+    const plain = await (await post(srv, "/api/schedules", prompt)).json();
+    const listed = (await (await srv.api("/api/schedules")).json()).schedules.find((s: { id: string }) => s.id === plain.id);
+    expect(listed.model).toBeNull();
+  });
+
   test("an edit of a missing or malformed id is 404 or 400", async () => {
     const srv = server();
     expect((await put(srv, "/api/schedules/sch-20261112-101010-abcd", { name: "x" })).status).toBe(404);

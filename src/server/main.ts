@@ -7,9 +7,12 @@ import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
 import { ensureToken } from "./files/token-file";
 import { startHealthWatcher } from "./health/health-watcher";
+import { startHerdrWatcher } from "./health/herdr-watcher";
 import { digestToken } from "./http/auth";
 import { orchPaths } from "./files/paths";
+import { startBootResume } from "./runs/boot-resume";
 import { startReconciler } from "./runs/run-reconciler";
+import { pauseRunsOnShutdown } from "./runs/shutdown-pause";
 import { startTicker } from "./schedules/ticker";
 
 export const MIN_BUN: string = ">=1.3.0";
@@ -72,7 +75,10 @@ function reachSummary(requireToken: boolean, requireRemoteToken: boolean): strin
 function onShutdown(server: Server<undefined>, home: string): void {
   for (const signal of SHUTDOWN_SIGNALS) {
     process.on(signal, () => {
-      void server.stop(true).then(() => {
+      // SIGTERM is a PC restart or logout: pause each running run with auto_resume so boot-resume
+      // picks it up on the next start. Node jobs are left alone. Bounded and never rejects.
+      const paused = signal === "SIGTERM" ? pauseRunsOnShutdown(home) : Promise.resolve([]);
+      void Promise.all([paused, server.stop(true)]).finally(() => {
         // Truncated only when it still holds our pid, so a restart that already claimed the
         // marker is never clobbered. The file itself stays — `serve_running` expects it.
         clearPidMarker(home, process.pid);
@@ -144,6 +150,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   startTicker(args.home);
   startReconciler(args.home, orchPaths(args.home));
   startHealthWatcher(args.home);
+  startHerdrWatcher(args.home);
+  // A run paused with auto_resume (a PC restart) resumes by itself; never blocks or crashes boot.
+  startBootResume(args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.
   await new Promise<never>(() => {});
   return EXIT_OK;

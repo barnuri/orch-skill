@@ -1,9 +1,12 @@
 import type { Launch } from "../options";
 import { buildReplayPrompt } from "./history-replay";
+import type { OpencodeServerPool } from "./opencode-server";
 import { agentCouldNotRun, INTERRUPTED_TEXT, startTurn, TurnHandle, type TurnParser, tailTurn } from "./turn-files";
-import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
+import { attachesNatively, type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
 
 const LOST_SESSION = /session|not found|no such|invalid|unknown|resume/i;
+/** `run --server` could not reach the shared server (it died between `get()` and the turn): retry standalone. */
+const SERVER_UNREACHABLE = /unable to connect|ECONNREFUSED|connection refused|fetch failed|requires a password|server at http/i;
 
 type Rec = Record<string, unknown>;
 
@@ -26,7 +29,7 @@ function summarize(input: unknown): string {
 }
 
 type Usage = { input_tokens: number; output_tokens: number; cost_usd: number | null; model: string | null };
-interface Outcome { error: string | null; streamed: boolean; sessionId: string | null; usage: Usage | null; couldNotRun: boolean }
+interface Outcome { error: string | null; streamed: boolean; sessionId: string | null; usage: Usage | null; couldNotRun: boolean; attached?: boolean }
 
 /** Maps `opencode run --format json` lines to chat events; keeps what the retry logic and the closing events need. */
 export class OpencodeParser implements TurnParser {
@@ -116,9 +119,10 @@ export class OpencodeParser implements TurnParser {
 }
 
 const NO_SESSION_ID = "opencode did not report its session id; later messages replay the conversation in the prompt.";
+const FILES_ONLY_PROMPT = "See the attached files.";
 
 /**
- * opencode as a chat harness (event shape verified against opencode 2.3.0 run output: `{type,timestamp,sessionID,part|error}`): each turn runs `opencode run --format json --auto [--session <id>] -m <model> <prompt>`
+ * opencode as a chat harness (event shape verified against opencode 2.3.0 run output: `{type,timestamp,sessionID,part|error}`): each turn runs `opencode run --format json --auto [--session <id>] -m <model> [-f <file>]... <prompt>`
  * and maps its JSON lines (`text`, `tool_use`, `step_finish` with tokens and cost, `error`) to chat events.
  * The session id comes from the lines' `sessionID`, so the next turn resumes with `--session`. A stored id
  * opencode rejects starts a fresh session with the history replayed in the prompt, plus a warning.
@@ -129,7 +133,7 @@ export class OpencodeSession implements AgentSession {
   private readonly handle = new TurnHandle();
   private attempt = 0;
 
-  constructor(private readonly params: SessionParams, private readonly bin: string, private readonly launch: Launch) {
+  constructor(private readonly params: SessionParams, private readonly bin: string, private readonly launch: Launch, private readonly servers: OpencodeServerPool | null = null) {
     this.sessionId = params.resumeSessionId?.startsWith("ses") === true ? params.resumeSessionId : null;
   }
 
@@ -144,11 +148,22 @@ export class OpencodeSession implements AgentSession {
     const history = this.params.history?.() ?? [];
     let session = this.sessionId;
     let replay = session === null && history.length > 0;
+    let standalone = false;
     for (let attempt = 0; ; attempt++) {
-      const text = replay ? buildReplayPrompt(history, withAttachments(prompt, attachments), this.params.replayBudget).prompt : withAttachments(prompt, attachments);
-      const out = yield* this.once(session, text, this.attempt++ === 0 ? turnId : `${turnId}.r${this.attempt - 1}`, turnId);
+      // Images and text files go as `-f <path>` file parts (images become image input); other files stay a path
+      // list in the prompt (see attachesNatively).
+      // `opencode run` refuses files without a message ("You must provide a message"), so a files-only turn gets one.
+      const parts = attachments.filter(attachesNatively);
+      const body = withAttachments(prompt.trim() === "" && parts.length > 0 ? FILES_ONLY_PROMPT : prompt, attachments.filter((p) => !attachesNatively(p)));
+      const text = replay ? buildReplayPrompt(history, body, this.params.replayBudget).prompt : body;
+      const out = yield* this.once(session, text, parts, this.attempt++ === 0 ? turnId : `${turnId}.r${this.attempt - 1}`, turnId, standalone);
       if (out === null) {
         return;
+      }
+      if (out.error !== null && out.attached === true && !out.streamed && !standalone && SERVER_UNREACHABLE.test(out.error)) {
+        standalone = true;
+        attempt--;
+        continue;
       }
       if (out.error !== null) {
         if (session !== null && attempt === 0 && !out.streamed && !out.couldNotRun && LOST_SESSION.test(out.error)) {
@@ -175,24 +190,38 @@ export class OpencodeSession implements AgentSession {
     }
   }
 
-  private async *once(session: string | null, text: string, id: string, messageId: string): AsyncGenerator<AgentEvent, Outcome | null> {
+  private async *once(session: string | null, text: string, attachments: readonly string[], id: string, messageId: string, forceStandalone: boolean): AsyncGenerator<AgentEvent, Outcome | null> {
     const { launch } = this;
-    // Same as the dispatch.sh opencode adapter: opencode 2.x rejects --pure, and --standalone starts a
-    // private server that reads this process's OPENCODE_CONFIG_CONTENT, which the shared background service would not.
-    const args = ["run", "--format", "json", "--auto", "--standalone"];
+    const env: Record<string, string | undefined> = { ...process.env, ...launch.env, HARNESS_ORCH_HOME: this.params.home };
+    // opencode 2.x rejects --pure. The turn attaches to this profile's long-lived `opencode serve` (started with the
+    // same env, so it read the profile's OPENCODE_CONFIG_CONTENT; the shared background service would not). When that
+    // server is down, `--standalone` starts a private one for this turn, as the dispatch.sh opencode adapter does.
+    const target = { home: this.params.home, profile: this.params.profile, config: launch.env };
+    const server = forceStandalone || this.servers === null ? null : await this.servers.get(this.bin, env, target);
+    const args = ["run", "--format", "json", "--auto"];
+    if (server === null) {
+      args.push("--standalone");
+    } else {
+      args.push("--server", server.url);
+      env.OPENCODE_SERVER_PASSWORD = server.password;
+    }
     if (session !== null) {
       args.push("--session", session);
     }
     if (launch.modelSlug !== "") {
       args.push("-m", launch.modelSlug);
     }
-    args.push(...launch.flags.filter((flag) => flag !== "--pure" && flag !== "--standalone"), text);
+    args.push(...launch.flags.filter((flag) => flag !== "--pure" && flag !== "--standalone"));
+    for (const path of attachments) {
+      args.push("-f", path);
+    }
+    args.push(text);
     const signal = this.handle.begin();
     let started: ReturnType<typeof startTurn>;
     try {
       started = startTurn({
         home: this.params.home, id, cmd: [this.bin, ...args], cwd: this.params.cwd,
-        env: { ...process.env, ...launch.env, HARNESS_ORCH_HOME: this.params.home }, stdin: null,
+        env, stdin: null,
         meta: { harness: this.params.harness, parser: "opencode", session_id: session, chat_id: this.params.chatId, message_id: messageId, model: launch.modelSlug === "" ? null : launch.modelSlug },
       });
     } catch (err) {
@@ -200,6 +229,10 @@ export class OpencodeSession implements AgentSession {
       return { error: `could not start the agent: ${String(err)}`, streamed: false, sessionId: null, usage: null, couldNotRun: true };
     }
     this.handle.attachPid(started.meta.pid);
+    // The lease keeps the server up while this turn runs, across a dashboard restart too (dead pids drop out).
+    if (server !== null) {
+      this.servers?.lease(target, started.meta.pid);
+    }
     const parser = new OpencodeParser(session, launch.modelSlug === "" ? null : launch.modelSlug);
     try {
       const end = yield* tailTurn(started.paths, started.meta, parser, { signal });
@@ -210,8 +243,12 @@ export class OpencodeSession implements AgentSession {
         yield { type: "interrupted", message: INTERRUPTED_TEXT };
         return null;
       }
-      return parser.outcome(end.code, end.stderr);
+      return { ...parser.outcome(end.code, end.stderr), attached: server !== null };
     } finally {
+      if (server !== null && !signal.aborted) {
+        // A detached tailer (dashboard shutdown) leaves the lease: the turn still runs on the server.
+        this.servers?.release(target, started.meta.pid);
+      }
       this.handle.end();
     }
   }

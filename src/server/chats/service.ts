@@ -5,6 +5,7 @@ import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
 import { alternativeHint, buildOptions, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
+import { OpencodeServerPool } from "./sessions/opencode-server";
 import { ClaudeSession } from "./sessions/claude-session";
 import { SessionManager } from "./sessions/manager";
 import { TurnSession } from "./sessions/turn-session";
@@ -48,7 +49,7 @@ const DEFAULT_TITLE = "New chat";
 const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.sh");
 
 /** Both binaries can be replaced from the environment, which is how tests keep real models out. */
-function defaultFactory(ctx: ServerContext): SessionFactory {
+function defaultFactory(ctx: ServerContext, servers: OpencodeServerPool | null): SessionFactory {
   return (params: SessionParams) => {
     if (params.harness === "claude") {
       const bin = process.env.ORCH_CHAT_CLAUDE_BIN ?? Bun.which("claude");
@@ -67,7 +68,7 @@ function defaultFactory(ctx: ServerContext): SessionFactory {
       if (!resolved.ok) {
         throw new HttpError(400, resolved.error);
       }
-      return new OpencodeSession(params, bin, resolved.launch);
+      return new OpencodeSession(params, bin, resolved.launch, servers);
     }
     return new TurnSession(params, process.env.ORCH_CHAT_DISPATCH ?? DISPATCH);
   };
@@ -79,6 +80,8 @@ export class ChatService {
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly turns = new Map<string, Turn>();
   readonly recovered: number;
+  /** Long-lived `opencode serve` per profile env that opencode chat turns attach to (null: disabled, always standalone). */
+  readonly opencodeServers: OpencodeServerPool | null = OpencodeServerPool.enabled() ? new OpencodeServerPool() : null;
 
   constructor(private readonly ctx: ServerContext, opts: { factory?: SessionFactory; idleMs?: number } = {}) {
     mkdirSync(join(ctx.paths.home, "chats"), { recursive: true });
@@ -92,7 +95,7 @@ export class ChatService {
     if (uploads > 0 || empties > 0) {
       console.log(`chats: startup sweep removed ${uploads} unattached upload(s) and archived ${empties} empty chat(s)`);
     }
-    this.manager = new SessionManager(opts.factory ?? defaultFactory(ctx), opts.idleMs);
+    this.manager = new SessionManager(opts.factory ?? defaultFactory(ctx, this.opencodeServers), opts.idleMs);
     for (const a of adoptable) {
       this.reattach(a.meta, a.paths);
     }
@@ -153,6 +156,7 @@ export class ChatService {
     }
     await this.manager.disposeAll();
     await Promise.race([Promise.all(running.map((t) => t.promise)), new Promise((r) => setTimeout(r, 1000).unref())]);
+    await this.opencodeServers?.stopAll();
     this.store.close();
   }
 

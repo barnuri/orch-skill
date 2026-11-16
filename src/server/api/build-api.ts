@@ -13,6 +13,7 @@ import { RunHealthController } from "./controllers/run-health.controller";
 import { RunsController } from "./controllers/runs.controller";
 import { SchedulesController } from "./controllers/schedules.controller";
 import { SuggestionsController } from "./controllers/suggestions.controller";
+import { VoiceController } from "./controllers/voice.controller";
 import { type ApiEnv, guard, installFallbacks, validationHook } from "./pipeline";
 
 export const OPENAPI_PATH: string = "/api/openapi.json";
@@ -39,6 +40,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new SuggestionsController(ctx), options);
   registerController(api, new ProjectsController(ctx), options);
   registerController(api, new ChatsController(ctx), options);
+  registerController(api, new VoiceController(ctx), options);
 
   // The document describes the API's surface, so it asks for the same Host check and token as the API.
   api.use(OPENAPI_PATH, guard(ctx));

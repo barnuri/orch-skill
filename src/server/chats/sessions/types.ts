@@ -55,6 +55,22 @@ export function withAttachments(prompt: string, attachments: readonly string[]):
   return `${prompt}\n\nAttached files (read them from these absolute paths):\n${attachments.map((p) => `- ${p}`).join("\n")}`;
 }
 
+/** Extensions a file-attaching harness (opencode `-f`) turns into parts every model takes: image input or plain text. */
+const NATIVE_EXT: ReadonlySet<string> = new Set([
+  "png", "jpg", "jpeg", "gif", "webp",
+  "txt", "md", "json", "csv", "log", "yaml", "yml", "xml", "html", "htm", "js", "ts", "tsx", "jsx", "py", "sh", "toml", "ini", "sql", "css",
+]);
+
+/**
+ * True for files a file-attaching harness (opencode `-f`) turns into parts every model takes: image input or text.
+ * Other files (a PDF, an archive) go as a path the agent opens with its tools: as a part, a model without PDF input
+ * gets a "not supported" notice instead and gives up.
+ */
+export function attachesNatively(path: string): boolean {
+  const name = path.split("/").pop() ?? "";
+  return NATIVE_EXT.has(name.includes(".") ? (name.split(".").pop() as string).toLowerCase() : "");
+}
+
 /** Async queue: one producer pushes, one consumer awaits. */
 export class Channel<T> {
   private readonly items: T[] = [];

@@ -80,6 +80,10 @@ function createArgs(body: Record<string, unknown>): string[] | string {
       return "a prompt schedule needs a prompt and a profile";
     }
     args.push("--prompt", prompt, "--profile", profile);
+    const model = text(body["model"], MAX_SHORT);
+    if (model !== null) {
+      args.push("--model", model);
+    }
   } else if (body["kind"] === "command") {
     const command = text(body["command"], MAX_TEXT);
     if (command === null) {
@@ -137,6 +141,9 @@ function editArgs(id: string, body: ScheduleEdit): string[] | string {
     }
     if (body.profile !== undefined) {
       args.push("--profile", body.profile);
+    }
+    if (body.model !== undefined) {
+      args.push("--model", (body.model ?? "").trim());
     }
   }
   if (body.kind !== "prompt") {

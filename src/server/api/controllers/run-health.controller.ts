@@ -22,7 +22,7 @@ export class RunHealthController {
   @Get("/health/summary", {
     summary: "Node-health counts",
     description:
-      "Stalled, dead, unowned, no-report and ready node counts over the running runs, from the health watcher's in-memory results. Never calls dispatch.sh; a run not yet checked counts as zero. The dashboard header polls it.",
+      "Stalled, dead, unowned, no-report and ready node counts over the running runs, from the health watcher's in-memory results, plus `herdr`: the orch herdr instance's latest `dispatch.sh herdr health --json` (the server re-checks it every minute with --nudge; the first read runs one check). The dashboard header polls it.",
   })
   @ResponseSchema(HealthSummaryDto.schema, { description: "The counts." })
   getHealthSummary(c: ApiContext): Promise<Response> {

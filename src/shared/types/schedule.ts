@@ -9,6 +9,8 @@ export interface ScheduleRun {
   ref: string;
   status: ScheduleRunStatus;
   exit: number | null;
+  /** Catalog model id a prompt run used; null or absent = the profile's default. */
+  model?: string | null;
 }
 
 /** One schedule, as `dispatch.sh schedule list --json` reports it. Newest run first. */
@@ -23,6 +25,8 @@ export interface Schedule {
   updated_at?: string | null;
   prompt: string | null;
   profile: string | null;
+  /** Catalog model id the prompt runs on; null or absent = the profile's default. */
+  model?: string | null;
   command: string | null;
   workdir: string | null;
   /** Seconds a command may run (0 = the default limit). */
@@ -46,6 +50,8 @@ export interface ScheduleInput {
   kind: ScheduleKind;
   prompt?: string;
   profile?: string;
+  /** Catalog model id; null or absent = the profile's default. */
+  model?: string | null;
   command?: string;
   workdir?: string;
   /** A duration such as 30s, 5m or 1h. */

@@ -9,6 +9,7 @@ import {
   readRunEventsHandler,
   readRunHandler,
   retryNodeHandler,
+  resumeRunHandler,
   retryRunHandler,
   stopRunHandler,
 } from "../../routes/runs-routes";
@@ -24,6 +25,7 @@ export class RunsController {
   private readonly read: RouteHandler;
   private readonly retry: RouteHandler;
   private readonly stop: RouteHandler;
+  private readonly resume: RouteHandler;
   private readonly retryNode: RouteHandler;
   private readonly jobLog: RouteHandler;
   private readonly jobChat: RouteHandler;
@@ -35,6 +37,7 @@ export class RunsController {
     this.read = readRunHandler(ctx);
     this.retry = retryRunHandler(ctx);
     this.stop = stopRunHandler(ctx);
+    this.resume = resumeRunHandler(ctx);
     this.retryNode = retryNodeHandler(ctx);
     this.jobLog = readJobLogHandler(ctx);
     this.jobChat = readJobChatHandler(ctx);
@@ -99,13 +102,24 @@ export class RunsController {
 
   @Post("/runs/{id}/stop", {
     summary: "Stop a run",
-    description: "Stops a running run; its running nodes are marked cancelled.",
+    description: "Stops a run: kills its running jobs, marks those nodes `stopped` and sets `stopped: true`. A stopped run never auto-resumes.",
   })
   @Param(RunIdParamsDto.schema)
   @ResponseSchema(OkDto.schema, { description: "Stopped." })
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   stop_(c: ApiContext): Promise<Response> {
     return call(this.stop, c);
+  }
+
+  @Post("/runs/{id}/resume", {
+    summary: "Resume a stopped run",
+    description: "Runs `run resume <id> --stopped`: clears `stopped` and re-dispatches the stopped nodes with their sessions.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Resumed." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
+  resume_(c: ApiContext): Promise<Response> {
+    return call(this.resume, c);
   }
 
   @Post("/runs/{id}/nodes/{node}/retry", {

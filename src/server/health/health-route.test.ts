@@ -17,6 +17,10 @@ if [ "$1" = run ] && [ "$2" = health ] && [ "$4" = --json ]; then
   printf '{"run":"%s","at":"2026-11-15T10:00:00Z","max_parallel":2,"running":1,"slots":1,"nodes":[{"id":"a","status":"running","health":"dead","owner_id":null,"last_activity":null,"idle_min":null,"note":"owner gone"}],"ready":["b"],"changes":[]}\\n' "$3"
   exit 0
 fi
+if [ "$1" = herdr ] && [ "$2" = health ] && [ "$3" = --json ]; then
+  printf '{"state":"degraded","enabled":true,"reason":"on (ORCH_HERDR=1)","env_id":"orch-skill","pid":42,"pid_alive":true,"socket_ok":true,"registry":"missing","registry_path":"/x/orch-skill.json","web":"missing","web_url":"http://127.0.0.1:2222","nudged":false,"at":"2026-11-15T10:00:00Z","problems":["herdr web registry file is missing"]}\n'
+  exit 1
+fi
 echo "fake: unsupported $*" >&2
 exit 2
 `;
@@ -83,6 +87,13 @@ describe.concurrent("GET /api/runs/{id}/health", () => {
     const after = (await (await srv.api("/api/health/summary")).json()) as HealthSummary;
     expect(after).toMatchObject({ running_runs: 1, dead: 1, ready: 1, flagged_runs: [RUN] });
     expect((await srv.api("/api/health/summary", {}, false)).status).toBe(401);
+  });
+
+  test("GET /api/health/summary carries the orch herdr instance's check", async () => {
+    const srv = server();
+    const body = (await (await srv.api("/api/health/summary")).json()) as HealthSummary;
+    expect(body.herdr).toMatchObject({ state: "degraded", env_id: "orch-skill", socket_ok: true, registry: "missing", web: "missing" });
+    expect(body.herdr?.problems).toEqual(["herdr web registry file is missing"]);
   });
 
   test("is in the OpenAPI document", async () => {

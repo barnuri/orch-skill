@@ -125,6 +125,16 @@ describe("saveUploads", () => {
     expect(readFileSync(path, "utf8")).toBe("data");
     expect(agentPathFor(home.path, row as never)).toBe(path);
   });
+
+  test("an image whose name lacks its type's extension gets one, so the agent detects the mime", async () => {
+    const { home, store, chatId } = setup();
+    const [bare, wrong, right, upper] = await saveUploads(store, home.path, chatId, multipart([["photo", PNG], ["shot.dat", PNG], ["ok.png", PNG], ["UP.PNG", PNG]]));
+    expect(agentPathFor(home.path, bare as never).endsWith("/photo.png")).toBe(true);
+    expect(agentPathFor(home.path, wrong as never).endsWith("/shot.dat.png")).toBe(true);
+    expect(agentPathFor(home.path, right as never).endsWith("/ok.png")).toBe(true);
+    expect(agentPathFor(home.path, upper as never).endsWith("/UP.PNG")).toBe(true);
+    expect(readFileSync(agentPathFor(home.path, bare as never)).subarray(0, 4)).toEqual(Buffer.from(PNG).subarray(0, 4));
+  });
 });
 
 describe("serving", () => {

@@ -136,10 +136,22 @@ export async function saveUploads(store: ChatStore, home: string, chatId: string
   }
 }
 
-/** The path the agent reads: the blob under its real filename, so tools see the right extension. */
+/**
+ * The path the agent reads: the blob under its real filename, so tools see the right extension. An image whose
+ * name lacks the extension of its sniffed type (`photo`, `shot.dat`) gets it appended, because harnesses that
+ * attach files (opencode `-f`) pick the mime from the extension.
+ */
 export function agentPathFor(home: string, row: AttachmentRow): string {
   const dir = join(home, "chats", "links", row.id);
-  const link = join(dir, basename(row.filename));
+  let name = basename(row.filename);
+  const ext = IMAGE_EXT[row.mime];
+  if (ext !== undefined) {
+    const have = name.includes(".") ? (name.split(".").pop() as string).toLowerCase() : "";
+    if (EXT_MIME[have] !== row.mime) {
+      name = `${name}.${ext}`;
+    }
+  }
+  const link = join(dir, name);
   if (!existsSync(link)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     symlinkSync(blobPath(home, row.sha256), link);

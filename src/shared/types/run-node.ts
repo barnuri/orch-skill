@@ -18,6 +18,7 @@ export interface RunNodeAttempt {
   adapter?: string | null;
   model?: string | null;
   model_id?: string | null;
+  actual_model?: string | null;
   cost?: NodeCost | null;
   session?: string | null;
   reason?: string | null;
@@ -33,6 +34,11 @@ export interface RunNode {
   adapter: string | null;
   model?: string | null;
   model_id?: string | null;
+  /**
+   * The model that really served the node, from the bound session (opencode session_v2, the
+   * llm-hub Smart Auto pick, or the copilot usage record). `model` stays the requested alias.
+   */
+  actual_model?: string | null;
   job_id: string | null;
   /**
    * The harness session id orch assigned at dispatch, so the node can be resumed. Optional
@@ -64,6 +70,8 @@ export interface RunNode {
   tier?: SmartAutoTier | null;
   /** Why the node waits on the user (`node update --needs-user`); absent or null when it does not. */
   needs_user?: string | null;
+  /** Why the coordinator holds a ready node back (`node update --hold`); absent or null when it does not. */
+  hold?: string | null;
   /** Whether a plan reference, expected files and acceptance checks back the node. */
   plan_backed?: boolean;
   /** Acceptance checks the node must meet, as free text. Optional for older runs. */

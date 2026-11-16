@@ -23,6 +23,9 @@ export class ScheduleRunDto extends ZodDto {
 
   @ZodField(z.number().int().nullable(), { description: "Exit code of a command run. Null for a prompt run or while running." })
   exit!: number | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Catalog model id a prompt run used. Null or absent: the profile's default model." })
+  model?: string | null;
 }
 
 @ZodObject({ description: "A cron schedule that runs a prompt or a shell command." })
@@ -53,6 +56,9 @@ export class ScheduleDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "The profile that runs the prompt." })
   profile!: string | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Catalog model id the prompt runs on. Null or absent: the profile's default model." })
+  model?: string | null;
 
   @ZodField(z.string().nullable(), { description: "The shell command, for a command schedule." })
   command!: string | null;
@@ -102,6 +108,9 @@ export class ScheduleInputDto extends ZodDto {
   @ZodField(z.string().max(300).optional(), { description: "The profile that runs the prompt, for kind=prompt." })
   profile?: string;
 
+  @ZodField(z.string().max(300).nullable().optional(), { description: "Catalog model id the prompt runs on, one the profile allows (GET /api/chat-options). Null or absent: the profile's default." })
+  model?: string | null;
+
   @ZodField(z.string().max(20000).optional(), { description: "The shell command, for kind=command." })
   command?: string;
 
@@ -131,6 +140,9 @@ export class ScheduleEditDto extends ZodDto {
 
   @ZodField(z.string().min(1).max(300).optional(), { description: "The profile that runs the prompt, for kind=prompt." })
   profile?: string;
+
+  @ZodField(z.string().max(300).nullable().optional(), { description: "Catalog model id for kind=prompt. Null goes back to the profile's default; omitted keeps it (a profile change drops a model the new profile does not allow)." })
+  model?: string | null;
 
   @ZodField(z.string().min(1).max(20000).optional(), { description: "The shell command, for kind=command." })
   command?: string;

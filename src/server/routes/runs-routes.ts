@@ -95,6 +95,17 @@ export function stopRunHandler(ctx: ServerContext): RouteHandler {
   return runVerbHandler(ctx, "stop");
 }
 
+/** The user path that resumes a stopped run: `run resume <id> --stopped`. */
+export function resumeRunHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
+    const id = params.id ?? "";
+    if (id === "") {
+      return jsonResponse(400, { error: "missing run id" });
+    }
+    return dispatchSubcommand(ctx, ["run", "resume", id, "--stopped"]);
+  };
+}
+
 export function retryNodeHandler(ctx: ServerContext): RouteHandler {
   return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
     const runId = params.id ?? "";
