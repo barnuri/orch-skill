@@ -213,6 +213,11 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
   value, else `null`; nothing is estimated. `run sync` prints one `reported:` line per such node
   after `slots:`, and `node digest` prints it too. The dashboard shows it as the node's usage when
   the harness reported no `cost`.
+- One opencode session bound to several nodes (`node bind-owners`, `owners_fill_run`) is counted
+  once in the run total. Nodes in a row: each later node gets what the session added after the
+  earlier node's final share (`session_stats.baseline`). Nodes at the same time: the first node
+  (earliest `started`, then node order) gets the full session cost and the others get 0 while it
+  is open. Once its final share is set, the others get only what the session added after it.
 - Node options from `node add`: `role` (planning, investigation, implementation, validation,
   conversation), `tier` (efficiency, balance, intelligence, fast), `plan_backed` (boolean) and
   `acceptance` (free text). Each is `null` or `false` when the node was added without it.

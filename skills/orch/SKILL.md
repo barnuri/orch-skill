@@ -302,6 +302,15 @@ pane stays open (cap 20 panes). The job wrapper still writes the log and `exit_c
 `orch herdr status` shows the state and the command to look at it (`orch herdr attach`); run it in a
 separate terminal, never inside your own herdr pane. Details: `references/herdr.md`.
 
+**When herdr is active, fan out and let nodes talk.** Dispatch every independent ready node at once
+(one `node dispatch` per node, no waiting between them) up to `max_parallel`; each gets its own pane.
+`node dispatch` prints the node's pane id and instance `HOME` on stderr (the job dir also holds
+`herdr_pane` and `herdr_home`). Tell each node in its prompt that it may message a sibling node
+directly: `HOME=<herdr_home> herdr pane read <pane>` to see its output, and
+`HOME=<herdr_home> herdr pane send-text <pane> "<text>"` then `send-keys <pane> Enter` to talk to it.
+Use this for quick coordination (an interface both sides need, a file one is about to change).
+Record every decision with `orch msg send` too: panes close after exit, the mailbox stays.
+
 ### Passing work between nodes
 
 Nodes hand work to each other through the filesystem; the orchestrator moves **paths**, never

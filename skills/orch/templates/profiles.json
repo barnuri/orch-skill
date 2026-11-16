@@ -414,9 +414,6 @@
       "priority": 6,
       "flags": [],
       "env": {
-        "OPENCODE_DISABLE_CLAUDE_CODE": "1",
-        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
-        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
         "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"llama_swap\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"qwen3-coder-next\":{\"id\":\"llama_swap/qwen3-coder-next\",\"limit\":{\"context\":262144,\"output\":32768}}}}}}"
       },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]
@@ -501,9 +498,6 @@
       "priority": 5,
       "flags": [],
       "env": {
-        "OPENCODE_DISABLE_CLAUDE_CODE": "1",
-        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
-        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
         "OPENCODE_CONFIG_CONTENT": "{\"provider\":{\"hub\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"llm-hub\",\"options\":{\"baseURL\":\"{env:LLM_HUB_V1_URL}\",\"apiKey\":\"{env:LLM_HUB_KEY}\"},\"models\":{\"smart-auto-balance\":{\"id\":\"hub/smart-auto-balance\",\"limit\":{\"context\":131072,\"output\":32768}}}}}}"
       },
       "auth": ["LLM_HUB_URL", "LLM_HUB_KEY"]

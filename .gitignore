@@ -24,3 +24,5 @@ mods/*/.claude-plugin/types/
 mods/*/tsconfig.json
 __pycache__/
 *.pyc
+
+*.log
