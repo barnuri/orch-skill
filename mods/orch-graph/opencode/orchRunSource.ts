@@ -115,17 +115,35 @@ export class OrchRunSource {
     return { profiles, maxAttempts: isValidLimit ? limit : OrchRunSource.DEFAULT_MAX_ATTEMPTS }
   }
 
-  // `serve status --json` is read-only; asked at most every 15 s, not on every poll.
+  // Probes the server's own port file and `/api/health` directly, as `serve_probe` does. Not
+  // `serve status --json`: it takes ~4 s and reports a running service unhealthy once `src/` changed.
+  // Asked at most every 15 s, not on every poll.
   private async dashboard(isForced = false): Promise<string | null> {
     const now = Date.now()
     if (!isForced && now - this.dashboardCheckedAt < OrchRunSource.DASHBOARD_RECHECK_MS) {
       return this.dashboardBase
     }
     this.dashboardCheckedAt = now
-    const status = await this.dispatch(['serve', 'status', '--json'], OrchRunSource.STATUS_TIMEOUT_MS)
-    const parsed = status ? (JSON.parse(status.stdout || '{}') as { healthy?: boolean; url?: string }) : {}
-    this.dashboardBase = parsed.healthy && parsed.url ? parsed.url : null
+    this.dashboardBase = await this.probeDashboard()
     return this.dashboardBase
+  }
+
+  private async probeDashboard(): Promise<string | null> {
+    const port = (await readFile(join(this.home, 'serve', 'port'), 'utf8').catch(() => '')).trim()
+    if (!/^\d+$/.test(port)) return null
+    const base = `http://127.0.0.1:${port}/`
+    // Any HTTP answer, 401 included, proves a listener.
+    const alive = await fetch(`${base}api/health`, { signal: AbortSignal.timeout(2_000) }).then(
+      () => true,
+      () => false,
+    )
+    if (!alive) return null
+    const token = (await readFile(join(this.home, 'serve.token'), 'utf8').catch(() => '')).trim()
+    const config = await readFile(join(this.home, 'serve.json'), 'utf8').then(
+      text => JSON.parse(text) as { require_token?: boolean },
+      () => ({}) as { require_token?: boolean },
+    )
+    return config.require_token && token ? `${base}?token=${encodeURIComponent(token)}` : base
   }
 
   private dispatch(args: readonly string[], timeoutMs: number, env: Record<string, string> = {}): Promise<ProcessResult | null> {

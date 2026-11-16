@@ -5,6 +5,8 @@ export type NodeView = {
   harness: string
   profile: string
   model: string
+  /** Smart Auto tier (`balance`, ...) when the hub picked the model, else null. */
+  tier: string | null
   /** `$0.42`, `<$0.01` or `12,400 tok`, as the dashboard prints it; null when none was reported. */
   cost: string | null
   /** `attempt 2/5`, `attempt 2/∞` or `manual retry 6`. */

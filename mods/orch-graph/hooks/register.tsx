@@ -23,16 +23,21 @@ function dispatchPath($: EngineInterface): string {
   return `${$.plugin.root}/../../skills/orch/scripts/dispatch.sh`
 }
 
-// `serve status --json` is read-only; asked at most every 15 s, not on every poll.
+// Probes the server's port file and `/api/health` directly (`serve status --json` takes ~4 s and
+// reports stale after a `src/` edit). Asked at most every 15 s, not on every poll.
 async function dashboard($: EngineInterface, isForced = false): Promise<string | null> {
   const now = await $.clock.now()
   if (!isForced && now - dashboardCheckedAt < DASHBOARD_RECHECK_MS) return dashboardBase
   dashboardCheckedAt = now
+  const script =
+    'p=$(cat "$HARNESS_ORCH_HOME/serve/port" 2>/dev/null); case "$p" in ""|*[!0-9]*) exit 1;; esac; ' +
+    'c=$(curl -s -o /dev/null -m 2 -w "%{http_code}" "http://127.0.0.1:$p/api/health"); case "$c" in [1-9][0-9][0-9]) ;; *) exit 1;; esac; ' +
+    't=""; grep -q "\\"require_token\\": *true" "$HARNESS_ORCH_HOME/serve.json" 2>/dev/null && t=$(cat "$HARNESS_ORCH_HOME/serve.token" 2>/dev/null); ' +
+    'if [ -n "$t" ]; then printf "http://127.0.0.1:%s/?token=%s" "$p" "$t"; else printf "http://127.0.0.1:%s/" "$p"; fi'
   const status = await $.process
-    .run(['bash', dispatchPath($), 'serve', 'status', '--json'], { env: { HARNESS_ORCH_HOME: await resolveHome($) } })
+    .run(['bash', '-c', script], { env: { HARNESS_ORCH_HOME: await resolveHome($) }, timeoutMs: 5_000 })
     .catch(() => null)
-  const parsed = status ? (JSON.parse(status.stdout || '{}') as { healthy?: boolean; url?: string }) : {}
-  dashboardBase = parsed.healthy && parsed.url ? parsed.url : null
+  dashboardBase = status?.exitCode === 0 && status.stdout ? status.stdout.trim() : null
 
   return dashboardBase
 }

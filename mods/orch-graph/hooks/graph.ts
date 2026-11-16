@@ -8,6 +8,8 @@ type RawCost = {
   cache_creation_tokens?: number
 }
 
+type RawHubPick = { model?: string | null; tier?: string | null }
+
 type RawNode = {
   id: string
   label?: string
@@ -16,6 +18,9 @@ type RawNode = {
   profile?: string | null
   model?: string | null
   model_id?: string | null
+  main_model?: string | null
+  tier?: string | null
+  hub?: { expected?: RawHubPick | null; actual?: RawHubPick | null } | null
   attempts?: unknown[]
   cost?: RawCost | null
   error?: string | null
@@ -95,6 +100,16 @@ export const isStaleRun = (raw: RawRun): boolean => {
   return (raw.status ?? 'running') === 'running' && nodes.length > 0 && nodes.every(node => FINISHED_NODE.has(node.status ?? ''))
 }
 
+const shortModel = (model: string): string => model.slice(model.lastIndexOf('/') + 1)
+
+// Smart Auto's pick: the model that served, else the hub's pre-dispatch guess marked `~`.
+export const pickedModel = (node: RawNode): string | null => {
+  const actual = node.main_model || node.hub?.actual?.model
+  if (actual) return shortModel(actual)
+  const expected = node.hub?.expected?.model
+  return expected ? `~${shortModel(expected)}` : null
+}
+
 export const isLiveRun = (raw: RawRun): boolean => (raw.status ?? 'running') === 'running' && !isStaleRun(raw)
 
 // `adapter` and the model are recorded at dispatch; a node not dispatched yet falls back to its
@@ -120,7 +135,8 @@ export const toRunView = (
       harness: node.adapter || profile?.harness || '',
       status: node.status ?? 'waiting',
       profile: node.profile || node.adapter || '-',
-      model: node.model_id || node.model || profile?.model || '-',
+      model: pickedModel(node) ?? (node.model_id || node.model || profile?.model || '-'),
+      tier: pickedModel(node) ? node.hub?.actual?.tier || node.hub?.expected?.tier || node.tier || null : null,
       cost: costText(node.cost),
       attempt: attemptText((node.attempts?.length ?? 0) + 1, maxAttempts),
       after: edges.filter(([, to]) => to === node.id).map(([from]) => from),

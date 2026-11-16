@@ -263,6 +263,7 @@ export const drawGraph = (run: RunView, columns: number): Row[] => {
     const isTight = (node.cost?.length ?? 0) + node.attempt.length + 1 > inner
     const attempt = isTight ? node.attempt.replace(/^attempt /, '').replace(/^manual retry /, 'retry ') : node.attempt
     if (node.cost) canvas.text(x + 2, y + 4, clip(node.cost, inner - attempt.length - 1), { color: 'green' })
+    else if (node.tier) canvas.text(x + 2, y + 4, clip(node.tier, inner - attempt.length - 1), { color: 'cyan' })
     canvas.text(x + boxW - 2 - attempt.length, y + 4, attempt, { dim: true })
   }
 

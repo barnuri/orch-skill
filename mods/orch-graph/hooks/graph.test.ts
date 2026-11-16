@@ -105,3 +105,21 @@ test('durations and status counts match the run meta', async () => {
   expect(run.elapsed).toBe('1m 5s')
   expect(statusCounts(run)).toEqual([['error', 1], ['done', 1], ['waiting', 1]])
 })
+
+test('a Smart Auto node shows the hub pick and its tier', async () => {
+  const run = toRunView({
+    run_id: 'r1',
+    nodes: [
+      { id: 'a', model_id: 'hub-smart-auto-balance', hub: { actual: { model: 'copilot/claude-opus-5-5', tier: 'intelligence' } } },
+      { id: 'b', model_id: 'hub-smart-auto-balance', hub: { expected: { model: 'copilot/claude-haiku-5-5', tier: 'efficiency' } } },
+      { id: 'c', model_id: 'sonnet', tier: 'balance' },
+    ],
+  })
+  const [a, b, c] = run.layers[0] ?? []
+  expect(a?.model).toBe('claude-opus-5-5')
+  expect(a?.tier).toBe('intelligence')
+  expect(b?.model).toBe('~claude-haiku-5-5')
+  expect(b?.tier).toBe('efficiency')
+  expect(c?.model).toBe('sonnet')
+  expect(c?.tier).toBe(null)
+})
