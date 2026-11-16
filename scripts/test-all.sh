@@ -7,7 +7,7 @@ cd "$ROOT" || exit 1
 . "$ROOT/scripts/heavy-test-lock.sh"
 HEAVY_LOCK_CMD="test-all.sh (full gate)" heavy_lock_acquire
 out=$(mktemp -d)
-bash skills/orch/tests/run.sh > "$out/bash.log" 2>&1 9>&- & p1=$!
+bash skills/orch/tests/run.sh --full > "$out/bash.log" 2>&1 9>&- & p1=$!
 ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --retry=1 --timings="${TMPDIR:-/tmp}/orch-bun-test-timings.json" --update-timings src > "$out/bun.log" 2>&1 9>&- & p2=$!
 bash scripts/typecheck.sh > "$out/types.log" 2>&1 9>&- & p3=$!
 bash scripts/lint-optional.sh > "$out/lint.log" 2>&1 9>&- & p4=$!

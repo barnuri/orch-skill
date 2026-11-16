@@ -723,8 +723,28 @@ cmd_profile() {
     pick) shift; cmd_profile_pick "$@" ;;
     sanity) shift; cmd_profile_sanity "$@" ;;
     unset-env) shift; cmd_profile_unset_env "$@" ;;
+    sync-overlay) shift; cmd_profile_sync_overlay "$@" ;;
     *) printf 'usage: dispatch.sh profile list | show <name> | pick "<task>" [--complexity …] [--kind K] | sanity [--profile NAME] | unset-env <name> <VAR>...\n' >&2; return 2 ;;
   esac
+}
+
+# Adds the profiles (and their models) of the gitignored overlay that the live profiles.json lacks.
+# Never overwrites a profile that already exists, so a user edit stays.
+cmd_profile_sync_overlay() {
+  local tmp="$PROFILES_FILE.tmp.$$" before after replace='[]'
+  if [ "${1:-}" = "--replace" ]; then shift; replace=$(printf '%s\n' "$@" | jq -R . | jq -sc .); fi
+  [ -f "$PROFILES_OVERLAY_FILE" ] || { printf 'profile sync-overlay: no overlay at %s\n' "$PROFILES_OVERLAY_FILE" >&2; return 1; }
+  before=$(jq -r '.profiles | keys | length' "$PROFILES_FILE")
+  if ! jq --argjson rep "$replace" --slurpfile ov "$PROFILES_OVERLAY_FILE" '
+    .profiles = ((.profiles | with_entries(select(.key as $k | $rep | index($k) | not))) as $keep
+      | (($ov[0].profiles // {}) | with_entries(select(.key as $k | ($rep | index($k)) != null or ($keep[$k] == null)))) + $keep)
+    | .models = (($ov[0].models // {}) + (.models // {}))
+    | .models |= (. + (($ov[0].models // {}) | with_entries(select(.key as $k | ($rep | length) > 0 and ($ov[0].profiles | to_entries | map(select(.key as $p | $rep | index($p) != null) | .value.model) | index($k) != null)))))' "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"; printf 'profile sync-overlay: could not merge\n' >&2; return 1
+  fi
+  profiles_commit "$tmp" || return 1
+  after=$(jq -r '.profiles | keys | length' "$PROFILES_FILE")
+  printf 'profile sync-overlay: %s profile(s) added\n' "$((after - before))"
 }
 
 # Drops env vars from one profile's env map. Other profiles and keys stay as written.

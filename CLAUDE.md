@@ -41,7 +41,7 @@ skills/orch/
                                   core/ (config, locks), adapters/ (adapters, harness, herdr, hub, routing, profile-sanity),
                                   runs/ (runs, batch, health, owners, pause, wait, ...), automation/ (loops, schedules),
                                   dashboard/ (serve, suggest, demo). A new lib file must be added to ORCH_LIB_FILES.
-  tests/run.sh                    the bash test runner: every tests/<category>/*.test.sh, in parallel
+  tests/run.sh                    the bash test runner: fast tier (tests/unit/) by default, --changed, --full
   tests/test-lib.sh, test-home.sh shared helpers (SCRIPT_DIR = skills/orch/scripts, TESTS_DIR = skills/orch/tests)
   tests/<category>/*.test.sh      announce/, adapters/, automation/, config/, dashboard/, runs/
   references/                     adapter contract + state/config schemas
@@ -159,7 +159,10 @@ Use the `verify` skill (browser, herdr and herdr-web checks). Its scripts live i
 ## Tests
 
 ```bash
-bash skills/orch/tests/run.sh              # bash suite: every skills/orch/tests/<category>/*.test.sh, in parallel
+bash skills/orch/tests/run.sh              # FAST tier (default, under 30 s): tests/unit/*.test.sh only
+bash skills/orch/tests/run.sh --changed    # fast tier + tests mapped from changed files (git diff + untracked)
+bash skills/orch/tests/run.sh --full       # every skills/orch/tests/<category>/*.test.sh, slowest first
+bash skills/orch/tests/run.sh --budget 300 # stop starting files after 300 s; prints the files left to run
 bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
 bun run test:changed                         # quick local mode: only tests affected by git changes
 bun run test:random                          # --randomize, to expose test-order dependence
@@ -168,20 +171,32 @@ bash scripts/typecheck.sh                    # must print `typecheck: ok`
 bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun)
 ```
 
-`tests/run.sh` runs each `<category>/*.test.sh` (helpers in `tests/test-lib.sh`) as its own job on its own temp
-homes and merges the tallies. Pass a name fragment to run one file, or `ORCH_TEST_JOBS=1` to go serial.
+`tests/run.sh` runs each test file as its own job on its own temp homes and merges the tallies. File ids
+are `<category>/<name>`. Pass a name fragment to run matching files only, or `ORCH_TEST_JOBS=1` to go serial.
+Each file is capped (30 s fast tier, 240 s otherwise, `ORCH_TEST_FILE_CAP`) and killed with its process
+group on timeout. The runner prints per-file seconds and the 5 slowest files before the totals line.
 A new test file needs only a category folder, the `.test.sh` suffix and a final `N passed, M failed` line.
 
-**Run only the tests of the files you touched; the full suite runs once, at the final gate.** Use
-`tests/run.sh <fragment>` or `bun test <file>`. Many agents share this machine: five full suites at
+The fast tier lives in `tests/unit/`: `smoke.test.sh` (`bash -n`, side-effect-free sourcing in
+`ORCH_LIB_FILES` order, help and usage) plus one `<lib-stem>.test.sh` per lib, each under 5 s. They call
+`load_dispatch` (`tests/test-lib.sh`) to source `dispatch.sh` in-process against a seeded home, so they
+pay no process start per assertion. A new lib gets a `tests/unit/<stem>.test.sh`.
+
+`--changed[=ref]` maps each changed path to test files named `<stem>` or `<stem>-*`, plus the extras in
+`tests/changed-map.txt`. A path with no mapping (docs, config) runs the fast tier only.
+
+**Rules:** run `--changed` after an edit, the fast tier before a commit, and `--full` once, at the final
+gate. Stop any test command at 5 minutes (`timeout 300` or `--budget 300`) and run only the files left.
+Use `bun test <file>` for TypeScript. Many agents share this machine: five full suites at
 once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
-`tests/run.sh` with no fragment, `bun run test`) each take a machine-wide heavy-test slot
+`tests/run.sh --full`, `bun run test`) each take a machine-wide heavy-test slot
 (`scripts/heavy-test-lock.sh`: flock on `${TMPDIR}/orch-test-heavy.N`, `ORCH_TEST_SLOTS`, default 2).
-A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fragment runs
-and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
+A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fast, changed
+and fragment runs and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
 
 For a home that only needs to be initialised, call `seed_home "$home"` (`tests/test-home.sh`) instead of
-`dispatch.sh init`. It copies one home initialised per suite and skips the 2-4 s first-run migrations.
+`dispatch.sh init`. It copies a template home and skips the 2-4 s first-run migrations. The template is
+cached in `${TMPDIR}/orch-test-home-template.<cksum>`, keyed by `dispatch.sh`, the libs and the templates.
 Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds
 of the last full run, in `${TMPDIR}/orch-bash-test-timings`), and `ORCH_TEST_JOBS=N` is a real pool.
 
