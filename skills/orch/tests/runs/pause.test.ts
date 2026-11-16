@@ -1,10 +1,10 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { orch, seedHome, runState, nodeOf, pidAlive, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, pidAlive, waitUntil, autoCleanup } from "../helpers";
 autoCleanup();
 
-test("pause, resume, cancel", () => {
+test("pause, resume, cancel", async () => {
   const home = seedHome(), o = orch(home);
   const st = () => runState(home, "pause-1");
   const nd = (id: string) => nodeOf(home, "pause-1", id);
@@ -52,8 +52,7 @@ test("pause, resume, cancel", () => {
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^cancelled: cancel-me \(job killed\)$/m);
   expect(nd("cancel-me").status).toBe("stopped");
-  Bun.sleepSync(300);
-  expect(pidAlive(cancel.pid)).toBe(false);
+  expect(await waitUntil(() => !pidAlive(cancel.pid), 10)).toBe(true);
   expect(nd("live").status).toBe("running");
   expect(st().stopped ?? false).toBe(false);
   expect(o("node", "retry", "pause-1", "cancel-me", "--no-dispatch").rc).toBe(0);

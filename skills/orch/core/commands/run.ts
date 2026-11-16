@@ -1,5 +1,6 @@
 // `orch run status <run-id> [--json] [--fresh]`. Ported from cmd_run_status (lib/runs/visibility.sh).
 // Owner lines come from the read-only owner check (commands/owners.ts, apply=false).
+import { currentRunResolve } from "../state/current-run.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadRun } from "../state/store.ts";
@@ -12,7 +13,16 @@ export async function runStatusCommand(args: string[]): Promise<number> {
   const r = await runStatusText(orchHome(), args);
   if (r.out) process.stdout.write(r.out);
   if (r.err) process.stderr.write(r.err);
+  if (r.code === 0 && !args.includes("--json") && args[0]) {
+    const run = await loadRun(orchHome(), (await resolveRunId(args[0])) ?? args[0]);
+    if (run?.paused === true) process.stdout.write("paused: true\n");
+    if (run?.stopped === true) process.stdout.write("stopped: true\n");
+  }
   return r.code;
+}
+
+async function resolveRunId(arg: string): Promise<string | null> {
+  try { return await currentRunResolve(orchHome(), arg); } catch { return null; }
 }
 
 export const RUN_STATUS_USAGE = "usage: dispatch.ts run status <run-id> [--json] [--fresh]";
