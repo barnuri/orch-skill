@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { orch, seedHome, runState, nodeOf, readText, readJson, writeJson, editJson, ndjson, waitUntil, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, readText, readJson, writeJson, editJson, ndjson, waitUntil, runCmdAsync, DISPATCH, autoCleanup } from "../helpers";
 autoCleanup();
 const mk = () => { const home = seedHome(); return { home, o: orch(home, { ORCH_WAIT_POLL_SECS: "1" }) }; };
 const L = (...rows: object[]) => ndjson(rows);
@@ -52,8 +52,8 @@ test("backfill, --at, stale, status, wait", async () => {
   expect(st).toMatch(/running s:/);
   expect(st).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/#\/run\//m);
   expect(o("run", "status", R, "--json").out).toMatch(/"done": ?2/);
-  const waiter = (async () => { await waitUntil(() => readText(join(home, "runs", R, "wait.cursor")) !== "", 20); o("node", "update", R, "s", "done"); })();
-  const w = o("run", "wait", R, "--timeout", "20");
+  const waiter = (async () => { await waitUntil(() => readText(join(home, "runs", R, "wait.cursor")) !== "", 20); await runCmdAsync(["bun", DISPATCH, "node", "update", R, "s", "done"], { home }); })();
+  const w = await runCmdAsync(["bun", DISPATCH, "run", "wait", R, "--timeout", "20"], { home, env: { ORCH_WAIT_POLL_SECS: "1" } }).then((x) => ({ rc: x.rc, out: x.out }));
   await waiter;
   expect(w.rc).toBe(0);
   expect(w.out).toMatch(/^s running->done$/m);
@@ -127,6 +127,7 @@ test("carry origin deps, remove, unowned chain", () => {
 
   // r1 chained to r0
   mkdirSync(join(home, "runs/r0"), { recursive: true }); mkdirSync(join(home, "runs/r1"), { recursive: true });
+  mkdirSync(join(home, "jobs/job-1"), { recursive: true }); writeFileSync(join(home, "jobs/job-1/pid"), `${process.pid}\n`);
   writeJson(join(home, "runs/r0/state.json"), { run_id: "r0", title: "origin", status: "done", edges: [], nodes: [{ id: "z", status: "done" }] });
   writeJson(join(home, "runs/r1/state.json"), { run_id: "r1", title: "t", status: "running", continued_from: "r0", edges: [["a", "b"], ["w", "x"]],
     nodes: [{ id: "a", status: "waiting" }, { id: "b", status: "running", owner: "job-1", job_id: "job-1" }, { id: "u", status: "running" }, { id: "w", status: "waiting" }, { id: "x", status: "waiting" }, { id: "d", status: "done" }] });
