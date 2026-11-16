@@ -3,6 +3,7 @@ import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { dispatchPath } from "../dispatch-path";
+import { BUILTIN_DEFAULTS, effectiveProfile, type ProfileDefaults } from "../../shared/profile-effective";
 
 /**
  * Event-driven run engine. Watches each active run's folder (fs.watch, debounced) and, on every
@@ -91,8 +92,12 @@ export function notifyFile(home: string, runId: string): string {
   return join(engineDir(home, runId), "notify.log");
 }
 
-/** Per-run cap from `<home>/serve.json` key `auto_dispatch_max_parallel`, else 4. */
+/** Run cap: defaults.max_parallel, then settings.max_parallel (old key), then serve.json, then 4. */
 export function maxParallel(home: string): number {
+  const cfg = readProfilesConfig(home);
+  for (const v of [cfg.defaults?.max_parallel, cfg.settings?.max_parallel]) {
+    if (typeof v === "number" && Number.isInteger(v) && v >= 1) return v;
+  }
   try {
     const v = (JSON.parse(readFileSync(join(home, "serve.json"), "utf8")) as Record<string, unknown>)["auto_dispatch_max_parallel"];
     return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : DEFAULT_MAX_PARALLEL;
@@ -100,6 +105,30 @@ export function maxParallel(home: string): number {
     return DEFAULT_MAX_PARALLEL;
   }
 }
+
+interface ProfilesConfig {
+  defaults?: ProfileDefaults & { max_parallel?: number };
+  settings?: { max_parallel?: number };
+  profiles?: Record<string, Record<string, unknown>>;
+}
+
+function readProfilesConfig(home: string): ProfilesConfig {
+  try {
+    return JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")) as ProfilesConfig;
+  } catch {
+    return {};
+  }
+}
+
+/** Per-profile cap: the profile's effective max_parallel (node, profile, defaults, builtin). */
+export function profileCapOf(cfg: ProfilesConfig): (profile: string) => number {
+  return (profile) => {
+    const raw = cfg.profiles?.[profile] ?? {};
+    const v = effectiveProfile(raw, cfg.defaults ?? {}).max_parallel.value;
+    return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : BUILTIN_DEFAULTS.max_parallel ?? DEFAULT_MAX_PARALLEL;
+  };
+}
+
 
 function readState(home: string, runId: string): RunState | null {
   try {
@@ -140,7 +169,12 @@ export type Decision = { node: string; action: "start"; profile: string; prompt:
 
 /** Pure: which waiting nodes start now and why the others wait. Empty when the run is not opted in. */
 /** `isSettled(id)` is false for a dependency that just turned done but has no handoff yet: the watchdog may still flip it to error. */
-export function decide(state: RunState, cap: number, isSettled: (id: string) => boolean = () => true): Decision[] {
+export function decide(
+  state: RunState,
+  cap: number,
+  isSettled: (id: string) => boolean = () => true,
+  profileCap: (profile: string) => number = () => Infinity,
+): Decision[] {
   if (state.auto_dispatch !== true) {
     return [];
   }
@@ -152,6 +186,11 @@ export function decide(state: RunState, cap: number, isSettled: (id: string) => 
   }
   const statusOf = new Map(nodes.map((n) => [n.id, n.status ?? ""]));
   let running = nodes.filter((n) => n.status === "running").length;
+  const runningOf = new Map<string, number>();
+  for (const n of nodes.filter((n) => n.status === "running")) {
+    const p = n.profile ?? state.default_profile ?? state.profile ?? "";
+    runningOf.set(p, (runningOf.get(p) ?? 0) + 1);
+  }
   const out: Decision[] = [];
   for (const n of waiting) {
     const blockers = (state.edges ?? []).filter(([, to]) => to === n.id).map(([from]) => from).filter((d) => statusOf.get(d) !== "done" || !isSettled(d));
@@ -168,7 +207,13 @@ export function decide(state: RunState, cap: number, isSettled: (id: string) => 
       out.push({ node: n.id, action: "skip", reason: `cap ${cap} reached` });
       continue;
     }
+    const pCap = profileCap(profile);
+    if ((runningOf.get(profile) ?? 0) >= pCap) {
+      out.push({ node: n.id, action: "skip", reason: `profile ${profile} cap ${pCap} reached` });
+      continue;
+    }
     running += 1;
+    runningOf.set(profile, (runningOf.get(profile) ?? 0) + 1);
     out.push({ node: n.id, action: "start", profile, prompt: promptFor(n) });
   }
   return out;
@@ -233,7 +278,7 @@ export class RunEngine {
       }
       return existsSync(join(this.home, "runs", runId, "out", id, "handoff.md"));
     };
-    for (const d of decide(state, maxParallel(this.home), settled)) {
+    for (const d of decide(state, maxParallel(this.home), settled, profileCapOf(readProfilesConfig(this.home)))) {
       const key = `${runId}/${d.node}`;
       if (d.action === "skip") {
         if (this.lastSkip.get(key) !== d.reason) {

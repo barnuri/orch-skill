@@ -41,6 +41,8 @@ import {
   RETENTION_MAX_DAYS,
   RISK_VALUES,
   ROOT_KEYS,
+  OPTIONAL_ROOT_KEYS,
+  DEFAULTS_KEYS,
   SECRET_KEY,
   SETTINGS_KEYS,
   SPEED_VALUES,
@@ -604,15 +606,39 @@ function profilesMapIssues(
  * with dotted paths (e.g. `profiles.claude-hub.env.KEY`) instead of stopping
  * at the first one, so the dashboard can attach each issue to its field.
  */
+// defaults: the profile defaults block. max_parallel is an integer 1..32, parallel_ok a boolean.
+// Other keys are checked for name only here; profile-level validation covers their shapes.
+function defaultsIssues(defaults: unknown): Issue[] {
+  if (!isPlainObject(defaults)) {
+    return [{ path: "defaults", reason: MUST_BE_OBJECT }];
+  }
+  const issues = unknownKeyIssues(defaults, DEFAULTS_KEYS, "defaults");
+  if ("max_parallel" in defaults && !isIntegerInRange(defaults["max_parallel"], 1, 32)) {
+    issues.push({ path: "defaults.max_parallel", reason: "must be an integer 1-32" });
+  }
+  if ("parallel_ok" in defaults && typeof defaults["parallel_ok"] !== "boolean") {
+    issues.push({ path: "defaults.parallel_ok", reason: MUST_BE_BOOLEAN });
+  }
+  return issues;
+}
+
+/**
+ * Validates one whole profiles.json document. Returns every issue, so the dashboard can attach
+ * each one to its field. Pure: no file reads.
+ * @param harnesses the harness ids valid for this build (from argv in config.sh).
+ */
 export function profilesIssues(document: unknown, harnesses: readonly string[]): Issue[] {
   if (!isPlainObject(document)) {
     return [{ path: ROOT_PATH, reason: MUST_BE_OBJECT }];
   }
-  const issues = unknownKeyIssues(document, ROOT_KEYS, "");
+  const issues = unknownKeyIssues(document, [...ROOT_KEYS, ...OPTIONAL_ROOT_KEYS], "");
   for (const key of ROOT_KEYS) {
     if (!(key in document)) {
       issues.push({ path: key, reason: REQUIRED });
     }
+  }
+  if ("defaults" in document) {
+    issues.push(...defaultsIssues(document["defaults"]));
   }
   const models = isPlainObject(document["models"]) ? document["models"] : {};
   if ("settings" in document) {

@@ -199,7 +199,14 @@ describe("readRun", () => {
     state.edges = [["n1", "n2"]];
     writeRun(home, state);
 
-    expect(readRun(paths, state.run_id)).toEqual({ kind: "ok", run: state });
+    // The reader adds a computed `timing` to every node (phase, run_s, waited_s); the rest is the file as written.
+    const read = readRun(paths, state.run_id);
+    expect(read.kind).toBe("ok");
+    if (read.kind === "ok") {
+      const stripped = { ...read.run, nodes: read.run.nodes.map(({ timing: _timing, ...rest }) => rest) };
+      expect(stripped).toEqual(state);
+      expect(read.run.nodes[0]?.timing?.phase).toBe("ended");
+    }
   });
 
   test("missing for an unknown id", () => {

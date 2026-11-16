@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { TempHome } from "../test-support/temp-home";
-import { decide, notifyFile, RunEngine, subscribeNodeChanges, type NodeChange, type RunState } from "./auto-dispatch";
+import { decide, maxParallel, notifyFile, profileCapOf, RunEngine, subscribeNodeChanges, type NodeChange, type RunState } from "./auto-dispatch";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.sh");
 let prevDispatch: string | undefined;
@@ -38,6 +38,7 @@ function homeWith(state: RunState, serve?: Record<string, unknown>): TempHome {
   const home = TempHome.create();
   home.write("runs/r1/state.json", JSON.stringify(state));
   if (serve !== undefined) {
+    home.write("profiles.json", "{}");
     home.write("serve.json", JSON.stringify(serve));
   }
   return home;
@@ -151,6 +152,40 @@ describe("auto-dispatch", () => {
     const nodes = ["n1", "n2", "n3", "n4", "n5"].map((id) => ({ id, status: "waiting" }));
     const out = decide(run({ nodes, edges: [], default_profile: "dflt" }), 4);
     expect(out.filter((d) => d.action === "start").map((d) => (d.action === "start" ? d.profile : ""))).toEqual(["dflt", "dflt", "dflt", "dflt"]);
+  });
+
+  test("the per-profile cap holds even when the run cap has room", () => {
+    const nodes = [
+      { id: "r", status: "running", profile: "p" },
+      { id: "n1", status: "waiting", profile: "p" },
+      { id: "n2", status: "waiting", profile: "q" },
+    ];
+    const out = decide(run({ nodes, edges: [] }), 7, () => true, (p) => (p === "p" ? 1 : 7));
+    expect(out[0]).toEqual({ node: "n1", action: "skip", reason: "profile p cap 1 reached" });
+    expect(out[1]).toMatchObject({ node: "n2", action: "start", profile: "q" });
+  });
+
+  test("maxParallel reads defaults.max_parallel, then settings.max_parallel, then serve.json, then 4", () => {
+    const h = TempHome.create();
+    h.write("profiles.json", "{}");
+    expect(maxParallel(h.path)).toBe(4);
+    h.write("serve.json", JSON.stringify({ auto_dispatch_max_parallel: 3 }));
+    expect(maxParallel(h.path)).toBe(3);
+    h.write("profiles.json", JSON.stringify({ settings: { max_parallel: 5 } }));
+    expect(maxParallel(h.path)).toBe(5);
+    h.write("profiles.json", JSON.stringify({ defaults: { max_parallel: 7 }, settings: { max_parallel: 5 } }));
+    expect(maxParallel(h.path)).toBe(7);
+    h.dispose();
+  });
+
+  test("a profile's own max_parallel overrides the defaults cap for its nodes only", () => {
+    const cap = profileCapOf({
+      defaults: { max_parallel: 7 },
+      profiles: { slow: { max_parallel: 2 }, fast: {} },
+    });
+    expect(cap("slow")).toBe(2);
+    expect(cap("fast")).toBe(7);
+    expect(cap("unknown")).toBe(7);
   });
 
   test("the prompt is the stored prompt, else agent-rules plus the goal", () => {
