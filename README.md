@@ -36,21 +36,21 @@ you ──▶ your agent ──┬──▶ claude       (subscription, or via a
 Nothing is installed into your project. The CLI (`skills/orch/scripts`) needs only bash, `jq` and
 the harness CLIs. The dashboard server in `src/` also needs four npm packages (`hono`,
 `@hono/zod-openapi`, `zod` and two decorator packages from GitHub, see `package.json`), installed
-into this checkout's `node_modules` by `install.sh`, or on first `serve`/`ui` if you skipped it.
+into this checkout's `node_modules` by `install.ts`, or on first `serve`/`ui` if you skipped it.
 
 ## Install
 
 ```bash
 git clone https://github.com/barnuri/orch-skill.git
 cd orch-skill
-./install.sh
+./install.ts
 ```
 
 That registers this folder with Claude Code as a local directory-source plugin marketplace and
-installs the `orch` plugin from it. Re-run `./install.sh` any time — it is idempotent, and after
+installs the `orch` plugin from it. Re-run `./install.ts` any time — it is idempotent, and after
 a `git pull` it is also how you upgrade (a directory marketplace is read live from this folder).
 
-Want the dashboard running permanently too? `./install.sh --with-service`.
+Want the dashboard running permanently too? `./install.ts --with-service`.
 
 Then restart Claude Code and bootstrap the state directory once:
 
@@ -58,7 +58,7 @@ Then restart Claude Code and bootstrap the state directory once:
 bash skills/orch/scripts/dispatch.sh init
 ```
 
-Removing it: `./uninstall.sh` (add `--with-service` and/or `--purge-state`).
+Removing it: `./uninstall.ts` (add `--with-service` and/or `--purge-state`).
 
 ## Try it with mock data
 
@@ -80,7 +80,7 @@ so it cannot quietly add fake runs to the state you actually orchestrate from.
 To re-record the GIF at the top of this file:
 
 ```bash
-scripts/demo-gif.sh            # seeds, serves, drives a visible Chrome, writes docs/demo.gif
+scripts/demo-gif.ts            # seeds, serves, drives a visible Chrome, writes docs/demo.gif
 ```
 
 It needs `ffmpeg` and Chrome (or Chromium) and skips cleanly without them. The browser window is
@@ -197,8 +197,8 @@ the reported cost (dollars, or tokens when the harness priced it at zero), and
 (`✓` done, `●` running, `✗` error, `○` waiting, `⊘` skipped). A node in a cycle gets a `cycle`
 badge, and an edge that skips a stage runs on its own lane under the boxes.
 
-- `install.sh` registers it through `CLAUDE_CODE_PLUGIN_DIRS` in your user settings, and
-  `uninstall.sh` removes it. Restart Claude Code once after installing.
+- `install.ts` registers it through `CLAUDE_CODE_PLUGIN_DIRS` in your user settings, and
+  `uninstall.ts` removes it. Restart Claude Code once after installing.
 - It opens by itself the first time the orch skill loads or a command starts or advances a run.
   A pane opened that way needs a terminal at least 144 columns wide. `/orch-graph` opens it at
   any width.
@@ -212,7 +212,7 @@ badge, and an edge that skips a stage runs on its own lane under the boxes.
 To regenerate the screenshot:
 
 ```bash
-scripts/mod-screenshot.sh      # seeds `demo seed --graph` in a scratch state dir, captures docs/orch-graph-mod.png
+scripts/mod-screenshot.ts      # seeds `demo seed --graph` in a scratch state dir, captures docs/orch-graph-mod.png
 ```
 
 It draws the run with the mod's own graph code and captures it from a visible Chrome window. It
@@ -224,11 +224,11 @@ By default the server starts on demand and dies with the machine. If you would r
 always up:
 
 ```bash
-bash scripts/service.sh install          # macOS launchd, or Linux systemd --user
-bash scripts/service.sh status
-bash scripts/service.sh logs -n 50
-bash scripts/service.sh restart
-bash scripts/service.sh uninstall
+bun scripts/service.ts install          # macOS launchd, or Linux systemd --user
+bun scripts/service.ts status
+bun scripts/service.ts logs -n 50
+bun scripts/service.ts restart
+bun scripts/service.ts uninstall
 ```
 
 | | |
@@ -249,7 +249,7 @@ service alive while you are logged out. A restart does not kill running jobs (la
 
 With the service installed, `dispatch.sh ui` finds the running server and just opens the URL. One
 caveat: `ui` restarts the server when it notices the skill's sources changed — after editing
-`src/`, prefer `scripts/service.sh restart` so the supervisor stays in charge.
+`src/`, prefer `scripts/service.ts restart` so the supervisor stays in charge.
 
 ## Adapters
 
@@ -289,7 +289,7 @@ that succeeded at this kind of task before gets picked again.
 
 ### Editing the config from the checkout
 
-`install.sh` leaves a `config` symlink at the repo root pointing at the live state directory, so
+`install.ts` leaves a `config` symlink at the repo root pointing at the live state directory, so
 the files you actually edit are one hop away:
 
 ```bash
@@ -298,7 +298,7 @@ $EDITOR config/profiles.json
 ```
 
 It is per-machine and absolute, so it is **gitignored** — never committed. Create it by hand if
-you cloned without running `install.sh`:
+you cloned without running `install.ts`:
 
 ```bash
 ln -sfn "${HARNESS_ORCH_HOME:-$HOME/.harness-orch}" config
@@ -347,9 +347,9 @@ Tests and typechecking, no install step required:
 bash skills/orch/tests/run.sh               # bash fast tier (unit/, under 30 s)
 bash skills/orch/tests/run.sh --changed     # fast tier + tests of changed files
 bash skills/orch/tests/run.sh --full        # the full bash suite (final gate)
-bash scripts/typecheck.sh        # bun bundle + tsc (skips cleanly if either is absent)
+bun scripts/typecheck.ts        # bun bundle + tsc (skips cleanly if either is absent)
 bun test --timeout 300000 --parallel=6 src   # TypeScript suite
-bash scripts/test-all.sh         # all of the above at once
+bun scripts/test-all.ts         # all of the above at once
 ```
 
 Repo layout and the invariants to respect when changing things: [CLAUDE.md](CLAUDE.md).

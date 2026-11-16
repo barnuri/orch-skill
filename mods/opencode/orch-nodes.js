@@ -3,7 +3,7 @@
 // - appends pending orch messages (`node tell`, `run broadcast`, answers) to the next tool result;
 // - counts tool, skill and subagent calls into the node usage (`node usage --add`).
 // Sessions without a registry file <orch-home>/owners/<session-id>.json cost one existsSync and nothing else.
-// Source: orch-skill mods/opencode/orch-nodes.js, installed by install.sh as a symlink.
+// Source: orch-skill mods/opencode/orch-nodes.js, installed by install.ts as a symlink.
 // Undo: delete the link (or restore the .orch-backup copy if one exists). Docs: orch references/harness-adapters.md
 
 import { execFileSync, spawn } from "node:child_process";

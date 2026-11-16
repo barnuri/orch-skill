@@ -5,21 +5,22 @@ repo root is packaging (install + optional service + docs).
 
 ## Language: Bun and TypeScript only
 
-All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed. When it is missing, `dispatch.sh` exits 127 with "orch needs bun: install it from https://bun.sh (...)", `install.sh` refuses to install, and SKILL.md Step 0 tells the user the same. `dispatch.sh doctor` prints the bun version, home path and herdr availability. There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
+All scripts, entry points, tests, tools and future code in this repo are written in TypeScript and run with Bun. Do not add shell, Python or other scripts. Entry points are executable `.ts` files with a `#!/usr/bin/env bun` shebang. Tests use `bun test`. Bun is required: `command -v bun` must succeed. When it is missing, `dispatch.sh` exits 127 with "orch needs bun: install it from https://bun.sh (...)", `install.ts` refuses to install, and SKILL.md Step 0 tells the user the same. `dispatch.sh doctor` prints the bun version, home path and herdr availability. There is no bash fallback. The only non-TypeScript files are data and docs (json, md, css). The bash that still exists is being ported by the `bun-*` nodes of run 20261115-114006-0bff (plan: `agent-spec/2026-11-16-orch-run-pause/bun-core-plan.md`); until a port is removed, edit the bash only to fix a bug, and put every new feature in TypeScript.
 
 ## Layout
 
 ```
 .claude-plugin/marketplace.json   plugin manifest — marketplace `orch-skill`, plugin `orch`
-install.sh / uninstall.sh         register/unregister this folder with Claude Code
-scripts/service.sh                optional always-on dashboard service (launchd / systemd --user)
-scripts/typecheck.sh              bun bundle + tsc
+install.ts / uninstall.ts         register/unregister this folder with Claude Code
+scripts/service.ts                optional always-on dashboard service (launchd / systemd --user)
+scripts/*.ts                      service, typecheck, test-all/budget/fast, heavy-test-lock, lint, precommit-smoke, demo/mod capture;
+                                  lib/util.ts holds the shared helpers; verify/*.ts are the repo verify checks
 package.json / bun.lock           the dashboard server's dependencies (hono, zod, decorators)
 src/                              the dashboard code, kept OUT of the skill so loading the skill never pulls it in
   server/                         Bun + Hono server
     api/                          decorated controllers + zod DTOs: every /api route, validation, OpenAPI; routes/ holds the handlers
     build/                        GET /api/build (is the running server older than the sources?) and POST /api/build/restart
-                                  (runs `service.sh restart`; cooldown, log cap)
+                                  (runs `service.ts restart`; cooldown, log cap)
     chats/                        chat store (bun:sqlite), service, sessions/ (claude, opencode, turn-session, turn-files)
     schedules/                    ticker (runs `dispatch.sh schedule tick`, claim files) + reader
     suggest/                      scan-cache for the suggestions page
@@ -36,7 +37,7 @@ src/                              the dashboard code, kept OUT of the skill so l
   shared/                         dto/ (zod), types/, build-commands.ts — must stay Bun-free
 design-system/                    makeover exploration: tokens.A/B.css, proto/, audit, plans, RESTART_SAFETY.md
 tsconfig.json                     type config for src/server, src/shared and the snapshot tests
-mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.sh)
+mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loaded via CLAUDE_CODE_PLUGIN_DIRS (install.ts)
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
@@ -55,7 +56,7 @@ skills/orch/
 `config/` at the repo root is a **gitignored** symlink to the live state directory
 (`${HARNESS_ORCH_HOME:-~/.harness-orch}`) — a convenience for reading `profiles.json`,
 `memory.json`, `runs/` and `jobs/` while working in the checkout. It points at an absolute
-per-machine path, so it must never be committed; `install.sh` creates it and `.gitignore` blocks
+per-machine path, so it must never be committed; `install.ts` creates it and `.gitignore` blocks
 it. Reading through it is fine; writing to `runs/` or `jobs/` through it is not (see Invariants).
 
 Adding a skill would mean appending it to `plugins[0].skills` in
@@ -82,7 +83,7 @@ written by `owners.sh` (`owner_registry_write`), filled by `dispatch.sh node bin
 
 **Restart spares jobs.** A dashboard restart must not kill job processes. The launchd plist sets
 `AbandonProcessGroup`, the systemd unit `KillMode=process`, and `dispatch.sh start` jobs are detached.
-`service.sh install` now rewrites a unit that lacks these (`unit_installed_for_checkout`), so re-run it
+`service.ts install` now rewrites a unit that lacks these (`unit_installed_for_checkout`), so re-run it
 after pulling. Design and audit: `design-system/RESTART_SAFETY.md`. Status of its parts: the dedicated
 herdr instance runner (`lib/adapters/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
 is on disk; chat turn files (`chats/sessions/turn-files.ts`, boot re-attach in `chats/service.ts`,
@@ -94,7 +95,7 @@ check `git status` and the design doc before relying on them.
 they re-source the same file by its resolved real path in a fresh `bash -c`. Anything added at
 file scope that *does* something breaks them.
 
-**Nothing is deleted with `rm`.** `prune`, `service.sh uninstall` and `uninstall.sh` all go
+**Nothing is deleted with `rm`.** `prune`, `service.ts uninstall` and `uninstall.ts` all go
 through `trash` when available and otherwise move the target under `<state-dir>/.trash/<stamp>/`.
 The `serve/pid` marker is *truncated*, never removed.
 
@@ -102,7 +103,7 @@ The `serve/pid` marker is *truncated*, never removed.
 dashboard server's packages (`hono`, `@hono/zod-openapi`, `zod`, and `@barnuri/hono-decorators` and
 `@barnuri/zod-decorators` from GitHub). The CLI under `skills/orch/` stays dependency-free and must
 keep working with none of them installed. `serve_ensure_deps` in `lib/dashboard/serve.sh` installs them on first
-use. `typescript` (7.x, the native compiler), `@types/node` and `bun-types` (pinned to the Bun version) are devDependencies; `typecheck.sh` prefers `node_modules` and falls back to Bun's global cache and `PATH`, and SKIPs when none exist.
+use. `typescript` (7.x, the native compiler), `@types/node` and `bun-types` (pinned to the Bun version) are devDependencies; `typecheck.ts` prefers `node_modules` and falls back to Bun's global cache and `PATH`, and SKIPs when none exist.
 
 **Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
 interpolation happens at spawn time. `profile show` prints `env` as written. Keep it that way.
@@ -124,14 +125,14 @@ self-backgrounds via `nohup` and prints a job id (for callers that are not). Don
 The dashboard server bundles `src/web/` once at startup and never re-reads `src/server/`, `src/web/`
 or `src/shared/`, so any change under `src/` is invisible until the process restarts. The UI now says
 so: a stale server shows a **Server out of date** pill in the header; its panel has a **Restart and
-update** button (POST `/api/build/restart`, which runs `service.sh restart`). You still restart as the
+update** button (POST `/api/build/restart`, which runs `service.ts restart`). You still restart as the
 last step of a task:
 
 ```bash
 bash skills/orch/tests/run.sh              # must be 0 failed
-bash scripts/typecheck.sh       # must print `typecheck: ok`
-bash scripts/service.sh restart             # pick up the change
-bash scripts/service.sh status              # confirm: state = running, listener answering
+bun scripts/typecheck.ts       # must print `typecheck: ok`
+bun scripts/service.ts restart             # pick up the change
+bun scripts/service.ts status              # confirm: state = running, listener answering
 ```
 
 Do not use `dispatch.sh ui` for this when the service is installed: it stops the server and starts its
@@ -141,8 +142,8 @@ restart; the next `ui` picks the change up.
 ## Commit and restart when the user allows commits
 
 If the user allowed local commits (no push), commit and restart at every safe point instead of
-batching to the end: after a task's touched tests and `typecheck.sh` pass, commit that task's files
-as one logical commit, then `bash scripts/service.sh restart`, then check `/api/build` returns
+batching to the end: after a task's touched tests and `typecheck.ts` pass, commit that task's files
+as one logical commit, then `bun scripts/service.ts restart`, then check `/api/build` returns
 `stale:false`. Rules: stage only your own task's files by path (never `git add -A`, never another
 session's files such as `mods/orch-graph/**` unless the user asked), no co-author, never push, never
 rewrite history. No commit permission means no commit; the restart rule still applies. A restart is
@@ -170,11 +171,11 @@ bash skills/orch/tests/run.sh --resume     # after exit 75: run only the files n
 bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
 bun run test:changed                         # quick local mode: only tests affected by git changes
 bun run test:random                          # --randomize, to expose test-order dependence
-bun run test:budget                          # TypeScript suite in file chunks, 300 s budget (scripts/test-budget.sh)
+bun run test:budget                          # TypeScript suite in file chunks, 300 s budget (scripts/test-budget.ts)
 bun run test:resume                          # after exit 75: run only the bun files not yet passed
 bun test src/web                             # web alone; passes together with the rest now
-bash scripts/typecheck.sh                    # must print `typecheck: ok`
-bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun); --resume after 75
+bun scripts/typecheck.ts                    # must print `typecheck: ok`
+bun scripts/test-all.ts                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun); --resume after 75
 ```
 
 **Budget and resume.** Every test call has a hard 5 minute budget. `--budget <s>` (default 300 with
@@ -202,9 +203,9 @@ pay no process start per assertion. A new lib gets a `tests/unit/<stem>.test.sh`
 **Rules:** run `--changed` after an edit, the fast tier before a commit, and `--full` once, at the final
 gate. On exit 75 resume, never raise the budget. Stop any other test command at 5 minutes (`timeout 300`).
 Use `bun test <file>` for TypeScript. Many agents share this machine: five full suites at
-once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
+once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.ts`,
 `tests/run.sh --full`, `bun run test`) each take a machine-wide heavy-test slot
-(`scripts/heavy-test-lock.sh`: flock on `${TMPDIR}/orch-test-heavy.N`, `ORCH_TEST_SLOTS`, default 2).
+(`scripts/heavy-test-lock.ts`: lock dirs `${TMPDIR}/orch-test-heavy.N.d`, a dead holder pid frees its slot, `ORCH_TEST_SLOTS`, default 2).
 A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fast, changed
 and fragment runs and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
 
@@ -224,7 +225,7 @@ tests point it at `test-support/fake-dispatch.sh`), `ORCH_SERVICE_SH` (so restar
 real supervisor), `ORCH_CHAT_DISPATCH` (dispatch used by chat turn sessions),
 `ORCH_CHAT_OPENCODE_DISPATCH=1` (opt the opencode chat harness into the dispatch path), and
 `ORCH_HERDR=0|1` (force herdr off/on). Suites use temporary `HARNESS_ORCH_HOME`s, never real state.
-`typecheck.sh` exits 0 with a `SKIP:` line when `bun` or `tsc` is absent: a skip is not a pass.
+`typecheck.ts` exits 0 with a `SKIP:` line when `bun` or `tsc` is absent: a skip is not a pass.
 
 ## UI colour and the makeover
 
@@ -247,7 +248,7 @@ so do not commit or revert it. Sources and prototypes live in `design-system/`.
 
 ## The optional service
 
-`scripts/service.sh` generates a supervisor unit that runs `dispatch.sh serve` — the same
+`scripts/service.ts` generates a supervisor unit that runs `bun dispatch.ts serve` (bun directly, no shell) — the same
 foreground server `dispatch.sh ui` starts on demand. Points worth remembering when changing it:
 
 - It resolves `bun` to an **absolute path** at install time; launchd and systemd start with a
@@ -257,7 +258,7 @@ foreground server `dispatch.sh ui` starts on demand. Points worth remembering wh
 - It binds `127.0.0.1` by default, unlike `ui` (which binds `0.0.0.0` for LAN access).
 - The plist/unit spares job processes on restart (see Invariants); `install` rewrites outdated units.
 - `dispatch.sh ui` will stop and restart a running server when it detects newer sources — with
-  the service installed, use `service.sh restart` instead so the supervisor stays in charge.
+  the service installed, use `service.ts restart` instead so the supervisor stays in charge.
 
 ## Cross-harness note
 

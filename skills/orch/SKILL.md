@@ -373,7 +373,7 @@ Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 When the user has allowed commits without push, the coordinator commits and refreshes the service as
 work lands, not at the end. After a node's own tests pass: commit that node's files by path as one
 logical commit (no co-author, never push, never another session's files), run
-`bash scripts/service.sh restart` if the repo has the orch dashboard service, and confirm
+`bun scripts/service.ts restart` if the repo has the orch dashboard service, and confirm
 `/api/build` reports `stale:false`. Without commit permission, do not commit; ask once through the
 user-question tool and remember the answer for the session. A restart pauses and resumes active runs by
 itself; do not restart while a node is still editing `src/`.
@@ -521,8 +521,8 @@ rescans suggestions, and auto-applies safe memory rows when learning is on. Pass
 skip dashboard recovery. Run it after `serve recover` succeeds, or periodically if the server was
 down for a while.
 
-If a background **service** is installed (`scripts/service.sh status`), a down listener may need
-`scripts/service.sh restart` instead of `orch ui` — `ui` and the service must not race for the
+If a background **service** is installed (`scripts/service.ts status`), a down listener may need
+`scripts/service.ts restart` instead of `orch ui` — `ui` and the service must not race for the
 port.
 
 ## Dashboard
@@ -647,7 +647,7 @@ Call `watch wait` once per turn instead of a Monitor.
 ## Schedules
 
 A schedule runs a prompt (through a profile) or a shell command on a cron timetable. Unlike a loop,
-it needs no open session: the dashboard server (`scripts/service.sh`) calls `schedule tick` every
+it needs no open session: the dashboard server (`scripts/service.ts`) calls `schedule tick` every
 30 s and starts whatever is due.
 
 ```

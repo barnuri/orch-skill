@@ -1,5 +1,5 @@
 // Draws one run through the mod's own graph code into a terminal-styled page, then captures it
-// from an already-running, visible Chrome over CDP. Driven by scripts/mod-screenshot.sh.
+// from an already-running, visible Chrome over CDP. Driven by scripts/mod-screenshot.ts.
 //
 //   bun screenshot.ts --home=DIR --run=ID --port=P --out=FILE.png [--columns=N]
 
