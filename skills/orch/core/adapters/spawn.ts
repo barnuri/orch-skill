@@ -111,8 +111,10 @@ export async function loadProfile(home: string, name: string, e: Env): Promise<P
     const m = /^\$\{(.*)\}$/.exec(value);
     if (m) {
       const ref = m[1]!;
-      if (!IDENT.test(ref) || !e[ref]) return fail(PROFILE_UNCONFIGURED_RC, `profile ${name}: env ${key} references unset \${${ref}}\n`);
-      value = e[ref]!;
+      const own: Record<string, string> = { PROFILE_NAME: name, PROFILE_HARNESS: harness, PROFILE_MODEL: model, PROFILE_MODEL_ID: modelId, PROFILE_MODEL_BEHAVES_AS: behavesAs };
+      const got = IDENT.test(ref) ? (own[ref] || e[ref]) : "";
+      if (!got) return fail(PROFILE_UNCONFIGURED_RC, `profile ${name}: env ${key} references unset \${${ref}}\n`);
+      value = got;
     }
     e[key] = value;
   }

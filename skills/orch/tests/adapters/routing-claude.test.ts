@@ -61,9 +61,9 @@ test("adapter argv per profile", () => {
   let r = o("profile", "sanity", "--profile", "claude-default");
   expect(r.rc).toBe(0);
   for (const m of [/"ok":true/, /"profile":"claude-default"/, /"ms":/, /"harness":"claude"/]) expect(r.all).toMatch(m);
-  editJson(join(home, "profiles.json"), (p) => { p.profiles["cursor-default"].model = "gpt-5"; });
+  editJson(join(home, "profiles.json"), (p) => { p.profiles["cursor-default"].model = "cursor-composer"; });
   const cur = run("--profile", "cursor-default", "x");
-  expect(cur).toBe("-p x --output-format text --model gpt-5"); expect(cur).not.toMatch(/--force/);
+  expect(cur).toBe("-p x --output-format text --model composer-1"); expect(cur).not.toMatch(/--force/);
   expect(run("--profile", "opencode-default", "x")).toBe("run x --auto --standalone");
   const cop = run("--profile", "copilot-default", "x");
   expect(cop).toBe("-p x --silent --model auto --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot");
@@ -150,7 +150,7 @@ done > "${capture}/listing"` });
   expect(r.rc).toBe(2); expect(r.all).toMatch(/adapter_pi: no model/);
   r = o.env({ LLM_HUB_URL: "", LLM_HUB_MODEL: "m1" }, "run", "pi", "x");
   expect(r.rc).toBe(1); expect(r.all).toMatch(/adapter_pi: LLM_HUB_URL not set/);
-  r = orch(home, { ORCH_BIN_DIRS: "", PATH: pathWithout("pi") })("run", "pi", "hi");
+  r = orch(home, { ORCH_BIN_DIRS: "", PATH: `${fakeBin({ bun: `exec "${process.execPath}" "$@"` })}:${pathWithout("pi")}` })("run", "pi", "hi");
   expect(r.all).toMatch(/pi not found on PATH/); expect(r.rc).toBe(127);
 });
 
