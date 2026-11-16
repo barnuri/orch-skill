@@ -1,0 +1,171 @@
+/* Chat design layer: reading column, message blocks, composer card, quiet chrome, RTL. Loaded after the
+   other chat stylesheets; it works through their class names and uses tokens only (see docs/chat-design.md).
+   Logical properties everywhere, so a Hebrew (dir="rtl") page mirrors, the sidebar included. */
+
+/* ---- Scroll areas: one thin themed scrollbar ---- */
+.thread-scroll, .side-scroll, .code-block pre, .md-table, .tool-body, .composer-text, .ws-sheet, .project-view, .diff-body {
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.thread-scroll::-webkit-scrollbar, .side-scroll::-webkit-scrollbar, .code-block pre::-webkit-scrollbar, .md-table::-webkit-scrollbar,
+.tool-body::-webkit-scrollbar, .composer-text::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+.thread-scroll::-webkit-scrollbar-thumb, .side-scroll::-webkit-scrollbar-thumb, .code-block pre::-webkit-scrollbar-thumb,
+.md-table::-webkit-scrollbar-thumb, .tool-body::-webkit-scrollbar-thumb, .composer-text::-webkit-scrollbar-thumb {
+  border: 2px solid transparent; background-clip: padding-box; border-radius: var(--r-pill); background-color: var(--border-strong);
+}
+.thread-scroll::-webkit-scrollbar-thumb:hover, .side-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--edge); background-clip: padding-box; }
+.thread-scroll { scrollbar-gutter: stable; }
+
+/* ---- Frame: sidebar on the inline start, header quiet ---- */
+.chats-side { border-right: 0; border-inline-end: 1px solid var(--border); }
+.chat-head { background: var(--bg); border-bottom: 1px solid var(--line); padding-inline: var(--s5); }
+.chat-title { font-size: var(--fs-lg); letter-spacing: -0.005em; }
+.chat-summary, .chat-session-note { color: var(--tx2); }
+.chat-session-note { color: var(--tx3); }
+
+/* ---- Sidebar rows ---- */
+.group-head { text-transform: none; letter-spacing: 0; font-size: var(--fs-meta); font-weight: 600; color: var(--tx1); }
+.group-count { color: var(--tx3); }
+.thread { border-radius: var(--r-lg); transition: background var(--t-fast); }
+.thread-title { font-size: var(--fs-ctl); font-weight: 500; unicode-bidi: isolate; text-align: start; }
+.thread[aria-current="page"] .thread-title { color: var(--acct); }
+.thread-meta { font-size: var(--fs-micro); min-width: 0; overflow: hidden; }
+.thread-meta .folder-chip { margin-left: 0; margin-inline-start: var(--s1); max-width: 12ch; background: transparent; }
+.thread-row .thread { padding-right: var(--s3); padding-inline-end: calc(var(--s3) + 28px); }
+.thread-actions { right: auto; inset-inline-end: var(--s1); }
+.thread-menu { right: auto; inset-inline-end: 0; }
+.thread-menu-item { text-align: start; }
+.side-close { right: auto; inset-inline-end: var(--s2); }
+.side-actions { padding-right: 0; }
+.chats-side :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---- Thread: reading column ---- */
+.thread-scroll { padding: var(--s5) var(--s5) var(--s4); }
+.thread-inner { max-width: var(--measure); }
+.thread-item { left: auto; inset-inline-start: 0; padding-bottom: var(--s5); }
+.thread-note { color: var(--tx3); }
+
+.msg { gap: var(--s2); }
+.bubble { padding: 0; border: 0; background: transparent; border-radius: 0; max-width: 100%; }
+.msg .md, .msg .user-text, .msg .thinking { font-size: var(--fs-read); line-height: var(--lh-read); text-wrap: pretty; }
+.msg-assistant .bubble, .msg:not(.msg-user) .bubble { padding: 0; border-color: transparent; background: transparent; }
+
+/* The user's message: a quiet tinted block at the inline start (left in English, right in Hebrew). */
+.msg-user { justify-items: start; }
+.msg-user .bubble {
+  max-width: min(100%, 85%); padding: var(--s3) var(--s4); border: 1px solid var(--border); border-radius: var(--r-card);
+  background: var(--inset); color: var(--tx);
+}
+.user-text { unicode-bidi: plaintext; text-align: start; overflow-wrap: anywhere; }
+.msg-atts { margin-top: var(--s2); }
+
+/* Lists and quotes need the direction of their text: streamdown sets dir on <p> and <li> only. */
+.md :is(ol, ul):has(> li[dir="rtl"]), .md blockquote:has(> p[dir="rtl"]) { direction: rtl; }
+.md :is(h1, h2, h3, h4) { unicode-bidi: plaintext; text-align: start; font-weight: 600; letter-spacing: -0.005em; text-wrap: balance; }
+.md h1 { font-size: 18px; }
+.md h2 { font-size: var(--fs-lg); }
+.md h3, .md h4 { font-size: var(--fs-read); }
+.md li { margin: var(--s1) 0; padding-inline-start: var(--s1); }
+.md li > p { display: inline; margin: 0; }
+.md p, .md ul, .md ol, .md blockquote { margin-block-end: var(--s3); }
+.md blockquote { border-inline-start-color: var(--border-strong); }
+.md a { text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.md a:hover { text-decoration-thickness: 2px; }
+.md strong, .md [data-streamdown="strong"] { color: var(--tx); }
+.md > div > * { max-width: 100%; }
+
+/* Code is always left to right; the block keeps the start edge of the column. */
+.code-block { direction: ltr; text-align: left; border-radius: var(--r-lg); background: var(--inset); }
+.code-head { padding: 0 var(--s2) 0 var(--s3); min-height: 32px; border-bottom-color: var(--line); font-family: var(--font-mono); }
+.code-copy { min-height: 32px; padding-inline: var(--s2); border-radius: var(--r-sm); }
+.code-copy:hover { background: var(--hover); }
+.code-block pre { padding: var(--s3) var(--s4); tab-size: 2; }
+.inline-code, .tool-body, .tool-name, .tool-short, .diff-body { unicode-bidi: isolate; direction: ltr; }
+.inline-code { background: var(--inset); border: 1px solid var(--line); padding: 0 5px; }
+
+/* Tables: a hairline ledger inside its own scroll box. */
+.md-table { margin: 0 0 var(--s3); border: 1px solid var(--border); border-radius: var(--r-lg); max-width: 100%; }
+.md-table table { width: 100%; margin: 0; border-collapse: collapse; font-size: var(--fs-ctl); }
+.md th, .md td { border: 0; border-top: 1px solid var(--line); padding: var(--s2) var(--s3); unicode-bidi: plaintext; }
+.md thead th { border-top: 0; background: var(--inset); color: var(--tx1); font-weight: 600; font-size: var(--fs-meta); }
+.md td { font-variant-numeric: tabular-nums; }
+
+/* ---- Foot: quiet; model, time and cost show on hover or focus, the space stays reserved ---- */
+.msg-foot { min-height: 32px; padding-inline: 0; gap: var(--s1) var(--s3); color: var(--tx3); }
+.msg-foot :is(.msg-meta, .msg-speak) { opacity: 0; transition: opacity var(--t-fast); }
+.msg:hover .msg-foot :is(.msg-meta, .msg-speak), .msg:focus-within .msg-foot :is(.msg-meta, .msg-speak) { opacity: 1; }
+.msg-act, .copy-btn, .link-btn, .code-copy { color: var(--tx2); border-radius: var(--r-sm); transition: color var(--t-fast), background var(--t-fast); }
+.msg-act:hover, .copy-btn:hover, .link-btn:hover { color: var(--acct); background: var(--hover); }
+.msg-speak { order: 1; }
+.msg-meta { font-size: var(--fs-micro); color: var(--tx3); }
+@media (hover: none) { .msg-foot :is(.msg-meta, .msg-speak) { opacity: 1; } }
+
+/* ---- Tool cards and reasoning: one quiet row ---- */
+.tool-row, .tool-group, .reasoning { margin-left: 0; margin-inline: 0; max-width: 100%; }
+.tool-row { border-left: 0; padding-left: 0; border-inline-start: 2px solid var(--border-strong); padding-inline-start: var(--s3); }
+.tool-card { background: var(--panel2); border-radius: var(--r-lg); }
+.tool-card:hover { border-color: var(--border-strong); }
+.tool-toggle, .reasoning-toggle { text-align: start; }
+.tool-caret { display: inline-block; width: 1em; color: var(--tx3); }
+.reasoning { color: var(--tx2); }
+.reasoning-body { unicode-bidi: plaintext; line-height: var(--lh-prose); }
+.diff-view { border-radius: var(--r-lg); }
+
+/* ---- Composer: a floating card inside the reading column ---- */
+.composer { grid-template-columns: minmax(0, 1fr); border-top: 0; background: var(--bg); padding: var(--s2) var(--s5) var(--s4); padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); gap: var(--s2); }
+.composer > * { width: 100%; max-width: var(--measure); margin-inline: auto; box-sizing: border-box; }
+.chat-settings { grid-template-columns: minmax(0, 1fr); }
+.composer-row {
+  align-items: flex-end; gap: var(--s1); padding: var(--s2); border: 1px solid var(--border-strong); border-radius: var(--r-card);
+  background: var(--panel); box-shadow: var(--shadow); transition: border-color var(--t-fast);
+}
+.composer-row:hover { border-color: var(--edge); }
+.composer-row:has(.composer-text:focus-visible) { border-color: var(--acc); outline: 2px solid var(--focus); outline-offset: 2px; }
+.composer-text {
+  min-height: 44px; padding: 10px var(--s2); border: 0; border-radius: var(--r-md); background: transparent; box-shadow: none; outline: 0;
+  font-size: var(--fs-read); line-height: 1.5; unicode-bidi: plaintext; text-align: start;
+}
+.composer-attach, .composer-mic, .composer-voice { border-color: transparent; background: transparent; color: var(--tx2); }
+.composer-attach:hover, .composer-mic:hover, .composer-voice:hover { background: var(--hover); color: var(--tx); }
+.composer-mic.is-on, .composer-voice.is-on { color: var(--acc); background: var(--accs); }
+.composer-send { border-radius: var(--r-lg); padding-inline: var(--s4); font-weight: 600; }
+.composer[data-dragging] { outline-offset: -8px; border-radius: var(--r-card); }
+.composer-problems { padding-inline: var(--s2); }
+.att-remove { right: auto; inset-inline-end: -8px; }
+
+/* ---- Jump to latest ---- */
+.jump-pill { right: auto; inset-inline-end: var(--s5); bottom: var(--s4); border-color: var(--border-strong); color: var(--tx); background: var(--raised); transition: background var(--t-fast); }
+.jump-pill:hover { background: var(--hover); }
+
+/* ---- Empty state ---- */
+.chat-empty { color: var(--tx2); }
+.chat-empty h1, .chat-empty strong { color: var(--tx); font-size: var(--fs-lg); font-weight: 600; }
+
+/* ---- Streaming cursor: fixed width, so a growing answer never shifts the line ---- */
+.md.is-live > div > div:last-child > p:last-child::after { margin-left: 0; margin-inline-start: 2px; }
+
+/* ---- RTL: the drawer slides from the inline start; directional glyphs mirror ---- */
+:root[dir="rtl"] :is(.tool-caret, .settings-chevron, .drawer-btn svg) { transform: scaleX(-1); }
+
+/* ---- Tablet and phone ---- */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  :root[dir="rtl"] .chats-side { transform: translateX(100%); }
+  :root[dir="rtl"] .chats-layout[data-drawer] .chats-side { transform: none; }
+  .chats-side { left: auto; inset-inline-start: 0; border-inline-end: 0; padding-left: 0; padding-inline-start: env(safe-area-inset-left); }
+  .chat-head { padding-inline: var(--s3); }
+  .chat-session-note { display: none; }
+  .thread-scroll { padding: var(--s4) var(--s3) var(--s3); }
+  .thread-row .thread { padding-right: var(--s3); padding-inline-end: calc(var(--s3) + 44px); }
+  .thread-actions { right: auto; inset-inline-end: 0; }
+  .composer { padding: var(--s1) var(--s3) max(var(--s2), env(safe-area-inset-bottom)); }
+  .composer-row { padding: var(--s1); box-shadow: none; }
+  .composer-text { font-size: 16px; }
+  .msg-user .bubble { max-width: 100%; }
+  .jump-pill { inset-inline-end: var(--s3); min-height: 44px; }
+  .code-copy { min-height: 44px; }
+  .md-table { margin-inline: 0; }
+}
+@media (pointer: coarse) { .msg-act, .copy-btn, .code-copy { min-height: 44px; min-width: 44px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .thread, .composer-row, .jump-pill, .msg-foot :is(.msg-meta, .msg-speak), .msg-act, .copy-btn, .link-btn, .code-copy { transition: none; }
+}

@@ -70,6 +70,11 @@
   --lh-tight: 1.2;
   --lh-body: 1.45;
   --lh-prose: 1.6;
+  /* Reading surfaces (chat): column width, answer text size and line height, card radius. */
+  --measure: 760px;
+  --fs-read: 15px;
+  --lh-read: 1.65;
+  --r-card: var(--r-xl);
 
   --s1: 4px;
   --s2: 8px;

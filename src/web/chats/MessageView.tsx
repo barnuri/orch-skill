@@ -126,7 +126,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
     return (
       <div className="msg msg-user" data-role="user">
         <div className="bubble">
-          {message.content !== "" ? <p className="user-text">{message.content}</p> : null}
+          {message.content !== "" ? <p className="user-text" dir="auto">{message.content}</p> : null}
           {message.attachments.length > 0 ? (
             <div className="att-row msg-atts" data-testid="msg-atts">
               {message.attachments.map((a) => (
@@ -141,14 +141,14 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
   return (
     <div className="msg msg-assistant" data-role={message.role}>
       <div className="bubble">
-        {message.content === "" && live ? <span className="thinking">Thinking</span> : (
-          <Suspense fallback={<p className="user-text">{message.content}</p>}>
+        {message.content === "" && (live || message.status === "error") ? null : (
+          <Suspense fallback={<p className="user-text" dir="auto">{message.content}</p>}>
             <Markdown text={message.content} live={live} />
           </Suspense>
         )}
         {message.status === "error" ? <ErrorNotice error={message.error} onRetry={onRetry} /> : null}
       </div>
-      <Footer message={message} now={now} fallbackModel={fallbackModel} onRegenerate={onRegenerate} />
+      {live ? null : <Footer message={message} now={now} fallbackModel={fallbackModel} onRegenerate={onRegenerate} />}
       {messageNotes(message).map((n) => (
         <p key={n.key} className="msg-warning" data-testid={`msg-${n.key}`} title={n.title}>{n.text}</p>
       ))}
