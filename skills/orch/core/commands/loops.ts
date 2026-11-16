@@ -169,7 +169,7 @@ async function loopStart(args: string[]): Promise<number> {
   }
   if (!every) { err(`loop start: --every is required\n  usage: ${LOOP_USAGE}\n`); return 2; }
   const interval = parseDuration(every);
-  if (interval === null || interval < 10) { err("loop start: --every must be a duration of at least 10s (e.g. 10m)\n"); return 2; }
+  if (interval === null || interval < (Number(process.env.ORCH_EVERY_MIN_SECS) >= 1 ? Number(process.env.ORCH_EVERY_MIN_SECS) : 10)) { err("loop start: --every must be a duration of at least 10s (e.g. 10m)\n"); return 2; }
   if (!isUint(max)) { err("loop start: --max must be a whole number\n"); return 2; }
   const rest = args.slice(i);
   let kind: string, name: string, rawPrompt: string, argc: number;
@@ -625,8 +625,15 @@ async function watchEmit(id: string, textIn: string): Promise<void> {
   watchPatch(id, (o) => { o.last_dispatch_epoch = now; o.last_job = job; });
 }
 
+let streamPid = 0;
+function killStream(): void {
+  if (!streamPid) return;
+  try { process.kill(-streamPid, "SIGTERM"); } catch { try { process.kill(streamPid, "SIGTERM"); } catch {} }
+}
+
 async function watchStream(id: string, cmd: string, match: string, ignore: string, untilRe: string, deadline: number): Promise<string> {
-  const proc = Bun.spawn(["sh", "-c", `exec 2>&1; ${cmd}`], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const proc = Bun.spawn(["sh", "-c", `exec 2>&1; ${cmd}`], { stdin: "ignore", stdout: "pipe", stderr: "ignore", detached: true });
+  streamPid = proc.pid;
   const reader = proc.stdout.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -657,7 +664,7 @@ async function watchStream(id: string, cmd: string, match: string, ignore: strin
     if (untilRe && reTest(untilRe, line)) { ended = "until"; return true; }
     return false;
   }
-  try { process.kill(proc.pid, "SIGTERM"); } catch {}
+  killStream();
   return ended;
 }
 
@@ -699,6 +706,7 @@ async function watchRun(args: string[]): Promise<number> {
     if (busy) return;
     busy = true;
     watchOnExit(id, `signal ${sig}`);
+    killStream();
     try { process.kill(-process.pid, "SIGTERM"); } catch {}
     process.exit(code);
   };
