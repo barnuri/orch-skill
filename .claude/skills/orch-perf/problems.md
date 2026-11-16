@@ -20,7 +20,7 @@ in commits, learnings blocks and tasks. Evidence is from run state, job logs, te
 |---|---|---|---|---|
 | P7 | Agents end their turn early, node turns done with no handoff | 145 of 181 done nodes without handoff, 5 nodes lost 40 to 80 min | text-only reply ends `opencode run`; no live supervisor | PARTIAL: watchdog flags it and re-queues once; resume with a continue message still open |
 | P8 | Weak models ask the user in text and end | nodes ended with "Reply D1 or D2" | no tool-only discipline, weak brief | PARTIAL: rule 10, `node ask`; brief generator open |
-| P9 | Wrong prompt after retry | a retried node asked "what task?" | retry lost the goal or progress | OPEN |
+| P9 | Wrong prompt after retry | a retried node asked "what task?" | retry lost the goal or progress | FIXED: da06bc6 (test only; it already worked) |
 | P10 | Nodes guess when blocked | decisions taken without an answer | late or no answers | PARTIAL |
 | P11 | Smart-auto cost concentration | 96 percent of cost on 169 nodes | unpinned routing | PARTIAL: pinned profiles (opus plan, haiku exec, sonnet verify) |
 
@@ -42,7 +42,7 @@ in commits, learnings blocks and tasks. Evidence is from run state, job logs, te
 | P18 | Stale watchdog flags kept the pill red | flags stayed after the cause was gone | no flag clearing | FIXED (self-clearing flags, colours) |
 | P19 | Red used for non-errors | pill red for "unverified" | colour rule missing | FIXED: red only for error or fail, test scans CSS |
 | P20 | Duplicate workers on one node | about 12 jobs in minutes | manual dispatch, engine, retries together | PARTIAL: one live job per node guard coded |
-| P21 | Engine claim blocked a manual reset | node stayed waiting twice | claim per attempt not released on reset | OPEN (found, worked around by hand) |
+| P21 | Engine claim blocked a manual reset | node stayed waiting twice | claim per attempt not released on reset | FIXED: da06bc6 |
 | P22 | Wrong node timing | durations counted from trigger, queue time as run time | single `started` stamp | PARTIAL: dispatched, started, finished stamps and `starting` state coded |
 | P23 | Missing data on cards | actual model, role, tier, effort, cost showed dashes | owner not bound for herdr jobs; hub worker id missing; effort never copied | PARTIAL: fill and bind coded; 173 old nodes unfilled |
 | P24 | Cost counted twice for one session | run total 6.00 vs 3.00 | two nodes bound to one session | FIXED: first node gets the cost |

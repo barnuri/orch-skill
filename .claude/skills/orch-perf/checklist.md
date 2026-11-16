@@ -22,12 +22,12 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [x] P6 parallel cap 15 | fixed: 2026-11-16 profile-defaults | check: grep -q "auto_dispatch_max_parallel" src/server/runs/auto-dispatch.ts
 - [x] P1 CLI call takes seconds (run status 0.356 s, node update 0.215 s, batch x10 0.478 s, help 0.083 s at load 19; was 7.1 s) | fixed: 2026-11-16 7e0d55d | check: bun scripts/bench-status.ts 0.5
 - [ ] P7 early end resumes the same session | fixed: - | check: bun skills/orch/tests/run.ts lessons
-- [ ] P9 retry keeps the prompt and progress | fixed: - | check: bun skills/orch/tests/run.ts retry
+- [x] P9 retry keeps the prompt and prepends unread answers | fixed: 2026-11-16 da06bc6 | check: bun test skills/orch/tests/core-gaps
 - [ ] P12 asks are answered fast (bridge delivers) | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P14 coordinator repoint by session id | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P15 answers reach the retry of an ended node | fixed: - | check: bun skills/orch/tests/run.ts inbox
 - [ ] P20 one live job per node | fixed: - | check: bun skills/orch/tests/run.ts lessons
-- [ ] P21 reset to waiting releases the engine claim | fixed: - | check: ORCH_HERDR=0 bun test src/server/runs/auto-dispatch.test.ts
+- [x] P21 reset to waiting releases the engine claim | fixed: 2026-11-16 da06bc6 | check: ORCH_HERDR=0 bun test src/server/runs/auto-dispatch.test.ts
 - [ ] P22 duration counts only running time | fixed: - | check: bun skills/orch/tests/run.ts timing
 - [ ] P23 cards show model, role, tier, effort, cost | fixed: - | check: bun skills/orch/tests/run.ts owner
 - [ ] P26 one worktree per code node | fixed: - | check: test -n "$(git worktree list | grep -c take)"
