@@ -225,12 +225,20 @@ adapter_opencode() {
   # ORCH_SESSION_TITLE (set by the chat server on a chat's first turn) names the new session so the
   # server can find the id opencode minted: `opencode session list --format json`, match on title.
   [ -n "${ORCH_SESSION_TITLE:-}" ] && [ ${#session_args[@]} -eq 0 ] && session_args=(--title "$ORCH_SESSION_TITLE")
-  # opencode rejects --pure. --standalone starts a private server that reads this process's
-  # OPENCODE_CONFIG_CONTENT, where the shared background service would not.
+  # Same launch as `llm-hub opencode` (`oc`): the user's own config, skills, MCP servers and
+  # default_agent load, and the hub provider comes from OPENCODE_CONFIG_CONTENT. opencode rejects
+  # --pure. --standalone starts a private server that reads this process's OPENCODE_CONFIG_CONTENT;
+  # the shared background service does not, and answers "Model unavailable: hub/…" without it.
+  # A caller that names a server (--server URL) gets that server instead, as llm-hub does.
+  local server_arg=--standalone
   for arg in "$@"; do
-    [ "$arg" = --pure ] || [ "$arg" = --standalone ] || args+=("$arg")
+    case "$arg" in
+      --pure|--standalone) ;;
+      --server|--server=*) server_arg=""; args+=("$arg") ;;
+      *) args+=("$arg") ;;
+    esac
   done
-  "$bin" run "$prompt" --auto --standalone ${session_args[@]+"${session_args[@]}"} ${args[@]+"${args[@]}"}
+  "$bin" run "$prompt" --auto ${server_arg:+"$server_arg"} ${session_args[@]+"${session_args[@]}"} ${args[@]+"${args[@]}"}
 }
 
 # `--allow-all-tools` is deliberately NOT passed here — same reasoning as cursor-agent's

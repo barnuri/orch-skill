@@ -170,6 +170,9 @@ expect_match "opencode adapter resumes with --session" \
 out=$(env ORCH_RESUME_SESSION=resume-123 PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run opencode "continue" 2>&1)
 expect_match "opencode adapter skips a session id opencode did not mint" \
   '^run continue --auto --standalone$' "$(joined "$out")"
+out=$(with_shims bash "$SCRIPT" run opencode "x" --server http://127.0.0.1:4096 --pure 2>&1)
+expect_match "opencode adapter: a named --server replaces --standalone, --pure is dropped" \
+  '^run x --auto --server http://127.0.0.1:4096$' "$(joined "$out")"
 
 out=$(env ORCH_RESUME_SESSION=cursor:abc PATH="$shims:$PATH" HARNESS_ORCH_HOME="$home" bash "$SCRIPT" run cursor-agent "continue" 2>&1)
 expect_match "cursor adapter resumes with --resume when given a chat id" \
@@ -280,6 +283,15 @@ oc_config=$(printf '%s\n' "$out" | sed -n 's/^config //p')
 expect_match "opencode config is JSON whose model id is the full hub id" \
   '^\{env:LLM_HUB_V1_URL\} \{env:LLM_HUB_KEY\} llama_swap/qwen3-coder-next$' \
   "$(printf '%s' "$oc_config" | jq -r '.provider.llama_swap | "\(.options.baseURL) \(.options.apiKey) \(.models["qwen3-coder-next"].id)"')"
+expect_match "shipped opencode profiles keep the user's skills (no OPENCODE_DISABLE_* env)" '^0$' \
+  "$(jq -r '[.profiles | to_entries[] | select(.key | startswith("opencode-")) | .value.env // {} | keys[] | select(startswith("OPENCODE_DISABLE"))] | length' "$SCRIPT_DIR/../templates/profiles.json")"
+edit_json "$home/profiles.json" '.profiles["opencode-smart-auto"].env.OPENCODE_DISABLE_EXTERNAL_SKILLS = "1"'
+HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile unset-env opencode-smart-auto OPENCODE_DISABLE_EXTERNAL_SKILLS >/dev/null 2>&1; rc=$?
+expect_exit "profile unset-env exits 0" 0 "$rc"
+expect_match "profile unset-env drops only the named var" '^OPENCODE_CONFIG_CONTENT$' \
+  "$(jq -r '.profiles["opencode-smart-auto"].env | keys | join(",")' "$home/profiles.json")"
+HARNESS_ORCH_HOME="$home" bash "$SCRIPT" profile unset-env opencode-smart-auto >/dev/null 2>&1; rc=$?
+expect_exit "profile unset-env without a var is a usage error" 2 "$rc"
 cleanup_dir "$hub_shims"
 
 out=$(with_pi bash "$SCRIPT" run pi "x" 2>&1); rc=$?

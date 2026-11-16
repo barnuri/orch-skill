@@ -9,6 +9,13 @@ SCRIPT="$SCRIPT_DIR/dispatch.sh"
 . "$SCRIPT_DIR/test-home.sh"
 
 export ORCH_NO_ANNOUNCE=1
+# A suite started from inside an orch node or an opencode session inherits that node's identity
+# (session id, model mapping, opencode skill switches). The adapters read these, so drop them.
+unset ORCH_SESSION_ID ORCH_RESUME_SESSION ORCH_MODEL_BEHAVES_AS ORCH_MODEL_SLUG ORCH_RUN_ID \
+  ORCH_JOB_DIR ORCH_NODE_ID ORCH_NODE_OUT ORCH_NODE_ROLE ORCH_NODE_TIER ORCH_NODE_ATTEMPT \
+  ORCH_NODE_ACCEPTANCE OPENCODE OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE \
+  OPENCODE_DISABLE_CLAUDE_CODE_SKILLS OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_SESSION_ID \
+  OPENCODE_TERMINAL HARNESS_ORCH_HOME ORCH_DISPATCH LLM_HUB_URL LLM_HUB_V1_URL LLM_HUB_KEY
 # Never let a test start the orch skill's herdr instance; herdr-runner.test.sh opts back in.
 export ORCH_HERDR=0
 

@@ -717,6 +717,12 @@ cmd_node_dispatch() {
   node_patch "$run_id" "$node_id" '.prompt = $prompt | .dispatch_args = $args' \
     --arg prompt "$raw_prompt" --argjson args "$args_json" || return 1
   printf '%s\n' "$job_id"
+  # With herdr on, name the node's pane so the coordinator and sibling nodes can reach it.
+  if [ -s "$JOBS_HOME/$job_id/herdr_pane" ]; then
+    printf 'node dispatch: %s runs in herdr pane %s; reach it with HOME=%s herdr pane read|send-text %s\n' \
+      "$node_id" "$(cat "$JOBS_HOME/$job_id/herdr_pane")" "$(cat "$JOBS_HOME/$job_id/herdr_home" 2>/dev/null)" \
+      "$(cat "$JOBS_HOME/$job_id/herdr_pane")" >&2
+  fi
 }
 
 # Records how this dispatch's worker identity travels. The Claude and opencode adapters send the Smart Auto
@@ -847,7 +853,7 @@ node_retry_dispatch() {
   file=$(run_state_file "$run_id")
   status=$(node_field "$file" "$node_id" status)
   case "$status" in
-    error|skipped) ;;
+    error|skipped|stopped) ;;
     *) printf 'node retry: %s is %s, not error or skipped\n' "$node_id" "$status" >&2; return 2 ;;
   esac
   prompt=$(node_field "$file" "$node_id" prompt)

@@ -697,8 +697,24 @@ cmd_profile() {
       ;;
     pick) shift; cmd_profile_pick "$@" ;;
     sanity) shift; cmd_profile_sanity "$@" ;;
-    *) printf 'usage: dispatch.sh profile list | show <name> | pick "<task>" [--complexity …] [--kind K] | sanity [--profile NAME]\n' >&2; return 2 ;;
+    unset-env) shift; cmd_profile_unset_env "$@" ;;
+    *) printf 'usage: dispatch.sh profile list | show <name> | pick "<task>" [--complexity …] [--kind K] | sanity [--profile NAME] | unset-env <name> <VAR>...\n' >&2; return 2 ;;
   esac
+}
+
+# Drops env vars from one profile's env map. Other profiles and keys stay as written.
+cmd_profile_unset_env() {
+  local name="${1:-}" tmp="$PROFILES_FILE.tmp.$$"
+  [ -n "$name" ] && [ $# -ge 2 ] || { printf 'usage: dispatch.sh profile unset-env <name> <VAR>...\n' >&2; return 2; }
+  shift
+  profile_require "$name" >/dev/null || return $?
+  if ! jq --arg n "$name" '.profiles[$n].env |= ((. // {}) | with_entries(select(.key as $k | $ARGS.positional | index($k) | not)))' \
+    --args "$@" < "$PROFILES_FILE" > "$tmp"; then
+    profiles_tmp_discard "$tmp"
+    printf 'profile unset-env: could not update %s\n' "$PROFILES_FILE" >&2
+    return 1
+  fi
+  profiles_commit "$tmp"
 }
 
 cmd_memory() {

@@ -64,6 +64,8 @@ dispatch.sh profile pick "<task>" [--complexity trivial|small|medium|large] [--k
     -> profile=…, model=…, reason=… (metadata + memory weighted pick)
 dispatch.sh profile sanity [--profile NAME]
     -> JSON {generated_at, results:[{profile, ok, ms, harness, model_id, slug, exit_code, bytes, error}]}
+dispatch.sh profile unset-env <name> <VAR>...
+    -> drops the named env vars from one profile; the rest of profiles.json stays as written
 dispatch.sh model list [--profile P] [--harness H]
 dispatch.sh harness list [--json]
     -> probes each adapter (CLI on PATH or env for local-llm); JSON includes enabled flag
@@ -659,9 +661,10 @@ main() {
       case "${2:-}" in
         dispatch) shift 2; pause_guard "${1:-}" >&2 || exit 3; cmd_node_dispatch "$@" ;;
         add|update|report|ping|remove|retry|usage|cost|out|digest|selections|brief|activity|batch) verb="$2"; shift 2; "cmd_node_$verb" "$@" ;;
+        cancel) shift 2; cmd_node_cancel "$@" ;;
         verify-owners) shift 2; cmd_node_verify_owners "$@" ;;
         bind-owners) shift 2; cmd_node_bind_owners "$@" ;;
-        *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
+        *) printf 'usage: dispatch.sh node add|update|report|batch|ping|remove|dispatch|retry|cancel|usage|cost|out|digest|selections|brief|activity|verify-owners|bind-owners ...\n' >&2; exit 2 ;;
       esac
       ;;
     owner) shift; cmd_owner_event "$@" ;;

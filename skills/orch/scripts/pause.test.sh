@@ -69,6 +69,26 @@ job=$(orch node dispatch pause-1 later claude-native "go" 2>/dev/null); rc=$?
 expect_exit "node dispatch after resume exits 0" 0 "$rc"
 expect_match "dispatch after resume starts the node" '^running$' "$(node_get later .status)"
 
+# node cancel kills only the named running node's job and marks only that node stopped
+sleep 300 &
+cancel_pid=$!
+mkdir -p "$home/jobs/cancel-job"
+printf '%s\n' "$cancel_pid" > "$home/jobs/cancel-job/pid"
+orch node add pause-1 cancel-me "to cancel" >/dev/null 2>&1
+orch node update pause-1 cancel-me running --job cancel-job >/dev/null 2>&1
+out=$(orch node cancel pause-1 cancel-me 2>&1); rc=$?
+expect_exit "node cancel exits 0" 0 "$rc"
+expect_match "node cancel reports the job kill" '^cancelled: cancel-me \(job killed\)$' "$out"
+expect_match "cancelled node is stopped" '^stopped$' "$(node_get cancel-me .status)"
+expect_match "cancelled job process is gone" '^gone$' "$(kill -0 "$cancel_pid" 2>/dev/null && echo alive || echo gone)"
+expect_match "cancel leaves the live node running" '^running$' "$(node_get live .status)"
+expect_match "cancel leaves the run unstopped" '^false$|^null$' "$(jq -r '.stopped // false' "$state")"
+out=$(orch node retry pause-1 cancel-me --no-dispatch 2>&1); rc=$?
+expect_exit "node retry restarts a cancelled node" 0 "$rc"
+expect_match "restart puts the cancelled node back to waiting" '^waiting$' "$(node_get cancel-me .status)"
+out=$(orch node cancel pause-1 cancel-me 2>&1); rc=$?
+expect_exit "node cancel refuses a node that is not running" 3 "$rc"
+
 kill "$live_pid" 2>/dev/null
 orch wait "$new_job" --timeout 60 --interval 1 >/dev/null 2>&1
 orch wait "$job" --timeout 60 --interval 1 >/dev/null 2>&1

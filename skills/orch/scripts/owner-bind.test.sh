@@ -38,6 +38,8 @@ chmod +x "$fake/bin/opencode"
 export PATH="$fake/bin:$PATH"
 export ORCH_OWNER_CALL_TIMEOUT=5 ORCH_OWNER_CACHE_SECS=0 ORCH_OWNER_TOTAL_SECS=120
 export ORCH_OWNER_BIND_SECS=0 ORCH_UNOWNED_SECS=0
+# An inherited hub URL would win over the test home's env file.
+unset LLM_HUB_URL LLM_HUB_V1_URL LLM_HUB_KEY
 export OPENCODE_SESSION_ID=ses_parent
 
 new_home() { home=$(mktemp -d); export HARNESS_ORCH_HOME="$home"; bash "$SCRIPT" init >/dev/null 2>&1; }

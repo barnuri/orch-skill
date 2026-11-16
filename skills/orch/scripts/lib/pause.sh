@@ -163,3 +163,22 @@ $(jq -r '.nodes[] | select(.status == "running" or .status == "stopped") | "\(.i
 EOF
   return $rc
 }
+
+NODE_CANCEL_USAGE="dispatch.sh node cancel <run-id> <node-id>"
+
+# cmd_node_cancel <run-id> <node-id>: kills the live job of one running node and marks only that node
+# `stopped`. Other nodes and the run flags are not touched. The node resumes only through
+# `node retry` (the run page Restart button) or `run resume`.
+cmd_node_cancel() {
+  local run_id="${1:-}" node_id="${2:-}" file job status killed
+  [ -n "$run_id" ] && [ -n "$node_id" ] && [ $# -eq 2 ] || { printf 'usage: %s\n' "$NODE_CANCEL_USAGE" >&2; return 2; }
+  require_jq "node cancel"
+  file=$(run_require "$run_id") || return $?
+  node_require "$file" "$node_id" || return 2
+  status=$(node_field "$file" "$node_id" status)
+  [ "$status" = running ] || { printf 'node cancel: %s is %s, not running\n' "$node_id" "$status" >&2; return 3; }
+  job=$(node_field "$file" "$node_id" job_id)
+  killed=$(stop_kill_job "$job")
+  node_set_status "$run_id" "$node_id" stopped || return 1
+  if [ -n "$killed" ]; then printf 'cancelled: %s (job killed)\n' "$node_id"; else printf 'cancelled: %s (no live job)\n' "$node_id"; fi
+}
