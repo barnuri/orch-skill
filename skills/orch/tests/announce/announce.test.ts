@@ -11,7 +11,7 @@ const mk = (herdrTail = "exit 0", agent = "opencode") => {
   const calls = join(T, "calls"); writeFileSync(calls, "");
   const fake = fakeBin({ herdr: `printf "%s\\n" "$*" >> "${calls}"\nif [ "$1 $2" = "pane current" ]; then echo '{"result":{"pane":{"agent":"${agent}"}}}'; fi\n${herdrTail}` });
   const env = { HOME: H, HARNESS_ORCH_HOME: O, HERDR_ENV: "1", HERDR_PANE_ID: "p1", HERDR_BIN_PATH: join(fake, "herdr"), CLAUDE_CODE_SESSION_ID: "sess1", ANNOUNCE_NO_DAEMON: "1", ORCH_NO_ANNOUNCE: undefined as any };
-  const ann = (...a: string[]) => runCmd(["bash", DISPATCH, "announce", ...a], { env });
+  const ann = (...a: string[]) => runCmd(["bun", DISPATCH, "announce", ...a], { env });
   return { T, H, O, calls, fake, env, ann, callsText: () => readText(calls) };
 };
 const seedRun = (O: string) => { mkdirSync(join(O, "runs/r1"), { recursive: true }); writeFileSync(join(O, "runs/r1/state.json"), JSON.stringify({ run_id: "r1", status: "running", nodes: [{ id: "a", status: "done" }, { id: "b", status: "running" }, { id: "c", status: "running" }, { id: "d", status: "waiting" }] })); };
@@ -44,12 +44,12 @@ test("announce: idle, counts, filters, no-ops", () => {
   t = mk(); seedRun(t.O); t.ann("--quiet", "--run", "nope");
   expect(readText(join(t.O, "activity/sess1.json"))).toMatch(/"active":false/);
   t = mk(); seedRun(t.O);
-  runCmd(["bash", DISPATCH, "announce", "--quiet"], { env: { ...t.env, HERDR_ENV: undefined, HERDR_PANE_ID: undefined, CLAUDE_CODE_SESSION_ID: "s" } });
+  runCmd(["bun", DISPATCH, "announce", "--quiet"], { env: { ...t.env, HERDR_ENV: undefined, HERDR_PANE_ID: undefined, CLAUDE_CODE_SESSION_ID: "s" } });
   expect(t.callsText().trim()).toBe("");
   t = mk("exit 3"); seedRun(t.O); expect(t.ann("--quiet").rc).toBe(0);
   t = mk("exec sleep 20"); seedRun(t.O);
   const s = Date.now();
-  const r = runCmd(["bash", DISPATCH, "announce", "--quiet"], { env: { ...t.env, ANNOUNCE_HERDR_TIMEOUT: "1" } });
+  const r = runCmd(["bun", DISPATCH, "announce", "--quiet"], { env: { ...t.env, ANNOUNCE_HERDR_TIMEOUT: "1" } });
   expect(r.rc).toBe(0); expect((Date.now() - s) / 1000).toBeLessThan(30);
   t = mk(); seedRun(t.O);
   const d = t.ann("--dry-run").out;
@@ -82,8 +82,8 @@ test("announce: idle, counts, filters, no-ops", () => {
 test("announce hook from dispatch and daemon", async () => {
   const t = mk();
   const base = { ...t.env, ANNOUNCE_NO_DAEMON: undefined as any };
-  const hk = (...a: string[]) => runCmd(["bash", DISPATCH, ...a], { env: { ...base } });
-  runCmd(["bash", DISPATCH, "init"], { env: { ...base, ORCH_NO_ANNOUNCE: "1" } });
+  const hk = (...a: string[]) => runCmd(["bun", DISPATCH, ...a], { env: { ...base } });
+  runCmd(["bun", DISPATCH, "init"], { env: { ...base, ORCH_NO_ANNOUNCE: "1" } });
   const R = hk("run", "start", "hook").out.trim();
   await waitUntil(() => t.callsText().includes("report-metadata"), 10);
   expect(t.callsText()).toMatch(/report-metadata p1/);
@@ -97,13 +97,13 @@ test("announce hook from dispatch and daemon", async () => {
   await waitUntil(() => t.callsText().includes("report-metadata"), 10);
   expect(t.callsText()).toMatch(/orch: 1 running/);
   writeFileSync(t.calls, ""); writeFileSync(join(t.O, ".announce-ts"), "0\n");
-  runCmd(["bash", DISPATCH, "node", "ping", R, "a", "--note", "y"], { env: { ...base, ORCH_NO_ANNOUNCE: "1" } });
+  runCmd(["bun", DISPATCH, "node", "ping", R, "a", "--note", "y"], { env: { ...base, ORCH_NO_ANNOUNCE: "1" } });
   await Bun.sleep(1500);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBe(0);
-  runCmd(["bash", DISPATCH, "node", "ping", R, "a", "--note", "z"], { env: { ...base, HERDR_ENV: undefined, HERDR_PANE_ID: undefined, CLAUDE_CODE_SESSION_ID: undefined, OPENCODE_SESSION_ID: undefined } });
+  runCmd(["bun", DISPATCH, "node", "ping", R, "a", "--note", "z"], { env: { ...base, HERDR_ENV: undefined, HERDR_PANE_ID: undefined, CLAUDE_CODE_SESSION_ID: undefined, OPENCODE_SESSION_ID: undefined } });
   await Bun.sleep(1500);
   expect((t.callsText().match(/report-metadata/g) ?? []).length).toBe(0);
-  expect(runCmd(["bash", DISPATCH, "announce", "--dry-run"], { env: { ...base } }).out).toMatch(/orch: 1 running/);
+  expect(runCmd(["bun", DISPATCH, "announce", "--dry-run"], { env: { ...base } }).out).toMatch(/orch: 1 running/);
 }, 120000);
 
 test("announce daemon, sync lock, harness list lock", async () => {
@@ -111,7 +111,7 @@ test("announce daemon, sync lock, harness list lock", async () => {
   const fake = fakeBin({ herdr: `if [ "$1 $2" = "pane current" ]; then echo '{"result":{"pane":{"agent":"claude"}}}'; exit 0; fi\necho "$@" >> "${t.calls}"` });
   const env = { ...t.env, HERDR_BIN_PATH: join(fake, "herdr"), ANNOUNCE_NO_DAEMON: undefined as any, ANNOUNCE_INTERVAL: "1", ANNOUNCE_IDLE_SECS: "3", ANNOUNCE_SID: "sess1", ANNOUNCE_HARNESS: "claude", ORCH_NO_ANNOUNCE: "1" };
   const o = orch(t.O, { ...env });
-  const ann = (...a: string[]) => runCmd(["bash", DISPATCH, "announce", ...a], { env });
+  const ann = (...a: string[]) => runCmd(["bun", DISPATCH, "announce", ...a], { env });
   const R = o("run", "start", "daemon demo").out.trim();
   o("node", "add", R, "a", "a"); o("node", "update", R, "a", "running", "--owner", "coordinator");
   const act = join(t.O, "activity/sess1.json"), pidf = join(t.O, "announce.pid");

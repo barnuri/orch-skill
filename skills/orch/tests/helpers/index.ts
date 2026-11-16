@@ -119,9 +119,9 @@ export const listFiles = (d: string) => (existsSync(d) ? readdirSync(d) : []);
 
 /** orch(home, env?) -> o(...args): runs dispatch.sh (routes to the Bun CLI where ported) in a home. */
 export function orch(home: string, env: Record<string, string | undefined> = {}) {
-  const o = (...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env });
-  o.in = (stdin: string, ...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env, stdin });
-  o.env = (extra: Record<string, string | undefined>, ...args: string[]) => runCmd(["bash", DISPATCH, ...args], { home, env: { ...env, ...extra } });
+  const o = (...args: string[]) => runCmd(["bun", DISPATCH, ...args], { home, env });
+  o.in = (stdin: string, ...args: string[]) => runCmd(["bun", DISPATCH, ...args], { home, env, stdin });
+  o.env = (extra: Record<string, string | undefined>, ...args: string[]) => runCmd(["bun", DISPATCH, ...args], { home, env: { ...env, ...extra } });
   return o;
 }
 export const runState = (home: string, run: string) => readJson(join(home, "runs", run, "state.json"));

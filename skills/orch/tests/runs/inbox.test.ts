@@ -45,7 +45,7 @@ test("node tell/inbox/ask/answer, rules, broadcast, prompt injection", async () 
   expect(o("node", "inbox", "msg-1", "b").all).toMatch(`Answer to ${ask}: NodeMessage`);
   expect(o("node", "answer", "msg-1", "b", "again").rc).toBe(2);
 
-  const waiter = Bun.spawn(["bash", join(import.meta.dir, "../../scripts/dispatch.sh"), "node", "ask", "msg-1", "b", "go on?", "--wait", "--timeout", "30"],
+  const waiter = Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "node", "ask", "msg-1", "b", "go on?", "--wait", "--timeout", "30"],
     { env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_HERDR: "0", ORCH_ASK_POLL_SECS: "1", ORCH_NO_ANNOUNCE: "1" }, stdout: "pipe", stderr: "pipe" });
   const wout = new Response(waiter.stdout).text();
   const orchDir = join(home, "runs/msg-1/inbox/orch");

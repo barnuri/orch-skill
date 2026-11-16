@@ -83,7 +83,7 @@ test("serve and ui lifecycle against a fake server", async () => {
   fo("ui", "--stop");
   r = o("sync", "--no-serve"); expect(r.rc).toBe(0); expect(r.out.trim()).toBe("synced");
   const logBefore = statSync(join(home, "serve/log")).size;
-  const fg = Bun.spawn(["bash", DISPATCH, "serve"], { env: { ...process.env, HARNESS_ORCH_HOME: home, PATH: `${shims}:${process.env.PATH}`, ORCH_BUN: join(shims, "bun"), ORCH_NO_OPEN: "1", ORCH_NO_ANNOUNCE: "1", ORCH_SERVE_SOURCE_DIRS: srcfix }, stdout: "ignore", stderr: "ignore" });
+  const fg = Bun.spawn(["bun", DISPATCH, "serve"], { env: { ...process.env, HARNESS_ORCH_HOME: home, PATH: `${shims}:${process.env.PATH}`, ORCH_BUN: join(shims, "bun"), ORCH_NO_OPEN: "1", ORCH_NO_ANNOUNCE: "1", ORCH_SERVE_SOURCE_DIRS: srcfix }, stdout: "ignore", stderr: "ignore" });
   await Bun.sleep(2000);
   expect(readText(join(home, "serve/argv"))).toMatch(/^6724$/m);
   expect(statSync(join(home, "serve/log")).size).toBe(logBefore);

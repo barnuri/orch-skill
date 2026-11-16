@@ -23,10 +23,10 @@ test("sourcing the CLI prints and creates nothing; --help and --version", () => 
 
 test("dispatch --help names every subcommand and an unknown one fails cleanly", () => {
   const home = tempHome();
-  const r = runCmd(["bash", DISPATCH, "--help"], { home });
+  const r = runCmd(["bun", DISPATCH, "--help"], { home });
   expect(r.rc).toBe(0); expect(r.err).toBe("");
   expect(r.out).toMatch(/dispatch\.sh classify/);
-  const unk = runCmd(["bash", DISPATCH, "no-such-subcommand"], { home });
+  const unk = runCmd(["bun", DISPATCH, "no-such-subcommand"], { home });
   expect(unk.rc).not.toBe(0);
   expect(unk.err).not.toMatch(/command not found|unbound variable|syntax error/);
 });

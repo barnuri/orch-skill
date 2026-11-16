@@ -24,7 +24,7 @@ test("ensure, status, web env file, health", async () => {
   const { d } = t;
   d("init");
   expect(d("herdr", "ensure").rc).toBe(0); expect(d("herdr", "ensure").rc).toBe(0);
-  await Promise.all([1, 2, 3].map(() => Bun.spawn(["bash", join(import.meta.dir, "../../scripts/dispatch.sh"), "herdr", "ensure"], { env: { ...process.env, ...t.env, HARNESS_ORCH_HOME: t.home, ORCH_NO_ANNOUNCE: "1" } as any, stdout: "ignore", stderr: "ignore" }).exited));
+  await Promise.all([1, 2, 3].map(() => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "herdr", "ensure"], { env: { ...process.env, ...t.env, HARNESS_ORCH_HOME: t.home, ORCH_NO_ANNOUNCE: "1" } as any, stdout: "ignore", stderr: "ignore" }).exited));
   expect(readText(join(t.instCfg, "fake/starts")).trim().split("\n").length).toBe(1);
   expect(existsSync(join(t.instCfg, "config.toml"))).toBe(true);
   expect(readText(join(t.instCfg, "config.toml")).split("\n").filter((l) => !l.startsWith("#")).join("\n")).not.toMatch(/plugin|sound|delivery = "(os|all)"/);

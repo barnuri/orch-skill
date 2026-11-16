@@ -232,10 +232,10 @@ test("init idempotency and legacy cleanup, effective profile, settings, tmp leak
 }, 240000);
 
 test("opencode plugin install", () => {
-  const install = join(REPO_ROOT, "scripts/install-opencode-plugin.sh");
+  const install = join(REPO_ROOT, "scripts/install-opencode-plugin.ts");
   const src = join(REPO_ROOT, "mods/opencode/orch-nodes.js");
   const dir = tempDir();
-  const run = () => runCmd(["bash", install], { env: { OPENCODE_PLUGIN_DIR: join(dir, "plugins") } });
+  const run = () => runCmd(["bun", install], { env: { OPENCODE_PLUGIN_DIR: join(dir, "plugins") } });
   expect(run().all).toMatch(/^opencode: linked/m);
   expect(Bun.spawnSync(["readlink", join(dir, "plugins/orch-nodes.js")]).stdout.toString().trim()).toBe(src);
   expect(run().all).toMatch(/unchanged/);

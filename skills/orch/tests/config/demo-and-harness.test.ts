@@ -8,7 +8,7 @@ test("demo seed, advance, reset", () => {
   const demo = seedHome();
   let r = orch(demo)("demo");
   expect(r.rc).toBe(2); expect(r.all).toMatch(/demo seed/);
-  r = runCmd(["bash", DISPATCH, "demo", "seed"], { env: { HARNESS_ORCH_HOME: undefined, HOME: tempDir() } });
+  r = runCmd(["bun", DISPATCH, "demo", "seed"], { env: { HARNESS_ORCH_HOME: undefined, HOME: tempDir() } });
   expect(r.rc).toBe(2); expect(r.all).toMatch(/HARNESS_ORCH_HOME/);
   const o = orch(demo, { PATH: pathWithout("claude", "cursor-agent", "opencode") });
   r = o("demo", "seed");

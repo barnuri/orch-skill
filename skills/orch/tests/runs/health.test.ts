@@ -179,7 +179,7 @@ test("health monitor", async () => {
   const w2 = active().find((a) => a.status === "running").id;
   try { process.kill(-readJson(join(home, "watches", w2, "state.json")).pid, "SIGTERM"); } catch {}
   await waitUntil(() => active().filter((a) => a.status === "running").length === 0, 20);
-  await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bash", join(import.meta.dir, "../../scripts/dispatch.sh"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "12", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
+  await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "12", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
   expect(active().filter((a) => a.status === "running" && a.name === `health:${R}`).length).toBe(1);
   renameSync(join(home, "runs/0000-bad"), join(home, "bad-run"));
   o("run", "finish", R);

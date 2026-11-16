@@ -12,14 +12,14 @@ test("concurrent writers never lose a batch add", async () => {
   let stop = false;
   const writer = async () => {
     while (!stop) {
-      const p = Bun.spawn(["bash", DISPATCH, "node", "ping", R, "base", "--progress", `p${Math.random()}`], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ORCH_OWNER_FILL: "0" }), stdout: "ignore", stderr: "ignore" });
+      const p = Bun.spawn(["bun", DISPATCH, "node", "ping", R, "base", "--progress", `p${Math.random()}`], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ORCH_OWNER_FILL: "0" }), stdout: "ignore", stderr: "ignore" });
       await p.exited;
     }
   };
   const ws = [writer(), writer()];
   const errs: string[] = [];
   for (let i = 1; i <= ADDS; i++) {
-    const p = Bun.spawn(["bash", DISPATCH, "node", "batch", R], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ORCH_OWNER_FILL: "0" }), stdin: new Blob([`{"op":"add","id":"n${i}","goal":"node ${i}"}\n`]), stdout: "ignore", stderr: "pipe" });
+    const p = Bun.spawn(["bun", DISPATCH, "node", "batch", R], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ORCH_OWNER_FILL: "0" }), stdin: new Blob([`{"op":"add","id":"n${i}","goal":"node ${i}"}\n`]), stdout: "ignore", stderr: "pipe" });
     if ((await p.exited) !== 0) errs.push(`n${i}: ${await new Response(p.stderr).text()}`);
   }
   stop = true;

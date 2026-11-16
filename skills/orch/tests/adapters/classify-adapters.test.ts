@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { orch, seedHome, tempDir, fakeBin, fakeHub, runCmd, DISPATCH, readText, pathWithout, autoCleanup } from "../helpers";
 autoCleanup();
 
-const d = (env: Record<string, string | undefined>, ...a: string[]) => runCmd(["bash", DISPATCH, ...a], { env });
+const d = (env: Record<string, string | undefined>, ...a: string[]) => runCmd(["bun", DISPATCH, ...a], { env });
 const snap = (rate: object) => JSON.stringify({ api: { type: "subscription" }, captured_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"), rate_limits: rate });
 
 test("classify chooses a harness", () => {
@@ -60,7 +60,7 @@ test("run/start argument errors and missing harnesses", () => {
 
 test("local-llm env resolution and v1 url", async () => {
   const hubHome = join(tempDir(), "h");
-  const run = (env: Record<string, string | undefined>) => runCmd(["bash", DISPATCH, "run", "local-llm", "hi"], { env: { HARNESS_ORCH_HOME: hubHome, LLM_HUB_URL: undefined, LLM_HUB_V1_URL: undefined, ...env } });
+  const run = (env: Record<string, string | undefined>) => runCmd(["bun", DISPATCH, "run", "local-llm", "hi"], { env: { HARNESS_ORCH_HOME: hubHome, LLM_HUB_URL: undefined, LLM_HUB_V1_URL: undefined, ...env } });
   let r = run({ LLM_HUB_URL: "" });
   expect(r.all).toMatch(/LLM_HUB_URL not set/); expect(r.rc).toBe(1);
   writeFileSync(join(Bun.spawnSync(["mkdir", "-p", hubHome]) && hubHome, "env"), "LLM_HUB_URL=http://127.0.0.1:9\n");
@@ -69,7 +69,7 @@ test("local-llm env resolution and v1 url", async () => {
   const paths: string[] = [];
   const srv = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) { paths.push(new URL(req.url).pathname); return Response.json({ choices: [{ message: { content: "ok" } }] }); } });
   const base = `http://127.0.0.1:${srv.port}`;
-  const post = async (env: Record<string, string>) => { paths.length = 0; await Bun.spawn(["bash", DISPATCH, "run", "local-llm", "hi"], { env: { ...process.env, HARNESS_ORCH_HOME: hubHome, ORCH_NO_ANNOUNCE: "1", ...env } as any, stdout: "ignore", stderr: "ignore" }).exited; return paths[0]; };
+  const post = async (env: Record<string, string>) => { paths.length = 0; await Bun.spawn(["bun", DISPATCH, "run", "local-llm", "hi"], { env: { ...process.env, HARNESS_ORCH_HOME: hubHome, ORCH_NO_ANNOUNCE: "1", ...env } as any, stdout: "ignore", stderr: "ignore" }).exited; return paths[0]; };
   expect(await post({ LLM_HUB_URL: base })).toBe("/v1/chat/completions");
   expect(await post({ LLM_HUB_URL: `${base}/` })).toBe("/v1/chat/completions");
   expect(await post({ LLM_HUB_URL: `${base}/v1` })).toBe("/v1/chat/completions");

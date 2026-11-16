@@ -5,7 +5,7 @@ import { orch, seedHome, tempDir, readText, readJson, runCmd, DISPATCH, cleanEnv
 autoCleanup();
 const base = { ORCH_WAIT_POLL_SECS: "1", ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_CACHE_SECS: "0" };
 const spawnWait = (home: string, env: Record<string, string>, ...args: string[]) =>
-  Bun.spawn(["bash", DISPATCH, "run", "wait", ...args], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ...env }), stdout: "pipe", stderr: "pipe" });
+  Bun.spawn(["bun", DISPATCH, "run", "wait", ...args], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ...env }), stdout: "pipe", stderr: "pipe" });
 const afterCursor = (home: string, R: string, fn: () => void) => (async () => { await waitUntil(() => existsSync(join(home, "runs", R, "wait.cursor")), 90); fn(); })();
 
 test("wait: change, timeout, needs-user, follow --json", async () => {
