@@ -389,7 +389,8 @@ async function demoReset(args: string[]): Promise<number> {
 function runHasWork(home: string, run: string): boolean {
   try {
     const s = JSON.parse(readFileSync(join(runsHome(home), run, "state.json"), "utf8"));
-    return s.nodes.some((n: any) => n.status === "running" || n.status === "waiting");
+    const done = (id: string) => s.nodes.find((q: any) => q.id === id)?.status === "done";
+    return s.nodes.some((n: any) => n.status === "running" || (n.status === "waiting" && (s.edges ?? []).filter((e: any) => e[1] === n.id).every((e: any) => done(e[0]))));
   } catch {
     return false;
   }
