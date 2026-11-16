@@ -1,0 +1,22 @@
+# Phase 2 parity: msg send and msg read.
+# fixture: fx-run node-base.jsonl
+msg send fx-run --to orch "hello"
+msg send fx-run --to n1 "for n1"
+msg send fx-run --to n1 --from n2 "from n2"
+msg send fx-run --to all --from n3 "heads up"
+msg send fx-run --to ghost "x"
+msg send fx-run --to n1 --from ghost "x"
+msg send fx-run --to n1 --from all "x"
+msg send fx-run --to orch
+msg send fx-run "no target"
+msg send fx-run --to orch --weird "x"
+msg send nope --to orch "x"
+msg send
+msg read fx-run
+msg read fx-run --all
+msg read fx-run --for n1
+msg read fx-run --since abc
+msg read fx-run --since 1 --all
+msg read fx-run --weird
+msg read nope
+msg read

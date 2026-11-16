@@ -131,7 +131,7 @@ export function chainIds(ctx: Ctx): string[] {
   return [ctx.runId, ...ctx.chain.map((c) => c.id)];
 }
 
-function ev(ctx: Ctx, kind: string, node: string, from: string, to: string, note: string): void {
+export function ev(ctx: Ctx, kind: string, node: string, from: string, to: string, note: string): void {
   ctx.events.push({
     at: ctx.now,
     kind,
@@ -289,13 +289,13 @@ function retryBase(): number {
   return /^[0-9]+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : ADVANCE_INTERVAL_DEFAULT;
 }
 
-function nextRetryAt(n: Record<string, any>, now: string): string {
+export function nextRetryAt(n: Record<string, any>, now: string): string {
   const delay = retryDelaySeconds((n.attempts ?? []).length, retryBase());
   return nowIso(new Date(((epochOf(now) ?? 0) + delay) * 1000));
 }
 
 // node_archive_attempt with the reset-to-waiting reason (set_status, waiting after error).
-function archiveAttempt(n: Record<string, any>): void {
+export function archiveAttempt(n: Record<string, any>, reason = "reset to waiting", retryMode = "", retrySession = ""): void {
   n.attempts = [
     ...(n.attempts ?? []),
     {
@@ -310,9 +310,9 @@ function archiveAttempt(n: Record<string, any>): void {
       actual_model: n.actual_model ?? null,
       cost: n.cost ?? null,
       session: n.session ?? null,
-      reason: "reset to waiting",
-      retry_mode: null,
-      retry_session: null,
+      reason: reason || null,
+      retry_mode: retryMode || null,
+      retry_session: retrySession || null,
     },
   ];
 }
@@ -354,7 +354,7 @@ function ownerRegister(run: RunState, id: string, ctx: Ctx, explicit: boolean): 
 // ---- status --------------------------------------------------------------------------------------
 
 // node_set_status: the one path every status change takes. Stamps timing, owner and retry fields.
-function setStatus(run: RunState, id: string, status: string, job: string, err: string, at: string, owner: string, ctx: Ctx): void {
+export function setStatus(run: RunState, id: string, status: string, job: string, err: string, at: string, owner: string, ctx: Ctx, dispatching = false): void {
   const n = requireNode(run, id);
   const old = String(n.status ?? "");
   const eventAt = at || ctx.now;
@@ -364,7 +364,17 @@ function setStatus(run: RunState, id: string, status: string, job: string, err: 
 
   // Batch writes no timing: batch.sh set_status (the parity oracle) stamps none of these fields.
   if (!ctx.batch) {
-    if (status === "running" && !n.seg_open) {
+    if (dispatching && status === "running") {
+      if (n.seg_open && old === "running") {
+        n.dispatched_at = n.dispatched_at ?? eventAt;
+      } else {
+        if (old !== "running") segClose(n, eventAt);
+        n.dispatched_at = eventAt;
+        n.started_at = null;
+        n.finished_at = null;
+        n.seg_open = true;
+      }
+    } else if (status === "running" && !n.seg_open) {
       n.dispatched_at = eventAt;
       n.started_at = eventAt;
       n.finished_at = null;

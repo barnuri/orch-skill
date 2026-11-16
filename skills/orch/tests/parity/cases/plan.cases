@@ -1,0 +1,19 @@
+# Phase 2 parity: plan and plan apply. No case starts a job (no real harness); apply and error paths only.
+# fixture: fx-run node-base.jsonl
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-ok.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-cycle.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-bad.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-empty.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-array.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/plan-garbage.json
+plan apply fx-run --file $ORCH_PARITY_FIXTURES/no-such-plan.json
+plan apply fx-run
+plan apply fx-run --bogus
+plan apply
+plan apply nope
+plan fx-run "Ship it" --node "bad id"
+plan fx-run "Ship it" --profile no-such-profile
+plan fx-run "Ship it" --bogus
+plan fx-run @$ORCH_PARITY_FIXTURES/no-such-file.md --profile claude-haiku
+plan nope "Ship it" --profile claude-haiku
+plan fx-run

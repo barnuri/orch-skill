@@ -765,6 +765,17 @@ cmd_settings() {
   esac
 }
 
+# setting_uint <key> <default> — the setting when it is a positive integer, else the default.
+setting_uint() {
+  local value
+  value=$(setting_get "$1" "$2")
+  if is_uint "$value" && [ "$value" -ge 1 ]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
 # The run cap: defaults.max_parallel, else the old settings.max_parallel, else the built-in 15.
 max_parallel_cap() {
   local v

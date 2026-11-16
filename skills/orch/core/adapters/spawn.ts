@@ -498,3 +498,5 @@ export async function cmdStart(args: string[]): Promise<number> {
   out(`${jobId}\n`);
   return 0;
 }
+
+export { setSpawnNode, spawnNode } from "./spawn-node.ts";
