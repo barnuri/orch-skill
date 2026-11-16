@@ -164,7 +164,7 @@ async function openHerdrPane($: EngineInterface, isForced: boolean): Promise<boo
   await publishHerdrState($)
   await $.process
     .run(
-      ['sh', `${root}/bin/bun.sh`, `${root}/bin/open.ts`, '--mod-id', PANE, '--view', `${$.plugin.root}/${HERDR_MODS_VIEW}`, '--key', HERDR_PANE_KEY, '--beside', besidePaneId, ...(isForced ? ['--force'] : [])],
+      ['sh', `${root}/bin/bun.sh`, `${root}/bin/open.ts`, '--mod-id', PANE, '--view', `${$.plugin.root}/${HERDR_MODS_VIEW}`, '--key', HERDR_PANE_KEY, '--beside', besidePaneId, ...(isForced ? ['--force'] : ['--once'])],
       { timeoutMs: HERDR_TIMEOUT_MS },
     )
     .catch(() => null)
@@ -182,16 +182,7 @@ async function autoOpen($: EngineInterface): Promise<void> {
   if (isAutoOpened) return
   isAutoOpened = true
   await refresh($)
-  // In herdr each agent pane gets one auto-open, remembered on disk: a pane the user closed stays closed
-  // across reloads until `/orch-graph` forces it open.
-  const paneId = await herdrBesidePane($)
-  const home = await $.env.get('HOME')
-  const marker = paneId && home ? `${home}/.cache/herdr-mods/orch-graph/opened-${paneId.replace(/[^\w.-]/g, '_')}` : null
-  if (marker !== null && (await $.fs.read(marker).catch(() => '')) !== '') return
-  if (await openHerdrPane($, false)) {
-    if (marker !== null) await $.fs.write(marker, String(Date.now())).catch(() => undefined)
-    return
-  }
+  if (await openHerdrPane($, false)) return
   await $.ui.open({ id: PANE, title: 'orch graph' })
 }
 
