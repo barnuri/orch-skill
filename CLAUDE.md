@@ -139,6 +139,13 @@ rewrite history. No commit permission means no commit; the restart rule still ap
 safe while a run is active: the service pauses running runs on SIGTERM and resumes `auto_resume` runs at
 boot (stopped runs stay stopped). Skip the restart only while a node is mid-write in `src/`.
 
+## Learn from runs
+
+Review finished runs once a day and after any run longer than 2 hours. Look for idle time caused by wrong
+statuses, missed notifications or bugs, and fix the cause in the skill or dispatcher. The orch skill must
+run deterministic steps (tests, commits, restarts, status reads) directly and start every ready node at
+once. The rule text is in `skills/orch/SKILL.md`, section "Learn from runs, and keep them fast".
+
 ## Tests
 
 ```bash

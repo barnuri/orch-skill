@@ -366,6 +366,22 @@ logical commit (no co-author, never push, never another session's files), run
 user-question tool and remember the answer for the session. A restart pauses and resumes active runs by
 itself; do not restart while a node is still editing `src/`.
 
+## Learn from runs, and keep them fast
+
+Review finished runs for lessons: once a day, and after any long run (more than 2 hours) finishes.
+For each run, find idle time: a node that sat `waiting` or `running` while its work was done, a wrong
+status, a missed notification, a stalled job, a retry loop. Measure it in minutes, name the cause, and
+fix the cause in the skill or the dispatcher, not only in the run. Record each lesson in
+`agent-spec/<slug>/handoff.md` and, if it is a rule, in this file.
+
+Speed rules for the coordinator:
+- Run deterministic work (tests, typecheck, commits, restarts, status reads, file checks) as plain
+  commands in the coordinator, not through an agent. Use `dispatch.sh` subcommands for state changes.
+- Start every node whose dependencies are done at once. Never wait on a node that does not block the next one.
+- Read `state.json` fresh before reporting a status. Keep `run wait --follow` running so a finished node is
+  acted on within a minute, not at the next user prompt.
+- Check a node's output files before you accept `done`.
+
 ## Babysitting
 
 Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run health --ensure-monitors` restores lost ones). It runs `run health <run> --json` every 30 s (`settings.health_every_sec`), and records an event only on a change: a node finished, nodes became ready, a node stalled, died, lost its owner or recovered.
