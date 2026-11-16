@@ -21,15 +21,15 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [x] P43 agent output keeps colour (pty, ANSI log) | fixed: 2026-11-16 7202a9e | check: bun test skills/orch/core/commands/herdr-launch.test.ts src/web/lib/ansi.test.ts
 - [x] P6 parallel cap 15 | fixed: 2026-11-16 profile-defaults | check: grep -q "auto_dispatch_max_parallel" src/server/runs/auto-dispatch.ts
 - [x] P1 CLI call takes seconds (run status 0.356 s, node update 0.215 s, batch x10 0.478 s, help 0.083 s at load 19; was 7.1 s) | fixed: 2026-11-16 7e0d55d | check: bun scripts/bench-status.ts 0.5
-- [ ] P7 early end resumes the same session | fixed: - | check: bun skills/orch/tests/run.ts lessons
+- [x] P7 early end resumes the same session | fixed: 2026-11-16 95b214b | check: bun skills/orch/tests/run.ts lessons
 - [x] P9 retry keeps the prompt and prepends unread answers | fixed: 2026-11-16 da06bc6 | check: bun test skills/orch/tests/core-gaps
 - [ ] P12 asks are answered fast (bridge delivers) | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P14 coordinator repoint by session id | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P15 answers reach the retry of an ended node | fixed: - | check: bun skills/orch/tests/run.ts inbox
-- [ ] P20 one live job per node | fixed: - | check: bun skills/orch/tests/run.ts lessons
+- [x] P20 one live job per node | fixed: 2026-11-16 75510c7 | check: bun skills/orch/tests/run.ts lessons
 - [x] P21 reset to waiting releases the engine claim | fixed: 2026-11-16 da06bc6 | check: ORCH_HERDR=0 bun test src/server/runs/auto-dispatch.test.ts
-- [ ] P22 duration counts only running time | fixed: - | check: bun skills/orch/tests/run.ts timing
-- [ ] P23 cards show model, role, tier, effort, cost | fixed: - | check: bun skills/orch/tests/run.ts owner
+- [x] P22 duration counts only running time | fixed: 2026-11-16 efe541f | check: bun skills/orch/tests/run.ts timing
+- [x] P23 cards show model, role, tier, effort, cost | fixed: 2026-11-16 8461841 | check: bun skills/orch/tests/run.ts owner
 - [ ] P26 one worktree per code node | fixed: - | check: test -n "$(git worktree list | grep -c take)"
 - [ ] P34 tests run dispatch.ts with bun | fixed: - | check: ! grep -rq '"bash", DISPATCH' skills/orch/tests
 - [ ] P38 src tests pass (9 fixed in 558646b, rerun pending) | fixed: - | check: ORCH_HERDR=0 bun test --parallel=6 src
