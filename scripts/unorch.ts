@@ -2,8 +2,12 @@
 // unorch: take an orch run over into the main session. Stops the run from starting more nodes, then
 // prints one report of every unfinished node: status, goal, unmet dependencies, job liveness, last log
 // lines, handoff, error and the node's unanswered asks. The main session then does the work itself.
+// It also writes the work as markdown, the source of truth for the takeover:
+//   agent-spec/unorch/<run>/tasks.md (one checkbox per node, owner, branch, notes; checked boxes survive a re-run)
+//   agent-spec/unorch/<run>/handoffs/<node>.md (a copy of every node handoff)
+//   agent-spec/unorch/<run>/asks.md (pending node asks)
 // Usage: bun scripts/unorch.ts [run-id] [--no-pause]
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -64,3 +68,43 @@ if (existsSync(inbox)) {
   for (const a of pending) console.log(`- ${a.id} from ${a.from}: ${a.text.slice(0, 300)}`);
 }
 console.log("\nNext: do the unfinished nodes here, in dependency order. Do not start nodes with the orch skill.");
+
+// ---- markdown files ----
+const outDir = join(import.meta.dir, "..", "agent-spec", "unorch", run);
+mkdirSync(join(outDir, "handoffs"), { recursive: true });
+const tasksFile = join(outDir, "tasks.md");
+const checked = new Set<string>();
+if (existsSync(tasksFile)) {
+  for (const line of readFileSync(tasksFile, "utf8").split("\n")) {
+    const m = /^- \[x\] `([^`]+)`/.exec(line);
+    if (m?.[1]) checked.add(m[1]);
+  }
+}
+const notes = new Map<string, string>();
+if (existsSync(tasksFile)) {
+  for (const line of readFileSync(tasksFile, "utf8").split("\n")) {
+    const m = /^- \[[ x]\] `([^`]+)`.*?\| notes: (.*)$/.exec(line);
+    if (m?.[1] && m[2]) notes.set(m[1], m[2]);
+  }
+}
+for (const n of state.nodes) {
+  const src = join(home, "runs", run, "out", n.id, "handoff.md");
+  if (existsSync(src) && statSync(src).size > 0) copyFileSync(src, join(outDir, "handoffs", `${n.id}.md`));
+}
+const lines = [`# unorch tasks for ${run}`, "", `Generated ${new Date().toISOString()}. Edit the checkboxes and notes; a re-run keeps them. Handoff copies are in handoffs/.`, ""];
+for (const n of state.nodes) {
+  const done = n.status === "done" || n.status === "skipped";
+  const mark = done || checked.has(n.id) ? "x" : " ";
+  const hand = existsSync(join(outDir, "handoffs", `${n.id}.md`)) ? `handoffs/${n.id}.md` : "no handoff";
+  lines.push(`- [${mark}] \`${n.id}\` [${n.status}] ${hand} | notes: ${notes.get(n.id) ?? ""}`);
+}
+writeFileSync(tasksFile, lines.join("\n") + "\n");
+const askLines = [`# pending node asks for ${run}`, ""];
+if (existsSync(inbox)) {
+  for (const f of readdirSync(inbox).filter((x) => x.endsWith(".json"))) {
+    const a = JSON.parse(readFileSync(join(inbox, f), "utf8")) as { id: string; kind: string; from: string; text: string; answered_at?: string };
+    if (a.kind === "ask") askLines.push(`- ${a.answered_at ? "[x]" : "[ ]"} ${a.id} from \`${a.from}\`: ${a.text}`);
+  }
+}
+writeFileSync(join(outDir, "asks.md"), askLines.join("\n") + "\n");
+console.log(`\nwrote ${tasksFile}\nwrote ${join(outDir, "asks.md")}\nhandoff copies: ${join(outDir, "handoffs")}`);
