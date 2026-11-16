@@ -13,7 +13,7 @@ test("worker identity headers", () => {
   const home = seedHome();
   const sh = hdrShims();
   const o = orch(home, { PATH: `${sh}:${process.env.PATH}` });
-  const wait = (j: string) => o("wait", j, "--timeout", "60", "--interval", "1");
+  const wait = (j: string) => o("wait", j, "--timeout", "60", "--interval", "0.1");
   const log = (j: string) => readText(join(home, "jobs", j, "log"));
   const n = (run: string, i = 0) => runState(home, run).nodes[i];
   o("run", "start", "Worker identity", "--id", "wid-1");
@@ -96,7 +96,7 @@ test("herdr off, run stop, claude path, profile jobs", async () => {
   expect(o("status", "herdr-race").out.trim()).toBe("running");
   expect(o("herdr", "off").all).toMatch(/^herdr: off/m);
   const off = o("start", "claude", "off probe").out.trim();
-  o("wait", off, "--timeout", "60", "--interval", "1");
+  o("wait", off, "--timeout", "60", "--interval", "0.1");
   expect(readText(join(home, "jobs", off, "herdr_pane")).trim()).toBe("");
   expect(o("herdr", "maybe").rc).toBe(2);
 
@@ -106,7 +106,7 @@ test("herdr off, run stop, claude path, profile jobs", async () => {
   const sj = os("node", "dispatch", "stop-run", "a", "claude", "sleep").out.trim();
   let r = os("run", "stop", "stop-run");
   expect(r.rc).toBe(0); expect(r.all).toMatch(/killed 1 job/);
-  os("wait", sj, "--timeout", "60", "--interval", "1");
+  os("wait", sj, "--timeout", "60", "--interval", "0.1");
   expect(os("status", sj).out.trim()).toBe("done exit=143");
   const s = runState(home, "stop-run");
   expect([s.stopped, s.status, s.nodes.map((n: any) => n.status).join(" ")]).toEqual([true, "running", "stopped waiting"]);
@@ -128,7 +128,7 @@ test("herdr off, run stop, claude path, profile jobs", async () => {
   expect(r.all).toMatch(/usage: dispatch.ts run \(--profile <name> \| <adapter>\)/); expect(r.rc).toBe(2);
   expect(o("start", "--profile", "bogus", "hi").rc).toBe(2);
   const jid = o("start", "--profile", "claude-default", "bg").out.trim();
-  o("wait", jid, "--timeout", "60", "--interval", "1");
+  o("wait", jid, "--timeout", "60", "--interval", "0.1");
   expect(o("list").all).toMatch(new RegExp(`${jid}.done exit=0.claude-default`));
   expect(o("tail", jid).all).toMatch(/--model/);
   const hubSrc = `const s = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) { let content = "", model = ""; try { const b = await req.json(); content = b.messages?.[0]?.content ?? ""; model = b.model ?? ""; } catch {} return Response.json({ choices: [{ message: { content: "echo:" + content + "|model=" + model } }] }); } }); console.log(s.port);`;

@@ -18,7 +18,7 @@ test("model, timestamps, report", async () => {
   const se = Date.parse(started) / 1000;
   expect(se).toBeGreaterThanOrEqual(before - 1);
   expect(se).toBeLessThanOrEqual(Date.now() / 1000 + 1);
-  await Bun.sleep(2000);
+  await Bun.sleep(1100);
   o("node", "update", R, "a", "done");
   const fin = nd("a").finished;
   expect(fin).toMatch(/^\d{4}-\d{2}-\d{2}T[0-9:]{8}Z$/);

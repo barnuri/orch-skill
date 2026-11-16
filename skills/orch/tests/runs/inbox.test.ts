@@ -59,7 +59,7 @@ test("node tell/inbox/ask/answer, rules, broadcast, prompt injection", async () 
   const fake2 = fakeBin({ opencode: `printf 'ARGS %s\\n' "$*"` });
   o("node", "tell", "msg-1", "c", "read this first");
   const job = o.env({ PATH: `${fake2}:${process.env.PATH}` }, "node", "dispatch", "msg-1", "c", "opencode", "do c").out.trim();
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   const jl = readText(join(home, "jobs", job, "log"));
   expect(jl).toMatch(/never run the full suite/);
   expect(jl).toMatch(/read this first/);

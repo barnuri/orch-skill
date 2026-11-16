@@ -15,7 +15,7 @@ const setup = () => {
   const d = orch(home, env as any);
   const instCfg = join(home, "herdr/home/.config/herdr");
   const fakeState = () => { try { return readJson(join(instCfg, "fake/state.json")); } catch { return { workspaces: [], tabs: [], panes: [] }; } };
-  const waitJob = (j: string) => d("wait", j, "--timeout", "90", "--interval", "0.2");
+  const waitJob = (j: string) => d("wait", j, "--timeout", "90", "--interval", "0.1");
   return { root, home, webdir, log, d, env, instCfg, fakeState, waitJob, realhome, shims, fake, calls: () => readText(log) };
 };
 
@@ -43,7 +43,7 @@ test("lost pane, herdr missing, off and down", async () => {
   writeFileSync(t.log, "");
   const nopath = pathWithout("herdr");
   const miss = orch(t.home, { ...t.env, PATH: `${t.shims}:${nopath}` })("start", "claude", "missing").out.trim();
-  d("wait", miss, "--timeout", "90", "--interval", "0.2");
+  d("wait", miss, "--timeout", "90", "--interval", "0.1");
   expect(d("status", miss).out.trim()).toBe("done exit=0");
   expect(existsSync(join(t.home, "jobs", miss, "herdr_pane"))).toBe(false);
   expect(orch(t.home, { ...t.env, PATH: `${t.shims}:${nopath}` })("herdr", "status").all).toMatch(/herdr not on PATH/);

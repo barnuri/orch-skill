@@ -83,7 +83,7 @@ test("claude-native sentinel, jobs, local-llm timing", async () => {
   let r = o("run", "claude-native", "hi");
   expect(r.all).toMatch(/no subprocess spawned/); expect(r.rc).toBe(0);
   const job = o("start", "claude-native", "hi").out.trim();
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   expect(o("status", job).out).toMatch(/^done exit=0$/m);
   expect(o("tail", job).all).toMatch(/no subprocess spawned/);
   expect(o("list").all).toMatch(new RegExp(`${job}.*done exit=0`));
@@ -96,8 +96,8 @@ test("claude-native sentinel, jobs, local-llm timing", async () => {
   const lj = oh("start", "local-llm", `@${pf}`).out.trim();
   expect(oh("status", lj).out).toMatch(/^running$/m);
   const ow = (...a: string[]) => runCmdAsync(["bun", DISPATCH, ...a], { home, env: { LLM_HUB_URL: hub.url } });
-  expect((await ow("wait", lj, "--timeout", "1", "--interval", "1")).rc).toBe(124);
-  r = await ow("wait", lj, "--timeout", "60", "--interval", "1");
+  expect((await ow("wait", lj, "--timeout", "1", "--interval", "0.1")).rc).toBe(124);
+  r = await ow("wait", lj, "--timeout", "60", "--interval", "0.1");
   expect(r.out).toMatch(/^done exit=0$/m); expect(r.rc).toBe(0);
   expect(oh("tail", lj).all).toMatch(/echo:hello from a file/);
   hub.stop();

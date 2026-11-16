@@ -12,7 +12,7 @@ test("pause, resume, cancel", async () => {
   for (const [n, g] of [["dead", "dies on restart"], ["live", "keeps running"], ["later", "not started yet"]]) o("node", "add", "pause-1", n, g);
   const deadJob = o("node", "dispatch", "pause-1", "dead", "claude-native", "do dead", "--flag", "x").out.trim();
   const liveJob = o("node", "dispatch", "pause-1", "live", "claude-native", "do live").out.trim();
-  o("wait", deadJob, "--timeout", "60", "--interval", "1"); o("wait", liveJob, "--timeout", "60", "--interval", "1");
+  o("wait", deadJob, "--timeout", "60", "--interval", "0.1"); o("wait", liveJob, "--timeout", "60", "--interval", "0.1");
   const deadSession = nd("dead").session;
   expect(deadSession).toBeTruthy();
   const live = Bun.spawn(["sleep", "120"]);
@@ -59,8 +59,8 @@ test("pause, resume, cancel", async () => {
   expect(nd("cancel-me").status).toBe("waiting");
   expect(o("node", "cancel", "pause-1", "cancel-me").rc).toBe(3);
   live.kill();
-  o("wait", newJob, "--timeout", "60", "--interval", "1");
-  o("wait", job.out.trim(), "--timeout", "60", "--interval", "1");
+  o("wait", newJob, "--timeout", "60", "--interval", "0.1");
+  o("wait", job.out.trim(), "--timeout", "60", "--interval", "0.1");
 }, 240000);
 
 test("pause/resume/stop/set on a plain run", () => {

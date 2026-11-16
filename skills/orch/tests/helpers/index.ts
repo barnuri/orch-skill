@@ -59,19 +59,25 @@ function trace(kind: string, ms: number, what: string): void {
 
 export interface Result { rc: number; out: string; err: string; all: string }
 
-// Commands that detach, install signal handlers, kill their process group or call process.exit run as a real process.
-const SPAWN_ALWAYS = new Set(["start", "serve", "ui", "job-run", "loop", "watch", "announce", "active", "herdr", "artifact", "__run-cancel"]);
-const SPAWN_ONLY = new Set(["schedule tick", "schedule run", "schedule __runcmd"]);
+// Calls that detach, install signal handlers, kill their own process group, call process.exit or run an adapter
+// run as a real process; every other call runs in the worker thread (helpers/inproc.ts). Servers a test starts
+// must not live in the test thread (it blocks during a call): use fakeHub() or a child process.
+const SPAWN_ALWAYS = new Set(["start", "serve", "ui", "job-run", "artifact", "__run-cancel"]);
+const SPAWN_VERBS: Record<string, string[]> = {
+  loop: ["start", "resume", "recover", "__run"],
+  watch: ["start", "wait", "__run"],
+  schedule: ["tick", "run", "__runcmd"],
+};
 const RUN_ADAPTERS = ["--profile", "claude", "claude-native", "cursor-agent", "local-llm", "opencode", "copilot", "pi"];
-let loopbackServer = false;
-export function mustSpawn(args: string[], passed: Record<string, string | undefined>): boolean {
-  if (process.env.ORCH_TEST_SPAWN === "1" || loopbackServer) return true;
+export function mustSpawn(args: string[]): boolean {
+  if (process.env.ORCH_TEST_SPAWN === "1") return true;
   const words = args.filter((a) => !a.startsWith("--"));
   const [a, b] = words;
-  if (!a || SPAWN_ALWAYS.has(a)) return !!a;
+  if (!a) return false;
+  if (SPAWN_ALWAYS.has(a)) return true;
   if (a === "run" && RUN_ADAPTERS.includes(args[1] ?? "")) return true;
-  if (SPAWN_ONLY.has(`${a} ${b ?? ""}`.trim()) || SPAWN_ONLY.has(a)) return true;
-  return Object.values(passed).some((v) => v !== undefined && /https?:\/\/(127\.0\.0\.1|localhost)/.test(v));
+  if (a === "announce") return args.includes("--daemon");
+  return !!SPAWN_VERBS[a]?.includes(b ?? "");
 }
 
 function orchArgs(cmd: string[]): string[] | null {
@@ -89,7 +95,7 @@ function resolveBun(cmd: string[]): string[] {
 export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string; stdin?: string; spawn?: boolean } = {}): Result {
   const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const oargs = orchArgs(cmd);
-  if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs, { ...opts.env })) {
+  if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs)) {
     const t1 = Date.now(), r = inProcess(oargs, env, opts.stdin);
     trace("inproc", Date.now() - t1, oargs.join(" "));
     return r;
@@ -141,20 +147,16 @@ export function fakeBin(files: Record<string, string>): string {
 export const fakeAdapter = (reply = "ok") => fakeBin({ "fake-adapter": `printf '%s' ${JSON.stringify(reply)}` });
 export const fakeHerdr = () => fakeBin({ herdr: `echo "$@" >> "\${FAKE_HERDR_LOG:-/dev/null}"; echo '{}'` });
 
-/** Loopback fake LLM hub: echoes the prompt and model like the old python fixture. */
+/** Loopback fake LLM hub: echoes the prompt and model. It runs in its own thread, so the test thread can block on an in-process orch call. */
 export function fakeHub(delayMs = 0) {
-  loopbackServer = true;
-  const server = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    async fetch(req) {
-      let content = "", model = "";
-      try { const b: any = await req.json(); content = b.messages?.[0]?.content ?? ""; model = b.model ?? ""; } catch {}
-      if (delayMs) await Bun.sleep(delayMs);
-      return Response.json({ choices: [{ message: { content: `echo:${content}|model=${model}` } }] });
-    },
-  });
-  return { port: server.port, url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+  const sab = new SharedArrayBuffer(4);
+  const ia = new Int32Array(sab);
+  const worker = new Worker(new URL("./fake-hub-worker.ts", import.meta.url));
+  worker.postMessage({ sab, delayMs });
+  Atomics.wait(ia, 0, 0, 30_000);
+  const port = Atomics.load(ia, 0);
+  if (!port) throw new Error("fakeHub did not start");
+  return { port, url: `http://127.0.0.1:${port}`, stop: () => { worker.postMessage("stop"); setTimeout(() => worker.terminate(), 50); } };
 }
 
 export async function waitUntil(cond: () => boolean | Promise<boolean>, seconds = 60): Promise<boolean> {

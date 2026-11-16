@@ -41,7 +41,7 @@ test("hub setup, tiers, headers, resolve, outcome", async () => {
   expect(n(1).tier).toBe("fast");
   expect(n(2).tier ?? null).toBeNull();
   const job = o("node", "dispatch", "hub-1", "plan", "do it").out.trim();
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   const log = readText(join(home, "jobs", job, "log"));
   expect(log).toMatch(/"x-llm-hub-smart-auto-tier":"intelligence"/);
   expect(log).toMatch(/"x-llm-hub-smart-auto-worker":"hub-1\/plan\/1"/);
@@ -49,7 +49,7 @@ test("hub setup, tiers, headers, resolve, outcome", async () => {
   expect(posts.join("\n")).toMatch(/\/api\/smart-auto\/resolve .*"tier":"intelligence".*"role":"planning"/);
   expect(n(0).hub.expected.model).toBe("expected/intelligence");
   const check = o("node", "dispatch", "hub-1", "check", "check it").out.trim();
-  o("wait", check, "--timeout", "60", "--interval", "1");
+  o("wait", check, "--timeout", "60", "--interval", "0.1");
   o("run", "sync", "hub-1");
   expect(n(0).hub.actual.model).toBe("used/model");
   expect(n(0).hub.outcome ?? null).toBeNull();

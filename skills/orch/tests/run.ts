@@ -7,7 +7,8 @@
 //   --budget SECS   stop starting files after SECS, give running files ORCH_TEST_BUDGET_GRACE (20) more, then kill;
 //                   progress goes to $TMPDIR/orch-test-progress.json (ORCH_TEST_PROGRESS); exit 75
 //   --resume        run only the files not passed in the recorded run
-//   ORCH_TEST_JOBS=N (default: cores minus current load, between half the cores and all cores), ORCH_TEST_FILE_CAP=SECS (15 fast, 30 otherwise)
+//   ORCH_TEST_JOBS=N (default: cores minus current load, between half the cores and cores minus 2), ORCH_TEST_FILE_CAP=SECS (15 fast, 30 otherwise)
+//   --trace         count the real orch spawns and in-process calls of each file (ORCH_TEST_TRACE) and print them on the file line
 //   ORCH_TEST_SPAWN=1  run every orch command as a real process instead of in-process (tests/helpers/inproc.ts)
 //   Each file runs as its own `bun test` process; the tests inside a file run in order. `bun test skills/orch/tests --parallel` also works.
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } from "node:fs";
@@ -22,7 +23,7 @@ const PROGRESS = process.env.ORCH_TEST_PROGRESS || `${tmp}/orch-test-progress.js
 const TIMINGS = process.env.ORCH_TEST_TIMINGS || `${tmp}/orch-ts-test-timings.json`;
 const GRACE = Number(process.env.ORCH_TEST_BUDGET_GRACE ?? 20);
 
-let mode = "", ref = "HEAD", budgetArg = "", resume = false;
+let mode = "", ref = "HEAD", budgetArg = "", resume = false, traceOn = false;
 const frags: string[] = [];
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
@@ -34,6 +35,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--budget") budgetArg = argv[++i] ?? "x";
   else if (a.startsWith("--budget=")) budgetArg = a.slice(9);
   else if (a === "--resume") resume = true;
+  else if (a === "--trace") traceOn = true;
   else if (a === "-h" || a === "--help") { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 11).map((l) => l.replace(/^\/\/ ?/, "")).join("\n")); process.exit(0); }
   else if (a.startsWith("-")) { console.error(`run.ts: unknown option ${a} (see --help)`); process.exit(2); }
   else frags.push(a);
@@ -55,7 +57,8 @@ if (!mode) mode = frags.length ? "pick" : "fast";
 const budget = budgetArg ? Number(budgetArg) : mode === "full" ? 300 : 0;
 const jobsEnv = process.env.ORCH_TEST_JOBS;
 const ncpu = cpus().length;
-const jobs = jobsEnv ? Number(jobsEnv) : Math.max(Math.ceil(ncpu / 2), Math.min(ncpu, Math.ceil(ncpu - loadavg()[0])));
+// Files wait on process starts more than they use the CPU, so a loaded machine still gets half the cores; never more than cores minus 2.
+const jobs = jobsEnv ? Number(jobsEnv) : Math.max(Math.min(Math.ceil(ncpu / 2), ncpu - 2), Math.min(ncpu - 2, Math.ceil(ncpu - loadavg()[0])));
 const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 15 : 30));
 
 const idOf = (f: string) => `${basename(dirname(f))}/${basename(f).replace(/\.test\.ts$/, "")}`;
@@ -106,13 +109,14 @@ const homeTemplate = templateHome();
 const deadline = budget > 0 ? t0 + budget * 1000 : 0;
 if (budget > 0) console.error(`budget: ${budget}s (+${GRACE}s grace), progress: ${PROGRESS}`);
 
-interface Res { id: string; rc: number; secs: number; why: "ok" | "timeout" | "budget"; out: string; pass: number; fail: number }
+interface Res { id: string; rc: number; secs: number; why: "ok" | "timeout" | "budget"; out: string; pass: number; fail: number; trace: string }
 const results: Res[] = [];
 const skipped: string[] = [];
 
 async function runOne(f: string): Promise<void> {
   const id = idOf(f), start = Date.now();
-  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate }, stdout: "pipe", stderr: "pipe", detached: true } as any);
+  const traceFile = traceOn ? join(tmp, `orch-trace-${process.pid}-${id.replace("/", "-")}.tsv`) : "";
+  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate, ...(traceOn ? { ORCH_TEST_TRACE: traceFile } : {}) }, stdout: "pipe", stderr: "pipe", detached: true } as any);
   let why: Res["why"] = "ok";
   const killer = setInterval(() => {
     const now = Date.now();
@@ -126,7 +130,14 @@ async function runOne(f: string): Promise<void> {
   const out = o + e;
   const pass = Number(out.match(/^\s*(\d+) pass/m)?.[1] ?? 0), fail = Number(out.match(/^\s*(\d+) fail/m)?.[1] ?? 0);
   if (why === "budget") { skipped.push(id); return; }
-  results.push({ id, rc, secs: (Date.now() - start) / 1000, why, out, pass, fail });
+  let trace = "";
+  if (traceOn) {
+    const n: Record<string, number> = {};
+    try { for (const l of readFileSync(traceFile, "utf8").split("\n")) if (l) n[l.split("\t")[0]!] = (n[l.split("\t")[0]!] ?? 0) + 1; } catch {}
+    trace = `  [${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(", ")}]`;
+  }
+  const r: Res = { id, rc, secs: (Date.now() - start) / 1000, why, out, pass, fail, trace };
+  results.push(r);
 }
 
 const limit = jobs > 0 ? jobs : files.length || 1;
@@ -151,8 +162,8 @@ for (const r of results) {
   status[r.id] = ok ? "passed" : "failed";
   if (r.why === "timeout") { bad = true; console.log(`=== ${r.id} TIMEOUT: killed after the ${cap}s per-file cap (ORCH_TEST_FILE_CAP) ===\n${r.out.split("\n").slice(-20).join("\n")}`); }
   else if (r.rc !== 0) { bad = true; console.log(`=== ${r.id} FAILED (exit ${r.rc}) ===\n${r.out}`); }
-  console.error(`${r.id.padEnd(30)} ${String(r.pass).padStart(4)} passed, ${r.fail} failed  (${r.secs.toFixed(1)}s)`);
-  timings[r.id] = r.secs;
+  console.error(`${r.id.padEnd(30)} ${String(r.pass).padStart(4)} passed, ${r.fail} failed  (${r.secs.toFixed(1)}s)${r.trace}`);
+  timings[r.id] = timings[r.id] === undefined ? r.secs : Math.round((timings[r.id]! + r.secs) * 5) / 10;
 }
 if (results.length) {
   try { writeFileSync(TIMINGS, JSON.stringify(timings)); } catch {}

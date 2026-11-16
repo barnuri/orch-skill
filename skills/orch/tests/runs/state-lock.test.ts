@@ -8,7 +8,7 @@ test("concurrent writers never lose a batch add", async () => {
   const home = seedHome(), o = orch(home, { ORCH_OWNER_FILL: "0" });
   const R = o("run", "start", "state lock").out.trim();
   o("node", "add", R, "base", "Base"); o("node", "update", R, "base", "running");
-  const ADDS = Number(process.env.ORCH_TEST_LOCK_ADDS ?? 25);
+  const ADDS = Number(process.env.ORCH_TEST_LOCK_ADDS ?? 16);
   let stop = false;
   const writer = async () => {
     while (!stop) {
@@ -18,10 +18,12 @@ test("concurrent writers never lose a batch add", async () => {
   };
   const ws = [writer(), writer()];
   const errs: string[] = [];
-  for (let i = 1; i <= ADDS; i++) {
+  const add = async (i: number) => {
     const p = Bun.spawn(["bun", DISPATCH, "node", "batch", R], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ORCH_OWNER_FILL: "0" }), stdin: new Blob([`{"op":"add","id":"n${i}","goal":"node ${i}"}\n`]), stdout: "ignore", stderr: "pipe" });
     if ((await p.exited) !== 0) errs.push(`n${i}: ${await new Response(p.stderr).text()}`);
-  }
+  };
+  // Adders overlap each other and the two ping writers: the lock must still serialise every write.
+  for (let i = 1; i <= ADDS; i += 4) await Promise.all(Array.from({ length: Math.min(4, ADDS - i + 1) }, (_, k) => add(i + k)));
   stop = true;
   await Promise.all(ws);
   expect(errs).toEqual([]);

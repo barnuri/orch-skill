@@ -160,7 +160,7 @@ test("session id, resumed retry, jq batching", () => {
   let o = orch(home, { PATH: `${sh}:${process.env.PATH}` });
   const job = o("start", "claude", "session probe").out.trim();
   expect(job).toMatch(/^\d{14}-/);
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   const session = readText(join(home, "jobs", job, "session")).trim();
   expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   expect(joined(readText(join(home, "jobs", job, "log")))).toContain(`--session-id ${session}`);
@@ -168,11 +168,11 @@ test("session id, resumed retry, jq batching", () => {
   home = seedHome(); o = orch(home, { PATH: `${sh}:${process.env.PATH}` });
   o("run", "start", "Resume retry", "--id", "resume-retry"); o("node", "add", "resume-retry", "a", "a");
   const first = o("node", "dispatch", "resume-retry", "a", "claude", "full original task").out.trim();
-  o("wait", first, "--timeout", "60", "--interval", "1"); o("run", "sync", "resume-retry");
+  o("wait", first, "--timeout", "60", "--interval", "0.1"); o("run", "sync", "resume-retry");
   const rs = runState(home, "resume-retry").nodes[0].session;
   o("node", "update", "resume-retry", "a", "error", "--force", "--error", "exit=1");
   const second = o("node", "retry", "resume-retry", "a").out.trim();
-  o("wait", second, "--timeout", "60", "--interval", "1");
+  o("wait", second, "--timeout", "60", "--interval", "0.1");
   const log = readText(join(home, "jobs", second, "log"));
   expect(joined(log)).toContain(`--resume ${rs}`);
   expect(log).toMatch(/Continue the same task from where you left off/);

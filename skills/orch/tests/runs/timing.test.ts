@@ -24,7 +24,7 @@ test("dispatch/start segments, pauses, backfill", () => {
   expect(nd("a").started_at).toBe(first);
   expect(o("node", "started", "time-1", "a", "--at", "2000-01-01T00:00:00Z").rc).toBe(0);
   expect(nd("a").started_at).toBe(first);
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   o("node", "update", "time-1", "a", "error", "--error", "process died");
   expect(nd("a").finished_at).not.toBeNull();
   expect(nd("a").seg_open).toBe(false);
@@ -36,12 +36,12 @@ test("dispatch/start segments, pauses, backfill", () => {
   expect(nd("a").run_segments.length).toBe(1);
   o("owner", "event", job2, "started", "--harness", "test");
   expect(nd("a").started_at).toMatch(/^20[0-9-]+T/);
-  o("wait", job2, "--timeout", "60", "--interval", "1");
+  o("wait", job2, "--timeout", "60", "--interval", "0.1");
   o("node", "update", "time-1", "a", "done");
   expect(nd("a").run_segments.length).toBe(2);
   const job3 = o("node", "dispatch", "time-1", "b", "claude-native", "do b").out.trim();
   o("node", "started", "time-1", "b", "--source", "test");
-  o("wait", job3, "--timeout", "60", "--interval", "1");
+  o("wait", job3, "--timeout", "60", "--interval", "0.1");
   o("run", "stop", "time-1");
   expect([nd("b").status, nd("b").seg_open, nd("b").run_segments.length]).toEqual(["stopped", false, 1]);
   Bun.sleepSync(1000);

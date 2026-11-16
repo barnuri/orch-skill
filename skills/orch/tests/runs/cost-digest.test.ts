@@ -17,7 +17,7 @@ test("claude json cost sidecar", () => {
   expect(r.all).not.toMatch(/total_cost_usd/);
   const job = o("start", "claude", "hi").out.trim();
   expect(job).toMatch(/^[0-9]/);
-  o("wait", job, "--timeout", "30", "--interval", "1");
+  o("wait", job, "--timeout", "30", "--interval", "0.1");
   expect(existsSync(join(home, "jobs", job, "usage.json"))).toBe(true);
   const usage = readText(join(home, "jobs", job, "usage.json"));
   for (const m of [/"usd":0\.2409/, /"cost_basis":"list"/, /"input_tokens":2/, /"cache_creation_tokens":19861/, /"model":"claude-opus-5\[1m\]"/]) expect(usage).toMatch(m);
@@ -58,7 +58,7 @@ test("node cost", () => {
   const sh = claudeShim('{"result":"done","total_cost_usd":0.5,"is_error":false,"usage":{"input_tokens":7,"output_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"modelUsage":{"m1":{"inputTokens":7,"outputTokens":9,"costUSD":0.5,"costBasis":"list"}}}');
   const oc = orch(home, { PATH: `${sh}:${process.env.PATH}` });
   const sj = oc("node", "dispatch", R, "n1", "claude", "hi").out.trim();
-  oc("wait", sj, "--timeout", "30", "--interval", "1");
+  oc("wait", sj, "--timeout", "30", "--interval", "0.1");
   o("run", "sync", R);
   expect(cost().usd).toBe(0.5);
   expect(runState(home, R).nodes[0].status).toBe("done");
@@ -91,7 +91,7 @@ test("node out and digest", () => {
   const sh = fakeBin({ claude: `printf 'ORCH_NODE_OUT=%s\\n' "\${ORCH_NODE_OUT:-unset}"\nprintf 'ORCH_RUN_ID=%s\\n' "\${ORCH_RUN_ID:-unset}"\nprintf 'ORCH_NODE_ID=%s\\n' "\${ORCH_NODE_ID:-unset}"\ni=0\nwhile [ "$i" -lt 200 ]; do printf 'line %s\\n' "$i"; i=$((i + 1)); done` });
   const oc = orch(home, { PATH: `${sh}:${process.env.PATH}` });
   const job = oc("node", "dispatch", R, "impl", "claude", "go").out.trim();
-  oc("wait", job, "--timeout", "30", "--interval", "1");
+  oc("wait", job, "--timeout", "30", "--interval", "0.1");
   const log = readText(join(home, "jobs", job, "log"));
   expect(log).toContain(`ORCH_NODE_OUT=${implOut}`);
   expect(log).toContain(`ORCH_RUN_ID=${R}`);

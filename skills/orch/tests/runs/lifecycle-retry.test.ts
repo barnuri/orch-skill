@@ -11,7 +11,7 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   o("run", "start", "Retry test", "--id", "retry-1");
   o("node", "add", "retry-1", "a", "retry me");
   const job = o("node", "dispatch", "retry-1", "a", "claude-native", "again", "--same", "args").out.trim();
-  o("wait", job, "--timeout", "60", "--interval", "1");
+  o("wait", job, "--timeout", "60", "--interval", "0.1");
   o("run", "sync", "retry-1");
   o("node", "update", "retry-1", "a", "error", "--force", "--job", job, "--error", "exit=1");
   o("run", "finish", "retry-1");
@@ -20,7 +20,7 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   expect(r.out).toMatch(/^[0-9]/m);
   let s = runState(home, "retry-1");
   expect([s.status, s.finished ?? null, s.nodes[0].status, s.nodes[0].attempts[0].job_id, s.nodes[0].attempts[0].retry_mode, s.nodes[0].dispatch_args]).toEqual(["running", null, "running", job, "restarted", ["--same", "args"]]);
-  o("wait", r.out.trim(), "--timeout", "60", "--interval", "1");
+  o("wait", r.out.trim(), "--timeout", "60", "--interval", "0.1");
   o("run", "sync", "retry-1");
   r = o("node", "retry", "retry-1", "a");
   expect(r.rc).toBe(2);

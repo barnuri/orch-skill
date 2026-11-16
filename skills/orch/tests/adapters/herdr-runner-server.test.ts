@@ -15,7 +15,7 @@ const setup = () => {
   const d = orch(home, env as any);
   const instCfg = join(home, "herdr/home/.config/herdr");
   const fakeState = () => { try { return readJson(join(instCfg, "fake/state.json")); } catch { return { workspaces: [], tabs: [], panes: [] }; } };
-  const waitJob = (j: string) => d("wait", j, "--timeout", "90", "--interval", "0.2");
+  const waitJob = (j: string) => d("wait", j, "--timeout", "90", "--interval", "0.1");
   return { root, home, webdir, log, d, env, instCfg, fakeState, waitJob, realhome, shims, fake, calls: () => readText(log) };
 };
 

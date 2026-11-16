@@ -20,7 +20,7 @@ test("node dispatch records the hub expectation (model, tier, role) for the work
     o("run", "start", "Hub", "--id", "hub-1");
     o("node", "add", "hub-1", "plan", "Plan", "--role", "planning");
     const job = o("node", "dispatch", "hub-1", "plan", "do it").out.trim();
-    o("wait", job, "--timeout", "60", "--interval", "1");
+    o("wait", job, "--timeout", "60", "--interval", "0.1");
     const n = runState(home, "hub-1").nodes[0];
     expect(n.hub.expected.model).toBe("expected/intelligence");
     expect(n.hub.expected.tier).toBe("intelligence");
