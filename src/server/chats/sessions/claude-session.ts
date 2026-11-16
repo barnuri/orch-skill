@@ -133,6 +133,10 @@ export class ClaudeSession implements AgentSession {
   private completedTurn: boolean;
 
   constructor(
+
+  get processId(): number | null {
+    return this.handle.processId;
+  }
     private readonly params: SessionParams,
     private readonly bin: string,
     private readonly launch: Launch,

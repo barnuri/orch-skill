@@ -69,7 +69,9 @@ export function applyChatEvent(list: readonly Message[], ev: ChatEventData, nowI
   }
   const current = list[index] as Message;
   let next: Message = current;
-  if (ev.event === "delta" && typeof data["text"] === "string" && typeof data["offset"] === "number") {
+  if (ev.event === "activity") {
+    next = current.status === "streaming" || current.status === "pending" ? { ...current, activity: data as unknown as Message["activity"] } : current;
+  } else if (ev.event === "delta" && typeof data["text"] === "string" && typeof data["offset"] === "number") {
     const text = data["text"];
     const start = data["offset"] - text.length;
     if (start <= current.content.length && data["offset"] > current.content.length) {
@@ -88,6 +90,7 @@ export function applyChatEvent(list: readonly Message[], ev: ChatEventData, nowI
     next = {
       ...current,
       status: status === "error" || status === "stopped" ? status : "done",
+      activity: null,
       error: typeof data["error"] === "string" ? data["error"] : null,
       finished_at: current.finished_at ?? nowIso,
       context_truncated: data["context_truncated"] === true || data["context_truncated"] === 1,

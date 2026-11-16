@@ -1,3 +1,4 @@
+import type { ChatActivity } from "../../shared/chat-activity";
 import { type ChatPart, parseParts, partsForToolCall } from "../../shared/chat-parts";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -17,7 +18,7 @@ import type { AttachmentRow, ChatRow, MessageRow, ProjectRow } from "./types";
 import { agentPathFor, blobPath, SWEEP_AGE_MS, sweepUnattached } from "./uploads";
 import { OpencodeParser } from "./sessions/opencode-session";
 import { ClaudeParser } from "./sessions/claude-session";
-import { killGroup, listTurns, type TurnMeta, type TurnParser, turnEvents, turnPaths, sweepTurnFiles } from "./sessions/turn-files";
+import { isAlive, killGroup, listTurns, type TurnMeta, type TurnParser, turnEvents, turnPaths, sweepTurnFiles } from "./sessions/turn-files";
 import { PlainParser, sweepPromptDirs } from "./sessions/turn-session";
 import { indexRemove, indexUpsert, instructionBlock, memoryFingerprint, type Scope, Workspace } from "./workspace";
 
@@ -56,9 +57,14 @@ const DEFAULT_TITLE = "New chat";
 const DISPATCH: string = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 
 /** Both binaries can be replaced from the environment, which is how tests keep real models out. */
+  /** Set by the watchdog: the reply ends as an error with this text instead of stopped. */
+  failure?: string | undefined;
+  failedAt?: number | undefined;
 function defaultFactory(ctx: ServerContext, servers: OpencodeServerPool | null): SessionFactory {
   return (params: SessionParams) => {
     if (params.harness === "claude") {
+const WATCH_MS = 5000;
+const FORCE_AFTER_MS = 4000;
       const bin = process.env.ORCH_CHAT_CLAUDE_BIN ?? Bun.which("claude");
       const resolved = resolveLaunch(ctx.paths.home, params.harness, params.profile, params.modelId);
       if (bin === null || bin === undefined) {
@@ -92,7 +98,8 @@ export class ChatService {
   /** Long-lived `opencode serve` per profile env that opencode chat turns attach to (null: disabled, always standalone). */
   readonly opencodeServers: OpencodeServerPool | null = OpencodeServerPool.enabled() ? new OpencodeServerPool() : null;
 
-  constructor(private readonly ctx: ServerContext, opts: { factory?: SessionFactory; idleMs?: number } = {}) {
+  constructor(private readonly ctx: ServerContext, opts: { factory?: SessionFactory; idleMs?: number; liveness?: LivenessOptions & { tickMs?: number } } = {}) {
+    this.liveness = new TurnLiveness(opts.liveness);
     mkdirSync(join(ctx.paths.home, "chats"), { recursive: true });
     this.store = new ChatStore(join(ctx.paths.home, "chats.db"));
     const adoptable = this.adoptableTurns();
@@ -237,6 +244,7 @@ export class ChatService {
       throw new HttpError(409, "a reply is running; change harness, profile or model between turns");
     }
     this.checkSelection(input.harness, input.profile, input.model_id);
+    this.liveness.begin(chat.id, meta.message_id);
     const sameHarness = chat.harness === input.harness;
     const row = this.store.updateChat(id, sameHarness ? input : { ...input, session_id: null }) as ChatRow;
     void this.manager.drop(id);
@@ -402,9 +410,9 @@ export class ChatService {
 
   // ---- messages ----
 
-  withAttachments(rows: MessageRow[]): Array<MessageRow & { attachments: AttachmentRow[] }> {
+  withAttachments(rows: MessageRow[]): Array<MessageRow & { attachments: AttachmentRow[]; activity: ChatActivity | null }> {
     const map = this.store.attachmentsOf(rows.map((r) => r.id));
-    return rows.map((r) => ({ ...r, attachments: map.get(r.id) ?? [] }));
+    return rows.map((r) => ({ ...r, attachments: map.get(r.id) ?? [], activity: r.role === "assistant" && this.turns.get(r.chat_id)?.assistantId === r.id ? this.liveness.snapshot(r.chat_id) : null }));
   }
 
   sendMessage(chatId: string, input: { content: string; attachment_ids?: string[] }): { user_message_id: string; assistant_message_id: string } {
@@ -579,6 +587,8 @@ export class ChatService {
           if (next !== null) {
             this.emitRow(chat.id, next);
           }
+    this.liveness.begin(chatId, assistant.id);
+    this.emitActivity(chatId, turn);
         }
       } else if (ev.type === "reasoning-delta") {
         if (!replay) {
@@ -623,7 +633,9 @@ export class ChatService {
       return;
     }
     flush();
-    if (turn.stopRequested) {
+    if (turn.failure !== undefined) {
+      outcome = { status: "error", error: turn.failure };
+    } else if (turn.stopRequested) {
       outcome = { status: "stopped", error: null };
     } else if (outcome === null) {
       outcome = { status: "error", error: "agent ended without a result" };
@@ -642,7 +654,10 @@ export class ChatService {
       })
       : current) as MessageRow;
     this.store.updateChat(chat.id, { status: "idle" });
-    this.turns.delete(chat.id);
+    if (now === turn) {
+      this.turns.delete(chat.id);
+      this.liveness.end(chat.id);
+    }
     this.manager.release(chat.id);
     this.emit(chat.id, { event: "done", id: `${id}.${final.content.length}`, data: { message_id: id, status: final.status, error: final.error, context_truncated: final.context_truncated === 1, warning: final.warning } });
     this.emit(chat.id, { event: "status", data: { chat_id: chat.id, status: "idle" } });
@@ -707,3 +722,18 @@ export function chatServiceFor(ctx: ServerContext): ChatService {
   }
   return service;
 }
+    let asked = false;
+    let askedStopped = false;
+      if (!replay && this.liveness.note(chat.id, ev)) {
+        this.emitActivity(chat.id, turn);
+      }
+        if (asked && !askedStopped && !turn.stopRequested) {
+          // No harness has a live channel for an answer (see chat-harnesses.md): end the run here, the answer starts the next turn.
+          askedStopped = true;
+          await this.endProcess(turn);
+        }
+    const now = this.turns.get(chat.id);
+    if (now !== undefined && now !== turn) {
+      // A watchdog already closed this reply and a newer one runs: leave the chat alone.
+      return;
+    }

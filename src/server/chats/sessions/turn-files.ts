@@ -319,6 +319,10 @@ export class TurnHandle {
     return this.abort.signal;
   }
 
+  get processId(): number | null {
+    return this.pid;
+  }
+
   attachPid(pid: number): void {
     this.pid = pid;
   }

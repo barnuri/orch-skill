@@ -300,6 +300,11 @@ export class ChatStore {
       }
     }
     return hit.length;
+  /** Ids and chats of every reply still marked streaming or pending. */
+  streamingRows(): Array<{ id: string; chat_id: string }> {
+    return this.db.query("SELECT id, chat_id FROM messages WHERE status IN ('streaming','pending')").all() as Array<{ id: string; chat_id: string }>;
+  }
+
   }
 
   search(q: string, opts: { projectId?: string | null; limit?: number }): SearchHit[] {

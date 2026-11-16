@@ -23,6 +23,8 @@ export interface AgentSession {
   readonly persistent: boolean;
   /** The harness-side session id once known; null before the first turn. */
   readonly sessionId: string | null;
+  /** Process group of the running turn, when the session has one the watchdog can probe. */
+  readonly processId?: number | null;
   start(): Promise<void>;
   send(prompt: string, attachments: readonly string[], turn?: TurnInfo): AsyncIterable<AgentEvent>;
   /** Kills the running turn. A later `send` starts again from the stored session. */

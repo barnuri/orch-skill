@@ -169,10 +169,12 @@ describe("MessageView", () => {
     cleanup();
     const started = "2026-01-01T00:00:00Z";
     const t0 = Date.parse(started);
-    const { rerender } = render(<MessageView message={row({ status: "streaming", started_at: started })} now={t0 + 45_000} onOpenImage={() => {}} />);
-    expect(screen.getByTestId("msg-duration").textContent).toBe("45s");
-    rerender(<MessageView message={row({ status: "streaming", started_at: started })} now={t0 + 139_000} onOpenImage={() => {}} />);
-    expect(screen.getByTestId("msg-duration").textContent).toBe("2m 19s");
+    const { WorkingIndicator } = await import("./WorkingIndicator");
+    const live = row({ status: "streaming", started_at: started });
+    const { rerender } = render(<WorkingIndicator message={live} now={t0 + 45_000} />);
+    expect(screen.getByTestId("msg-duration").textContent).toBe("0:45");
+    rerender(<WorkingIndicator message={live} now={t0 + 139_000} />);
+    expect(screen.getByTestId("msg-duration").textContent).toBe("2:19");
     rerender(<MessageView message={row({ status: "done", started_at: started, finished_at: "2026-01-01T00:00:10Z", model_used: "fake-model", input_tokens: 11, output_tokens: 7, cost_usd: 0.0123 })} now={t0 + 999_000} onOpenImage={() => {}} />);
     const foot = screen.getByTestId("msg-foot").textContent ?? "";
     expect(foot).toContain("10s");

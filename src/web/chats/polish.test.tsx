@@ -29,7 +29,8 @@ describe("model and duration in footer and header", () => {
     cleanup();
     const started = "2026-01-01T00:00:00Z";
     const t0 = Date.parse(started);
-    const { rerender } = render(<MessageView message={row({ status: "streaming", started_at: started })} now={t0 + 5_000} onOpenImage={() => {}} fallbackModel="HAIKU" />);
+    const { WorkingIndicator } = await import("./WorkingIndicator");
+    const { rerender } = render(<WorkingIndicator message={row({ status: "streaming", started_at: started })} now={t0 + 5_000} fallbackModel="HAIKU" />);
     expect(screen.getByTestId("msg-model").textContent).toBe("HAIKU");
     expect(screen.getByTestId("msg-duration").textContent).toBe("5s");
     for (const status of ["error", "stopped", "done"] as const) {

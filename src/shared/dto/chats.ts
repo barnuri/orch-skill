@@ -364,6 +364,9 @@ export class MessagePageDto extends ZodDto {
   @ZodField(z.array(MessageDto.schema), { description: "The messages, newest first. Reverse them to display." })
   items!: MessageDto[];
 
+  @ZodField(z.looseObject({ state: z.enum(["starting", "thinking", "writing", "tool", "waiting"]), since: z.string(), last_event_at: z.string(), state_ms: z.number(), idle_ms: z.number(), tool: z.looseObject({ id: z.string(), name: z.string(), started_at: z.string() }).nullable().optional() }).nullable().optional(), { description: "Only on a reply that is running: what the agent is doing (starting, thinking, writing, tool, waiting), since when, when it last sent anything, and the running tool. Also sent as the `activity` SSE event. Null when the reply is not running." })
+  activity?: { state: "starting" | "thinking" | "writing" | "tool" | "waiting"; since: string; last_event_at: string; state_ms: number; idle_ms: number; tool?: { id: string; name: string; started_at: string } | null } | null;
+
   @ZodField(z.string().nullable(), { description: "Pass as `cursor` for older messages. Null when there are none." })
   next_cursor!: string | null;
 }

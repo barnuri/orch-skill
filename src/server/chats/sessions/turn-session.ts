@@ -79,6 +79,10 @@ export class TurnSession implements AgentSession {
   readonly persistent = false;
   sessionId: string | null;
   private readonly handle = new TurnHandle();
+
+  get processId(): number | null {
+    return this.handle.processId;
+  }
   private attempt = 0;
 
   constructor(private readonly params: SessionParams, private readonly dispatch: string) {

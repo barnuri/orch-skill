@@ -28,7 +28,7 @@ function Footer({ message, now, fallbackModel, onRegenerate }: { message: Messag
   const tokens = formatTokens(message.input_tokens, message.output_tokens);
   return (
     <div className="msg-foot" data-testid="msg-foot">
-      <span className={`msg-status is-${message.status}`}>{message.status}</span>
+      {message.status === "stopped" ? <span className="msg-status is-stopped">Stopped</span> : null}
       <SpeakButton message={message} />
       {message.content.trim() !== "" && !isLive(message) ? <CopyButton text={message.content} label="Copy" className="msg-act" /> : null}
       {onRegenerate !== undefined ? <button type="button" className="msg-act" data-testid="msg-regenerate" onClick={onRegenerate}>Regenerate</button> : null}
@@ -139,16 +139,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
             <Markdown text={message.content} live={live} />
           </Suspense>
         )}
-        {message.status === "error" ? (
-          <div className="msg-error" role="alert">
-            <span>{message.error ?? "The reply failed."}</span>
-            {onRetry !== undefined ? (
-              <button type="button" className="btn" onClick={onRetry}>
-                Retry
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        {message.status === "error" ? <ErrorNotice error={message.error} onRetry={onRetry} /> : null}
       </div>
       <Footer message={message} now={now} fallbackModel={fallbackModel} onRegenerate={onRegenerate} />
       {messageNotes(message).map((n) => (

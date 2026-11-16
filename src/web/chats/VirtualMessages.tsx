@@ -4,6 +4,7 @@ import { isLive, retryTarget } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
 import { groupThread } from "./chat-group";
 import { MessageView, ToolsView } from "./MessageView";
+import { WorkingIndicator } from "./WorkingIndicator";
 import { useNow } from "./use-chat-thread";
 
 const NEAR_BOTTOM_PX = 80;
@@ -71,7 +72,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
     if (el !== null && stickRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [total, messages.length]);
+  }, [total, messages.length, working?.activity?.state]);
 
   const jump = (): void => {
     const el = parent.current;
@@ -114,6 +115,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
           })}
         </div>
       </div>
+        {working !== undefined ? <WorkingIndicator message={working} now={now} fallbackModel={fallbackModel} /> : null}
       {!stick ? (
         <button type="button" className="jump-pill" onClick={jump}>
           ↓ Jump to latest{anyLive ? " · streaming" : ""}

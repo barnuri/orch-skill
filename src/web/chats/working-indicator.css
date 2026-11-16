@@ -1,0 +1,39 @@
+/* Working indicator and error notice. Colours come from the status tokens: blue is live, amber is a stall, red is an error only. */
+.working { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s3); max-width: 720px; margin: var(--s2) 0 var(--s3) var(--s2); color: var(--tx2); font-size: var(--fs-meta); }
+.working-label { color: var(--tx2); }
+.working-meta { display: inline-flex; gap: var(--s2); color: var(--tx3); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
+.working-meta > span + span::before { content: "·"; margin-inline-end: var(--s2); }
+.working-dots { display: inline-flex; align-items: center; gap: 4px; height: 1em; }
+.working-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--status-running); animation: working-bounce 1.2s ease-in-out infinite; }
+.working-dots i:nth-child(2) { animation-delay: 0.15s; }
+.working-dots i:nth-child(3) { animation-delay: 0.3s; }
+.working-dots.is-still i { animation: none; opacity: 0.55; }
+@keyframes working-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-3px); opacity: 1; } }
+.working.is-stalled { padding: var(--s2) var(--s3); border: 1px solid var(--status-stale-bd); border-radius: var(--r-md); background: var(--status-stale-bg); }
+.working.is-stalled .working-label { color: var(--status-stale); }
+.working.is-stalled .working-dots i { background: var(--status-stale); }
+.working-actions { display: inline-flex; align-items: center; gap: var(--s3); margin-inline-start: auto; }
+.working-stop { border-color: var(--status-stale-bd); color: var(--status-stale); min-height: 36px; }
+.working-checked { flex-basis: 100%; margin: 0; color: var(--tx2); }
+.working .link-btn { min-height: 36px; }
+.working :is(button):focus-visible { outline: 2px solid var(--accb); outline-offset: 2px; }
+
+.error-notice { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s3); margin-top: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-md); border: 1px solid var(--status-error-bd); background: var(--status-error-bg); color: var(--status-error); }
+.error-icon { flex: none; width: 20px; height: 20px; margin-top: 1px; }
+.error-body { flex: 1 1 220px; min-width: 0; display: grid; gap: var(--s1); }
+.error-title { margin: 0; font-weight: 600; }
+.error-fix { margin: 0; color: var(--tx); }
+.error-raw { color: var(--tx2); font-size: var(--fs-meta); }
+.error-raw summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; }
+.error-raw summary:focus-visible { outline: 2px solid var(--accb); outline-offset: 2px; }
+.error-raw pre { margin: var(--s2) 0 0; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.error-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.error-actions .btn { min-height: 36px; }
+.error-actions .btn:focus-visible { outline: 2px solid var(--accb); outline-offset: 2px; }
+.msg-foot-quiet { opacity: 0.9; }
+@media (pointer: coarse) {
+  .working-stop, .working .link-btn, .error-actions .btn, .error-raw summary { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-dots i { animation: none; transition: none; opacity: 0.8; }
+}
