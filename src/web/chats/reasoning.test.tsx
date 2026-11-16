@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Reasoning } from "./Reasoning";
-import { ThinkingContext } from "./thread-live";
+import { installDom } from "../test/dom";
+
+// The DOM comes from this file, so it passes alone and in any order (it used to rely on another file's globals).
+const uninstall = installDom();
+const { cleanup, fireEvent, render, screen } = await import("@testing-library/react");
+const { Reasoning } = await import("./Reasoning");
+const { ThinkingContext } = await import("./thread-live");
 
 afterEach(cleanup);
+afterAll(() => uninstall());
 
 describe("Reasoning", () => {
   test("live: shows the Thinking header with dots and the streaming text, capped", () => {

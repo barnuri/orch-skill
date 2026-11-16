@@ -170,8 +170,12 @@ describe("versions", () => {
     await boot([["a.md", "markdown", ["one\ntwo", "one\nthree"]]]);
     await open("a.md");
     fireEvent.click(await screen.findByTestId("art-mode-diff"));
-    await waitFor(() => expect(screen.getByTestId("diff-view").textContent).toContain("three"));
-    expect(screen.getByTestId("diff-view").textContent).toContain("two");
+    // The diff library loads lazily: wait for the finished diff (both the removed and the added line), not for the first paint.
+    await waitFor(() => {
+      const text = screen.getByTestId("diff-view").textContent ?? "";
+      expect(text).toContain("three");
+      expect(text).toContain("two");
+    });
   });
 });
 
