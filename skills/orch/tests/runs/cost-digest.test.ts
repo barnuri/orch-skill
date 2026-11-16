@@ -37,7 +37,7 @@ test("node cost", () => {
   const cost = () => runState(home, R).nodes[0].cost ?? null;
   expect(cost()).toBeNull();
   let r = o("node", "cost");
-  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.sh node cost/);
+  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.ts node cost/);
   r = o("node", "cost", R, "n1");
   expect(r.rc).toBe(2); expect(r.all).toMatch(/pass --from-job or --clear/);
   expect(o("node", "cost", R, "n1", "--bogus").rc).toBe(2);
@@ -69,7 +69,7 @@ test("node out and digest", () => {
   const R = o("run", "start", "handoff run").out.trim();
   o("node", "add", R, "impl", "Implement"); o("node", "add", R, "review", "Review", "--after", "impl");
   let r = o("node", "out");
-  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.sh node out/);
+  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.ts node out/);
   expect(o("node", "out", R, "impl", "extra").rc).toBe(2);
   expect(o("node", "out", "nosuchrun", "impl").rc).toBe(2);
   expect(o("node", "out", R, "nosuchnode").rc).toBe(2);
@@ -116,13 +116,13 @@ test("node out and digest", () => {
 test("artifact", () => {
   const home = seedHome(), o = orch(home);
   let r = o("artifact");
-  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.sh artifact <run-id>/);
+  expect(r.rc).toBe(2); expect(r.all).toMatch(/dispatch\.ts artifact <run-id>/);
   r = o("artifact", "r1", "r2");
   expect(r.rc).toBe(2); expect(r.all).toMatch(/one run id at a time/);
   r = o("artifact", "r1", "--bogus");
   expect(r.rc).toBe(2); expect(r.all).toMatch(/unknown flag --bogus/);
   expect(o("artifact", "r1", "--out").rc).toBe(2);
-  expect(o.env({ ORCH_BUN: "/nonexistent/bun" }, "artifact", "r1").rc).toBe(127);
+  expect(o("artifact", "r1").rc).toBe(1);
   const id = o("run", "start", "snapshot me").out.trim();
   o("node", "add", id, "n1", "first node");
   const emit = join(home, "emitted");

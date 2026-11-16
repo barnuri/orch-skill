@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { orch, seedHome, runState, nodeOf, events, ndjson, normState, eventKeys, handoff, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, events, ndjson, normState as normRaw, eventKeys, handoff, autoCleanup } from "../helpers";
 autoCleanup();
+const normState = (h: string, r: string) => normRaw(h, r).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ/g, "T");
 const env = { CLAUDE_CODE_SESSION_ID: "batch-test" };
 const mk = () => { const home = seedHome(); return { home, o: orch(home, env) }; };
 const L = (...rows: object[]) => ndjson(rows);
@@ -127,10 +128,10 @@ test("deps and continued runs", () => {
   expect(e1).toMatch(/^line 1: node update: a cannot depend on itself/m);
   expect(e1).toMatch(/^line 2: node update: dependency zz is not in run/m);
   expect(e1).toMatch(/^line 3: node update: --after b would make a cycle/m);
-  expect(e1).toMatch(/^line 4: usage: dispatch.sh node update/m);
+  expect(e1).toMatch(/^line 4: usage: dispatch.ts node update/m);
   expect(e1).toMatch(/^line 5: node update: --needs-user expects a reason/m);
   const singles = [["--after", "a"], ["--after", "zz"], ["--after", "b"], [], ["--needs-user", ""]].map((f) => o("node", "update", DF, "a", ...f).all).join("\n");
-  for (const m of ["cannot depend on itself", "dependency zz is not in run", "would make a cycle", "usage: dispatch.sh node update", "--needs-user expects a reason"]) expect(singles).toMatch(m);
+  for (const m of ["cannot depend on itself", "dependency zz is not in run", "would make a cycle", "usage: dispatch.ts node update", "--needs-user expects a reason"]) expect(singles).toMatch(m);
 });
 
 test("holds in batches", () => {

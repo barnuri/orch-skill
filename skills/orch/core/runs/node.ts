@@ -362,8 +362,7 @@ export function setStatus(run: RunState, id: string, status: string, job: string
   const retry = status === "error" ? nextRetryAt(n, ctx.now) : "";
   if (status === "waiting" && old === "error") archiveAttempt(n);
 
-  // Batch writes no timing: batch.sh set_status (the parity oracle) stamps none of these fields.
-  if (!ctx.batch) {
+  {
     if (dispatching && status === "running") {
       if (n.seg_open && old === "running") {
         n.dispatched_at = n.dispatched_at ?? eventAt;
