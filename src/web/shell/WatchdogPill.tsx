@@ -1,13 +1,19 @@
-import type { WatchdogAction, WatchdogStatus } from "../../shared/types/watchdog";
+import type { WatchdogAction, WatchdogFlag, WatchdogStatus } from "../../shared/types/watchdog";
 
 export type WatchdogPillState = "off" | "ok" | "stalled" | "error";
 
-/** Red for a flag the watchdog gave up on (out of retries), amber for a stalled node, green otherwise. */
+/** Rules whose flag means a node failed on infrastructure and the watchdog ran out of retries. Only these are red. */
+const ERROR_RULES: ReadonlySet<WatchdogFlag["rule"]> = new Set(["infra-retry", "lost"]);
+
+/**
+ * Red only for a node in error the watchdog gave up on. Any other flag (stalled, unverified, info)
+ * is amber. Off is grey, no flag is green.
+ */
 export function watchdogPillState(status: WatchdogStatus): WatchdogPillState {
   if (status.state === "off") {
     return "off";
   }
-  if (status.flags.some((f) => f.rule !== "stalled")) {
+  if (status.flags.some((f) => ERROR_RULES.has(f.rule))) {
     return "error";
   }
   return status.flags.length > 0 ? "stalled" : "ok";
@@ -23,7 +29,7 @@ export function describeAction(a: WatchdogAction): string {
 }
 
 /**
- * Header pill for the server's run watchdog: its state (off, ok, amber when a node is stalled,
+ * Header pill for the server's run watchdog: its state (off, ok, amber for a stalled or unverified node,
  * red when a node is out of retries) and its last action. Hidden before the first answer.
  */
 export function WatchdogPill({ status }: { status: WatchdogStatus | null | undefined }) {

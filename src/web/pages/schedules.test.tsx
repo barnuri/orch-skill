@@ -154,6 +154,25 @@ describe("schedule edit", () => {
   });
 });
 
+describe("cron meaning", () => {
+  test("the list row and the form show the meaning, which follows the cron input as it is typed", async () => {
+    serve([schedule()], () => json(200, { ok: true }));
+    page();
+    expect(await screen.findByText("At 09:00")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit nightly pull" }));
+    const input = screen.getByLabelText("Cron expression");
+    fireEvent.change(input, { target: { value: "*/15 * * * *" } });
+    expect(screen.getByText("Every 15 minutes", { selector: ".sched-preview .sched-meaning" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "0 9 * * 1-5" } });
+    expect(screen.getByText("At 09:00, Monday through Friday")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "61 * * * *" } });
+    expect(screen.getByText("Invalid cron").className).toContain("is-bad");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(screen.queryByText("Invalid cron")).toBeNull();
+  });
+});
+
 const CHAT_OPTIONS = {
   harnesses: [
     {

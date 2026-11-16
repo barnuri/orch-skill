@@ -20,12 +20,12 @@ import { Toggle } from "../components/Toggle";
 import { PickerSelect } from "../chats/PickerSelect";
 import { useChatOptions } from "../chats/queries";
 import { asProfilesDocument } from "../lib/documents";
+import { describeCron } from "../lib/cron-text";
 import { fmtDur, rel, until } from "../lib/format";
 import { useSessionState } from "../lib/session-state";
 import {
   CRON_PRESETS,
   CUSTOM_CRON,
-  cronLabel,
   draftErrors,
   draftOf,
   emptyScheduleDraft,
@@ -148,7 +148,7 @@ function ScheduleRow({
         </div>
         <div className="sched-sub">
           <span className="mono">{schedule.cron}</span>
-          <span className="muted">{cronLabel(schedule.cron)}</span>
+          <span className="muted sched-meaning">{cronMeaning(schedule.cron)}</span>
           {schedule.kind === "prompt" ? (
             <span className={schedule.model ? "sched-model mono" : "sched-model mono muted"} title="Model the prompt runs on">
               {`model: ${modelText(schedule)}`}
@@ -206,8 +206,15 @@ function ScheduleRow({
   );
 }
 
+function cronMeaning(cron: string): string {
+  const meaning = describeCron(cron);
+  return meaning === null || !meaning.ok ? "Invalid cron" : meaning.text;
+}
+
 function CronField({ cron, error, onChange }: { cron: string; error?: string | undefined; onChange: (cron: string) => void }) {
   const known = CRON_PRESETS.some((preset) => preset.cron === cron);
+  const meaning = describeCron(cron);
+  const meaningBad = meaning !== null && !meaning.ok;
   const [preview, setPreview] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
     const value = cron.trim();
@@ -247,7 +254,7 @@ function CronField({ cron, error, onChange }: { cron: string; error?: string | u
             type="text"
             className="mono"
             aria-label="Cron expression"
-            aria-invalid={error !== undefined || preview?.ok === false || undefined}
+            aria-invalid={error !== undefined || meaningBad || preview?.ok === false || undefined}
             placeholder="m h dom mon dow"
             value={cron}
             onChange={(event) => {
@@ -255,8 +262,15 @@ function CronField({ cron, error, onChange }: { cron: string; error?: string | u
             }}
           />
         </div>
-        <div className={preview === null ? "sched-preview" : `sched-preview ${preview.ok ? "is-ok" : "is-bad"}`} role="status" aria-live="polite">
-          {error ?? preview?.text}
+        <div className={error !== undefined || meaningBad ? "sched-preview is-bad" : preview === null ? "sched-preview" : `sched-preview ${preview.ok ? "is-ok" : "is-bad"}`} role="status" aria-live="polite">
+          {error ??
+            (meaningBad ? "Invalid cron" : (
+              <>
+                {meaning?.ok ? <span className="sched-meaning">{meaning.text}</span> : null}
+                {meaning?.ok && preview !== null ? " " : null}
+                {preview?.text === undefined ? null : <span>{preview.text}</span>}
+              </>
+            ))}
         </div>
       </div>
     </Labelled>

@@ -5,20 +5,18 @@ import { NODE_H, NODE_W, layoutDag } from "../lib/dag-layout";
 import { followView } from "../lib/follow-view";
 import type { Box } from "../lib/follow-view";
 import { focusTarget } from "../lib/focus-target";
-import { loadGraphPrefs, saveGraphFollow, saveGraphHideDone } from "../lib/graph-prefs";
+import { GRAPH_SCALE_SAVE_MS, ZOOM_MAX, ZOOM_MIN } from "../lib/constants";
+import { clampZoom, loadGraphPrefs, saveGraphFollow, saveGraphHideDone, saveGraphMode, saveGraphScale } from "../lib/graph-prefs";
+import type { GraphViewMode } from "../lib/graph-prefs";
 import { GraphSvg } from "./GraphSvg";
 
-const ZOOM_MIN = 0.12;
-const ZOOM_MAX = 2.5;
 const ZOOM_STEP = 1.2;
 const FIT_PAD = 28;
 const DRAG_PX = 4;
 
-type ViewMode = "fit" | "original" | "manual";
-
 interface ViewState {
   scale: number;
-  mode: ViewMode;
+  mode: GraphViewMode;
   /** Follow what is running. On by default; any pan or zoom by the user turns it off. */
   follow: boolean;
   /** Hide finished nodes (the selected one stays). */
@@ -36,9 +34,11 @@ const states = new Map<string, ViewState>();
 export function viewStateFor(runId: string): ViewState {
   let state = states.get(runId);
   if (state === undefined) {
-    // Follow and Hide done start from the last choice made on any run.
+    // Zoom, mode, Follow and Hide done start from the last choice made on any run.
     const prefs = loadGraphPrefs();
-    state = { scale: 1, mode: "fit", follow: prefs.follow, hideDone: prefs.hideDone, focused: null, left: 0, top: 0 };
+    // 100% is always exactly 1; fit and manual keep the stored scale (fit recomputes it from the data).
+    const scale = prefs.mode === "original" ? 1 : prefs.scale;
+    state = { scale, mode: prefs.mode, follow: prefs.follow, hideDone: prefs.hideDone, focused: null, left: 0, top: 0 };
     states.set(runId, state);
   }
   return state;
@@ -49,6 +49,18 @@ export function clearViewStates(): void {
 }
 
 const clampScale = (scale: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+
+// One pending zoom write, shared by every run: the last scale wins after a quiet GRAPH_SCALE_SAVE_MS.
+let scaleSave: ReturnType<typeof setTimeout> | null = null;
+function recordZoom(scale: number): void {
+  if (scaleSave !== null) {
+    clearTimeout(scaleSave);
+  }
+  scaleSave = setTimeout(() => {
+    scaleSave = null;
+    saveGraphScale(clampZoom(scale));
+  }, GRAPH_SCALE_SAVE_MS);
+}
 
 /** Nodes the Hide done toggle removes from the graph: finished and skipped ones. */
 const isHiddenByToggle = (status: string): boolean => status === "done" || status === "skipped";
@@ -245,6 +257,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
       // From here the graph stays where the user puts it instead of fitting again.
       if (view.mode === "fit") {
         view.mode = "manual";
+        saveGraphMode(view.mode);
       }
       redraw();
     };
@@ -315,6 +328,8 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
       stopFollowing();
       view.mode = "manual";
       view.scale = clampScale(view.scale * factor);
+      saveGraphMode(view.mode);
+      recordZoom(view.scale);
       redraw();
     };
     node.addEventListener("mousedown", onDown);
@@ -335,22 +350,27 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
     saveGraphFollow(false);
     if (view.mode === "fit") {
       view.mode = "manual";
+      saveGraphMode(view.mode);
     }
   };
   const zoomBy = (factor: number): void => {
     stopFollowing();
     view.mode = "manual";
     view.scale = clampScale(view.scale * factor);
+    saveGraphMode(view.mode);
+    recordZoom(view.scale);
     redraw();
   };
   const fit = (): void => {
     stopFollowing();
     placeFit();
+    saveGraphMode(view.mode);
   };
   const original = (): void => {
     stopFollowing();
     view.mode = "original";
     view.scale = 1;
+    saveGraphMode(view.mode);
     redraw();
     if (viewport.current !== null) {
       viewport.current.scrollLeft = 0;

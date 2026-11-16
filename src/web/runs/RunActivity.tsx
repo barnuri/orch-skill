@@ -1,6 +1,7 @@
 import type { RunEvent } from "../../shared/types/run-event";
 import type { RunState } from "../../shared/types/run-state";
 import { useState } from "react";
+import { loadGraphPrefs, saveGraphActivityExpanded } from "../lib/graph-prefs";
 import { fmtTime, rel } from "../lib/format";
 import { describeEvent, feedRows, staleSummary } from "../lib/run-activity";
 import { useNow } from "./use-now";
@@ -31,7 +32,8 @@ export const ACTIVITY_PREVIEW = 5;
 
 /** Newest first, live: each row is time, node, change. The last ACTIVITY_PREVIEW rows show until "Show more". */
 export function ActivityFeed({ events }: { events: readonly RunEvent[] }) {
-  const [expanded, setExpanded] = useState(false);
+  // One choice for all runs, restored on load.
+  const [expanded, setExpanded] = useState(() => loadGraphPrefs().activityExpanded);
   const rows = feedRows(events);
   const shown = expanded ? rows : rows.slice(0, ACTIVITY_PREVIEW);
   const hidden = rows.length - shown.length;
@@ -59,7 +61,9 @@ export function ActivityFeed({ events }: { events: readonly RunEvent[] }) {
               type="button"
               aria-expanded={expanded}
               onClick={() => {
-                setExpanded((value) => !value);
+                const next = !expanded;
+                saveGraphActivityExpanded(next);
+                setExpanded(next);
               }}
             >
               {expanded ? "Show less" : `Show more (${hidden} more)`}

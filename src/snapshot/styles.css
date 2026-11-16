@@ -169,6 +169,18 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 }
 .run-layout .node-panel pre { margin: 0; max-height: 480px; min-height: 4.5rem; }
 .run-layout .node-panel pre.attempt-tail { max-height: 140px; min-height: 0; font-size: 11px; padding: 6px 10px; }
+/* Colour of a job log (ANSI from the agent): the 16 base colours map to the status tokens.
+   Red is the error colour: the agent's own red marks an error, so its selector names the error state. */
+.ansi-fg-0, .ansi-fg-8 { color: var(--tx2); }
+.ansi-error-fg-1, .ansi-error-fg-9 { color: var(--status-error); }
+.ansi-fg-2, .ansi-fg-10 { color: var(--status-done); }
+.ansi-fg-3, .ansi-fg-11 { color: var(--status-stale); }
+.ansi-fg-4, .ansi-fg-12 { color: var(--status-running); }
+.ansi-fg-5, .ansi-fg-13 { color: var(--status-starting); }
+.ansi-fg-6, .ansi-fg-14 { color: var(--status-skipped); }
+.ansi-fg-7, .ansi-fg-15 { color: var(--tx); }
+.ansi-bold { font-weight: 600; }
+.ansi-dim { opacity: .6; }
 .node-panel-head { justify-content: flex-start; }
 .node-panel-title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .node-panel-spacer { flex: 1; }

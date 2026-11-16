@@ -31,12 +31,15 @@
 .btn:hover { border-color: var(--tx3); background: var(--hover); }
 .btn.primary { background: var(--acc); border-color: var(--acc); color: var(--onacc); font-weight: 600; }
 .btn.primary:hover { background: var(--acc); border-color: var(--focus); filter: brightness(1.08); }
-.btn.danger { background: transparent; border-color: var(--erbd); color: var(--er); }
-.btn.danger:hover { background: var(--erbg); border-color: var(--er); }
+.btn.danger { background: transparent; border-color: var(--wabd); color: var(--wa); }
+.btn.danger:hover { background: var(--wabg); border-color: var(--wa); }
+.btn.danger[disabled]:hover { background: transparent; border-color: var(--wabd); }
+dialog .btn.danger { border-color: var(--erbd); color: var(--er); }
+dialog .btn.danger:hover { background: var(--erbg); border-color: var(--er); }
+dialog .btn.danger[disabled]:hover { background: transparent; border-color: var(--erbd); }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .btn[disabled]:hover { border-color: var(--border-strong); background: var(--panel2); }
 .btn.primary[disabled]:hover { background: var(--acc); border-color: var(--acc); filter: none; }
-.btn.danger[disabled]:hover { background: transparent; border-color: var(--erbd); }
 
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;

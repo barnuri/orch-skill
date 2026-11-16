@@ -25,11 +25,14 @@ function flag(rule: WatchdogFlag["rule"]): WatchdogFlag {
 }
 
 describe("WatchdogPill", () => {
-  test("state: off, ok, amber stalled, red out of retries", () => {
+  test("state: off, ok, amber stalled or unverified, red only for a node out of retries", () => {
     expect(watchdogPillState(status({ state: "off" }))).toBe("off");
     expect(watchdogPillState(status())).toBe("ok");
     expect(watchdogPillState(status({ flags: [flag("stalled")] }))).toBe("stalled");
+    expect(watchdogPillState(status({ flags: [flag("unverified")] }))).toBe("stalled");
     expect(watchdogPillState(status({ flags: [flag("stalled"), flag("lost")] }))).toBe("error");
+    expect(watchdogPillState(status({ flags: [flag("infra-retry")] }))).toBe("error");
+    expect(watchdogPillState(status({ flags: [flag("starting")] }))).toBe("stalled");
   });
 
   test("shows the state class and the last action", () => {

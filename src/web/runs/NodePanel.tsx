@@ -9,7 +9,7 @@ import { Chip } from "../components/Chip";
 import { useToast } from "../components/Toast";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
-import { stripAnsi } from "../lib/ansi";
+import { ansiSegments, stripAnsi } from "../lib/ansi";
 import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
 import { AFTER_THE_FACT, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip, ownerText } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
@@ -39,6 +39,26 @@ function AiText({ text, className, plain }: { text: string; className: string; p
         <ChatMarkdown text={text} />
       </Suspense>
     </div>
+  );
+}
+
+/** A log with its colour: each run of text is a span, so a log line stays text and nothing is injected as HTML. */
+function AnsiLog({ text }: { text: string }) {
+  return (
+    <>
+      {ansiSegments(text).map((seg, i) => {
+        const { base, rgb, bold, dim } = seg.style;
+        const fg = base === null ? "" : base === 1 || base === 9 ? `ansi-error-fg-${base}` : `ansi-fg-${base}`;
+        const cls = [fg, bold ? "ansi-bold" : "", dim ? "ansi-dim" : ""].filter(Boolean).join(" ");
+        return cls === "" && rgb === null ? (
+          seg.text
+        ) : (
+          <span key={i} className={cls || undefined} style={rgb !== null ? { color: rgb } : undefined}>
+            {seg.text}
+          </span>
+        );
+      })}
+    </>
   );
 }
 
@@ -225,7 +245,7 @@ function Attempts({ node }: { node: RunNode }) {
                 <span className="attempt-no mono">{`#${index + 1}`}</span>
                 <span className="attempt-meta mono">{lines.join(" · ")}</span>
               </div>
-              {tail.length > 0 ? <pre className="transcript attempt-tail">{stripAnsi(tail.join("\n"))}</pre> : null}
+              {tail.length > 0 ? <pre className="transcript attempt-tail"><AnsiLog text={tail.join("\n")} /></pre> : null}
             </li>
           );
         })}
@@ -362,7 +382,7 @@ function NodeSession({ node }: { node: RunNode }) {
   } else if (envelope !== null) {
     body = <AiText className="ai-text node-output" text={stripAnsi(envelope.text)} plain={stripAnsi(envelope.text)} />;
   } else if (node.log_tail.length > 0) {
-    body = <AiText className="ai-text node-output" text={stripAnsi(node.log_tail.join("\n"))} plain={stripAnsi(node.log_tail.join("\n"))} />;
+    body = <pre className="transcript node-output"><AnsiLog text={node.log_tail.join("\n")} /></pre>;
   } else {
     const hint =
       jobId === null
