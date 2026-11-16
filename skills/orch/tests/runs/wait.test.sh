@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tests for `run wait` (lib/wait.sh), the coordinator wake-up: a status change, needs-user, the
+# Tests for `run wait` (lib/runs/wait.sh), the coordinator wake-up: a status change, needs-user, the
 # timeout, --follow and --json, and stall / dead-owner detection over a fake opencode session store
 # read without the sqlite3 CLI. Temp homes only. Run with: bash wait.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 scratch=$(new_tmp)
 home=$(new_tmp); seed_home "$home"

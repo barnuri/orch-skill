@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Harness adapters for dispatch.sh — sourced, never executed. One function per target harness,
-# all sharing the contract in ../../references/adapter-contract.md:
+# all sharing the contract in ../../../references/adapter-contract.md:
 #   adapter_<name> <prompt> [adapter-specific args...]   stdout = result, stderr = diagnostics,
 #   exit = underlying CLI/request code (127 = required binary missing, 1 = request failed).
 

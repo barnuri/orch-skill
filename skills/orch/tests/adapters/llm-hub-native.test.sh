@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: llm-hub native mode
-# Run: bash llm-hub-native.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash llm-hub-native.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- llm-hub native mode: hub setup, role→tier, resolve before, settle after ------------------
 if ! command -v python3 >/dev/null 2>&1; then

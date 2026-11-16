@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: run and node lifecycle, prune
-# Run: bash run-lifecycle.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash run-lifecycle.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- run / node lifecycle -----------------------------------------------------
 home=$(new_tmp)

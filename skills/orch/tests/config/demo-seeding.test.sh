@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: demo seeding
-# Run: bash demo-seeding.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash demo-seeding.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 home=$(new_tmp)
 env HARNESS_ORCH_HOME="$home" bash "$SCRIPT" init >/dev/null 2>&1

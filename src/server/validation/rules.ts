@@ -1,5 +1,5 @@
 // Validation rules shared by the profiles/memory/suggestions validators. Enums (harness and
-// outcome lists) are not here: they arrive via argv from `lib/config.sh`.
+// outcome lists) are not here: they arrive via argv from `lib/core/config.sh`.
 
 export const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 export const ENV_REF = /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/;

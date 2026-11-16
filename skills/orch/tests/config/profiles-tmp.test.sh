@@ -2,7 +2,7 @@
 # profiles.json migrations must not leave scratch files or run on every call.
 set -u
 export ORCH_NO_ANNOUNCE=1
-SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dispatch.sh"
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)/dispatch.sh"
 pass=0; fail=0
 ok() { if [ "$2" = 1 ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n' "$1" >&2; fi; }
 home=$(mktemp -d); export HARNESS_ORCH_HOME="$home"

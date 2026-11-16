@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `dispatch.sh use <run-id>` and the `.` run-id shortcut for node update|report|batch and run sync.
 # Self-contained; run with: bash current-run.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 home=$(new_tmp)
 seed_home "$home"

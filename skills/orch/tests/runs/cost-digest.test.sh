@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: claude capture, node cost, out and digest, artifact
-# Run: bash cost-digest.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash cost-digest.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- claude adapter: JSON capture, cost sidecar, no-jq fallback ----------------
 # The JSON form is what reports tokens and dollars. The log must still hold only the answer, so

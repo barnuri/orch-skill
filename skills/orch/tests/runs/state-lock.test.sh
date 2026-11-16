@@ -3,7 +3,7 @@
 # node update, owner-fill / owner-liveness patches: all node_patch / state_write_raw) rewrite the
 # same file. Every writer must hold the run lock across its read-modify-write, or a write computed
 # from an older read drops a node that a batch just added. Self-contained; run with: bash state-lock.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 home=$(new_tmp)
 seed_home "$home"

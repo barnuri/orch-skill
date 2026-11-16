@@ -3,7 +3,7 @@
 # Self-contained; run with: bash announce-daemon.test.sh
 set -u
 export ORCH_NO_ANNOUNCE=1
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
 ANN="$SCRIPT_DIR/announce.sh"
 pass=0; fail=0
@@ -20,7 +20,7 @@ chmod +x "$fake/herdr"
 export FAKE_HERDR_LOG="$fake/herdr.log" HERDR_BIN_PATH="$fake/herdr" HERDR_ENV=1 HERDR_PANE_ID=p1
 export HARNESS_ORCH_HOME="$home" ANNOUNCE_INTERVAL=1 ANNOUNCE_IDLE_SECS=3 ANNOUNCE_SID=sess1 ANNOUNCE_HARNESS=claude
 o() { bash "$SCRIPT" "$@"; }
-. "$SCRIPT_DIR/test-home.sh"; seed_home "$home"
+. "$SCRIPT_DIR/../tests/test-home.sh"; seed_home "$home"
 R=$(o run start "daemon demo")
 o node add "$R" a a >/dev/null
 o node update "$R" a running --owner coordinator >/dev/null

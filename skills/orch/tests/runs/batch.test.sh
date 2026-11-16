@@ -3,8 +3,12 @@
 # ops run one by one, and timing (one batch of 10 ops vs 10 single calls). Run with: bash batch.test.sh
 set -u
 export ORCH_NO_ANNOUNCE=1 ORCH_HERDR=0
+# The equivalence checks compare whole state files: pin the session id (else each call records its
+# own pid-N harness_session) and drop the identity a calling orch node or opencode session exports.
+export CLAUDE_CODE_SESSION_ID=batch-test
+unset OPENCODE_SESSION_ID ORCH_EVENT_BY ORCH_SESSION_ID ORCH_RUN_ID ORCH_NODE_ID ORCH_NODE_OUT ORCH_JOB_DIR
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
 failures=0
 pass_count=0
@@ -45,8 +49,18 @@ expect_match "owner recorded" '^coordinator$' "$(st "$R" '.nodes[] | select(.id 
 expect_match "report recorded" '^halfway 12 0.5$' "$(st "$R" '.nodes[] | select(.id == "a") | "\(.report.note) \(.report.input_tokens) \(.report.usd)"')"
 expect_match "b role and tier" '^planning balance$' "$(st "$R" '.nodes[] | select(.id == "b") | "\(.role) \(.tier)"')"
 expect_match "edge a->b" '^a b$' "$(st "$R" '.edges[0] | join(" ")')"
-expect_match "events like single commands" '^add add status note status$' \
+expect_match "events like single commands" '^add add status note status note$' \
   "$(jq -rs 'map(.kind) | join(" ")' "$home/runs/$R/events.jsonl")"
+# done without a handoff: the batch runs done-verify like `node update` (fast path and fallback)
+expect_match "batch done without handoff is unverified" '^true$' "$(st "$R" '.nodes[] | select(.id == "a") | .unverified')"
+expect_match "batch done-verify warns" 'done without handoff: a ' "$out"
+RV=$(o run start "verify fallback")
+out=$(printf '%s\n' '{"op":"add","id":"v","goal":"V"}' '{"op":"add","id":"w","goal":"W"}' '{"op":"update","id":"v","status":"done"}' \
+  | ORCH_BATCH_FAST=0 HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node batch "$RV" 2>&1)
+mkdir -p "$home/runs/$RV/out/w" && echo handoff > "$home/runs/$RV/out/w/handoff.md"
+printf '%s\n' '{"op":"update","id":"w","status":"done"}' | o node batch "$RV" >/dev/null 2>&1
+expect_match "fallback done without handoff is unverified" '^true$' "$(st "$RV" '.nodes[] | select(.id == "v") | .unverified')"
+expect_match "done with a handoff stays verified" '^null$' "$(st "$RV" '.nodes[] | select(.id == "w") | .unverified')"
 
 # invalid op rejects all, every error reported with its line number
 before=$(cat "$home/runs/$R/state.json")
@@ -106,8 +120,10 @@ ops=$(printf '%s\n' \
   '{"op":"update","id":"i","status":"error","error":"boom"}' \
   '{"op":"update","id":"t","status":"skipped"}' \
   '{"op":"report","id":"i","usd":1.25}')
-RB=$(o run start "eq batch" --id eq-batch)
-RS=$(o run start "eq single" --id eq-single)
+# p ends done: give it a handoff in every equivalence run, so done-verify adds no note there.
+ho() { mkdir -p "$home/runs/$1/out/p" && echo handoff > "$home/runs/$1/out/p/handoff.md"; }
+RB=$(o run start "eq batch" --id eq-batch); ho "$RB"
+RS=$(o run start "eq single" --id eq-single); ho "$RS"
 t0=$(date +%s)
 printf '%s\n' "$ops" | o node batch "$RB" >/dev/null 2>&1; rc=$?
 t1=$(date +%s)
@@ -140,13 +156,13 @@ printf 'timing: 10 ops as one batch: %ss; as 10 single calls: %ss\n' $((t1 - t0)
   failures=$((failures + 1)); printf 'FAIL: batch (%ss) slower than single calls (%ss)\n' $((t1 - t0)) $((t2 - t1)) >&2; }
 
 # the fast path and the per-op fallback (ORCH_BATCH_FAST=0) give the same state, events and output
-RF=$(o run start "eq fallback" --id eq-fallback)
+RF=$(o run start "eq fallback" --id eq-fallback); ho "$RF"
 fout=$(printf '%s\n' "$ops" | ORCH_BATCH_FAST=0 HARNESS_ORCH_HOME="$home" bash "$SCRIPT" node batch "$RF" 2>&1); rc=$?
 expect_exit "fallback batch exits 0" 0 "$rc"
 if [ "$(norm "$RB")" = "$(norm "$RF")" ] && [ "$(evk "$RB")" = "$(evk "$RF")" ]; then pass_count=$((pass_count + 1)); else
   failures=$((failures + 1)); printf 'FAIL: fast path and fallback differ\n' >&2
   diff <(norm "$RB") <(norm "$RF") >&2; diff <(evk "$RB") <(evk "$RF") >&2; fi
-RG=$(o run start "eq fast out" --id eq-fast-out)
+RG=$(o run start "eq fast out" --id eq-fast-out); ho "$RG"
 gout=$(printf '%s\n' "$ops" | o node batch "$RG" 2>&1)
 expect_match "fast and fallback print the same lines" "^$(printf '%s' "$fout" | wc -l | tr -d ' ')\$" "$(printf '%s' "$gout" | wc -l | tr -d ' ')"
 if [ "$fout" = "$gout" ]; then pass_count=$((pass_count + 1)); else

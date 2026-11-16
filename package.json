@@ -7,7 +7,7 @@
     "test": "ORCH_HERDR=0 bash scripts/heavy-test-lock.sh run -- bun test --timeout 300000 --parallel=6 --retry=1 --timings=${TMPDIR:-/tmp}/orch-bun-test-timings.json --update-timings src",
     "test:random": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --randomize src",
     "test:changed": "ORCH_HERDR=0 bun test --timeout 300000 --parallel=6 --changed src",
-    "test:bash": "bash skills/orch/scripts/dispatch.test.sh",
+    "test:bash": "bash skills/orch/tests/run.sh",
     "test:all": "bash scripts/test-all.sh",
     "typecheck": "bash scripts/typecheck.sh",
     "format": "bunx oxfmt src",

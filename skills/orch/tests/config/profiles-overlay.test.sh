@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: profiles template + gitignored overlay (templates/profiles.local.json)
-# Run: bash profiles-overlay.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash profiles-overlay.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 TEMPLATE="$SCRIPT_DIR/../templates/profiles.json"
 REAL_OVERLAY="$SCRIPT_DIR/../templates/profiles.local.json"

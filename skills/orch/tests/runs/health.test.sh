@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Tests for `run health` (lib/health.sh): classification, ready nodes and slots, change-only events,
+# Tests for `run health` (lib/runs/health.sh): classification, ready nodes and slots, change-only events,
 # the nudge and its rate limit, and the per-run health:<run> monitor (auto-start, interval, stop on a
 # terminal run, --ensure-monitors after a kill). Temp homes; opencode is a stub on PATH and its
 # session table a temp sqlite file. Run with: bash health.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 expect_eq() {
   if [ "$2" = "$3" ]; then pass_count=$((pass_count + 1)); return; fi

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: run set <run> auto_dispatch true|false (lib/pause.sh)
-# Run: bash run-set.test.sh (or all files in parallel: bash dispatch.test.sh)
+# dispatch.sh tests: run set <run> auto_dispatch true|false (lib/runs/pause.sh)
+# Run: bash run-set.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 home=$(new_tmp)
 orch() { env HARNESS_ORCH_HOME="$home" ORCH_HERDR=0 bash "$SCRIPT" "$@"; }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: skill folder, disabled harness, schedules, service.sh restart
-# Run: bash schedules-service.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash schedules-service.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 export ORCH_NO_ANNOUNCE=1
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- the skill folder holds the CLI, not the dashboard code ------------------------------------
 # The server and browser client live in <repo>/src so that loading the skill never pulls in their

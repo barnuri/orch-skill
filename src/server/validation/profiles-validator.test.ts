@@ -308,6 +308,11 @@ describe("profilesIssues", () => {
 
   test("allowed_models accepts slug prefix patterns that match the harness", () => {
     const document = loadTemplate();
+    // The local models live in the gitignored profiles.local.json overlay, not the template.
+    (document["models"] as Mutable)["local-qwen3.6-35b"] = {
+      slug: "llama_swap/qwen3.6-35b",
+      harnesses: ["claude"],
+    };
     const profiles = document["profiles"] as Mutable;
     profiles["hub"] = {
       harness: "claude",

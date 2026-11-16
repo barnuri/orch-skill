@@ -4,7 +4,7 @@
 set -u
 export ORCH_NO_ANNOUNCE=1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
 failures=0
 pass_count=0
@@ -25,7 +25,7 @@ expect_exit() {
 home=$(mktemp -d)
 o() { HARNESS_ORCH_HOME="$home" ORCH_WAIT_POLL_SECS=1 bash "$SCRIPT" "$@"; }
 st() { jq -r "$2" "$home/runs/$1/state.json"; }
-. "$SCRIPT_DIR/test-home.sh"; seed_home "$home"
+. "$SCRIPT_DIR/../tests/test-home.sh"; seed_home "$home"
 
 R=$(o run start "visibility demo")
 o node add "$R" a "Alpha" >/dev/null

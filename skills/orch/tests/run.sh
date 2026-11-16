@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
-# Runner for the bash suite: every *.test.sh in this directory runs as its own background job (each
+# Runner for the bash suite: every <category>/*.test.sh under this directory runs as its own background job (each
 # test file builds its own temp homes, so they do not share state) and the tallies are merged. The
 # work is dominated by process start latency, not CPU, so running all files at once is the fast path.
 #
-# Run:  bash dispatch.test.sh            all files in parallel
-#       bash dispatch.test.sh record     only files whose name contains "record"
-#       ORCH_TEST_JOBS=1 bash dispatch.test.sh   serial (clearer output when debugging)
+# Run:  bash skills/orch/tests/run.sh            all files in parallel
+#       bash skills/orch/tests/run.sh record     only files whose name contains "record"
+#       ORCH_TEST_JOBS=1 bash skills/orch/tests/run.sh   serial (clearer output when debugging)
 # The TypeScript suite and the typecheck are separate: scripts/test-all.sh runs everything.
 
 set -u
 export ORCH_NO_ANNOUNCE=1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SELF="$(basename "${BASH_SOURCE[0]}")"
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JOBS="${ORCH_TEST_JOBS:-0}"
 out_dir=$(mktemp -d)
 
 files=()
-for f in "$SCRIPT_DIR"/*.test.sh; do
+for f in "$TESTS_DIR"/*/*.test.sh; do
+  [ -f "$f" ] || continue
   name=$(basename "$f")
-  [ "$name" = "$SELF" ] && continue
   if [ $# -gt 0 ]; then
     keep=0
     for pat in "$@"; do case "$name" in *"$pat"*) keep=1 ;; esac; done
@@ -29,14 +28,14 @@ for f in "$SCRIPT_DIR"/*.test.sh; do
 done
 [ ${#files[@]} -gt 0 ] || { printf 'no test files match\n' >&2; exit 1; }
 
-# A full run takes one of the machine-wide heavy-test slots; a fragment run (`dispatch.test.sh record`) does not.
+# A full run takes one of the machine-wide heavy-test slots; a fragment run (`tests/run.sh record`) does not.
 if [ $# -eq 0 ]; then
-  . "$SCRIPT_DIR/../../../scripts/heavy-test-lock.sh"
-  HEAVY_LOCK_CMD="dispatch.test.sh (full bash suite)" heavy_lock_acquire
+  . "$TESTS_DIR/../../../scripts/heavy-test-lock.sh"
+  HEAVY_LOCK_CMD="skills/orch/tests/run.sh (full bash suite)" heavy_lock_acquire
 fi
 # One initialised home for the whole suite: each file copies it (test-home.sh seed_home) instead of
 # paying the 2-4 s first-run migrations per temp home.
-. "$SCRIPT_DIR/test-home.sh"
+. "$TESTS_DIR/test-home.sh"
 ORCH_TEST_HOME_TEMPLATE="$out_dir/home-template"
 seed_home_template "$ORCH_TEST_HOME_TEMPLATE" || { printf 'could not build the template home\n' >&2; exit 1; }
 export ORCH_TEST_HOME_TEMPLATE

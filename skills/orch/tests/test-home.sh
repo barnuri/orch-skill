@@ -3,7 +3,7 @@
 # home that was initialised once. Sourced by test-lib.sh and by the self-contained *.test.sh files.
 #
 # Why: the first command on a new home runs the profiles.json migrations (several jq passes and
-# file moves), about 2-4 s on a loaded machine. dispatch.test.sh builds one template for the whole
+# file moves), about 2-4 s on a loaded machine. tests/run.sh builds one template for the whole
 # suite and exports ORCH_TEST_HOME_TEMPLATE; a file run alone builds its own on first use.
 # `cp -p` keeps the mtimes, so the migration signature in .migrations/ still matches and the copy
 # does not migrate again. Use it only for setup: tests that check init itself still run `init`.
@@ -12,7 +12,7 @@ seed_home_template() {
   local dir="$1"
   mkdir -p "$dir" || return 1
   env HARNESS_ORCH_HOME="$dir" ORCH_NO_ANNOUNCE=1 ORCH_HERDR=0 \
-    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dispatch.sh" init >/dev/null 2>&1
+    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/dispatch.sh" init >/dev/null 2>&1
 }
 
 seed_home() {

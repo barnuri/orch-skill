@@ -30,7 +30,7 @@ else
 fi
 
 if command -v shellcheck >/dev/null 2>&1; then
-  files=$(find skills/orch/scripts scripts -name '*.sh')
+  files=$(find skills/orch/scripts skills/orch/tests scripts -name '*.sh')
   # shellcheck disable=SC2086
   s=$(shellcheck -s bash -S error $files 2>&1)
   if [ -n "$s" ]; then printf 'shellcheck: errors\n%s\n' "$s" | head -30; rc=1; else printf 'shellcheck: 0 errors\n'; fi

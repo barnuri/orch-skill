@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: classify, budget-check, argument validation, adapters, jobs
-# Run: bash classify-adapters.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash classify-adapters.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 export ORCH_NO_ANNOUNCE=1
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- classify: fixed policy branches ----------------------------------------
 # CLAUDE_USAGE_SNAPSHOT points at a file that doesn't exist, so budget_check takes its

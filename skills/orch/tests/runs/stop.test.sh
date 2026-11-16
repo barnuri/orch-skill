@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# dispatch.sh tests: run stop / run resume --stopped (lib/pause.sh)
-# Run: bash stop.test.sh (or all files in parallel: bash dispatch.test.sh)
+# dispatch.sh tests: run stop / run resume --stopped (lib/runs/pause.sh)
+# Run: bash stop.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 home=$(new_tmp)
 shims=$(new_tmp)

@@ -121,6 +121,8 @@ node_batch_simulate() (
 $(run_chain "$run_id")
 EOF
   ORCH_HOME="$sim" RUNS_HOME="$sim/runs"
+  # The scratch copy has no node output dirs: node_batch_commit runs done-verify on the real run.
+  node_done_verify() { return 0; }
   for i in "${!BATCH_LINE[@]}"; do
     if [ -n "${BATCH_ERR[$i]}" ]; then
       printf 'line %s: %s\n' "${BATCH_LINE[$i]}" "${BATCH_ERR[$i]}" >&2
@@ -206,10 +208,24 @@ node_batch_print() {
   done
 }
 
+# node_batch_done_ids <state-file> - the ids of the nodes that are done, one per line.
+node_batch_done_ids() { jq -r '.nodes[]? | select(.status == "done") | .id' "$1" 2>/dev/null; }
+
+# node_batch_verify_done <run-id> <ids-done-before> - runs node_done_verify for every node the batch
+# moved to done, as the single `node update` does.
+node_batch_verify_done() {
+  local run_id="$1" before="$2" id
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    printf '%s\n' "$before" | grep -qxF -e "$id" && continue
+    node_done_verify "$run_id" "$id" || true
+  done < <(node_batch_done_ids "$(run_state_file "$run_id")")
+}
+
 # node_batch_commit <run-id> <scratch> — moves the validated scratch result into place, or replays the
 # ops against the real run when it changed since the scratch copy was taken.
 node_batch_commit() {
-  local run_id="$1" sim="$2" real sdir f i applied=0
+  local run_id="$1" sim="$2" real sdir f i applied=0 done_before
   real=$(run_state_file "$run_id"); sdir="$sim/runs/$run_id"
   if cmp -s "$real" "$sim/orig.json"; then
     if [ -d "$sim/owners" ]; then
@@ -217,10 +233,12 @@ node_batch_commit() {
         [ -f "$f" ] && cp "$f" "$(owners_dir)/.${f##*/}.tmp.$$" && mv -f "$(owners_dir)/.${f##*/}.tmp.$$" "$(owners_dir)/${f##*/}"
       done
     fi
+    done_before=$(node_batch_done_ids "$real")
     [ ! -f "$sim/.dispatch-path" ] || owner_write_dispatch_path
     cp "$sdir/state.json" "$real.tmp.$$" && mv -f "$real.tmp.$$" "$real" || {
       printf 'node batch: could not write %s; nothing applied\n' "$real" >&2; return 1; }
     [ ! -s "$sdir/events.jsonl" ] || cat "$sdir/events.jsonl" >> "$(run_events_file "$run_id")" 2>/dev/null || true
+    node_batch_verify_done "$run_id" "$done_before"
     node_batch_print ok
     printf 'node batch: applied %s op(s)\n' "${#BATCH_LINE[@]}"
     return 0
@@ -484,7 +502,7 @@ NODE_BATCH_FAST="$NODE_BATCH_DEFS"'
 # node_batch_fast <run-id> <dry 0|1> <input-file> — 0 applied/valid, 2 invalid, 3 needs the per-op path,
 # 1 write failure. One jq process; the writes are bash builtins plus one mv for state.json.
 node_batch_fast() {
-  local run_id="$1" dry="$2" input="$3" file tag a b state="" n=0 bad=0 dp=0 fill=0 jobs="" d base prof=/dev/null
+  local run_id="$1" dry="$2" input="$3" file tag a b state="" n=0 bad=0 dp=0 fill=0 jobs="" d base prof=/dev/null done_before
   local -a lines=() events=() owners=()
   file=$(run_state_file "$run_id")
   for d in "$JOBS_HOME"/*/; do [ -d "$d" ] || continue; d="${d%/}"; jobs="$jobs${d##*/}"$'\n'; done
@@ -516,9 +534,11 @@ node_batch_fast() {
     printf 'node batch: %s op(s) valid (dry run, nothing applied)\n' "$n"
     return 0
   fi
+  done_before=$(node_batch_done_ids "$file")
   printf '%s' "$state" > "$file.tmp.$$" && mv -f "$file.tmp.$$" "$file" \
     || { printf 'node batch: could not write %s; nothing applied\n' "$file" >&2; return 1; }
   [ "${#events[@]}" -eq 0 ] || printf '%s\n' "${events[@]}" >> "$(run_events_file "$run_id")" 2>/dev/null || true
+  [ "$fill" = 0 ] || node_batch_verify_done "$run_id" "$done_before"
   if [ "${#owners[@]}" -gt 0 ] && mkdir -p "$ORCH_HOME/owners" 2>/dev/null; then
     for ((a = 0; a < ${#owners[@]}; a += 2)); do printf '%s\n' "${owners[$((a + 1))]}" > "$ORCH_HOME/owners/${owners[$a]}" 2>/dev/null; done
   fi

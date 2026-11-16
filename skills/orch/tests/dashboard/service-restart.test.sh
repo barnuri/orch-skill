@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # service.sh restart safety: a supervisor restart must kill only the server, never the jobs it started.
 # launchd: real throwaway label (never the real service). systemd: generated unit text only.
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 SVC="$SCRIPT_DIR/../../../scripts/service.sh"
 T=$(new_tmp)

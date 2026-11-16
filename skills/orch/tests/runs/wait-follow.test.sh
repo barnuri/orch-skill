@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Tests for `run wait --follow` (lib/wait.sh): every node change (running -> done, error, waiting)
+# Tests for `run wait --follow` (lib/runs/wait.sh): every node change (running -> done, error, waiting)
 # is printed within 30 seconds; the follower keeps its own cursor, so a one-shot `run wait` beside
 # it does not take its events, and a restarted follower neither repeats nor skips a change.
 # Temp homes only. Run with: bash wait-follow.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 scratch=$(new_tmp)
 home=$(new_tmp); seed_home "$home"

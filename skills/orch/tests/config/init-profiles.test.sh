@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: init, profiles, memory
-# Run: bash init-profiles.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash init-profiles.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- init / profiles / memory -----------------------------------------------
 home=$(new_tmp)

@@ -1,6 +1,6 @@
 # Lessons
 
-Rule: every time the coordinator makes a bookkeeping mistake, add an entry here and, where possible, a check in the CLI. Each entry names what happened, what now prevents it, and the test that covers it. Tests live in `scripts/visibility.test.sh`.
+Rule: every time the coordinator makes a bookkeeping mistake, add an entry here and, where possible, a check in the CLI. Each entry names what happened, what now prevents it, and the test that covers it. Tests live in `tests/runs/visibility.test.sh`.
 
 ## 2026-11-15
 

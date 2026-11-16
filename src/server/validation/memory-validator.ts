@@ -71,7 +71,7 @@ function entryIssues(entry: unknown, index: number, outcomes: readonly string[])
 /**
  * Validates a parsed memory.json document (a bare array of entries) and collects
  * every issue with its dotted path, so the dashboard can attach them to fields.
- * `outcomes` is the enum handed over from `lib/config.sh` via argv.
+ * `outcomes` is the enum handed over from `lib/core/config.sh` via argv.
  */
 export function memoryIssues(document: unknown, outcomes: readonly string[]): Issue[] {
   if (!Array.isArray(document)) {

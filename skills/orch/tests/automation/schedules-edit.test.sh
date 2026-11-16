@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: `schedule edit`
-# Run: bash schedules-edit.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash schedules-edit.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 export ORCH_NO_ANNOUNCE=1
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 se_home=$(new_tmp)
 se_shims=$(new_tmp)

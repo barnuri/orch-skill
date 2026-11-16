@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Shared helpers for the *.test.sh files in this directory — sourced, never executed.
+# Shared helpers for the tests/<category>/*.test.sh files — sourced, never executed.
 # Each test file sources this, runs its sections, then calls `finish`.
 
 set -u
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# TESTS_DIR is skills/orch/tests; SCRIPT_DIR is skills/orch/scripts (dispatch.sh, announce.sh, lib/).
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$TESTS_DIR/../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
-. "$SCRIPT_DIR/test-home.sh"
+. "$TESTS_DIR/test-home.sh"
 
 export ORCH_NO_ANNOUNCE=1
 # A suite started from inside an orch node or an opencode session inherits that node's identity
 # (session id, model mapping, opencode skill switches). The adapters read these, so drop them.
 unset ORCH_SESSION_ID ORCH_RESUME_SESSION ORCH_MODEL_BEHAVES_AS ORCH_MODEL_SLUG ORCH_RUN_ID \
   ORCH_JOB_DIR ORCH_NODE_ID ORCH_NODE_OUT ORCH_NODE_ROLE ORCH_NODE_TIER ORCH_NODE_ATTEMPT \
-  ORCH_NODE_ACCEPTANCE OPENCODE OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE \
+  ORCH_NODE_ACCEPTANCE ORCH_EVENT_BY OPENCODE OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE \
   OPENCODE_DISABLE_CLAUDE_CODE_SKILLS OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_SESSION_ID \
   OPENCODE_TERMINAL HARNESS_ORCH_HOME ORCH_DISPATCH LLM_HUB_URL LLM_HUB_V1_URL LLM_HUB_KEY
 # Never let a test start the orch skill's herdr instance; herdr-runner.test.sh opts back in.
@@ -176,7 +178,7 @@ stop_fixture() {
   wait "$FIXTURE_PID" 2>/dev/null
 }
 
-# Prints the per-file tally the runner (dispatch.test.sh) parses, and exits non-zero on a failure.
+# Prints the per-file tally the runner (tests/run.sh) parses, and exits non-zero on a failure.
 finish() {
   printf '\n%s passed, %s failed\n' "$pass_count" "$failures"
   [ "$failures" -eq 0 ] || exit 1

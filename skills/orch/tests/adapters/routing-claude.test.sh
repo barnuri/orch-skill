@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: routing and learning, claude and pi adapters
-# Run: bash routing-claude.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash routing-claude.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- routing + learning -------------------------------------------------------
 home=$(new_tmp)

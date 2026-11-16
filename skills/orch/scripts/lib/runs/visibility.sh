@@ -1,4 +1,4 @@
-# Visibility: the activity feed, node pings, staleness and `run status` (`run wait`: lib/wait.sh).
+# Visibility: the activity feed, node pings, staleness and `run status` (`run wait`: lib/runs/wait.sh).
 # Sourced by dispatch.sh after runs.sh; only defines functions. Every write still goes through
 # state_write_raw / node_patch (runs.sh) or appends to runs/<run>/events.jsonl.
 
@@ -139,7 +139,7 @@ cmd_node_ping() {
   fi
 }
 
-# `run wait`, its cursor and run_live_counts live in lib/wait.sh.
+# `run wait`, its cursor and run_live_counts live in lib/runs/wait.sh.
 
 fmt_age() {
   local s="$1"

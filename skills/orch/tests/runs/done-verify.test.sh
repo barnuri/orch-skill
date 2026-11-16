@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Tests for the done check (node_done_verify in lib/runs.sh): `node update <run> <node> done` and the
+# Tests for the done check (node_done_verify in lib/runs/runs.sh): `node update <run> <node> done` and the
 # `run sync` that marks a finished job done need a non-empty handoff.md in the node's output dir, or
 # they print `done without handoff` and mark the node unverified. Also `run status --fresh`.
 # Temp homes only. Run with: bash done-verify.test.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../test-lib.sh"
 
 home=$(new_tmp); seed_home "$home"
 export HARNESS_ORCH_HOME="$home" ORCH_HEALTH_MONITOR=0 ORCH_OWNER_FILL=0

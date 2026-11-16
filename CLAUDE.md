@@ -36,8 +36,14 @@ mods/orch-graph/                  Claude-Code-only mod: live run-graph pane; loa
 skills/orch/
   SKILL.md                        the agent-facing instructions — the actual product
   scripts/dispatch.sh             the CLI; every state mutation goes through it
-  scripts/lib/*.sh                sourced by dispatch.sh, never executed (config, adapters, runs, serve, herdr, owners, schedules, ...)
-  scripts/dispatch.test.sh        the test suite
+  scripts/announce.sh             status announcer (the second entry point)
+  scripts/lib/<category>/*.sh     sourced by dispatch.sh in the order of its ORCH_LIB_FILES list, never executed:
+                                  core/ (config, locks), adapters/ (adapters, harness, herdr, hub, routing, profile-sanity),
+                                  runs/ (runs, batch, health, owners, pause, wait, ...), automation/ (loops, schedules),
+                                  dashboard/ (serve, suggest, demo). A new lib file must be added to ORCH_LIB_FILES.
+  tests/run.sh                    the bash test runner: every tests/<category>/*.test.sh, in parallel
+  tests/test-lib.sh, test-home.sh shared helpers (SCRIPT_DIR = skills/orch/scripts, TESTS_DIR = skills/orch/tests)
+  tests/<category>/*.test.sh      announce/, adapters/, automation/, config/, dashboard/, runs/
   references/                     adapter contract + state/config schemas
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
 ```
@@ -74,7 +80,7 @@ written by `owners.sh` (`owner_registry_write`), filled by `dispatch.sh node bin
 `AbandonProcessGroup`, the systemd unit `KillMode=process`, and `dispatch.sh start` jobs are detached.
 `service.sh install` now rewrites a unit that lacks these (`unit_installed_for_checkout`), so re-run it
 after pulling. Design and audit: `design-system/RESTART_SAFETY.md`. Status of its parts: the dedicated
-herdr instance runner (`lib/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
+herdr instance runner (`lib/adapters/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
 is on disk; chat turn files (`chats/sessions/turn-files.ts`, boot re-attach in `chats/service.ts`,
 `interrupted:` rows) are on disk. Both were uncommitted and still in progress when this was written:
 check `git status` and the design doc before relying on them.
@@ -91,7 +97,7 @@ The `serve/pid` marker is *truncated*, never removed.
 **Dependencies live at the repo root, never in the skill.** `package.json` and `bun.lock` hold the
 dashboard server's packages (`hono`, `@hono/zod-openapi`, `zod`, and `@barnuri/hono-decorators` and
 `@barnuri/zod-decorators` from GitHub). The CLI under `skills/orch/` stays dependency-free and must
-keep working with none of them installed. `serve_ensure_deps` in `lib/serve.sh` installs them on first
+keep working with none of them installed. `serve_ensure_deps` in `lib/dashboard/serve.sh` installs them on first
 use. `typescript` (7.x, the native compiler), `@types/node` and `bun-types` (pinned to the Bun version) are devDependencies; `typecheck.sh` prefers `node_modules` and falls back to Bun's global cache and `PATH`, and SKIPs when none exist.
 
 **Secrets never land in state.** `profiles.json` holds env-var *names* and `${VAR}` references;
@@ -118,7 +124,7 @@ update** button (POST `/api/build/restart`, which runs `service.sh restart`). Yo
 last step of a task:
 
 ```bash
-bash skills/orch/scripts/dispatch.test.sh   # must be 0 failed
+bash skills/orch/tests/run.sh              # must be 0 failed
 bash scripts/typecheck.sh       # must print `typecheck: ok`
 bash scripts/service.sh restart             # pick up the change
 bash scripts/service.sh status              # confirm: state = running, listener answering
@@ -146,10 +152,14 @@ statuses, missed notifications or bugs, and fix the cause in the skill or dispat
 run deterministic steps (tests, commits, restarts, status reads) directly and start every ready node at
 once. The rule text is in `skills/orch/SKILL.md`, section "Learn from runs, and keep them fast".
 
+## Verification
+
+Use the `verify` skill (browser, herdr and herdr-web checks). Its scripts live in `scripts/verify/`.
+
 ## Tests
 
 ```bash
-bash skills/orch/scripts/dispatch.test.sh   # bash suite: every skills/orch/scripts/*.test.sh, in parallel
+bash skills/orch/tests/run.sh              # bash suite: every skills/orch/tests/<category>/*.test.sh, in parallel
 bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
 bun run test:changed                         # quick local mode: only tests affected by git changes
 bun run test:random                          # --randomize, to expose test-order dependence
@@ -158,19 +168,19 @@ bash scripts/typecheck.sh                    # must print `typecheck: ok`
 bash scripts/test-all.sh                     # all three at once (the full gate; sets ORCH_HERDR=0 for bun)
 ```
 
-`dispatch.test.sh` runs each `*.test.sh` (helpers in `test-lib.sh`) as its own job on its own temp
+`tests/run.sh` runs each `<category>/*.test.sh` (helpers in `tests/test-lib.sh`) as its own job on its own temp
 homes and merges the tallies. Pass a name fragment to run one file, or `ORCH_TEST_JOBS=1` to go serial.
-A new test file needs only the `.test.sh` suffix and a final `N passed, M failed` line.
+A new test file needs only a category folder, the `.test.sh` suffix and a final `N passed, M failed` line.
 
 **Run only the tests of the files you touched; the full suite runs once, at the final gate.** Use
-`dispatch.test.sh <fragment>` or `bun test <file>`. Many agents share this machine: five full suites at
+`tests/run.sh <fragment>` or `bun test <file>`. Many agents share this machine: five full suites at
 once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
-`dispatch.test.sh` with no fragment, `bun run test`) each take a machine-wide heavy-test slot
+`tests/run.sh` with no fragment, `bun run test`) each take a machine-wide heavy-test slot
 (`scripts/heavy-test-lock.sh`: flock on `${TMPDIR}/orch-test-heavy.N`, `ORCH_TEST_SLOTS`, default 2).
 A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fragment runs
 and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
 
-For a home that only needs to be initialised, call `seed_home "$home"` (`test-home.sh`) instead of
+For a home that only needs to be initialised, call `seed_home "$home"` (`tests/test-home.sh`) instead of
 `dispatch.sh init`. It copies one home initialised per suite and skips the 2-4 s first-run migrations.
 Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds
 of the last full run, in `${TMPDIR}/orch-bash-test-timings`), and `ORCH_TEST_JOBS=N` is a real pool.

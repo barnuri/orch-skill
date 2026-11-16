@@ -176,7 +176,7 @@ cmd_run_finish() {
 }
 
 # run_cancel <run-id>: ends a run for good (loops use it): kills its live jobs, marks running nodes
-# error, skips waiting nodes and sets the run cancelled. `run stop` (lib/pause.sh) is the resumable stop.
+# error, skips waiting nodes and sets the run cancelled. `run stop` (lib/runs/pause.sh) is the resumable stop.
 # Jobs lead their own process group, so SIGTERM goes to the group. A node whose job is already gone
 # is marked the same way, which is how a run abandoned by its coordinator gets closed.
 run_cancel() {

@@ -391,6 +391,10 @@ Speed rules for the coordinator:
   acted on within a minute, not at the next user prompt.
 - Check a node's output files before you accept `done`.
 
+## Keep the prompt free
+
+The user must be able to keep typing while a run works. Never wait for a node in the foreground. Start the watch in the background (`run wait <run> --follow`, in a loop that restarts it) with the harness's background command, and act when it reports. In opencode use a background shell command: it notifies the session when it ends, so the user can send new questions and tasks in the meantime. The dashboard watchdog (`GET /api/watchdog`) does the deterministic work (start ready nodes, liveness, done checks, retries) without any session.
+
 ## Babysitting
 
 Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run health --ensure-monitors` restores lost ones). It runs `run health <run> --json` every 30 s (`settings.health_every_sec`), and records an event only on a change: a node finished, nodes became ready, a node stalled, died, lost its owner or recovered.

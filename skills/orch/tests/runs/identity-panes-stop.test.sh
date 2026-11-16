@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: worker identity, node selections, herdr panes, run stop
-# Run: bash identity-panes-stop.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash identity-panes-stop.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
 export ORCH_NO_ANNOUNCE=1
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # Shared with the routing section in the old single-file suite: a plain home and argv-echo CLI shims.
 home=$(new_tmp)

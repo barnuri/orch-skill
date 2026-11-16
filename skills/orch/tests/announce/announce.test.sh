@@ -4,7 +4,7 @@ set -u
 # The hook would start an announce daemon that inherits the fake herdr and ticks into the 1.5 s
 # assertion windows below. announce-daemon.test.sh covers the daemon.
 export ANNOUNCE_NO_DAEMON=1
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 ANN="$SCRIPT_DIR/announce.sh"; DISP="$SCRIPT_DIR/dispatch.sh"
 failures=0; pass_count=0
 expect_match() {
@@ -97,8 +97,8 @@ seed_loop dead 999999
 ann --quiet
 expect_match "only the live loop counts" 'orch: 0 running, 0/0 done · 1 loop$' "$(jq -r .summary "$O/activity/sess1.json")"
 kill $P 2>/dev/null; wait $P 2>/dev/null
-expect_match "announce reads the same dirs as loops.sh" '^LOOPS_HOME="\$ORCH_HOME/loops"$' "$(grep '^LOOPS_HOME=' "$SCRIPT_DIR/lib/loops.sh")"
-expect_match "announce reads the same watch dir" '^WATCHES_HOME="\$ORCH_HOME/watches"$' "$(grep '^WATCHES_HOME=' "$SCRIPT_DIR/lib/loops.sh")"
+expect_match "announce reads the same dirs as loops.sh" '^LOOPS_HOME="\$ORCH_HOME/loops"$' "$(grep '^LOOPS_HOME=' "$SCRIPT_DIR/lib/automation/loops.sh")"
+expect_match "announce reads the same watch dir" '^WATCHES_HOME="\$ORCH_HOME/watches"$' "$(grep '^WATCHES_HOME=' "$SCRIPT_DIR/lib/automation/loops.sh")"
 
 # hook: a mutating command announces in the background
 hk() { env -u ORCH_NO_ANNOUNCE HOME="$H" HARNESS_ORCH_HOME="$O" HERDR_ENV=1 HERDR_PANE_ID=p1 HERDR_BIN_PATH="$FAKE" CLAUDE_CODE_SESSION_ID=sess1 bash "$DISP" "$@"; }

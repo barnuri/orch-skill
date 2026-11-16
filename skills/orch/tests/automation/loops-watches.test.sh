@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: loops, watches, active summary
-# Run: bash loops-watches.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash loops-watches.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- loops, watches and the active summary -----------------------------------
 # A fake claude shim stands in for the harness. Loop intervals are the 10s minimum, so these

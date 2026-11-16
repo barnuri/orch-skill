@@ -6,7 +6,7 @@ export ORCH_NO_ANNOUNCE=1
 # Sections 0-6 test the API paths only; section 7 points this at a fixture session table.
 export ORCH_OPENCODE_DB=/nonexistent/opencode.db
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
 failures=0
 pass_count=0

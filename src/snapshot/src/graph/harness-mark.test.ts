@@ -16,8 +16,8 @@ function shellList(source: string, name: string): string[] {
 describe("harness glyph coverage", () => {
   // The two lists live in different files: the wired adapters in config.sh, the
   // detected-only CLIs in harness.sh.
-  const configSh = readFileSync(join(SCRIPTS_DIR, "lib/config.sh"), "utf8");
-  const harnessSh = readFileSync(join(SCRIPTS_DIR, "lib/harness.sh"), "utf8");
+  const configSh = readFileSync(join(SCRIPTS_DIR, "lib/core/config.sh"), "utf8");
+  const harnessSh = readFileSync(join(SCRIPTS_DIR, "lib/adapters/harness.sh"), "utf8");
   const adapters = shellList(configSh, "VALID_HARNESSES");
   const detected = shellList(harnessSh, "DETECTED_CLI_IDS");
 

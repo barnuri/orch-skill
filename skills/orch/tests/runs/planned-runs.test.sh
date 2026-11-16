@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: planned runs, plan apply, advance, mailbox
-# Run: bash planned-runs.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash planned-runs.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- planned runs: plan, plan apply, run advance, max_parallel, mailbox ------------------------
 home=$(new_tmp)

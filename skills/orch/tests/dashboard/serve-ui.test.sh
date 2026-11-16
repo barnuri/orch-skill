@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # dispatch.sh tests: serve and ui
-# Run: bash serve-ui.test.sh (or all files in parallel: bash dispatch.test.sh)
+# Run: bash serve-ui.test.sh (or all files in parallel: bash skills/orch/tests/run.sh)
 
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../test-lib.sh"
 
 # --- serve / ui ---------------------------------------------------------------
 # No real bun is ever launched: a fake `bun` records its argv, writes the serve/ markers the

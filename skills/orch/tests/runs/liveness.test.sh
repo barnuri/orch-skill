@@ -6,7 +6,7 @@ export ORCH_NO_ANNOUNCE=1
 # No opencode session table: these tests drive the fake opencode API only.
 export ORCH_OPENCODE_DB=/nonexistent/opencode.db
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
 SCRIPT="$SCRIPT_DIR/dispatch.sh"
 failures=0
 pass_count=0
@@ -49,7 +49,7 @@ export ORCH_OWNER_TOTAL_SECS=120
 
 o() { HARNESS_ORCH_HOME="$home" bash "$SCRIPT" "$@"; }
 nf() { jq -r --arg n "$2" ".nodes[] | select(.id==\$n) | $3" "$home/runs/$1/state.json"; }
-. "$SCRIPT_DIR/test-home.sh"; seed_home "$home"
+. "$SCRIPT_DIR/../tests/test-home.sh"; seed_home "$home"
 
 # 1. parsing table
 parse() { ( export HARNESS_ORCH_HOME="$home"; source "$SCRIPT"; owner_parse "$1" | tr '\t' '|' ); }
@@ -132,7 +132,8 @@ for n in s1 s2 s3; do o node add "$RB" $n $n >/dev/null; echo slow > "$fake/mode
 ORCH_OWNER_CALL_TIMEOUT=1 ORCH_OWNER_TOTAL_SECS=2 o node verify-owners "$RB" >/dev/null
 expect_eq "budget caps the number of probes" 1 "$([ "$(wc -l < "$fake/calls" | tr -d ' ')" -le 2 ] && echo 1 || echo 0)"
 
-# only the coordinator ends an idle node
+# only the coordinator ends an idle node (with a handoff, so done-verify does not flag it again)
+mkdir -p "$(o node out "$R" idle)" && echo handoff > "$(o node out "$R" idle)/handoff.md"
 o node update "$R" idle done >/dev/null 2>&1
 expect_eq "explicit done ends idle node" done "$(nf "$R" idle .status)"
 expect_eq "explicit done is not unverified" null "$(nf "$R" idle '.unverified')"

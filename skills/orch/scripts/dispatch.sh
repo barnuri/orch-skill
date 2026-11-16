@@ -245,10 +245,17 @@ else
   agent_harness() { printf 'unknown\n'; }
 fi
 
-# lib/*.sh hold the adapters (and config/runs/dashboard). Resolved via SCRIPT_DIR so the nohup
-# child that re-sources this file by SELF_REAL finds them through the same symlink-safe path.
-for lib_file in "$SCRIPT_DIR"/lib/*.sh; do
-  [ -f "$lib_file" ] || continue
+# lib/<category>/*.sh hold the adapters, config, runs, automation and dashboard code. Resolved via
+# SCRIPT_DIR so the nohup child that re-sources this file by SELF_REAL finds them through the same
+# symlink-safe path. The list is explicit and keeps the old alphabetical order, because some files
+# read variables another file sets at file scope. A new lib file must be added here.
+ORCH_LIB_FILES="adapters/adapters runs/batch runs/carry core/config runs/current-run
+  runs/delegate dashboard/demo adapters/harness runs/health adapters/herdr adapters/hub core/locks
+  automation/loops runs/owners runs/pause runs/plan adapters/profile-sanity adapters/routing runs/runs
+  automation/schedules dashboard/serve dashboard/suggest runs/visibility runs/wait"
+for lib_file in $ORCH_LIB_FILES; do
+  lib_file="$SCRIPT_DIR/lib/$lib_file.sh"
+  [ -f "$lib_file" ] || { printf 'dispatch.sh: missing %s\n' "$lib_file" >&2; continue; }
   # shellcheck source=/dev/null
   . "$lib_file"
 done
@@ -618,7 +625,7 @@ harness_list_locked() {
 }
 
 # run_create_with_monitor <fn> [args] - creates a run (start or carry) and starts its health:<run>
-# monitor (lib/health.sh). The run id is the first line the function prints.
+# monitor (lib/runs/health.sh). The run id is the first line the function prints.
 run_create_with_monitor() {
   local out rc
   out=$("$@"); rc=$?
@@ -629,7 +636,7 @@ run_create_with_monitor() {
 
 main() {
   local sub="${1:-}" verb rid
-  # A run id of `.` means the run saved by `dispatch.sh use` (lib/current-run.sh).
+  # A run id of `.` means the run saved by `dispatch.sh use` (lib/runs/current-run.sh).
   case "$sub ${2:-} ${3:-}" in
     "node update ."|"node report ."|"node batch ."|"run sync .")
       rid=$(current_run_resolve .) || exit 1
@@ -645,7 +652,7 @@ main() {
       case "${2:-}" in
         start|carry) verb="$2"; shift 2; run_create_with_monitor "cmd_run_$verb" "$@" ;;
         pause|resume|stop|set) verb="$2"; shift 2; "cmd_run_$verb" "$@" ;;
-        # A paused or stopped run (lib/pause.sh) starts nothing on sync.
+        # A paused or stopped run (lib/runs/pause.sh) starts nothing on sync.
         sync) shift 2; pause_guard "${1:-}" || exit 0; cmd_run_sync "$@" ;;
         status)
           shift 2; cmd_run_status "$@"; rc=$?
