@@ -6,6 +6,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync, appendFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { env, err, home as ioHome, out } from "../io.ts";
+import { ensureHome } from "../state/profiles.ts";
 
 export const SERVE_DEFAULT_HOST = "0.0.0.0";
 export const SERVE_DEFAULT_PORT = 6724;
@@ -454,40 +455,7 @@ export async function serveStatus(args: string[]): Promise<number> {
   return d.rc;
 }
 
-// Minimal home bootstrap shared by serve, suggest and demo: dirs, profiles, memory, serve.json, suggestions.
-export async function ensureHome(home: string): Promise<boolean> {
-  try {
-    for (const d of ["", "jobs", "runs"]) mkdirSync(join(home, d), { recursive: true });
-    const profiles = join(home, "profiles.json");
-    if (!existsSync(profiles)) {
-      const tpl = JSON.parse(readText(join(TEMPLATES_DIR, "profiles.json")));
-      const overlayPath = env().ORCH_PROFILES_OVERLAY || join(TEMPLATES_DIR, "profiles.local.json");
-      let merged = tpl;
-      if (existsSync(overlayPath)) {
-        const o = JSON.parse(readText(overlayPath));
-        merged = {
-          ...tpl,
-          defaults: { ...(tpl.defaults ?? {}), ...(o.defaults ?? {}) },
-          settings: { ...(tpl.settings ?? {}), ...(o.settings ?? {}) },
-          models: { ...(tpl.models ?? {}), ...(o.models ?? {}) },
-          profiles: { ...(tpl.profiles ?? {}), ...(o.profiles ?? {}) },
-        };
-      }
-      const tmp = `${profiles}.tmp.${process.pid}`;
-      writeFileSync(tmp, existsSync(overlayPath) ? JSON.stringify(merged, null, 2) + "\n" : readText(join(TEMPLATES_DIR, "profiles.json")) + "\n");
-      require("node:fs").renameSync(tmp, profiles);
-    }
-    const mem = join(home, "memory.json");
-    if (!existsSync(mem)) writeFileSync(mem, "[]\n");
-    if (!existsSync(join(home, "serve.json"))) copyFileSync(join(TEMPLATES_DIR, "serve.json"), join(home, "serve.json"));
-    const sug = join(home, "suggestions.json");
-    if (!existsSync(sug)) copyFileSync(join(TEMPLATES_DIR, "suggestions.json"), sug);
-    return true;
-  } catch (e) {
-    err(`orch: cannot create ${home}\n`);
-    return false;
-  }
-}
+export { ensureHome } from "../state/profiles.ts";
 
 function herdrBoot(home: string): void {
   const flag = env().ORCH_HERDR ?? "";

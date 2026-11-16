@@ -27,6 +27,8 @@ import { viaServer } from "./client.ts";
 import { loopCommands } from "./commands/loops.ts";
 import { scheduleCommands } from "./commands/schedules.ts";
 import { announce } from "./commands/announce.ts";
+import { init, settings, profileSanity, profileUnsetEnv, profileSyncOverlay, memory } from "./commands/config.ts";
+import { runAdvance } from "./commands/advance.ts";
 import { delegatePlan, delegateTask, delegateFinding, delegateShow, DELEGATE_USAGE } from "./commands/delegate.ts";
 
 import { cmdRun, cmdStart, cmdJobRun } from "./adapters/spawn.ts";
@@ -85,6 +87,15 @@ export const COMMANDS: Record<string, Handler> = {
   "profile show": profileShow,
   "profile pick": profilePickCommand,
   "model list": modelList,
+  "profile sanity": profileSanity,
+  "profile unset-env": profileUnsetEnv,
+  "profile sync-overlay": profileSyncOverlay,
+  "settings get": (a) => settings(["get", ...a]),
+  "settings set": (a) => settings(["set", ...a]),
+  "memory add": (a) => memory(["add", ...a]),
+  "memory list": (a) => memory(["list", ...a]),
+  "run advance": runAdvance,
+  init,
   ...Object.fromEntries(HERDR_VERBS.map((v): [string, Handler] => [`herdr ${v}`, (a) => herdrCommand(v, a)])),
   "harness list": (a) => cmdHarness(["list", ...a]),
   "hub setup": (a) => cmdHub(["setup", ...a]),
@@ -111,7 +122,7 @@ export const COMMANDS: Record<string, Handler> = {
   announce,
 };
 
-const ONE_WORD = new Set(["__run-cancel", "prune", "serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
+const ONE_WORD = new Set(["__run-cancel", "prune", "init", "serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
 // Commands the dashboard server answers on its socket (same core function, in its process).
 const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
 
