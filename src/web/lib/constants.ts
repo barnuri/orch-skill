@@ -12,6 +12,7 @@ export const GRAPH_HIDE_DONE_KEY = "orch.graph.hideDone";
 export const GRAPH_SCALE_KEY = "orch.graph.scale";
 export const GRAPH_MODE_KEY = "orch.graph.mode";
 export const GRAPH_ACTIVITY_EXPANDED_KEY = "orch.graph.activityExpanded";
+export const GRAPH_NODE_VIEW_KEY = "orch.graph.nodeView";
 /** Zoom bounds of the run graph, as a scale factor (1 = 100%). */
 export const ZOOM_MIN = 0.12;
 export const ZOOM_MAX = 2.5;

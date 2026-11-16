@@ -10,6 +10,7 @@ import {
   saveGraphHideDone,
   saveGraphMode,
   saveGraphScale,
+  saveGraphNodeView,
 } from "./graph-prefs";
 
 function memoryStorage(initial: Record<string, string> = {}): Pick<Storage, "getItem" | "setItem"> & { data: Map<string, string> } {
@@ -35,17 +36,17 @@ const throwing: Pick<Storage, "getItem" | "setItem"> = {
 describe("graph prefs", () => {
   test("defaults when nothing is stored", () => {
     expect(loadGraphPrefs(memoryStorage())).toEqual(DEFAULT_GRAPH_PREFS);
-    expect(DEFAULT_GRAPH_PREFS).toEqual({ follow: true, hideDone: false, scale: 1, mode: "fit", activityExpanded: false });
+    expect(DEFAULT_GRAPH_PREFS).toEqual({ follow: true, hideDone: false, scale: 1, mode: "fit", activityExpanded: false, nodeView: null });
   });
 
   test("reads stored values", () => {
     const storage = memoryStorage({ [GRAPH_FOLLOW_KEY]: "0", [GRAPH_HIDE_DONE_KEY]: "1" });
-    expect(loadGraphPrefs(storage)).toEqual({ follow: false, hideDone: true, scale: 1, mode: "fit", activityExpanded: false });
+    expect(loadGraphPrefs(storage)).toEqual({ follow: false, hideDone: true, scale: 1, mode: "fit", activityExpanded: false, nodeView: null });
   });
 
   test("unknown values fall back field by field", () => {
     const storage = memoryStorage({ [GRAPH_FOLLOW_KEY]: "yes", [GRAPH_HIDE_DONE_KEY]: "1" });
-    expect(loadGraphPrefs(storage)).toEqual({ follow: true, hideDone: true, scale: 1, mode: "fit", activityExpanded: false });
+    expect(loadGraphPrefs(storage)).toEqual({ follow: true, hideDone: true, scale: 1, mode: "fit", activityExpanded: false, nodeView: null });
   });
 
   test("writes round-trip", () => {
@@ -54,7 +55,7 @@ describe("graph prefs", () => {
     saveGraphHideDone(true, storage);
     expect(storage.data.get(GRAPH_FOLLOW_KEY)).toBe("0");
     expect(storage.data.get(GRAPH_HIDE_DONE_KEY)).toBe("1");
-    expect(loadGraphPrefs(storage)).toEqual({ follow: false, hideDone: true, scale: 1, mode: "fit", activityExpanded: false });
+    expect(loadGraphPrefs(storage)).toEqual({ follow: false, hideDone: true, scale: 1, mode: "fit", activityExpanded: false, nodeView: null });
     saveGraphFollow(true, storage);
     expect(loadGraphPrefs(storage).follow).toBe(true);
   });
@@ -121,5 +122,17 @@ describe("graph prefs", () => {
     expect(() => saveGraphMode("manual", null)).not.toThrow();
     expect(() => saveGraphActivityExpanded(true, null)).not.toThrow();
     expect(loadGraphPrefs(throwing)).toEqual(DEFAULT_GRAPH_PREFS);
+  });
+});
+
+describe("node view pref", () => {
+  test("saves chat or output globally and ignores other values", () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    expect(loadGraphPrefs(storage).nodeView).toBeNull();
+    saveGraphNodeView("output", storage);
+    expect(loadGraphPrefs(storage).nodeView).toBe("output");
+    store.set("orch.graph.nodeView", "bogus");
+    expect(loadGraphPrefs(storage).nodeView).toBeNull();
   });
 });

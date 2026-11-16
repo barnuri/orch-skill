@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy } from "react";
+import { loadGraphPrefs, saveGraphNodeView } from "../lib/graph-prefs";
 import type { ReactNode } from "react";
 import type { ChatTurn } from "../../shared/types/chat-turn";
 import type { NodeCost } from "../../shared/types/node-cost";
@@ -356,7 +357,7 @@ function NodeSession({ node }: { node: RunNode }) {
   const jobId = node.job_id !== null && node.job_id !== "" ? node.job_id : null;
   const log = useJobLog(jobId);
   const chatQuery = useJobChat(jobId);
-  const [picked, setPicked] = useState<"chat" | "output" | null>(null);
+  const [picked, setPicked] = useState<"chat" | "output" | null>(() => loadGraphPrefs().nodeView);
   const chat = chatQuery.data ?? null;
   const chatChecked = jobId === null || chatQuery.isError || chat !== null;
   const view = jobId === null || (chatChecked && chat === null) ? "output" : (picked ?? "chat");
@@ -401,6 +402,7 @@ function NodeSession({ node }: { node: RunNode }) {
       disabled={!enabled}
       onClick={() => {
         setPicked(id);
+        saveGraphNodeView(id);
       }}
     >
       {label}

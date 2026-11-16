@@ -3,6 +3,7 @@ import {
   GRAPH_FOLLOW_KEY,
   GRAPH_HIDE_DONE_KEY,
   GRAPH_MODE_KEY,
+  GRAPH_NODE_VIEW_KEY,
   GRAPH_SCALE_KEY,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -20,7 +21,11 @@ export interface GraphPrefs {
   mode: GraphViewMode;
   /** The activity list shows every row instead of the preview. */
   activityExpanded: boolean;
+  /** The node panel session tab the user last picked: its chat or its raw output. */
+  nodeView: NodeView | null;
 }
+
+export type NodeView = "chat" | "output";
 
 export const DEFAULT_GRAPH_PREFS: GraphPrefs = {
   follow: true,
@@ -28,6 +33,7 @@ export const DEFAULT_GRAPH_PREFS: GraphPrefs = {
   scale: 1,
   mode: "fit",
   activityExpanded: false,
+  nodeView: null,
 };
 
 type PrefStorage = Pick<Storage, "getItem" | "setItem">;
@@ -76,6 +82,15 @@ function readMode(storage: PrefStorage, fallback: GraphViewMode): GraphViewMode 
   }
 }
 
+function readNodeView(storage: PrefStorage): NodeView | null {
+  try {
+    const raw = storage.getItem(GRAPH_NODE_VIEW_KEY);
+    return raw === "chat" || raw === "output" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 function writeValue(storage: PrefStorage, key: string, value: string): void {
   try {
     storage.setItem(key, value);
@@ -103,6 +118,7 @@ export function loadGraphPrefs(storage: PrefStorage | null = defaultStorage()): 
     scale: readScale(storage, DEFAULT_GRAPH_PREFS.scale),
     mode: readMode(storage, DEFAULT_GRAPH_PREFS.mode),
     activityExpanded: readFlag(storage, GRAPH_ACTIVITY_EXPANDED_KEY, DEFAULT_GRAPH_PREFS.activityExpanded),
+    nodeView: readNodeView(storage),
   };
 }
 
@@ -133,5 +149,11 @@ export function saveGraphMode(mode: GraphViewMode, storage: PrefStorage | null =
 export function saveGraphActivityExpanded(expanded: boolean, storage: PrefStorage | null = defaultStorage()): void {
   if (storage !== null) {
     writeFlag(storage, GRAPH_ACTIVITY_EXPANDED_KEY, expanded);
+  }
+}
+
+export function saveGraphNodeView(view: NodeView, storage: PrefStorage | null = defaultStorage()): void {
+  if (storage !== null && (view === "chat" || view === "output")) {
+    writeValue(storage, GRAPH_NODE_VIEW_KEY, view);
   }
 }
