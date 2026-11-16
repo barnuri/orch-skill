@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { orch, seedHome, runState, nodeOf, readJson, readText, fakeBin, tempDir, ndjson, autoCleanup, DISPATCH } from "../helpers";
+import { orch, seedHome, runState, nodeOf, readJson, readText, fakeBin, tempDir, ndjson, autoCleanup, trashSync, DISPATCH } from "../helpers";
 autoCleanup();
 
 const setup = () => {
@@ -79,7 +79,7 @@ test("owner probe cache", () => {
   const R = orch(home, env)("run", "start", "cache").out.trim();
   const oc = orch(home, { ...env, ORCH_OWNER_CACHE_SECS: "900", ORCH_OWNER_CALL_TIMEOUT: "20" });
   oc("node", "add", R, "b", "b"); oc("node", "update", R, "b", "running", "--owner", "ses_busy");
-  Bun.spawnSync(["trash", join(home, "owners/cache")]);
+  trashSync(join(home, "owners/cache"));
   const count = () => calls().split("\n").filter((l) => l === "ses_busy").length;
   const c0 = count();
   oc("node", "verify-owners", R);

@@ -1,6 +1,6 @@
 // Shared helpers for tests/**/*.test.ts. Bun built-ins only.
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, chmodSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, chmodSync, readdirSync, appendFileSync, renameSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterAll } from "bun:test";
 import { inProcess, stopInProcess } from "./inproc.ts";
@@ -18,8 +18,18 @@ export function tempDir(prefix = "orch-t-"): string {
   made.push(d);
   return d;
 }
+// Recoverable removal without a process: the `trash` program takes about a second per call. Run.ts clears old ones.
+const TRASH_ROOT = join(tmpdir(), "orch-test-trash", String(process.pid));
+let trashN = 0;
+export function trashSync(p: string): void {
+  if (!existsSync(p)) return;
+  try {
+    mkdirSync(TRASH_ROOT, { recursive: true });
+    renameSync(p, join(TRASH_ROOT, `${++trashN}-${basename(p)}`));
+  } catch { Bun.spawnSync(["trash", p]); }
+}
 export function cleanupTemps(): void {
-  while (made.length) Bun.spawnSync(["trash", made.pop()!]);
+  while (made.length) trashSync(made.pop()!);
 }
 export function autoCleanup(): void {
   afterAll(() => { stopInProcess(); cleanupTemps(); });
@@ -35,10 +45,16 @@ const DROP = [
   "HERDR_ENV", "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "HERDR_BIN_PATH", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID",
 ];
 export function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string, string> {
-  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
+  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_TRASH_MOVE: "1", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
   for (const k of DROP) delete env[k];
   Object.assign(env, extra);
   return Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined)) as Record<string, string>;
+}
+
+// ORCH_TEST_TRACE=<file>: one line per orch call (kind, ms, command), and per process the in-process worker spawns.
+function trace(kind: string, ms: number, what: string): void {
+  const f = process.env.ORCH_TEST_TRACE;
+  if (f) appendFileSync(f, `${kind}\t${ms}\t${what.slice(0, 120)}\n`);
 }
 
 export interface Result { rc: number; out: string; err: string; all: string }
@@ -75,13 +91,13 @@ export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string
   const oargs = orchArgs(cmd);
   if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs, { ...opts.env })) {
     const t1 = Date.now(), r = inProcess(oargs, env, opts.stdin);
-    if (process.env.ORCH_TEST_TRACE && Date.now() - t1 > 700) console.error(`SLOW-IP ${Date.now() - t1}ms ${oargs.join(" ").slice(0, 100)}`);
+    trace("inproc", Date.now() - t1, oargs.join(" "));
     return r;
   }
   const t0 = Date.now();
   const p = Bun.spawnSync(resolveBun(cmd), { env, cwd: opts.cwd, stdin: opts.stdin !== undefined ? Buffer.from(opts.stdin) : undefined });
   const out = p.stdout.toString(), err = p.stderr.toString();
-  if (process.env.ORCH_TEST_TRACE && Date.now() - t0 > 700) console.error(`SLOW ${Date.now() - t0}ms ${cmd.slice(2).join(" ").slice(0, 100)}`);
+  trace("spawn", Date.now() - t0, cmd.slice(2).join(" "));
   return { rc: p.exitCode ?? 1, out, err, all: out + err };
 }
 

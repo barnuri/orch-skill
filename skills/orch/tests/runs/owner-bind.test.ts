@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { orch, seedHome, runState, nodeOf, readJson, readText, editJson, fakeBin, tempDir, ndjson, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, readJson, readText, editJson, fakeBin, tempDir, ndjson, autoCleanup, trashSync } from "../helpers";
 autoCleanup();
 import { existsSync as ex } from "node:fs";
 
@@ -139,7 +139,7 @@ test("session index, stall, umbrella, refresh, final, backfill, co-owners", asyn
   insertSession(d, "ses_busyoldXXXXXXXXXXXXXXXXXXX", "ses_root", "busy old", "prov/m2", 0, old, old, true);
   const o = orch(t.home, { ...t.env, ORCH_OPENCODE_DB: db });
   const nf = t.nf;
-  const clearCache = () => Bun.spawnSync(["trash", join(t.home, "owners/cache")]);
+  const clearCache = () => trashSync(join(t.home, "owners/cache"));
   const R = o("run", "start", "index").out.trim();
   o.in(L(
     ...["p1:Prefix node", "amb:Ambiguous node", "chats:Persistent chat turns", "st:Stall node", "bz:Busy node", "x2:Other model", "um:Umbrella one", "mx:Umbrella mixed"].map((s) => ({ op: "add", id: s.split(":")[0], label: s.split(":")[1] })),

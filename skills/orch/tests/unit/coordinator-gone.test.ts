@@ -2,7 +2,7 @@ import { test, expect, setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120000);
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { orch, seedHome, tempDir, fakeBin, readJson, readText, editJson, writeJson, runState, autoCleanup } from "../helpers";
+import { orch, seedHome, tempDir, fakeBin, readJson, readText, editJson, writeJson, runState, autoCleanup, trashSync } from "../helpers";
 autoCleanup();
 
 // Fake herdr (TypeScript, run by bun): logs calls, answers pane get/list/read, records send-text.
@@ -43,7 +43,7 @@ const setup = () => {
   const o = orch(home, env);
   mkdirSync(join(home, "runs/r1"), { recursive: true });
   writeFileSync(join(home, "runs/r1/state.json"), JSON.stringify({ run_id: "r1", title: "t", status: "running", edges: [], nodes: [{ id: "a", status: "running" }, { id: "b", status: "waiting" }] }));
-  const flag = (n: string, on = true) => { const f = join(flags, n); if (on) writeFileSync(f, "1"); else Bun.spawnSync(["trash", f]); };
+  const flag = (n: string, on = true) => { const f = join(flags, n); if (on) writeFileSync(f, "1"); else trashSync(f); };
   const get = (pane: string, obj: object) => writeFileSync(join(gets, `${pane}.json`), JSON.stringify(obj));
   const panes = (...ids: string[]) => writeFileSync(list, JSON.stringify({ result: { panes: ids.map((p) => ({ pane_id: p, workspace_id: "ws-1", cwd: repo })) } }));
   const setCoord = (pane: string, session: string) => editJson(join(home, "runs/r1/state.json"), (s) => { s.coordinator = { pane_id: pane, socket_path: sock, workspace_id: "ws-1", session_id: session, repo, harness: "opencode", at: "t0", unreachable: null, candidates: null, backlog_pending: false }; });
@@ -51,7 +51,7 @@ const setup = () => {
   const orchMsgs = () => { const d = join(home, "runs/r1/inbox/orch"); try { return readdirSync(d).sort((x, y) => parseInt(x) - parseInt(y)).map((f) => readJson(join(d, f))); } catch { return []; } };
   const lastMsg = () => orchMsgs().at(-1);
   const drain = () => { const d = join(home, "runs/r1/inbox/orch"); try { for (const f of readdirSync(d)) { const m = readJson(join(d, f)); if (m.delivered_at == null) { m.delivered_at = "2026-01-01T00:00:00Z"; m.status = "delivered"; writeJson(join(d, f), m); } } } catch {} };
-  const reset = () => { drain(); writeFileSync(log, ""); writeFileSync(text, ""); for (const f of readdirSync(flags)) Bun.spawnSync(["trash", join(flags, f)]); };
+  const reset = () => { drain(); writeFileSync(log, ""); writeFileSync(text, ""); for (const f of readdirSync(flags)) trashSync(join(flags, f)); };
   return { home, o, dir, env, sock, flag, get, panes, setCoord, st, lastMsg, orchMsgs, reset, text: () => readText(text), log: () => readText(log), repo };
 };
 
@@ -79,7 +79,7 @@ test("gone pane: unreachable, repoint by session, candidates, ordered backlog, l
   writeFileSync(join(t.dir, "flags/gone_pane"), "p-keep");
   t.o("node", "ask", "r1", "a", "first in order"); t.o("node", "ask", "r1", "a", "second in order");
   t.get("p-back", { agent_status: "idle", agent_session: { value: "ses_A" } }); t.panes("p-back");
-  Bun.spawnSync(["trash", join(t.dir, "flags/gone_pane")]);
+  trashSync(join(t.dir, "flags/gone_pane"));
   expect(t.o("run-util", "sweep", "r1").out).toMatch(/swept 2/);
   const lines = t.text().trim().split("\n");
   expect(lines[0]).toBe("2 pending node questions");

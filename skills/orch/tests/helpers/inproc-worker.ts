@@ -9,7 +9,7 @@ class ExitSignal { constructor(readonly code: number) {} }
 if (process.env.ORCH_TEST_TRACE) {
   for (const k of ["spawn", "spawnSync"] as const) {
     const orig = (Bun as any)[k];
-    (Bun as any)[k] = (...a: any[]) => { const t = performance.now(); const r = orig.apply(Bun, a); require("node:fs").appendFileSync(process.env.ORCH_TEST_TRACE!, `[${k}] ${JSON.stringify((a[0]?.cmd ?? a[0]) as any).slice(0, 150)} ${(performance.now() - t).toFixed(0)}ms\n`); return r; };
+    (Bun as any)[k] = (...a: any[]) => { const t = performance.now(); const r = orig.apply(Bun, a); require("node:fs").appendFileSync(process.env.ORCH_TEST_TRACE!, `worker-${k}\t${(performance.now() - t).toFixed(0)}\t${JSON.stringify((a[0]?.cmd ?? a[0]) as any).slice(0, 120)}\n`); return r; };
   }
 }
 const text = (s: any) => (typeof s === "string" ? s : Buffer.from(s).toString());

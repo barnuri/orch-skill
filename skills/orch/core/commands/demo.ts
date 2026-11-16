@@ -9,7 +9,7 @@ import { loadRun } from "../state/store.ts";
 import { trashPath } from "../state/trash.ts";
 import { applyAdd, parseAddArgs, setStatus as coreSetStatus, type Ctx } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
-import { dispatchSh, learningAfterFinish, memoryAdd } from "./suggest.ts";
+import { learningAfterFinish, memoryAdd } from "./suggest.ts";
 import { ensureHome } from "./serve.ts";
 
 export const DEMO_USAGE = "dispatch.ts demo seed [--graph] [--force] | demo reset [--force] | demo advance [--run <id>]";
@@ -241,7 +241,11 @@ async function graphState(
 }
 
 async function retryNode(run: string, id: string): Promise<void> {
-  await dispatchSh(["node", "retry", run, id, "--no-dispatch"]);
+  // In this process (a child process start costs more than the retry); its stdout was never shown.
+  const { nodeRetry } = await import("./dispatch.ts");
+  const w = process.stdout.write;
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try { await nodeRetry([run, id, "--no-dispatch"]); } finally { process.stdout.write = w; }
 }
 
 // One wide run for the graph pane's screenshot: six stages, every status, five harnesses, costs.

@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync, statSync, utimesSync } from "node:fs";
-import { orch, seedHome, tempHome, tempDir, editJson, readJson, readText, runCmd, DISPATCH, REPO_ROOT, ORCH_DIR, autoCleanup } from "../helpers";
+import { orch, seedHome, tempHome, tempDir, editJson, readJson, readText, runCmd, DISPATCH, REPO_ROOT, ORCH_DIR, autoCleanup, trashSync } from "../helpers";
 autoCleanup();
 
 const initIn = (home: string, env: Record<string, string> = {}) => orch(home, env)("init");
@@ -240,7 +240,7 @@ test("opencode plugin install", () => {
   expect(run().all).toMatch(/^opencode: linked/m);
   expect(Bun.spawnSync(["readlink", join(dir, "plugins/orch-nodes.js")]).stdout.toString().trim()).toBe(src);
   expect(run().all).toMatch(/unchanged/);
-  Bun.spawnSync(["trash", join(dir, "plugins/orch-nodes.js")]);
+  trashSync(join(dir, "plugins/orch-nodes.js"));
   writeFileSync(join(dir, "plugins/orch-nodes.js"), "old plugin\n");
   expect(run().all).toMatch(/backed up/);
   const backup = readdirSync(join(dir, "plugins")).find((f) => f.startsWith("orch-nodes.js.orch-backup-"))!;
