@@ -116,7 +116,7 @@ test("announce daemon, sync lock, harness list lock", async () => {
   o("node", "add", R, "a", "a"); o("node", "update", R, "a", "running", "--owner", "coordinator");
   const act = join(t.O, "activity/sess1.json"), pidf = join(t.O, "announce.pid");
   ann("--quiet");
-  await waitUntil(() => { try { return readJson(act).pane === "p1" && pidAlive(Number(readText(pidf))); } catch { return false; } }, 15);
+  await waitUntil(() => { try { return readJson(act).pane === "p1" && Number(readText(pidf)) > 0 && pidAlive(Number(readText(pidf))); } catch { return false; } }, 15);
   expect(readJson(act).pane).toBe("p1");
   const pid = Number(readText(pidf));
   expect(pidAlive(pid)).toBe(true);
@@ -132,7 +132,7 @@ test("announce daemon, sync lock, harness list lock", async () => {
   ann("--clear", "--quiet"); await waitUntil(() => !pidAlive(pid), 15);
   expect(pidAlive(pid)).toBe(false);
   writeFileSync(pidf, "999999\n"); ann("--quiet");
-  await waitUntil(() => { const n = Number(readText(pidf)); return n !== 999999 && pidAlive(n); }, 15);
+  await waitUntil(() => { const n = Number(readText(pidf)); return n > 0 && n !== 999999 && pidAlive(n); }, 15);
   const npid = Number(readText(pidf));
   expect(npid !== 999999 && pidAlive(npid)).toBe(true);
   o("node", "update", R, "a", "done", "--force"); o("run", "finish", R);

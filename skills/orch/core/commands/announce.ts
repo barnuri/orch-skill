@@ -1,8 +1,8 @@
 // `announce`: show orch activity in Herdr (display-only metadata) and in the status line files.
 // Port of scripts/announce.sh. Never fails the caller. See references/status-bridge.md.
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, chmodSync, appendFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, chmodSync, appendFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { orchHome } from "../state/home.ts";
 import { pidAlive, psCommand, sleep, spawnOrch } from "../state/proc.ts";
 
@@ -98,12 +98,12 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
   if (bin) {
     let label = "orch";
     try {
-      mkdirSync(join(home, "activity"), { recursive: true });
-      const tmpc = join(home, "activity", `.pane-${sid}.out`);
+      const tmpc = join(tmpdir(), `orch-pane-${process.pid}-${sid}.out`);
       await runLimitedFile(timeout, [bin, "pane", "current"], tmpc);
       const a = JSON.parse(readFileSync(tmpc, "utf8"))?.result?.pane?.agent;
       if (a) label = a;
     } catch {}
+    try { unlinkSync(join(tmpdir(), `orch-pane-${process.pid}-${sid}.out`)); } catch {}
     const args = active
       ? ["pane", "report-metadata", pane, "--source", "user:orch", "--agent", label, "--state-label", `idle=${summary}`, "--state-label", `working=${summary}`, "--token", `orch=${summary}`, "--ttl-ms", String(o.ttl * 1000)]
       : ["pane", "report-metadata", pane, "--source", "user:orch", "--agent", label, "--clear-state-labels", "--clear-token", "orch", "--clear-title"];
