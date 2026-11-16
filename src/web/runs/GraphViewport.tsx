@@ -4,6 +4,7 @@ import { NODE_H, NODE_W, layoutDag } from "../lib/dag-layout";
 import { followView } from "../lib/follow-view";
 import type { Box } from "../lib/follow-view";
 import { focusTarget } from "../lib/focus-target";
+import { loadGraphPrefs, saveGraphFollow, saveGraphHideDone } from "../lib/graph-prefs";
 import { GraphSvg } from "./GraphSvg";
 
 const ZOOM_MIN = 0.12;
@@ -34,7 +35,9 @@ const states = new Map<string, ViewState>();
 export function viewStateFor(runId: string): ViewState {
   let state = states.get(runId);
   if (state === undefined) {
-    state = { scale: 1, mode: "fit", follow: true, hideDone: false, focused: null, left: 0, top: 0 };
+    // Follow and Hide done start from the last choice made on any run.
+    const prefs = loadGraphPrefs();
+    state = { scale: 1, mode: "fit", follow: prefs.follow, hideDone: prefs.hideDone, focused: null, left: 0, top: 0 };
     states.set(runId, state);
   }
   return state;
@@ -45,6 +48,9 @@ export function clearViewStates(): void {
 }
 
 const clampScale = (scale: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+
+/** Nodes the Hide done toggle removes from the graph: finished and skipped ones. */
+const isHiddenByToggle = (status: string): boolean => status === "done" || status === "skipped";
 
 function fitScale(viewport: HTMLElement, w: number, h: number): number {
   if (w <= 0 || h <= 0) {
@@ -84,11 +90,11 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
     if (!view.hideDone) {
       return run;
     }
-    const nodes = run.nodes.filter((node) => node.status !== "done" || node.id === selectedId);
+    const nodes = run.nodes.filter((node) => !isHiddenByToggle(node.status) || node.id === selectedId);
     const ids = new Set(nodes.map((node) => node.id));
     return { ...run, nodes, edges: run.edges.filter(([from, to]) => ids.has(from) && ids.has(to)) };
   }, [run, selectedId, view.hideDone]);
-  const doneCount = run.nodes.filter((node) => node.status === "done").length;
+  const hiddenCount = run.nodes.filter((node) => isHiddenByToggle(node.status)).length;
   const layout = useMemo(() => layoutDag(shown.nodes, shown.edges), [shown]);
   const target = useMemo(() => focusTarget(run), [run]);
   const w = layout.width;
@@ -230,6 +236,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
         return;
       }
       view.follow = false;
+      saveGraphFollow(false);
       // From here the graph stays where the user puts it instead of fitting again.
       if (view.mode === "fit") {
         view.mode = "manual";
@@ -320,6 +327,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
 
   const stopFollowing = (): void => {
     view.follow = false;
+    saveGraphFollow(false);
     if (view.mode === "fit") {
       view.mode = "manual";
     }
@@ -346,6 +354,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
   };
   const follow = (): void => {
     view.follow = true;
+    saveGraphFollow(true);
     view.focused = null;
     applyFollow(false);
     redraw();
@@ -390,14 +399,15 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
           className={`btn graph-tool${view.hideDone ? " is-on" : ""}`}
           type="button"
           aria-pressed={view.hideDone}
-          title="Hide the nodes that are done"
+          title="Hide the nodes that are done or skipped"
           aria-label="Hide done nodes"
           onClick={() => {
             view.hideDone = !view.hideDone;
+            saveGraphHideDone(view.hideDone);
             redraw();
           }}
         >
-          {view.hideDone ? `Show done (${doneCount})` : "Hide done"}
+          {view.hideDone ? `Show done (${hiddenCount})` : "Hide done"}
         </button>
         <span className="graph-zoom-label mono">{`${Math.round(view.scale * 100)}%`}</span>
         <span className="graph-hint muted">{hintText(target === null ? null : target.reason)}</span>

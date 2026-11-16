@@ -85,6 +85,12 @@ export function needsUserReason(node: RunNode): string | null {
   return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : null;
 }
 
+/** Why the coordinator holds a ready node back (`node update --hold`), or null when it does not. */
+export function holdReason(node: RunNode): string | null {
+  const reason = node.hold;
+  return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : null;
+}
+
 /** True when any node is done only because its owner said so. */
 export function hasUnreviewed(nodes: readonly RunNode[]): boolean {
   return nodes.some((n) => n.status === "done" && n.unverified === true);

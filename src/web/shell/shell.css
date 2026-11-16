@@ -75,3 +75,12 @@
   /* The base header rule wraps under 900px; the topbar has a fixed height, so a wrapped row spilled over the page. */
   .topbar { flex-wrap: nowrap; gap: var(--s2); }
 }
+
+/* The orch herdr instance chip: green ok, amber degraded, red down. Steady dot: it is a state, not activity. */
+.herdr-chip .dot { animation: none; }
+.herdr-chip.is-ok { border-color: var(--okbd); background: var(--okbg); color: var(--ok); }
+.herdr-chip.is-degraded { border-color: var(--status-stale-bd); background: var(--status-stale-bg); color: var(--status-stale); }
+.herdr-chip.is-down { border-color: var(--erbd); background: var(--erbg); color: var(--er); }
+@media (max-width: 600px) {
+  .herdr-chip .herdr-chip-words { display: none; }
+}

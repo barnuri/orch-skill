@@ -17,6 +17,8 @@ import { Select } from "../components/Select";
 import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Toggle } from "../components/Toggle";
+import { PickerSelect } from "../chats/PickerSelect";
+import { useChatOptions } from "../chats/queries";
 import { asProfilesDocument } from "../lib/documents";
 import { fmtDur, rel, until } from "../lib/format";
 import { useSessionState } from "../lib/session-state";
@@ -30,7 +32,9 @@ import {
   FILTERS,
   healthOf,
   matchesFilter,
+  modelText,
   scheduleEditPayload,
+  scheduleModelOptions,
   schedulePayload,
   soonestNext,
   visibleSchedules,
@@ -64,6 +68,11 @@ function RunRow({
         <span className="sched-run-time">{rel(run.started_at)}</span>
         <span className="muted">{run.status === "running" ? "running…" : fmtDur(run.started_at, run.ended_at)}</span>
         <span className="muted mono">{run.exit === null ? "" : `exit ${run.exit}`}</span>
+        {run.kind === "prompt" ? (
+          <span className={run.model ? "sched-run-model mono" : "sched-run-model mono muted"} title="Model this run used">
+            {modelText(run)}
+          </span>
+        ) : null}
         <Button
           className="sched-view"
           onClick={() => {
@@ -140,6 +149,11 @@ function ScheduleRow({
         <div className="sched-sub">
           <span className="mono">{schedule.cron}</span>
           <span className="muted">{cronLabel(schedule.cron)}</span>
+          {schedule.kind === "prompt" ? (
+            <span className={schedule.model ? "sched-model mono" : "sched-model mono muted"} title="Model the prompt runs on">
+              {`model: ${modelText(schedule)}`}
+            </span>
+          ) : null}
         </div>
         <div className="sched-what mono" title={what}>
           {what}
@@ -332,8 +346,12 @@ function ScheduleForm({
     });
   };
   const profile = draft.profile === "" ? defaultProfile || profileNames[0] || "" : draft.profile;
+  const chatOptions = useChatOptions();
+  const model = draft.model ?? "";
+  const modelOptions = scheduleModelOptions(chatOptions.data, profile, model);
+  const modelNote = chatOptions.isLoading ? "loading models…" : modelOptions.length === 1 ? "no other model for this profile" : null;
   const submit = async (): Promise<void> => {
-    const current = { ...draft, profile };
+    const current = { ...draft, profile, model };
     const problems = draftErrors(current);
     setFieldErrors(problems);
     if (Object.keys(problems).length > 0) {
@@ -392,10 +410,21 @@ function ScheduleForm({
         <CronField cron={draft.cron} error={fieldErrors.cron} onChange={(cron) => { set({ cron }); }} />
         {draft.kind === "prompt" ? (
           <>
-            <Labelled label="Profile">
-              <Select aria-label="Profile" invalid={fieldErrors.profile !== undefined} value={profile} options={profileNames.map((name) => ({ value: name, label: name }))} onChange={(value) => { set({ profile: value }); }} />
-              <FieldError message={fieldErrors.profile} />
-            </Labelled>
+            <div className="sched-form-row sched-profile-row">
+              <Labelled label="Profile">
+                <Select aria-label="Profile" invalid={fieldErrors.profile !== undefined} value={profile} options={profileNames.map((name) => ({ value: name, label: name }))} onChange={(value) => { set({ profile: value, model: "" }); }} />
+                <FieldError message={fieldErrors.profile} />
+              </Labelled>
+              <PickerSelect
+                testId="schedule-model"
+                label="Model"
+                value={model}
+                options={modelOptions}
+                disabled={modelOptions.length === 1}
+                note={modelNote}
+                onChange={(value) => { set({ model: value }); }}
+              />
+            </div>
             <Labelled label="Prompt">
               <textarea rows={4} aria-label="Prompt" aria-invalid={fieldErrors.prompt !== undefined || undefined} placeholder="What should the agent do each time?" value={draft.prompt} onChange={(event) => { set({ prompt: event.target.value }); }} />
               <FieldError message={fieldErrors.prompt} />

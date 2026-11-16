@@ -153,3 +153,87 @@ describe("schedule edit", () => {
     });
   });
 });
+
+const CHAT_OPTIONS = {
+  harnesses: [
+    {
+      id: "claude", label: "Claude Code", enabled: true, available: true, persistent: true, memory: "process",
+      profiles: [
+        {
+          name: "claude-default", description: "", enabled: true, configured: true, problem: null,
+          models: [
+            { id: "claude-sonnet", label: "claude-sonnet", slug: "sonnet", description: "workhorse", default: true },
+            { id: "claude-opus", label: "claude-opus", slug: "opus", description: "hardest", default: false },
+          ],
+        },
+      ],
+    },
+  ],
+  default_harness: "claude",
+  default_profile: "claude-default",
+};
+
+/** `serve` plus GET /chat-options, the model picker's source. */
+function serveWithOptions(list: Schedule[], onPut: (body: Record<string, unknown>) => Response): Call[] {
+  const calls = serve(list, onPut);
+  const inner = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).includes("/chat-options") ? Promise.resolve(json(200, CHAT_OPTIONS)) : inner(input, init)) as typeof fetch;
+  return calls;
+}
+
+const promptSchedule = (over: Partial<Schedule> = {}): Schedule =>
+  schedule({ kind: "prompt", name: "morning", prompt: "summarise", profile: "claude-default", command: null, timeout: 0, ...over });
+
+describe("schedule model", () => {
+  test("the row and each run show the model, with a placeholder for the profile default", async () => {
+    const run = { started_at: "2026-11-15T09:00:00Z", ended_at: "2026-11-15T09:01:00Z", kind: "prompt" as const, ref: "j1", status: "ok" as const, exit: null };
+    serveWithOptions(
+      [
+        promptSchedule({ model: "claude-opus", runs: [{ ...run, model: "claude-opus" }, { ...run, started_at: "2026-11-14T09:00:00Z" }] }),
+        promptSchedule({ id: "sch-20261115-100000-beef", name: "plain", model: null }),
+      ],
+      () => json(200, { ok: true }),
+    );
+    page();
+    expect(await screen.findByText("model: claude-opus")).toBeTruthy();
+    expect(screen.getByText("model: profile default")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Runs (2)" }));
+    expect((await screen.findAllByTitle("Model this run used")).length).toBe(2);
+    const runModels = screen.getAllByTitle("Model this run used").map((el) => el.textContent);
+    expect(runModels).toEqual(["claude-opus", "profile default"]);
+  });
+
+  test("the model picker lists the profile default first, then the profile's models, and Save sends the pick", async () => {
+    const calls = serveWithOptions([promptSchedule()], () => json(200, { ok: true }));
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit morning" }));
+    const picker = await screen.findByTestId("schedule-model");
+    await waitFor(() => {
+      expect(picker.querySelectorAll('[role="option"]').length).toBe(3);
+    });
+    const labels = [...picker.querySelectorAll(".picker-opt-main")].map((el) => el.textContent);
+    expect(labels).toEqual(["Profile default", "claude-sonnet", "claude-opus"]);
+    expect(picker.querySelector("button")?.textContent).toContain("Profile default");
+    fireEvent.click(picker.querySelector("button") as HTMLElement);
+    fireEvent.click([...picker.querySelectorAll('[role="option"]')][2] as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved morning");
+    expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ kind: "prompt", profile: "claude-default", model: "claude-opus" });
+  });
+
+  test("going back to the profile default sends model null", async () => {
+    const calls = serveWithOptions([promptSchedule({ model: "claude-opus" })], () => json(200, { ok: true }));
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit morning" }));
+    const picker = await screen.findByTestId("schedule-model");
+    await waitFor(() => {
+      expect(picker.querySelector("button")?.textContent).toContain("claude-opus");
+    });
+    fireEvent.click(picker.querySelector("button") as HTMLElement);
+    fireEvent.click(picker.querySelectorAll('[role="option"]')[0] as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved morning");
+    expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ model: null });
+  });
+});

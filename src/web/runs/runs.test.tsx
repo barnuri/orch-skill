@@ -92,6 +92,26 @@ describe("node panel placeholders", () => {
     expect(row("role · tier").textContent).toBe("not set");
   });
 
+  test("a waiting node's panel says why it waits, in the card's priority", () => {
+    const why = (): { text: string; title: string | null } => {
+      const dd = screen.getByText("why").nextElementSibling as HTMLElement;
+      const out = { text: dd.textContent ?? "", title: dd.getAttribute("title") };
+      cleanup();
+      return out;
+    };
+    const held = node({ hold: "until load < 4", needs_user: "pick a name" });
+    render(<NodePanel run={runOf([held, node({ id: "a", status: "running" }), node({ id: "b" })], [["a", "n1"], ["b", "n1"]])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(why()).toEqual({ text: "waiting on a +1", title: "Waiting on: a, b" });
+    render(<NodePanel run={runOf([held])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(why().text).toBe("needs you: pick a name");
+    render(<NodePanel run={runOf([node({ hold: "a very long reason that does not fit the card row" })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(why().text).toBe("held: a very long reason that does not fit the card row");
+    render(<NodePanel run={runOf([node({})])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(why().text).toBe("ready, not started");
+    render(<NodePanel run={runOf([node({ status: "running", hold: "x" })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(screen.queryByText("why")).toBeNull();
+  });
+
   test("model precedence: hub actual beats the profile model", () => {
     const hub = { expected: { model: "p/exp-model" }, actual: { model: "p/act-model" }, outcome: null };
     render(<NodePanel run={runOf([node({ model: "profile-model", hub })])} selectedId="n1" maxAttempts={5} flash={0} />);
@@ -119,15 +139,16 @@ describe("graph viewport follow toggle", () => {
   const withQuery = (child: React.ReactElement) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{child}</QueryClientProvider>;
   const mount = () => render(withQuery(<GraphViewport run={run} selectedId={null} onSelect={() => undefined} harnessByProfile={{}} maxAttempts={5} />));
 
-  test("waiting nodes say what they wait on, and Hide done removes finished nodes", () => {
-    const r = runOf([node({ id: "a", status: "done" }), node({ id: "b", status: "running", started: iso(1000) }), node({ id: "c", status: "waiting" })], [["a", "c"], ["b", "c"]]);
+  test("waiting nodes say what they wait on, and Hide done removes finished and skipped nodes", () => {
+    const r = runOf([node({ id: "a", status: "done" }), node({ id: "b", status: "running", started: iso(1000) }), node({ id: "c", status: "waiting" }), node({ id: "d", status: "skipped" })], [["a", "c"], ["b", "c"]]);
     render(withQuery(<GraphViewport run={r} selectedId={null} onSelect={() => undefined} harnessByProfile={{}} maxAttempts={5} />));
     expect(screen.getByText("waiting on b")).toBeTruthy();
-    expect(document.querySelectorAll("[data-node-id]").length).toBe(3);
+    expect(document.querySelectorAll("[data-node-id]").length).toBe(4);
     fireEvent.click(screen.getByRole("button", { name: "Hide done nodes" }));
     expect(document.querySelectorAll("[data-node-id]").length).toBe(2);
     expect(document.querySelector('[data-node-id="a"]')).toBeNull();
-    expect(screen.getByRole("button", { name: "Hide done nodes" }).textContent).toBe("Show done (1)");
+    expect(document.querySelector('[data-node-id="d"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Hide done nodes" }).textContent).toBe("Show done (2)");
   });
 
   test("follow is on by default, zooming turns it off and the button turns it back on", () => {

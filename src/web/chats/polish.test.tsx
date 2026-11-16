@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { installDom } from "../test/dom";
 import type { Chat, ChatOptions, Message } from "../lib/chat-types";
-import { isSearchShortcut, keyboardInset, sortMessages, visibleChats } from "../lib/chat-logic";
+import { isSearchShortcut, keyboardInset, keyboardOpen, sortMessages, visibleChats } from "../lib/chat-logic";
 
 const uninstall = installDom();
 const { render, screen, fireEvent, cleanup, act } = await import("@testing-library/react");
@@ -96,6 +96,30 @@ describe("removing an unsent upload", () => {
     expect(removed).toEqual(["att-7"]);
     expect(screen.queryByText("done.txt")).toBeNull();
   });
+
+  test("the drop highlight stays while the drag moves onto a child and clears when it leaves the composer", () => {
+    cleanup();
+    const { container } = render(<Composer chatId="chat-1" blocked={null} running={false} onSend={async () => null} onStop={() => {}} onOpenImage={() => {}} storage={store()} />);
+    const zone = container.querySelector(".composer") as HTMLElement;
+    const child = container.querySelector("textarea") as HTMLElement;
+    fireEvent.dragOver(zone, { dataTransfer: { types: ["Files"] } });
+    expect(zone.hasAttribute("data-dragging")).toBe(true);
+    // A MouseEvent carries relatedTarget in the test DOM; React reads it from the native event either way.
+    const leave = (to: EventTarget): void => { act(() => { zone.dispatchEvent(new MouseEvent("dragleave", { bubbles: true, relatedTarget: to })); }); };
+    leave(child);
+    expect(zone.hasAttribute("data-dragging")).toBe(true);
+    leave(document.body);
+    expect(zone.hasAttribute("data-dragging")).toBe(false);
+  });
+
+  test("a sent message shows its images in the inline message gallery", () => {
+    cleanup();
+    const image = { ...att("att-9", "shot.png"), mime: "image/png" };
+    render(<MessageView message={row({ role: "user", content: "see", attachments: [image] })} now={0} onOpenImage={() => {}} />);
+    const gallery = screen.getByTestId("msg-atts");
+    expect(gallery.classList.contains("att-row")).toBe(true);
+    expect(gallery.querySelector("button[aria-label='Preview shot.png']")).not.toBeNull();
+  });
 });
 
 describe("thread list and keyboard", () => {
@@ -126,6 +150,12 @@ describe("thread list and keyboard", () => {
     expect(keyboardInset(800, { height: 500, offsetTop: 0 })).toBe(300);
     expect(keyboardInset(800, { height: 500, offsetTop: 120 })).toBe(180);
     expect(keyboardInset(800, { height: 900, offsetTop: 0 })).toBe(0);
+  });
+  test("only an inset the size of a keyboard counts as the keyboard being up", () => {
+    expect(keyboardOpen(0)).toBe(false);
+    expect(keyboardOpen(60)).toBe(false);
+    expect(keyboardOpen(120)).toBe(true);
+    expect(keyboardOpen(300)).toBe(true);
   });
 });
 

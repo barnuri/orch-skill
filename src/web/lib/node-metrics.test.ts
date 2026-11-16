@@ -5,7 +5,10 @@ import type { RunNode } from "../../shared/types/run-node";
 import { fmtTokens } from "./format";
 import {
   NOT_STARTED_TEXT,
+  NO_ACTUAL_TEXT,
   NO_MODEL_TEXT,
+  META_MAX_CHARS,
+  actualModelMetric,
   NO_USAGE_TEXT,
   durationMetric,
   modelMetric,
@@ -240,5 +243,26 @@ describe("card rows always drawn", () => {
     expect(cardUsageMetric(node({ cost: cost(0, 1234) }))).toMatchObject({ text: "1.2k tok · cost —", present: true });
     expect(cardUsageMetric(node({ cost: cost(0.42, 1500) }))).toMatchObject({ text: "1.5k tok · $0.42", present: true });
     expect(cardUsageMetric(node({ report: report({ usd: 0.1 }) })).text).toBe("usage — · $0.10");
+  });
+});
+
+describe("alias → actual model", () => {
+  test("shows alias → actual when the served model differs from the alias", () => {
+    const metric = modelMetric(node({ model: "hub/smart-auto-balance", actual_model: "copilot/claude-opus-5-5" }), META_MAX_CHARS);
+    expect(metric.text).toBe("smart-a… → claude-opus-5-5");
+    expect(metric.text.length).toBeLessThanOrEqual(META_MAX_CHARS);
+    expect(metric.title).toContain("copilot/claude-opus-5-5");
+  });
+
+  test("shows the alias alone when the actual model matches it or is missing", () => {
+    expect(modelMetric(node({ model: "claude-opus-5-5", actual_model: "claude-opus-5-5" })).text).toBe("claude-opus-5-5");
+    expect(modelMetric(node({ model: "hub/smart-auto-balance" })).text).toBe("hub/smart-auto-balance");
+  });
+
+  test("actualModelMetric shows the placeholder when no actual model is known", () => {
+    const missing = actualModelMetric(node());
+    expect(missing.text).toBe(NO_ACTUAL_TEXT);
+    expect(missing.present).toBe(false);
+    expect(actualModelMetric(node({ actual_model: "copilot/gpt-x" })).text).toBe("copilot/gpt-x");
   });
 });

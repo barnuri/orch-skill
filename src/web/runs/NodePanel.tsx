@@ -13,7 +13,7 @@ import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
 import { AFTER_THE_FACT, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip, ownerText } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
 import { modelPick, pickLabel } from "../lib/model-pick";
-import { attemptLine, modelMetric, roleTierText, usageMetric } from "../lib/node-metrics";
+import { actualModelMetric, aliasActual, aliasActualText, attemptLine, modelMetric, roleTierText, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { activeStageSummary, formatSelectionLine, timelineEvents } from "../lib/selection-timeline";
 import { Ago } from "./RunActivity";
@@ -111,15 +111,18 @@ function ActivityRows({ node }: { node: RunNode }) {
   );
 }
 
-function DetailList({ node, maxAttempts }: { node: RunNode; maxAttempts: number }) {
+function DetailList({ node, maxAttempts, waitingOn = [] }: { node: RunNode; maxAttempts: number; waitingOn?: readonly string[] }) {
   const duration = useNodeDuration(node);
   const roleTier = roleTierText(node);
+  const wait = waitReason(node, waitingOn);
   return (
     <dl>
       <Row k="id" value={node.id} cls="mono" />
       <Row k="status" value={node.status} />
+      {wait === null ? null : <Row k="why" value={wait.text} cls={`wait-reason wait-${wait.kind}`} title={wait.title} />}
       <ActivityRows node={node} />
       <MetricRow k="model" metric={modelMetric(node)} cls="mono" />
+      <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" />
       <MetricRow k="duration" metric={duration} />
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />
       <Row k="attempt" value={attemptLine(node, maxAttempts)} />
@@ -140,12 +143,13 @@ function DetailList({ node, maxAttempts }: { node: RunNode; maxAttempts: number 
 /** The model block: the model that ran, large, with how Smart Auto chose it underneath. */
 function ModelBlock({ node }: { node: RunNode }) {
   const pick = modelPick(node);
+  const pair = aliasActual(node);
   if (pick === null) {
     const metric = modelMetric(node);
     return (
-      <section className="model-pick is-missing" aria-label="Model" title={metric.title}>
+      <section className={`model-pick${metric.present ? "" : " is-missing"}`} aria-label="Model" title={metric.title}>
         <div className="model-pick-key">Model</div>
-        <div className="model-pick-name mono missing">{metric.text}</div>
+        <div className={`model-pick-name mono${metric.present ? "" : " missing"}`}>{metric.text}</div>
       </section>
     );
   }
@@ -153,8 +157,8 @@ function ModelBlock({ node }: { node: RunNode }) {
   return (
     <section className={`model-pick${pick.isAuto ? " is-auto" : ""}`} aria-label="Model">
       <div className="model-pick-key">{pick.isAuto ? (pick.isExpected ? "Smart Auto · expected" : "Smart Auto picked") : "Model"}</div>
-      <div className="model-pick-name mono" title={pick.model}>
-        {pickLabel(pick)}
+      <div className="model-pick-name mono" title={pair === null ? pick.model : `${pair.alias} → ${pair.actual}`}>
+        {pair === null ? pickLabel(pick) : aliasActualText(pair)}
       </div>
       {facts.length > 0 ? <div className="model-pick-facts">{facts.join(" · ")}</div> : null}
       {pick.selector !== null ? <div className="model-pick-sel mono">{`via ${pick.selector}`}</div> : null}
@@ -187,6 +191,7 @@ function Attempts({ node }: { node: RunNode }) {
           const lines = [
             attempt.profile ?? attempt.adapter ?? "—",
             attempt.model_id ?? attempt.model ?? "model not reported",
+            attempt.actual_model != null && attempt.actual_model !== (attempt.model_id ?? attempt.model) ? `→ ${attempt.actual_model}` : "",
             compactCost(attempt.cost),
             attempt.finished === null ? "not finished" : fmtTime(attempt.finished),
             attempt.error,
@@ -542,7 +547,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
       <div className="panel-grid">
         <div className="panel-details">
           <ModelBlock node={node} />
-          <DetailList node={node} maxAttempts={maxAttempts} />
+          <DetailList node={node} maxAttempts={maxAttempts} waitingOn={waitingOnDeps(run, node.id)} />
           <Attempts node={node} />
           <Selections node={node} />
         </div>

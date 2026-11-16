@@ -8,7 +8,7 @@ import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, 
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
-import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine } from "../lib/node-metrics";
+import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
@@ -188,11 +188,12 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
   const profile = profileKey(node);
   const harness = harnessOf(node, harnessByProfile);
   const pick = modelPick(node);
-  const model = modelMetric(node);
+  const model = modelMetric(node, META_MAX_CHARS);
   const usage = cardUsageMetric(node);
   const duration = useNodeDuration(node);
   const attempt = attemptLine(node, maxAttempts);
   const roleTier = roleTierMetric(node);
+  const wait = waitReason(node, waitingOn, META_MAX_CHARS);
   const style = profile === null ? undefined : ({ "--profile-accent": palette.accent(profile), "--profile-soft": palette.soft(profile) } as React.CSSProperties);
   const aria = `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${harness !== null ? `, ${harness}` : ""}, ${
     model.present ? `model ${model.text}` : model.text
@@ -225,8 +226,8 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
       </text>
       {harness !== null ? <HarnessGlyph id={harness} x={NODE_W - HARNESS_MARK_SIZE - 9} y={8} size={HARNESS_MARK_SIZE} /> : null}
       <text className="st" x={META_LEFT_X} y={STATUS_Y}>
-        {node.status === "waiting" && waitingOn.length > 0 ? truncate(`waiting on ${waitingOn[0]}${waitingOn.length > 1 ? ` +${waitingOn.length - 1}` : ""}`, META_MAX_CHARS) : statusLine(node, maxAttempts)}
-        {node.status === "waiting" && waitingOn.length > 0 ? <title>{`Waiting on: ${waitingOn.join(", ")}`}</title> : null}
+        {wait === null ? statusLine(node, maxAttempts) : wait.text}
+        {wait === null ? null : <title>{wait.title}</title>}
       </text>
       <MetricText metric={model} base={pick?.isAuto === true ? "model auto" : "model"} x={META_LEFT_X} y={MODEL_Y} max={META_MAX_CHARS} />
       {autoTitle === null ? null : <title>{autoTitle}</title>}
@@ -257,9 +258,6 @@ interface GraphSvgProps {
 export function GraphSvg({ run, layout, selectedId, onSelect, harnessByProfile, maxAttempts }: GraphSvgProps) {
   const palette = profilePalette(run.nodes.map(profileKey).filter((name): name is string => name !== null));
   const doneIds = new Set(run.nodes.filter((node) => node.status === "done").map((node) => node.id));
-  const statusById = new Map(run.nodes.map((node) => [node.id, node.status]));
-  const pendingStatus = new Set(["waiting", "running"]);
-  const waitingOf = (id: string): string[] => run.edges.filter(([from, to]) => to === id && pendingStatus.has(statusById.get(from) ?? "")).map(([from]) => from);
   return (
     <svg width={layout.width} height={layout.height} role="img" aria-label="Task graph">
       {layout.stages.length < 2
@@ -298,7 +296,7 @@ export function GraphSvg({ run, layout, selectedId, onSelect, harnessByProfile, 
             harnessByProfile={harnessByProfile}
             maxAttempts={maxAttempts}
             runId={run.run_id}
-            waitingOn={waitingOf(node.id)}
+            waitingOn={waitingOnDeps(run, node.id)}
           />
         );
       })}

@@ -7,9 +7,10 @@ const LABEL: Record<Exclude<NodeHealthState, "ok">, string> = {
   unowned: "unowned",
   "no-report": "no report",
   "needs-user": "needs you",
+  held: "held",
 };
 
-const ORDER: readonly Exclude<NodeHealthState, "ok">[] = ["dead", "stalled", "no-report", "unowned", "needs-user"];
+const ORDER: readonly Exclude<NodeHealthState, "ok">[] = ["dead", "stalled", "no-report", "unowned", "needs-user", "held"];
 
 /** HH:MM in local time; null for a missing or unreadable stamp. */
 export function hhmm(iso: string | null): string | null {

@@ -408,6 +408,15 @@ export function keyboardInset(layoutHeight: number, vv: { height: number; offset
   return hidden > 0 ? Math.round(hidden) : 0;
 }
 
+/**
+ * Whether an inset from `keyboardInset` is the on-screen keyboard rather than a thin strip of browser
+ * chrome. iOS Safari does not shrink the layout viewport for the keyboard, so the short-viewport media
+ * queries never fire there; the page flags the open keyboard itself and the CSS keys off that flag.
+ */
+export function keyboardOpen(inset: number): boolean {
+  return inset >= 120;
+}
+
 export const WARNING_TRUNCATED = "earlier messages were left out to fit the context";
 export const WARNING_TRUNCATED_TIP = "The chat history was longer than the model's context window, so the oldest messages were not sent with this reply. The model may not remember them.";
 

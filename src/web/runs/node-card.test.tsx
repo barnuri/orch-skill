@@ -15,12 +15,12 @@ function node(over: Partial<RunNode> = {}): RunNode {
   return { id: "n1", label: "first", status: "waiting", profile: null, adapter: null, job_id: null, started: null, finished: null, error: null, log_tail: [], ...over };
 }
 
-function card(n: RunNode) {
+function card(n: RunNode, waitingOn: string[] = []) {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
       <svg>
-        <NodeCard node={n} pos={{ x: 0, y: 0 }} selected={false} isCyclic={false} onSelect={() => {}} palette={profilePalette([])} harnessByProfile={{}} maxAttempts={5} runId="r1" />
+        <NodeCard node={n} pos={{ x: 0, y: 0 }} selected={false} isCyclic={false} onSelect={() => {}} palette={profilePalette([])} harnessByProfile={{}} maxAttempts={5} runId="r1" waitingOn={waitingOn} />
       </svg>
     </QueryClientProvider>,
   );
@@ -37,7 +37,25 @@ describe("NodeCard rows", () => {
     const role = container.querySelector(".metric.role");
     expect(role?.textContent).toContain("role — · tier —");
     expect(role?.getAttribute("class")).toContain("missing");
-    expect(container.querySelector(".st")?.textContent).toContain("attempt 1/5");
+    expect(container.querySelector(".st")?.textContent).toContain("ready, not started");
+    cleanup();
+    expect(card(node({ status: "running" })).container.querySelector(".st")?.textContent).toContain("attempt 1/5");
+  });
+
+  test("a waiting card says why: deps, then the user, then a hold, else ready", () => {
+    const st = (n: RunNode, deps: string[] = []): { text: string; title: string } => {
+      const el = card(n, deps).container.querySelector(".st");
+      const out = { text: el?.firstChild?.textContent ?? "", title: el?.querySelector("title")?.textContent ?? "" };
+      cleanup();
+      return out;
+    };
+    const all = node({ needs_user: "pick a name", hold: "until load < 4" });
+    expect(st(all, ["a", "b", "c"])).toEqual({ text: "waiting on a +2", title: "Waiting on: a, b, c" });
+    expect(st(all)).toEqual({ text: "needs you: pick a name", title: "Needs you: pick a name" });
+    expect(st(node({ hold: "until load < 4" }))).toEqual({ text: "held: until load < 4", title: "Held by the coordinator: until load < 4" });
+    expect(st(node({ hold: "  " })).text).toBe("ready, not started");
+    expect(st(node({ hold: "a very long reason that does not fit the card row" })).text).toBe("held: a very long reason …");
+    expect(st(node({ status: "done", hold: "x" })).text).toBe("done · attempt 1/5");
   });
 
   test("a set role shows beside the tier placeholder", () => {
@@ -55,5 +73,10 @@ describe("NodeCard rows", () => {
     expect(container.querySelector(".task-node")?.getAttribute("aria-label")).toContain("needs you");
     cleanup();
     expect(card(node()).container.querySelector(".needs-you-chip")).toBeNull();
+  });
+
+  test("the model row reads alias → actual when the served model differs", () => {
+    const { container } = card(node({ model: "hub/smart-auto-balance", actual_model: "copilot/claude-opus-5-5" } as Partial<RunNode>));
+    expect(container.querySelector(".model")?.textContent).toContain("smart-a… → claude-opus-5-5");
   });
 });

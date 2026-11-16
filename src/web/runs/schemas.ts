@@ -55,5 +55,6 @@ export const runHealthSchema = typed<RunHealthEnvelope>(
 );
 
 export const healthSummarySchema = typed<HealthSummary>(
-  z.looseObject({ running_runs: z.number(), stalled: z.number(), dead: z.number(), unowned: z.number(), no_report: z.number(), needs_user: z.number().optional(), ready: z.number(), flagged_runs: z.array(z.string()) }),
+  z.looseObject({ running_runs: z.number(), stalled: z.number(), dead: z.number(), unowned: z.number(), no_report: z.number(), needs_user: z.number().optional(), ready: z.number(), flagged_runs: z.array(z.string()),
+    herdr: z.looseObject({ state: z.enum(["ok", "degraded", "down", "off"]), problems: z.array(z.string()) }).nullable().optional() }),
 );

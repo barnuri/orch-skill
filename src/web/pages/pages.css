@@ -42,6 +42,7 @@
 .sched-row.is-editing .sched-form { margin: 0; border: 0; padding: 0; background: transparent; box-shadow: none; }
 .sched-field-error { margin-top: var(--s1); font-size: var(--fs-meta); color: var(--status-error); }
 .sched-form [aria-invalid="true"] { border-color: var(--status-error); }
+.sched-model, .sched-run-model { font-size: var(--fs-meta); min-width: 0; overflow-wrap: anywhere; }
 
 /* ---- Harnesses: one ledger of rows instead of cards -------------------------------------- */
 .harness-grid {

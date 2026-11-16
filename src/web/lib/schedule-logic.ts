@@ -1,4 +1,5 @@
-import type { Schedule, ScheduleEdit, ScheduleInput } from "../../shared/types/schedule";
+import type { Schedule, ScheduleEdit, ScheduleInput, ScheduleRun } from "../../shared/types/schedule";
+import type { ChatOptions } from "./chat-types";
 
 export type Health = "failing" | "running" | "paused" | "ok" | "new";
 export type ScheduleFilter = "all" | "active" | "paused" | "failing";
@@ -63,6 +64,8 @@ export interface ScheduleDraft {
   kind: "prompt" | "command";
   cron: string;
   profile: string;
+  /** Catalog model id; "" = the profile's default model. */
+  model: string;
   prompt: string;
   command: string;
   workdir: string;
@@ -74,6 +77,7 @@ export const emptyScheduleDraft = (): ScheduleDraft => ({
   kind: "prompt",
   cron: "0 9 * * 1-5",
   profile: "",
+  model: "",
   prompt: "",
   command: "",
   workdir: "",
@@ -83,7 +87,8 @@ export const emptyScheduleDraft = (): ScheduleDraft => ({
 export function schedulePayload(draft: ScheduleDraft): ScheduleInput {
   const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
   if (draft.kind === "prompt") {
-    return { ...base, prompt: draft.prompt, profile: draft.profile };
+    const model = (draft.model ?? "").trim();
+    return model === "" ? { ...base, prompt: draft.prompt, profile: draft.profile } : { ...base, prompt: draft.prompt, profile: draft.profile, model };
   }
   const out: ScheduleInput = { ...base, command: draft.command };
   if (draft.workdir.trim() !== "") {
@@ -113,6 +118,7 @@ export function draftOf(schedule: Schedule): ScheduleDraft {
     kind: schedule.kind,
     cron: schedule.cron,
     profile: schedule.profile ?? "",
+    model: schedule.model ?? "",
     prompt: schedule.prompt ?? "",
     command: schedule.command ?? "",
     workdir: schedule.workdir ?? "",
@@ -127,7 +133,8 @@ export function draftOf(schedule: Schedule): ScheduleDraft {
 export function scheduleEditPayload(draft: ScheduleDraft): ScheduleEdit {
   const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
   if (draft.kind === "prompt") {
-    return { ...base, prompt: draft.prompt, profile: draft.profile };
+    const model = (draft.model ?? "").trim();
+    return { ...base, prompt: draft.prompt, profile: draft.profile, model: model === "" ? null : model };
   }
   return { ...base, command: draft.command, workdir: draft.workdir.trim(), timeout: draft.timeout.trim() === "" ? "0" : draft.timeout.trim() };
 }
@@ -159,4 +166,37 @@ export function draftErrors(draft: ScheduleDraft): DraftErrors {
     }
   }
   return out;
+}
+
+/** What a schedule list row or run entry shows for a model: the id, or the placeholder for the profile's default. */
+export const DEFAULT_MODEL_LABEL = "profile default";
+
+export function modelText(item: Pick<Schedule, "model"> | Pick<ScheduleRun, "model">): string {
+  return item.model === null || item.model === undefined || item.model === "" ? DEFAULT_MODEL_LABEL : item.model;
+}
+
+export interface ScheduleModelOption {
+  value: string;
+  label: string;
+  detail?: string;
+  description?: string;
+}
+
+/**
+ * The model picker's rows for a profile, from the chat options (GET /api/chat-options): "Profile default"
+ * first (naming the profile's own model when it has one), then every model the profile's harness and
+ * allowed_models permit. A stored model the list no longer offers stays visible so an edit does not hide it.
+ */
+export function scheduleModelOptions(options: ChatOptions | undefined, profile: string, current: string): ScheduleModelOption[] {
+  const found = options?.harnesses.flatMap((h) => h.profiles).find((p) => p.name === profile);
+  const models = found?.models ?? [];
+  const def = models.find((m) => m.default);
+  const rows: ScheduleModelOption[] = [
+    { value: "", label: "Profile default", ...(def === undefined ? {} : { detail: def.id }), description: "Whatever model the profile is set to when the schedule fires." },
+    ...models.map((m) => ({ value: m.id, label: m.label, detail: m.slug, ...(m.description === "" ? {} : { description: m.description }) })),
+  ];
+  if (current !== "" && !models.some((m) => m.id === current)) {
+    rows.splice(1, 0, { value: current, label: current, description: "Not offered for this profile any more." });
+  }
+  return rows;
 }

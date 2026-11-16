@@ -3,7 +3,7 @@ import type { Schedule } from "../../shared/types/schedule";
 import type { Suggestion } from "../../shared/types/suggestion";
 import { allowedByEntries, setAnyModels, toggleAllowedModel } from "./allowed-models";
 import { matchIssues } from "./issue-match";
-import { draftErrors, draftOf, healthOf, scheduleEditPayload, schedulePayload, emptyScheduleDraft, soonestNext, timeoutText, visibleSchedules } from "./schedule-logic";
+import { draftErrors, draftOf, healthOf, modelText, scheduleEditPayload, scheduleModelOptions, schedulePayload, emptyScheduleDraft, soonestNext, timeoutText, visibleSchedules } from "./schedule-logic";
 import { mergeResults, statusOf, summaryText } from "./sanity-logic";
 import { applyToastFor, filtersActive, isApplicable, matchesFilters, sortSuggestions } from "./suggestion-logic";
 import { parseRoute, routeKey } from "../router/route";
@@ -53,6 +53,25 @@ describe("allowed models", () => {
 });
 
 describe("schedules", () => {
+  test("a prompt draft carries its model: omitted on create when default, null on edit when default", () => {
+    const draft = draftOf(schedule({ kind: "prompt", prompt: "p", profile: "pr", model: "m-1", name: "n", cron: "* * * * *" }));
+    expect(draft.model).toBe("m-1");
+    expect(schedulePayload(draft)).toEqual({ name: "n", cron: "* * * * *", kind: "prompt", prompt: "p", profile: "pr", model: "m-1" });
+    expect(schedulePayload({ ...draft, model: "" })).toEqual({ name: "n", cron: "* * * * *", kind: "prompt", prompt: "p", profile: "pr" });
+    expect(scheduleEditPayload({ ...draft, model: "" })).toMatchObject({ model: null });
+    expect(draftOf(schedule({ kind: "prompt", model: null })).model).toBe("");
+    expect([modelText({ model: null }), modelText({}), modelText({ model: "x" })]).toEqual(["profile default", "profile default", "x"]);
+  });
+
+  test("model options: profile default first, then the profile's models, keeping a stored model no longer offered", () => {
+    const models = [{ id: "a", label: "a", slug: "sa", description: "", default: true }, { id: "b", label: "b", slug: "sb", description: "d", default: false }];
+    const options = { harnesses: [{ id: "claude", label: "C", enabled: true, available: true, persistent: true, profiles: [{ name: "p", description: "", enabled: true, configured: true, problem: null, models }] }], default_harness: null, default_profile: null };
+    expect(scheduleModelOptions(options, "p", "").map((o) => o.value)).toEqual(["", "a", "b"]);
+    expect(scheduleModelOptions(options, "p", "")[0]?.detail).toBe("a");
+    expect(scheduleModelOptions(options, "p", "gone").map((o) => o.value)).toEqual(["", "gone", "a", "b"]);
+    expect(scheduleModelOptions(undefined, "p", "").map((o) => o.value)).toEqual([""]);
+  });
+
   test("an edit draft is prefilled from the schedule and sends clears explicitly", () => {
     const draft = draftOf(schedule({ kind: "command", command: "ls", workdir: "/tmp", timeout: 300, name: "n", cron: "* * * * *" }));
     expect(draft).toMatchObject({ kind: "command", command: "ls", workdir: "/tmp", timeout: "5m", name: "n" });

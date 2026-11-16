@@ -104,6 +104,10 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/stop`, okSchema);
   }
 
+  resumeRun(id: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/resume`, okSchema);
+  }
+
   retryRun(id: string): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/retry`, okSchema);
   }

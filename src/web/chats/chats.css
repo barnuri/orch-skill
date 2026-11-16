@@ -185,9 +185,14 @@ body.drawer-open { overflow: hidden; }
 .att-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--acc); transition: width var(--t-fast); }
 .att-remove { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--panel); color: var(--tx); cursor: pointer; line-height: 1; display: grid; place-items: center; padding: 0; }
 .att-remove:hover { background: var(--erbg); color: var(--er); }
-.lightbox { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: var(--s3); background: var(--scrim); padding: var(--s5); }
+/* Sent images show inline at a readable size, uncropped, like chat apps. */
+.msg-atts { align-items: flex-start; }
+.msg-atts .att-thumb { width: auto; height: auto; min-width: 72px; min-height: 72px; max-width: min(320px, 100%); }
+.msg-atts .att-thumb img { width: auto; height: auto; max-width: 100%; max-height: 200px; object-fit: contain; }
+.msg-atts .att-thumb-ph { width: 200px; height: 150px; }
+.lightbox { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: var(--s3); background: var(--scrim); backdrop-filter: blur(8px) brightness(0.6); -webkit-backdrop-filter: blur(8px) brightness(0.6); padding: var(--s5); }
 .lightbox img { max-width: 92vw; max-height: 80dvh; border-radius: var(--r-md); background: var(--panel); }
-.lightbox-cap { margin: 0; color: var(--tx); font-size: var(--fs-ctl); }
+.lightbox-cap { margin: 0; padding: var(--s1) var(--s3); border-radius: var(--r-md); background: var(--panel); color: var(--tx); font-size: var(--fs-ctl); }
 .lightbox-close { position: absolute; top: max(var(--s3), env(safe-area-inset-top)); right: var(--s3); background: var(--panel); min-width: 44px; min-height: 44px; font-size: var(--fs-xl); }
 
 /* ---- Project page ---- */
@@ -226,7 +231,12 @@ body.drawer-open { overflow: hidden; }
   .thread-actions { top: 50%; right: 0; transform: translateY(-50%); }
   .thread-menu-btn, .chat-rename-btn { width: 44px; height: 44px; min-height: 44px; }
   .thread-menu-item { min-height: 44px; }
-  .att-remove { min-width: 44px; top: -12px; right: -12px; background: transparent; border: 0; }
+  /* 44px tap target, but the visible control stays the desktop's 24px disc, so it reads on any thumbnail colour. */
+  .att-remove { min-width: 44px; top: -18px; right: -18px; background: transparent; border: 0; isolation: isolate; }
+  .att-remove::before { content: ""; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--panel); position: absolute; z-index: -1; box-sizing: border-box; }
+  .att-remove:hover { background: transparent; }
+  .att-remove:hover::before { background: var(--erbg); }
+  .composer-atts .att-chip { padding-right: var(--s5); }
   .chat-head { padding: var(--s2) var(--s3); }
   .chat-head-actions { display: none; }
   .chat-title { font-size: var(--fs-body); }
@@ -245,7 +255,18 @@ body.drawer-open { overflow: hidden; }
 /* Touch screens have no hover: the row's action menu button is always visible there. */
 @media (hover: none), (pointer: coarse), (max-width: 768px) {
   .thread-menu-btn { opacity: 1; }
+  /* iOS Safari zooms the page into any focused field under 16px and does not zoom back out. */
+  body.chats-page :is(input, textarea, select) { font-size: 16px; }
 }
+/* Keyboard up (set by ChatsPage from visualViewport): iOS keeps the layout viewport full height, so
+   the short-viewport query above never fires. Drop the tab bar, the height floor and the picker chrome
+   so the composer and its Send button stay above the keyboard. */
+:root[data-kb] .shell { --tabbar-h: 0px; }
+:root[data-kb] .tabbar { display: none; }
+:root[data-kb] .chats-layout { min-height: 0; }
+:root[data-kb] .picker-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-kb] :is(.pickers-meta:not(:has(.picker-problem)), .chat-session-note) { display: none; }
+:root[data-kb] .composer-text { max-height: 96px; }
 @media (prefers-reduced-motion: reduce) {
   .chats-side, .att-bar, .cursor, .thinking::after, .thread-live { transition: none; animation: none; }
 }
@@ -268,3 +289,30 @@ body.drawer-open { overflow: hidden; }
 .pickers-meta .picker-problem { display: inline-block; margin-top: var(--s1); padding: 2px var(--s2); border: 1px solid var(--status-error-bd); border-radius: var(--r-md); background: var(--status-error-bg); font-weight: 600; }
 .pickers-meta .picker-problem { display: block; width: fit-content; }
 .composer .picker-list { top: auto; bottom: calc(100% + var(--s1)); }
+
+/* ---- Voice: dictation and hands-free conversation ---- */
+.composer-mic, .composer-voice { min-height: 44px; min-width: 44px; flex: none; }
+.composer-mic.is-on, .composer-voice.is-on { color: var(--er); border-color: var(--erbd); background: var(--erbg); }
+.voice-bar {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; max-width: 820px; width: 100%; margin: 0 auto;
+  padding: var(--s2) var(--s3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--inset); font-size: var(--fs-meta);
+}
+.voice-bar.is-conversation { border-color: var(--acc); background: var(--accs); }
+.voice-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tx3); flex: none; }
+.voice-dot.is-live { background: var(--er); animation: voice-pulse 1.2s ease-in-out infinite; }
+.voice-label { font-weight: 600; color: var(--tx1); }
+.voice-time { color: var(--tx2); font-variant-numeric: tabular-nums; }
+.voice-spacer { flex: 1; }
+.voice-level { display: inline-flex; align-items: center; gap: 2px; height: 18px; }
+.voice-level span { width: 3px; height: 100%; border-radius: 2px; background: var(--acc); transform-origin: center; transition: transform 80ms linear; }
+.msg-speak { width: 28px; height: 28px; min-height: 0; padding: 4px; color: var(--tx3); }
+.msg-speak:hover, .msg-speak.is-on { color: var(--acc); }
+.msg-speak svg { width: 16px; height: 16px; }
+@keyframes voice-pulse { 50% { opacity: 0.35; } }
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  .composer-row { gap: var(--s1); }
+  .msg-speak { width: 44px; height: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-dot.is-live, .voice-level span { animation: none; transition: none; }
+}

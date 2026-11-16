@@ -57,4 +57,12 @@ describe("mobile chat layout", () => {
     expect(compact).toContain(".picker-label { position: absolute");
     expect(compact).toContain(".pickers-meta:not(:has(.picker-problem))");
   });
+
+  test("iOS: the open-keyboard flag frees the composer, and fields never trigger focus zoom", () => {
+    expect(chatsCss).toContain(":root[data-kb] .shell { --tabbar-h: 0px; }");
+    expect(chatsCss).toContain(":root[data-kb] .chats-layout { min-height: 0; }");
+    expect(chatsCss).toContain(":root[data-kb] .picker-label { position: absolute");
+    expect(media(chatsCss, "(hover: none), (pointer: coarse), (max-width: 768px)")).toContain("body.chats-page :is(input, textarea, select) { font-size: 16px; }");
+    expect(chatsCss).toContain(".msg-speak { width: 44px; height: 44px; min-height: 44px; }");
+  });
 });

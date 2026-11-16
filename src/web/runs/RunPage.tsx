@@ -74,11 +74,24 @@ function RunMeta({ run, events }: { run: RunState; events: readonly RunEvent[] }
 function RunActions({ run }: { run: RunState }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [busy, setBusy] = useState<"retry" | "stop" | null>(null);
+  const [busy, setBusy] = useState<"retry" | "stop" | "resume" | null>(null);
   const hasFailed = run.nodes.some((node) => node.status === "error");
-  if (!hasFailed && run.status !== "running") {
+  const stopped = run.stopped === true;
+  if (!hasFailed && run.status !== "running" && !stopped) {
     return null;
   }
+  const resume = (): void => {
+    setBusy("resume");
+    void api.resumeRun(run.run_id).then((result) => {
+      setBusy(null);
+      if (result.kind === "ok") {
+        toast("ok", "Run resumed");
+        void refetchRun(run.run_id);
+      } else {
+        toast("error", describeFailure(result, "Resume failed"));
+      }
+    });
+  };
   const retry = (): void => {
     setBusy("retry");
     void api.retryRun(run.run_id).then((result) => {
@@ -95,7 +108,7 @@ function RunActions({ run }: { run: RunState }) {
     const running = run.nodes.filter((node) => node.status === "running").length;
     const confirmed = await confirm({
       title: `Stop run ${runTitle(run)}?`,
-      body: `This stops ${running} running job(s), marks running nodes as cancelled errors, skips waiting nodes, and sets the run to cancelled.`,
+      body: `This kills ${running} running job(s) and marks those nodes stopped. The run does not resume by itself; use Resume to continue it.`,
       confirmLabel: "Stop run",
       danger: true,
     });
@@ -106,7 +119,7 @@ function RunActions({ run }: { run: RunState }) {
     const result = await api.stopRun(run.run_id);
     setBusy(null);
     if (result.kind === "ok") {
-      toast("ok", "Run cancelled");
+      toast("ok", "Run stopped");
       void refetchRun(run.run_id);
     } else {
       toast("error", describeFailure(result, "Stop failed"));
@@ -119,7 +132,12 @@ function RunActions({ run }: { run: RunState }) {
           Retry failed nodes
         </button>
       ) : null}
-      {run.status === "running" ? (
+      {stopped ? (
+        <button className="btn primary" type="button" disabled={busy === "resume"} onClick={resume}>
+          Resume
+        </button>
+      ) : null}
+      {run.status === "running" && !stopped ? (
         <button
           className="btn danger"
           type="button"

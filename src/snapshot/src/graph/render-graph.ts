@@ -14,7 +14,7 @@ import {
 import type { DagLayout } from "./dag-layout";
 import { harnessMarkGroup } from "./harness-mark";
 import { modelPick } from "./model-pick";
-import { cardUsageMetric, durationMetric, modelMetric, roleTierMetric } from "./node-metrics";
+import { cardUsageMetric, durationMetric, modelMetric, roleTierMetric, waitReason, waitingOnDeps } from "./node-metrics";
 import type { Metric } from "./node-metrics";
 import { profilePalette } from "./profile-color";
 import type { ProfilePalette } from "./profile-color";
@@ -229,12 +229,13 @@ function nodeGroup(
   palette: ProfilePalette,
   harnessByProfile: Record<string, string>,
   maxAttempts: number,
+  waitingOn: readonly string[] = [],
 ): SVGElement {
   const label = nodeLabel(node);
   const profile = profileKey(node);
   const harness = harnessOf(node, harnessByProfile);
   const pick = modelPick(node);
-  const model = modelMetric(node);
+  const model = modelMetric(node, META_MAX_CHARS);
   const usage = cardUsageMetric(node);
   const duration = durationMetric(node);
   const attempt = attemptLine(node, maxAttempts);
@@ -268,7 +269,14 @@ function nodeGroup(
   if (harness !== null) {
     group.appendChild(harnessMarkGroup(harness, NODE_W - HARNESS_MARK_SIZE - 9, 8, HARNESS_MARK_SIZE));
   }
-  group.appendChild(svgText({ class: "st", x: String(META_LEFT_X), y: String(STATUS_Y) }, statusLine(node, maxAttempts)));
+  const wait = waitReason(node, waitingOn, Math.max(META_MIN_CHARS, META_MAX_CHARS));
+  const status = svgText({ class: "st", x: String(META_LEFT_X), y: String(STATUS_Y) }, wait === null ? statusLine(node, maxAttempts) : wait.text);
+  if (wait !== null) {
+    const title = svgEl("title", {});
+    title.textContent = wait.title;
+    status.appendChild(title);
+  }
+  group.appendChild(status);
   group.appendChild(
     metricText(model, pick?.isAuto === true ? "model auto" : "model", META_LEFT_X, MODEL_Y, META_MAX_CHARS),
   );
@@ -369,7 +377,7 @@ export function renderGraph(
     }
     const isCyclic = layout.cyclic.includes(node.id);
     svg.appendChild(
-      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile, maxAttempts),
+      nodeGroup(node, nodePos, selectedId === node.id, isCyclic, onSelect, palette, harnessByProfile, maxAttempts, waitingOnDeps(run, node.id)),
     );
   }
   return svg;

@@ -6,7 +6,7 @@ import { chip, el } from "../dom/el";
 import { fmtTime, fmtTokens, fmtUsd } from "../dom/format";
 import { markAgo, markLive } from "../dom/live-clock";
 import { attemptLine } from "../graph/render-graph";
-import { durationMetric, modelMetric, roleTierText, usageMetric } from "../graph/node-metrics";
+import { actualModelMetric, aliasActual, aliasActualText, durationMetric, modelMetric, roleTierText, usageMetric, waitReason, waitingOnDeps } from "../graph/node-metrics";
 import type { Metric } from "../graph/node-metrics";
 import { poll } from "../poll";
 import { toast } from "../ui/toast";
@@ -128,12 +128,17 @@ function flagChips(node: RunNode): HTMLElement[] {
   return chips;
 }
 
-function detailList(node: RunNode, maxAttempts: number): HTMLElement {
+function detailList(node: RunNode, maxAttempts: number, waitingOn: readonly string[] = []): HTMLElement {
   const list = el("dl");
   detailRow(list, "id", node.id, "mono");
   detailRow(list, "status", node.status);
+  const wait = waitReason(node, waitingOn);
+  if (wait !== null) {
+    detailRow(list, "why", wait.text, `wait-reason wait-${wait.kind}`).setAttribute("title", wait.title);
+  }
   appendActivityRows(list, node);
   metricRow(list, "model", modelMetric(node), "mono");
+  metricRow(list, "actual", actualModelMetric(node), "mono");
   const duration = durationMetric(node);
   const durationRow = metricRow(list, "duration", duration);
   if (duration.liveSince !== null) {
@@ -185,11 +190,12 @@ function appendReportRows(list: HTMLElement, node: RunNode): void {
 /** The model block: the model that ran, large, with how Smart Auto chose it underneath. */
 function modelBlock(node: RunNode): HTMLElement {
   const pick = modelPick(node);
+  const pair = aliasActual(node);
   if (pick === null) {
     const metric = modelMetric(node);
-    return el("section", { class: "model-pick is-missing", "aria-label": "Model", title: metric.title }, [
+    return el("section", { class: `model-pick${metric.present ? "" : " is-missing"}`, "aria-label": "Model", title: metric.title }, [
       el("div", { class: "model-pick-key", text: "Model" }),
-      el("div", { class: "model-pick-name mono missing", text: metric.text }),
+      el("div", { class: `model-pick-name mono${metric.present ? "" : " missing"}`, text: metric.text }),
     ]);
   }
   const facts = [
@@ -199,7 +205,11 @@ function modelBlock(node: RunNode): HTMLElement {
   ].filter((part): part is string => part !== null);
   return el("section", { class: `model-pick${pick.isAuto ? " is-auto" : ""}`, "aria-label": "Model" }, [
     el("div", { class: "model-pick-key", text: pick.isAuto ? (pick.isExpected ? "Smart Auto · expected" : "Smart Auto picked") : "Model" }),
-    el("div", { class: "model-pick-name mono", title: pick.model, text: pickLabel(pick) }),
+    el("div", {
+      class: "model-pick-name mono",
+      title: pair === null ? pick.model : `${pair.alias} → ${pair.actual}`,
+      text: pair === null ? pickLabel(pick) : aliasActualText(pair),
+    }),
     facts.length > 0 ? el("div", { class: "model-pick-facts", text: facts.join(" · ") }) : null,
     pick.selector !== null ? el("div", { class: "model-pick-sel mono", text: `via ${pick.selector}` }) : null,
   ]);
@@ -243,6 +253,7 @@ function attemptsHistory(node: RunNode): HTMLElement | null {
     const lines = [
       attempt.profile ?? attempt.adapter ?? "—",
       attempt.model_id ?? attempt.model ?? "model not reported",
+      attempt.actual_model != null && attempt.actual_model !== (attempt.model_id ?? attempt.model) ? `→ ${attempt.actual_model}` : "",
       compactCost(attempt.cost),
       attempt.finished === null ? "not finished" : fmtTime(attempt.finished),
       attempt.error,
@@ -296,7 +307,7 @@ export function renderNodePanel(run: RunState, selectedId: string | null, maxAtt
   const grid = el("div", { class: "panel-grid" });
   const details = el("div", { class: "panel-details" });
   details.appendChild(modelBlock(node));
-  details.appendChild(detailList(node, maxAttempts));
+  details.appendChild(detailList(node, maxAttempts, waitingOnDeps(run, node.id)));
   const attempts = attemptsHistory(node);
   if (attempts !== null) {
     details.appendChild(attempts);

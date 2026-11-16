@@ -4,6 +4,10 @@ import { chatsApi, uploadAttachment } from "../api/chats";
 import { filesFromClipboard, formatBytes, isImageMime, loadDraft, saveDraft, validateFile } from "../lib/chat-logic";
 import type { Attachment } from "../lib/chat-types";
 import { AttachmentTile } from "./Attachments";
+import { useNow } from "./use-chat-thread";
+import { browserVoice, useDictation } from "./use-voice";
+import type { Conversation, VoiceDeps } from "./use-voice";
+import { appendTranscript, formatElapsed, PHASE_LABEL } from "../lib/voice-logic";
 
 interface Pending {
   key: number;
@@ -30,11 +34,43 @@ interface ComposerProps {
   upload?: Uploader;
   /** Deletes an upload that was never sent. Failures are ignored: the 24-hour sweep removes leftovers. */
   removeUpload?: (id: string) => Promise<unknown>;
+  /** The hands-free voice conversation of this chat (ChatView owns it: it needs the thread). */
+  voice?: Conversation;
+  /** Microphone, recorder and transcriber; tests pass fakes. */
+  voiceDeps?: VoiceDeps;
 }
 
 const COARSE = "(pointer: coarse)";
 
-export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, onOpenImage, storage, upload = uploadAttachment, removeUpload = chatsApi.removeAttachment }: ComposerProps) {
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  );
+}
+
+function WaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" />
+    </svg>
+  );
+}
+
+function LevelMeter({ level }: { level: number }) {
+  return (
+    <span className="voice-level" aria-hidden="true">
+      {[0.15, 0.35, 0.6, 0.35, 0.15].map((w, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- fixed five bars
+        <span key={i} style={{ transform: `scaleY(${Math.max(0.15, Math.min(1, level * (1.6 - Math.abs(2 - i) * 0.35) + w * 0.2))})` }} />
+      ))}
+    </span>
+  );
+}
+
+export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, onOpenImage, storage, upload = uploadAttachment, removeUpload = chatsApi.removeAttachment, voice, voiceDeps = browserVoice }: ComposerProps) {
   const store = storage ?? sessionStorage;
   const [text, setText] = useState(() => loadDraft(store, chatId).text);
   const [attachments, setAttachments] = useState<Attachment[]>(() => loadDraft(store, chatId).attachments);
@@ -48,6 +84,14 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
   const aborts = useRef(new Map<number, () => void>());
   const pendingRef = useRef<Pending[]>([]);
   const sendingRef = useRef(false);
+  const dictation = useDictation((heard) => {
+    setText((current) => appendTranscript(current, heard));
+    area.current?.focus();
+  }, voiceDeps);
+  const recording = dictation.state !== "idle";
+  const talking = voice !== undefined && voice.phase !== "off";
+  const now = useNow(dictation.state === "recording");
+  const voiceErrors = [dictation.error, voice?.error ?? null].filter((e): e is string => e !== null);
   useEffect(
     () => () => {
       for (const p of pendingRef.current) {
@@ -163,17 +207,53 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
           setDragging(true);
         }
       }}
-      onDragLeave={() => {
-        setDragging(false);
+      onDragLeave={(e) => {
+        // dragleave also fires when the pointer moves onto a child (the textarea, a chip): keep the highlight then.
+        const to = e.relatedTarget as Node | null;
+        if (to === null || !e.currentTarget.contains(to)) {
+          setDragging(false);
+        }
       }}
       onDrop={onDrop}
     >
-      {problems.length > 0 ? (
+      {problems.length > 0 || voiceErrors.length > 0 ? (
         <ul className="composer-problems" role="alert">
-          {problems.map((p) => (
+          {[...problems, ...voiceErrors].map((p) => (
             <li key={p}>{p}</li>
           ))}
         </ul>
+      ) : null}
+      {recording ? (
+        <div className="voice-bar" data-testid="dictation-bar" role="status">
+          <span className={`voice-dot${dictation.state === "recording" ? " is-live" : ""}`} aria-hidden="true" />
+          <span className="voice-label">
+            {dictation.state === "starting" ? "Starting microphone…" : dictation.state === "transcribing" ? "Transcribing…" : "Recording"}
+          </span>
+          {dictation.state === "recording" ? (
+            <>
+              <span className="voice-time mono" data-testid="dictation-time">{formatElapsed(dictation.startedAt === null ? 0 : now - dictation.startedAt)}</span>
+              <LevelMeter level={dictation.level} />
+            </>
+          ) : null}
+          <span className="voice-spacer" />
+          <button type="button" className="btn" onClick={dictation.cancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn primary" disabled={dictation.state !== "recording"} onClick={dictation.finish}>
+            Done
+          </button>
+        </div>
+      ) : null}
+      {voice !== undefined && talking ? (
+        <div className="voice-bar is-conversation" data-testid="conversation-bar" role="status">
+          <span className={`voice-dot${voice.phase === "listening" ? " is-live" : ""}`} aria-hidden="true" />
+          <span className="voice-label" data-testid="conversation-phase">{PHASE_LABEL[voice.phase]}</span>
+          {voice.phase === "listening" ? <LevelMeter level={voice.level} /> : null}
+          <span className="voice-spacer" />
+          <button type="button" className="btn danger" onClick={voice.stop}>
+            Stop voice
+          </button>
+        </div>
       ) : null}
       {attachments.length > 0 || pending.length > 0 ? (
         <div className="att-row composer-atts" data-testid="composer-atts">
@@ -252,6 +332,43 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
+        <button
+          type="button"
+          className={`icon-btn composer-mic${recording ? " is-on" : ""}`}
+          aria-label={recording ? "Stop dictation" : "Dictate"}
+          title={recording ? "Stop and transcribe" : "Dictate: speak, then edit and send"}
+          aria-pressed={recording}
+          disabled={blocked !== null || talking || dictation.state === "transcribing" || dictation.state === "starting"}
+          onClick={() => {
+            if (dictation.state === "recording") {
+              dictation.finish();
+            } else {
+              dictation.start();
+            }
+          }}
+        >
+          <MicIcon />
+        </button>
+        {voice !== undefined ? (
+          <button
+            type="button"
+            className={`icon-btn composer-voice${talking ? " is-on" : ""}`}
+            aria-label={talking ? "Stop voice conversation" : "Start voice conversation"}
+            title={talking ? "Stop voice conversation" : "Voice conversation: talk hands-free, replies are read aloud"}
+            aria-pressed={talking}
+            disabled={blocked !== null || recording}
+            onClick={() => {
+              if (talking) {
+                voice.stop();
+              } else {
+                dictation.clearError();
+                voice.start();
+              }
+            }}
+          >
+            <WaveIcon />
+          </button>
+        ) : null}
         {running ? (
           <button type="button" className="btn danger composer-send" onClick={onStop}>
             Stop

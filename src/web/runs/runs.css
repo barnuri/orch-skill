@@ -89,7 +89,7 @@ main:has(.run-page) { max-width: none; }
 .run-page .node.running.is-stale .metric.dur, .run-page .node .health.flagged { fill: var(--status-stale); }
 /* Node health (run health --json): amber for stalled / no-report, grey for unowned, red only for dead. */
 .chip.health-stalled, .chip.health-no-report { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
-.chip.health-unowned, .chip.health-needs-user { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+.chip.health-unowned, .chip.health-needs-user, .chip.health-held { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
 .chip.health-dead { --c: var(--status-error); --bg-c: var(--status-error-bg); --bd-c: var(--status-error-bd); }
 .chip.health-ready { --c: var(--acct); --bg-c: var(--accs); --bd-c: var(--accb); }
 .node-health { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }

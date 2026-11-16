@@ -14,6 +14,7 @@ import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
 import { repairSelection } from "./repair-selection";
 import { PencilIcon, TitleInput, useRenameChat } from "./rename";
 import { useChatThread, useNow } from "./use-chat-thread";
+import { useVoiceConversation } from "./use-voice";
 import { VirtualMessages } from "./VirtualMessages";
 
 const NO_PROJECT = "__none__";
@@ -134,6 +135,19 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const options = useChatOptions();
   const projects = useProjects(false);
   const thread = useChatThread(chatId);
+  const voice = useVoiceConversation({
+    messages: thread.messages,
+    send: async (text) => {
+      const failure = await thread.send(text, []);
+      if (failure === null) {
+        void refreshChats();
+      }
+      return failure;
+    },
+  });
+  const stopVoice = voice.stop;
+  // Another chat opened in the same view: the loop belongs to the old thread, so end it.
+  useEffect(() => stopVoice, [chatId, stopVoice]);
   const [lightbox, setLightbox] = useState<Attachment | null>(null);
   const chat = chatQuery.data;
   const rows = thread.messages;
@@ -191,7 +205,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
         />
       )}
       {thread.conn === "reconnecting" ? <p className="conn-note" role="status">Reconnecting…</p> : null}
-      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} />
+      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>
   );

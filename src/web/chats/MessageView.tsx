@@ -4,6 +4,7 @@ import { formatTokens, isLive, messageDurationMs, messageNotes } from "../lib/ch
 import type { Attachment, Message } from "../lib/chat-types";
 import { fmtUsd } from "../lib/format";
 import { AttachmentTile } from "./Attachments";
+import { primeSpeech, speak, speechSupported, stopSpeaking, useSpeakingKey } from "./voice";
 
 const Markdown = lazy(() => import("./Markdown"));
 
@@ -22,6 +23,7 @@ function Footer({ message, now, fallbackModel }: { message: Message; now: number
   return (
     <div className="msg-foot" data-testid="msg-foot">
       <span className={`msg-status is-${message.status}`}>{message.status}</span>
+      <SpeakButton message={message} />
       {message.model_used !== null ? (
         <span className="msg-meta mono" data-testid="msg-model">{message.model_used}</span>
       ) : fallbackModel !== undefined ? (
@@ -31,6 +33,37 @@ function Footer({ message, now, fallbackModel }: { message: Message; now: number
       {tokens !== null ? <span className="msg-meta mono">{tokens}</span> : null}
       {message.cost_usd !== null ? <span className="msg-meta mono">{fmtUsd(message.cost_usd)}</span> : null}
     </div>
+  );
+}
+
+/** Reads one reply aloud with the browser's speech synthesis; a second tap stops it. */
+function SpeakButton({ message }: { message: Message }) {
+  const speaking = useSpeakingKey() === message.id;
+  if (!speechSupported() || message.content.trim() === "" || isLive(message)) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      className={`icon-btn msg-speak${speaking ? " is-on" : ""}`}
+      aria-label={speaking ? "Stop reading aloud" : "Read aloud"}
+      title={speaking ? "Stop reading aloud" : "Read aloud"}
+      aria-pressed={speaking}
+      data-testid="msg-speak"
+      onClick={() => {
+        if (speaking) {
+          stopSpeaking();
+          return;
+        }
+        primeSpeech();
+        void speak(message.content, message.id);
+      }}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M11 5 6 9H3v6h3l5 4z" />
+        {speaking ? <path d="M16 9l5 6M21 9l-5 6" /> : <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />}
+      </svg>
+    </button>
   );
 }
 
@@ -62,7 +95,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, fallbackModel 
         <div className="bubble">
           {message.content !== "" ? <p className="user-text">{message.content}</p> : null}
           {message.attachments.length > 0 ? (
-            <div className="att-row">
+            <div className="att-row msg-atts" data-testid="msg-atts">
               {message.attachments.map((a) => (
                 <AttachmentTile key={a.id} attachment={a} onOpen={onOpenImage} />
               ))}

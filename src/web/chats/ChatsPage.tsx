@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { chatsApi } from "../api/chats";
 import { useToast } from "../components/Toast";
-import { isSearchShortcut, keyboardInset, normalizeSelection } from "../lib/chat-logic";
+import { isSearchShortcut, keyboardInset, keyboardOpen, normalizeSelection } from "../lib/chat-logic";
 import { ChatView } from "./ChatView";
 import { ProjectView } from "./ProjectView";
 import { Sidebar } from "./Sidebar";
@@ -51,7 +51,9 @@ export function ChatsPage({ chatId, projectId }: Props) {
       return;
     }
     const set = (): void => {
-      document.documentElement.style.setProperty("--kb", `${keyboardInset(window.innerHeight, vv)}px`);
+      const inset = keyboardInset(window.innerHeight, vv);
+      document.documentElement.style.setProperty("--kb", `${inset}px`);
+      document.documentElement.toggleAttribute("data-kb", keyboardOpen(inset));
     };
     set();
     vv.addEventListener("resize", set);
@@ -60,6 +62,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
       vv.removeEventListener("resize", set);
       vv.removeEventListener("scroll", set);
       document.documentElement.style.removeProperty("--kb");
+      document.documentElement.removeAttribute("data-kb");
     };
   }, []);
   useEffect(() => {
