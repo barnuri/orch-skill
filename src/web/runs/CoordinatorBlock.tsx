@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { useToast } from "../components/Toast";
-import type { CoordinatorState } from "../../server/runs/coordinator-state";
+import type { CoordinatorState } from "../../shared/types/coordinator";
 import { refetchRun } from "./run-actions";
 
 /** Coordinator state of a run: amber when unreachable (red is for errors only), with a pick list of candidates. */

@@ -1,24 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export interface CoordinatorCandidate {
-  socket_path: string;
-  pane_id: string;
-  workspace_id: string;
-  cwd: string;
-  session_id: string;
-  agent: string;
-}
+import type { CoordinatorCandidate, CoordinatorState } from "../../shared/types/coordinator";
 
-export interface CoordinatorState {
-  pane_id: string;
-  reachable: boolean;
-  unreachable_since: string | null;
-  unreachable_reason: string | null;
-  pending_asks: number;
-  last_repoint: { at: string; from: string; to: string; reason: string } | null;
-  candidates: CoordinatorCandidate[];
-}
+export type { CoordinatorCandidate, CoordinatorState };
 
 function readJson(path: string): Record<string, unknown> | null {
   try {
