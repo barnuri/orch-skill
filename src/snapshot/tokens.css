@@ -71,7 +71,7 @@
   --lh-body: 1.45;
   --lh-prose: 1.6;
   /* Reading surfaces (chat): column width, answer text size and line height, card radius. */
-  --measure: 760px;
+  --measure: 920px;
   --fs-read: 15px;
   --lh-read: 1.65;
   --r-card: var(--r-xl);

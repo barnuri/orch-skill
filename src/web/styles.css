@@ -10,6 +10,8 @@
 @import "./chats/queue.css";
 @import "./chats/artifacts/artifacts.css";
 @import "./chats/chat-design.css";
+@import "./chats/reasoning.css";
+@import "./chats/chat-column.css";
 
 /* ---- Mobile shell (a chat composer docks to the bottom next) ----------------------------- */
 

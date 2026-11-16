@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import "./column-gutter";
 
 /** What the chat page needs to know about the shell that mounts it: AppShell (rail) or ChatShell (chat only). */
 export interface ChatFrame {

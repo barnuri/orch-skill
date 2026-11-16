@@ -1,0 +1,33 @@
+/* ONE column for the whole chat: messages, tool cards, reasoning, the working indicator, the error notice, the queue,
+   the settings line, the composer and the artifacts bar share the same inline start and end edges at every width.
+   No row positions itself with its own margin or padding: it takes the column and the page edge below.
+   --measure (tokens.css) is the widest the column gets; --col-edge is the gap between the pane and the column. */
+.chat-view { --col-pad: var(--s5); --col-edge: calc(var(--col-pad) + var(--sbw, 0px)); }
+
+/* The thread keeps a gutter on both edges, so the column is centred with or without a classic scrollbar. */
+.thread-scroll { scrollbar-gutter: stable both-edges; padding-inline: var(--col-pad); }
+
+/* Rows inside the padded thread, and rows inside the padded composer: the column fills the padded box up to the measure. */
+.thread-scroll > *,
+.composer > *,
+.composer .pickers, .composer .pickers-meta,
+.composer-row, .composer-problems, .composer-atts, .chat-settings {
+  width: 100%; max-width: var(--measure); margin-inline: auto; box-sizing: border-box;
+}
+.thread-scroll > .working { margin-block: var(--s2) var(--s3); }
+.thread-scroll > .thread-note { text-align: start; }
+
+/* Rows that sit straight in the chat view (outside the two padded boxes): the same column, computed from the same edge. */
+.chat-view > :is(.queue-tray, .todo-panel, .art-bar, .question-card, .conn-note, .chat-warning) {
+  width: min(var(--measure), calc(100% - 2 * var(--col-edge))); max-width: none; margin-inline: auto; box-sizing: border-box;
+}
+.chat-view > .art-bar { padding-inline: 0; }
+.composer { padding-inline: var(--col-edge); }
+.jump-pill { inset-inline-end: max(var(--col-edge), calc((100% - var(--measure)) / 2)); }
+
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  .chat-view { --col-pad: var(--s3); }
+  .thread-scroll { padding-inline: var(--col-pad); }
+  .composer { padding-inline: var(--col-edge); }
+  .jump-pill { inset-inline-end: var(--col-edge); }
+}
