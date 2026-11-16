@@ -83,6 +83,32 @@ function health(nodes: { id: string; health: RunHealth["nodes"][number]["health"
 }
 
 describe("watchdog", () => {
+  test("flags clear once their cause is gone, even without a new state change", async () => {
+    const f = fixture();
+    f.home.write("watchdog/r1/claims/retry-a", "x\n");
+    f.set([{ id: "a", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "error", error: "process died", attempts: [] }]);
+    await f.tick();
+    expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:infra-retry"]);
+    f.set([{ id: "a", status: "running", attempts: [{}] }]);
+    expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("an unverified flag clears once handoff.md exists, without a new state change", async () => {
+    const f = fixture();
+    f.home.write("watchdog/r1/claims/requeue-a", "x\n");
+    f.set([{ id: "a", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "done", attempts: [] }]);
+    await f.tick();
+    expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:unverified"]);
+    f.home.write("runs/r1/out/a/handoff.md", "done\n");
+    expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
   test("rule 1: runs the auto-dispatch engine for ready nodes", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "waiting", profile: "p" }], { auto_dispatch: true });
@@ -109,6 +135,8 @@ describe("watchdog", () => {
     f.clock.ms += 121_000;
     await f.tick();
     expect(f.actions()).toEqual(["node update r1 a error --error process died", "node retry r1 a", "node update r1 a error --error process died"]);
+    // The real update leaves the node in error; the flag belongs to that status.
+    f.set([{ id: "a", status: "error", error: "process died", job_id: "j1", owner_kind: "job", attempts: [{}, {}] }]);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:lost"]);
     expect(f.dog.status().runs["r1"]?.retried).toBe(1);
     f.home.dispose();
@@ -212,7 +240,7 @@ describe("watchdog", () => {
     f.home.write("runs/r1/out/b/handoff.md", "# done\n");
     f.set([{ id: "a", status: "done", attempts: [] }, { id: "b", status: "done" }]);
     await f.tick();
-    expect(f.actions()).toEqual(["node update r1 a error --force --error done without handoff", "node retry r1 a"]);
+    expect(f.actions()).toEqual(["node update r1 a error --force --error done without handoff", "node retry r1 a You ended early. Read your handoff and the task, continue, and write handoff.md"]);
     // The re-queued attempt again ends without a handoff: flagged, not re-queued.
     f.set([{ id: "a", status: "running", attempts: [{}] }, { id: "b", status: "done" }]);
     await f.tick();
@@ -220,6 +248,10 @@ describe("watchdog", () => {
     await f.tick();
     expect(f.actions()).toHaveLength(2);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:unverified"]);
+    // The handoff shows up later: the stale flag clears on the next sweep, with no status change.
+    f.home.write("runs/r1/out/a/handoff.md", "# late handoff\n");
+    await f.tick();
+    expect(f.dog.status().flags).toEqual([]);
     f.home.dispose();
   });
 
@@ -239,8 +271,21 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
-  test("rule 9: a node starting for over 3 minutes is marked stuck and retried once, then flagged", async () => {
+  test("rule 9b: a node starting for over 3 minutes whose job is alive is stamped started, never marked stuck", async () => {
     const f = fixture({ alive: true });
+    f.home.write("jobs/j1/pid", "1\n");
+    f.set([{
+      id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [],
+      dispatched_at: new Date(f.clock.ms).toISOString(), started_at: null, seg_open: true,
+    }]);
+    f.clock.ms += 400_000;
+    await f.tick();
+    expect(f.actions()).toEqual(["node started r1 a"]);
+    f.home.dispose();
+  });
+
+  test("rule 9: a node starting for over 3 minutes is marked stuck and retried once, then flagged", async () => {
+    const f = fixture({ alive: false });
     const starting = (attempts: unknown[]): Node => ({
       id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts,
       dispatched_at: new Date(f.clock.ms).toISOString(), started_at: null, seg_open: true,
@@ -264,6 +309,8 @@ describe("watchdog", () => {
     f.clock.ms += 181_000;
     await f.tick();
     expect(f.actions()).toEqual(["node update r1 a error --error stuck starting", "node retry r1 a", "node update r1 a error --error stuck starting"]);
+    // The real update leaves the node in error; the flag belongs to that status.
+    f.set([{ id: "a", status: "error", error: "stuck starting", attempts: [{}, {}] }]);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:starting"]);
     f.home.dispose();
   });

@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { RunHealth } from "../../shared/types/run-health";
@@ -141,6 +141,20 @@ function mtimeMs(path: string): number | null {
     return statSync(path).mtimeMs;
   } catch {
     return null;
+  }
+}
+
+/** The node's output folder: its `out_dir`, or `<home>/runs/<run>/out/<node>`. */
+function nodeOutDir(home: string, runId: string, node: WatchNode): string {
+  return typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : join(home, "runs", runId, "out", node.id);
+}
+
+/** True when the node's `handoff.md` exists and is not empty. */
+function handoffPresent(home: string, runId: string, node: WatchNode): boolean {
+  try {
+    return statSync(join(nodeOutDir(home, runId, node), "handoff.md")).size > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -299,7 +313,11 @@ export class WatchdogService {
     this.syncOwners(runId, nodes);
   }
 
-  /** Binds jobs to their sessions and fills node figures: `node bind-owners`, throttled per run. */
+  /**
+   * Binds jobs to their sessions and fills node figures: `node bind-owners`, throttled per run. That
+   * also runs `node selections` (effort, actual model, role, tier from the hub) for running nodes,
+   * and once for finished ones.
+   */
   private syncOwners(runId: string, nodes: WatchNode[]): void {
     const nowMs = this.now().getTime();
     const last = this.ownersAt.get(runId);
@@ -335,6 +353,18 @@ export class WatchdogService {
     const waited = this.now().getTime() - (Date.parse(node.dispatched_at) || 0);
     if (waited < this.startingAfterMs) {
       return true;
+    }
+    // The job folder wins: a live pid or a log written in the last 2 minutes means the agent works, so the
+    // node is running, not stuck. Stamp started_at through `node started` instead of calling it an error.
+    const ev = this.jobEvidence(runId, node);
+    if (ev.pidAlive === true || this.logActive(ev, 120_000)) {
+      const stamp = this.claim(runId, `started-${node.id}@${(node.attempts ?? []).length}`);
+      if (stamp) {
+        this.chain(runId, node.id, async () => {
+          await this.act(runId, node.id, "starting", ["node", "started", runId, node.id], "job alive, stamped started_at");
+        });
+      }
+      return false;
     }
     const attempt = (node.attempts ?? []).length;
     if (!this.claim(runId, `starting-${node.id}@${attempt}`)) {
@@ -402,7 +432,7 @@ export class WatchdogService {
     let logMs: number | null = null;
     let size: number | null = null;
     try {
-      const st = statSync(join(dir, "log"));
+      const st = statSync(existsSync(join(dir, "log.plain")) ? join(dir, "log.plain") : join(dir, "log"));
       logMs = st.mtimeMs;
       size = st.size;
     } catch {
@@ -476,16 +506,10 @@ export class WatchdogService {
   }
 
   private checkHandoff(runId: string, node: WatchNode): void {
-    const dir = typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : join(this.home, "runs", runId, "out", node.id);
-    let size = 0;
-    try {
-      size = statSync(join(dir, "handoff.md")).size;
-    } catch {
-      size = 0;
-    }
-    if (size > 0) {
+    if (handoffPresent(this.home, runId, node)) {
       return;
     }
+    const dir = nodeOutDir(this.home, runId, node);
     const attempt = (node.attempts ?? []).length;
     if (!this.claim(runId, `unverified-${node.id}@${attempt}`)) {
       return;
@@ -496,7 +520,7 @@ export class WatchdogService {
     }
     this.chain(runId, node.id, async () => {
       await this.act(runId, node.id, "unverified", ["node", "update", runId, node.id, "error", "--force", "--error", "done without handoff"], `${dir}/handoff.md missing or empty`);
-      await this.act(runId, node.id, "unverified", ["node", "retry", runId, node.id], "re-queued once");
+      await this.act(runId, node.id, "unverified", ["node", "retry", runId, node.id, "You ended early. Read your handoff and the task, continue, and write handoff.md"], "re-queued once: resume the same session");
     });
   }
 
@@ -571,10 +595,19 @@ export class WatchdogService {
     this.record({ at, run: runId, node: nodeId, rule, action: "flag", detail, rc: null });
   }
 
+  /**
+   * Drops a run's flags whose cause is gone: the node left the status the flag was raised in (retried,
+   * finished, removed), or an `unverified` node now has its handoff.md.
+   */
   private dropStaleFlags(runId: string, nodes: WatchNode[]): void {
-    const status = new Map(nodes.map((n) => [n.id, n.status ?? ""]));
     for (const [key, f] of this.flags) {
-      if (f.run === runId && status.get(f.node) !== f.status) {
+      if (f.run !== runId) {
+        continue;
+      }
+      const node = nodes.find((n) => n.id === f.node);
+      const cleared = node === undefined || (node.status ?? "") !== f.status
+        || (f.rule === "unverified" && handoffPresent(this.home, runId, node));
+      if (cleared) {
         this.flags.delete(key);
       }
     }
@@ -626,9 +659,13 @@ export class WatchdogService {
     }
   }
 
-  /** Flags of runs that are no longer running are dropped: nothing is left to watch there. */
+  /**
+   * Flags of runs that are no longer running are dropped: nothing is left to watch there. Each running
+   * run's flags are re-checked against its state.json on every read, so a cleared cause clears its flag
+   * even when no state change reached the engine.
+   */
   private liveFlags(): WatchdogFlag[] {
-    const running = new Set<string>();
+    const running = new Map<string, WatchNode[]>();
     try {
       for (const id of readdirSync(join(this.home, "runs"))) {
         const st = (() => {
@@ -639,11 +676,14 @@ export class WatchdogService {
           }
         })();
         if (st?.status === "running") {
-          running.add(id);
+          running.set(id, st.nodes ?? []);
         }
       }
     } catch {
       // no runs folder
+    }
+    for (const [id, nodes] of running) {
+      this.dropStaleFlags(id, nodes);
     }
     return [...this.flags.values()].filter((f) => running.has(f.run)).map(({ status: _status, ...f }) => f);
   }

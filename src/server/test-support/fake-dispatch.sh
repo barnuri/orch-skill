@@ -15,7 +15,7 @@ if [ "${1:-}" = "harness" ] && [ "${2:-}" = "list" ]; then
   printf '{"probed_at":"2026-01-01T00:00:00Z","harnesses":[%s]}\n' "$entries"
   exit 0
 fi
-if [ "${1:-}" = "node" ] && [ "${2:-}" = "update" ] || { [ "${1:-}" = "run" ] && [ "${2:-}" = "finish" ]; }; then
+if { [ "${1:-}" = "node" ] && { [ "${2:-}" = "update" ] || [ "${2:-}" = "started" ]; }; } || { [ "${1:-}" = "run" ] && [ "${2:-}" = "finish" ]; }; then
   # Watchdog actions: recorded (all args) so watchdog tests can assert them; state is left alone.
   printf '%s\n' "$*" >> "${HARNESS_ORCH_HOME:-}/fake-dispatch.actions"
   exit 0
