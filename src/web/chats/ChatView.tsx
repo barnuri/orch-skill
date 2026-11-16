@@ -210,6 +210,8 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
 
+  const asking = pendingQuestion(rows);
+  const answerQuestion = useAnswerQuestion(chatId);
   if (chatQuery.isError) {
     return <div className="chat-empty"><p>This chat could not be loaded.</p></div>;
   }
@@ -256,12 +258,17 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
                 toast("error", failure);
               }
             });
+          tail={<QueueBubbles items={thread.queue.items} />}
+          tailKey={waiting(thread.queue).length}
           }}
         />
       )}
       {thread.conn === "reconnecting" ? <p className="conn-note" role="status">Reconnecting…</p> : null}
       {todos !== null && todos.length > 0 ? <TodoPanel items={todos} /> : null}
-      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
+      {asking !== null && !running ? <QuestionCard key={asking.part.id} pinned part={asking.part} now={Date.now()} onSubmit={(answers) => answerQuestion(asking.part.id, answers)} /> : null}
+      <ArtifactBar state={artifacts} />
+      <QueueTray chatId={chat.id} snapshot={thread.queue} running={running} runningText={[...rows].reverse().find((m) => m.role === "user")?.content ?? null} onStop={() => void thread.stop()} onChange={thread.setQueue} />
+      <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} lastFailed={lastReply?.status === "error"} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>
   );

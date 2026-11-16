@@ -1,5 +1,6 @@
 import type { ChatActivity } from "../../shared/chat-activity";
 import { type ChatPart, parseParts, partsForToolCall } from "../../shared/chat-parts";
+import { answerPrompt, answerProblem, type QuestionPart, questionPartFromTool } from "../../shared/chat-question";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -580,6 +581,7 @@ export class ChatService {
         } else {
           this.store.appendContent(id, ev.text);
           this.emit(chat.id, { event: "delta", id: `${id}.${content.length}`, data: { message_id: id, text: ev.text, offset: content.length } });
+    this.expireQuestions(chatId);
         }
       } else if (ev.type === "tool") {
         if (!replay) {
@@ -615,7 +617,14 @@ export class ChatService {
         }
       } else if (ev.type === "usage") {
         usage = { input: ev.input_tokens, output: ev.output_tokens, cost: ev.cost_usd, model: ev.model };
-        if (!replay) {
+        const question = questionPartFromTool(ev.name, ev.id ?? "", ev.input ?? null, new Date().toISOString());
+        if (question !== null) {
+          asked = true;
+          if (!replay) {
+            const row = this.store.addMessage({ chat_id: chat.id, role: "tool", content: `question: ${question.questions[0]?.question ?? ""}`.slice(0, 200), status: "done", parts: [question] });
+            this.emitRow(chat.id, row);
+          }
+        } else if (!replay) {
           this.emit(chat.id, { event: "usage", id: `${id}.${content.length}`, data: { message_id: id, input_tokens: ev.input_tokens, output_tokens: ev.output_tokens, cost_usd: ev.cost_usd, model: ev.model } });
         }
       } else if (ev.type === "context-truncated") {
@@ -653,7 +662,7 @@ export class ChatService {
     } else if (outcome === null) {
       outcome = { status: "error", error: "agent ended without a result" };
     }
-    if (interrupted) {
+    if (interrupted || asked) {
       const sid = sessionIdOf();
       if (sid !== null && sid !== chat.session_id) {
         this.store.updateChat(chat.id, { session_id: sid }, false);
@@ -661,6 +670,69 @@ export class ChatService {
     }
     const current = this.store.getMessage(id);
     const final = (current !== null && (current.status === "streaming" || current.status === "pending")
+  /** Ends the turn's process without marking the reply stopped (the agent asked a question and waits for the answer). */
+  private async endProcess(turn: Turn): Promise<void> {
+    if (turn.session !== null) {
+      await turn.session.stop();
+    } else if (turn.pid !== null) {
+      turn.abort.abort();
+      await killGroup(turn.pid);
+    }
+  }
+
+  /**
+   * Answers (or, with `answers` null, dismisses) the agent's question `qid`. The state changes before the message is
+   * sent, so a second call finds it settled (409) and nothing is delivered twice; a send that fails puts it back.
+   */
+  answerQuestion(chatId: string, qid: string, answers: string[][] | null): { user_message_id: string; assistant_message_id: string; message: MessageRow } {
+    this.chat(chatId);
+    const row = this.store.findQuestionRow(chatId, qid);
+    const part = parseParts(row?.parts ?? null)?.find((p): p is QuestionPart => p.type === "question" && p.id === qid);
+    if (row === null || part === undefined) {
+      throw new HttpError(404, "no such question");
+    }
+    if (part.state !== "pending") {
+      throw new HttpError(409, `question already ${part.state}`);
+    }
+    if (answers !== null) {
+      const problem = answerProblem(part, answers);
+      if (problem !== null) {
+        throw new HttpError(400, problem);
+      }
+    }
+    if (this.turns.has(chatId) || this.chat(chatId).status === "running") {
+      throw new HttpError(409, "a reply is running; wait for it to end");
+    }
+    const settle = (next: QuestionPart): MessageRow => {
+      const updated = this.store.setParts(row.id, parseParts(row.parts)?.map((p) => (p.type === "question" && p.id === qid ? next : p)) ?? [next]) as MessageRow;
+      this.emitRow(chatId, updated);
+      return updated;
+    };
+    const settled = settle({ ...part, state: answers === null ? "dismissed" : "answered", ...(answers === null ? {} : { answers }), settled_at: new Date().toISOString() });
+    try {
+      return { ...this.sendMessage(chatId, { content: answerPrompt(part, answers) }), message: settled };
+    } catch (err) {
+      settle(part);
+      throw err;
+    }
+  }
+
+  /** A new message ends the wait: a question still pending is closed as dismissed, so it does not stay pinned. */
+  private expireQuestions(chatId: string): void {
+    for (const row of this.store.pendingQuestionRows(chatId)) {
+      const parts = (parseParts(row.parts) ?? []).map((p) => (p.type === "question" && p.state === "pending" ? { ...p, state: "dismissed" as const, settled_at: new Date().toISOString() } : p));
+      const next = this.store.setParts(row.id, parts);
+      if (next !== null) {
+        this.emitRow(chatId, next);
+      }
+    }
+  }
+
+  /** Chats that wait for an answer to a question. */
+  chatsWaitingForAnswer(): string[] {
+    return this.store.chatsWithPendingQuestion();
+  }
+
       ? this.store.finalizeMessage(id, {
         status: outcome.status, error: outcome.error, model_used: usage.model, input_tokens: usage.input, output_tokens: usage.output, cost_usd: usage.cost,
         context_truncated: truncated, warning,
@@ -710,6 +782,8 @@ export class ChatService {
   }
 
   // ---- artifacts (see artifacts.ts) ----
+    let asked = false;
+    let askedStopped = false;
 
   artifactStore(chat: ChatRow): ArtifactStore {
     return new ArtifactStore(this.workspace(chat, "chat"));
@@ -788,6 +862,11 @@ export class ChatService {
       return "";
     }
   }
+        if (asked && !askedStopped && !turn.stopRequested) {
+          // No harness has a live channel for an answer (see chat-harnesses.md): end the run here, the answer starts the next turn.
+          askedStopped = true;
+          await this.endProcess(turn);
+        }
 
   private replayFor(chat: ChatRow, lastEventId: string | null): ChatEvent[] {
     const out: ChatEvent[] = [];
@@ -800,6 +879,8 @@ export class ChatService {
           out.push({ event: "delta", id: `${seen.id}.${seen.content.length}`, data: { message_id: seen.id, text: seen.content.slice(offset), offset: seen.content.length } });
         }
         if (seen.status !== "streaming" && seen.status !== "pending") {
+    } else if (outcome === null && asked) {
+      outcome = { status: "done", error: null };
           out.push({ event: "done", id: `${seen.id}.${seen.content.length}`, data: { message_id: seen.id, status: seen.status, error: seen.error, context_truncated: seen.context_truncated === 1, warning: seen.warning } });
         }
         // Ids sort by creation, but a reply's tool rows are created after its assistant row, so "after the
@@ -827,18 +908,3 @@ export function chatServiceFor(ctx: ServerContext): ChatService {
   }
   return service;
 }
-    let asked = false;
-    let askedStopped = false;
-      if (!replay && this.liveness.note(chat.id, ev)) {
-        this.emitActivity(chat.id, turn);
-      }
-        if (asked && !askedStopped && !turn.stopRequested) {
-          // No harness has a live channel for an answer (see chat-harnesses.md): end the run here, the answer starts the next turn.
-          askedStopped = true;
-          await this.endProcess(turn);
-        }
-    const now = this.turns.get(chat.id);
-    if (now !== undefined && now !== turn) {
-      // A watchdog already closed this reply and a newer one runs: leave the chat alone.
-      return;
-    }

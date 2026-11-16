@@ -231,6 +231,26 @@ export class ChatStore {
   }
 
   finalizeMessage(id: string, fin: { status: "done" | "error" | "stopped"; error?: string | null; model_used?: string | null; input_tokens?: number; output_tokens?: number; cost_usd?: number | null; context_truncated?: boolean; warning?: string | null }): MessageRow | null {
+  /** The tool row that holds question `qid` (the harness call id) in a chat, or null. */
+  findQuestionRow(chatId: string, qid: string): MessageRow | null {
+    const hit = this.db.query("SELECT * FROM messages WHERE chat_id = ? AND role = 'tool' AND parts LIKE '%\"type\":\"question\"%' AND instr(parts, ?) > 0 ORDER BY id DESC").all(chatId, JSON.stringify(qid)) as MessageRow[];
+    return hit.find((r) => (JSON.parse(r.parts ?? "[]") as Array<{ type: string; id?: string }>).some((p) => p.type === "question" && p.id === qid)) ?? null;
+  }
+
+  /** Tool rows of a chat that hold a question still pending. */
+  pendingQuestionRows(chatId: string): MessageRow[] {
+    return this.db.query("SELECT * FROM messages WHERE chat_id = ? AND role = 'tool' AND parts LIKE '%\"type\":\"question\"%' AND parts LIKE '%\"state\":\"pending\"%'").all(chatId) as MessageRow[];
+  }
+
+  /** Ids of the live chats that have a question waiting for an answer. */
+  chatsWithPendingQuestion(): string[] {
+    const rows = this.db.query(
+      `SELECT DISTINCT m.chat_id AS id FROM messages m JOIN chats c ON c.id = m.chat_id
+       WHERE c.archived_at IS NULL AND m.role = 'tool' AND m.parts LIKE '%"type":"question"%' AND m.parts LIKE '%"state":"pending"%'`,
+    ).all() as Array<{ id: string }>;
+    return rows.map((r) => r.id);
+  }
+
     this.db.query(
       `UPDATE messages SET status = ?, error = ?, model_used = COALESCE(?, model_used), input_tokens = ?, output_tokens = ?,
        cost_usd = ?, finished_at = ?, context_truncated = ?, warning = ? WHERE id = ?`,

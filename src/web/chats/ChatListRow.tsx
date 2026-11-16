@@ -4,6 +4,7 @@ import type { Chat } from "../lib/chat-types";
 import { rel } from "../lib/format";
 import { FolderChip } from "./FolderPicker";
 import { KebabIcon, TitleInput, useRenameChat } from "./rename";
+import { useWaitingChats } from "./question-hooks";
 
 /** True for the key that starts a rename on a focused row (F2, as in file managers). */
 export function isRenameKey(e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): boolean {
@@ -23,6 +24,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
   onNavigate?: () => void;
 }) {
   const renameChat = useRenameChat();
+  const waiting = useWaitingChats().has(chat.id);
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuId = useId();
@@ -91,7 +93,7 @@ export function ChatListRow({ chat, href, active = false, meta, onNavigate }: {
             }
           }}
         >
-          <span className="thread-title">{chat.title}</span>
+          <span className="thread-title">{waiting ? <span className="thread-waiting" role="img" aria-label="waiting for your answer" title="Waiting for your answer" /> : null}{chat.title}</span>
           <span className="thread-meta">{meta}<FolderChip path={chat.effective_cwd} inherited={chat.cwd == null} /></span>
         </a>
       )}

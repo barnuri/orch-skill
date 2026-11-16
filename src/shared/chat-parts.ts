@@ -1,5 +1,7 @@
 /** Typed parts of a chat message. Bun-free: used by the server (mapping from harness streams) and by the web (rendering). */
 
+import type { QuestionPart } from "./chat-question";
+
 export type ToolState = "running" | "done" | "error";
 export type TodoStatus = "pending" | "in_progress" | "done";
 export interface TodoItem { text: string; status: TodoStatus }
@@ -10,7 +12,8 @@ export type ChatPart =
   | { type: "tool-call"; id: string; name: string; summary: string; input?: unknown; state: ToolState; output?: string; started_at?: string; ended_at?: string }
   | { type: "todo"; items: TodoItem[] }
   | { type: "file"; name: string; mime: string; url?: string }
-  | { type: "diff"; path: string; before: string; after: string };
+  | { type: "diff"; path: string; before: string; after: string }
+  | QuestionPart;
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string => (typeof v === "string" ? v : "");

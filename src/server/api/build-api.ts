@@ -6,6 +6,7 @@ import type { ServerContext } from "../types/server-context";
 import { ActiveController } from "./controllers/active.controller";
 import { BuildController } from "./controllers/build.controller";
 import { ChatsController } from "./controllers/chats.controller";
+import { ChatQuestionsController } from "./controllers/chat-questions.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
 import { HealthController } from "./controllers/health.controller";
@@ -43,6 +44,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new SuggestionsController(ctx), options);
   registerController(api, new ProjectsController(ctx), options);
   registerController(api, new ChatsController(ctx), options);
+  registerController(api, new ChatQuestionsController(ctx), options);
   registerController(api, new WorkspaceController(ctx), options);
   registerController(api, new VoiceController(ctx), options);
 

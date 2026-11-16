@@ -248,6 +248,7 @@ export class OpencodeSession implements AgentSession {
     try {
       const end = yield* tailTurn(started.paths, started.meta, parser, { signal });
       if (end.kind === "aborted") {
+        this.sessionId = parser.sessionId() ?? this.sessionId;
         return null;
       }
       if (end.kind === "interrupted") {

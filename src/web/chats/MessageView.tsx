@@ -6,6 +6,9 @@ import { fmtUsd } from "../lib/format";
 import { AttachmentTile } from "./Attachments";
 import { partsOf } from "./chat-group";
 import { CopyButton } from "./CopyButton";
+import { ErrorNotice } from "./ErrorNotice";
+import { QuestionCard } from "./QuestionCard";
+import { questionOf } from "./question-hooks";
 import { Reasoning } from "./Reasoning";
 import { ToolGroup } from "./ToolCard";
 import { primeSpeech, speak, speechSupported, stopSpeaking, useSpeakingKey } from "./voice";
@@ -108,6 +111,10 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
     const thought = parts?.find((p) => p.type === "reasoning");
     if (thought?.type === "reasoning") {
       return <Reasoning text={thought.text} live={false} />;
+    }
+    const question = questionOf(message);
+    if (question !== null) {
+      return <QuestionCard part={question} onSubmit={async () => null} />;
     }
     if (parts?.some((p) => p.type === "tool-call") === true) {
       return <ToolsView messages={[message]} now={now} />;

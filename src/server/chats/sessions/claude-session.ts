@@ -34,6 +34,8 @@ function resultText(content: unknown): string {
 export class ClaudeParser implements TurnParser {
   readonly mode = "lines" as const;
   done = false;
+  /** The `system` init line was seen: the session exists on the harness side and can be resumed. */
+  initSeen = false;
   private sawDelta = false;
   private sawThinking = false;
   private model: string | null = null;
@@ -69,6 +71,7 @@ export class ClaudeParser implements TurnParser {
     const type = line.type;
     if (type === "system" && line.subtype === "init" && typeof line.session_id === "string") {
       this.session = line.session_id;
+      this.initSeen = true;
     } else if (type === "stream_event" && line.parent_tool_use_id == null) {
       const event = line.event as { type?: string; delta?: { type?: string; text?: string; thinking?: string } } | undefined;
       if (event?.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
@@ -194,7 +197,7 @@ export class ClaudeSession implements AgentSession {
       yield* turnEvents(started.paths, started.meta, parser, { signal });
     } finally {
       this.sessionId = parser.sessionId() ?? this.sessionId;
-      if (parser.done) {
+      if (parser.done || (this.handle.stopping && parser.initSeen)) {
         this.completedTurn = true;
       }
       this.handle.end();

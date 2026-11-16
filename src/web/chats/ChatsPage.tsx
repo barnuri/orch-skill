@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { chatsApi } from "../api/chats";
+import { useWaitingTitle } from "./question-hooks";
+import { useCallback, useEffect, useState } from "react";
 import { getToken } from "../api/token";
 import { useChatFrame } from "./chat-frame";
 import { chatOnlyUrl } from "./chat-only-link";
@@ -25,6 +25,7 @@ export function ChatsPage({ chatId, projectId }: Props) {
   const [drawer, setDrawer] = useState(false);
   const options = useChatOptions();
   const chats = useChats(false);
+  useWaitingTitle();
   const toast = useToast();
 
   useEffect(() => {

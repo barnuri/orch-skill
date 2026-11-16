@@ -1,0 +1,39 @@
+/* The agent's question. Amber means "waiting for you"; blue is only the primary action; red only for a failed send. */
+.qcard { width: calc(100% - 2 * var(--s3)); max-width: 820px; box-sizing: border-box; margin: 0 auto var(--s2); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); color: var(--tx); font-size: var(--fs-body); }
+.qcard.is-pending { border-color: var(--wabd); background: var(--panel); padding: var(--s3); max-height: 60vh; overflow-y: auto; box-shadow: 0 0 0 3px var(--wabg); }
+.qhead { display: flex; align-items: center; gap: var(--s2); color: var(--tx2); font-size: var(--fs-meta); }
+.qlabel { font-weight: 600; color: var(--tx1); }
+.qstep { margin-inline-start: auto; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.qdot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--wa); }
+.qtext { margin: var(--s2) 0 var(--s3); font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+.qopts { display: flex; flex-direction: column; gap: var(--s2); }
+.qopt { position: relative; display: flex; align-items: flex-start; gap: var(--s3); min-height: 44px; padding: var(--s2) var(--s3); box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel2); cursor: pointer; }
+.qopt:hover { border-color: var(--border-strong); background: var(--hover); }
+.qopt[data-checked] { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 9%, transparent); }
+.qopt:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.qopt input[type="radio"], .qopt input[type="checkbox"] { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--acc); }
+.qopt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.qopt-label { font-weight: 500; overflow-wrap: anywhere; }
+.qopt-desc { color: var(--tx2); font-size: var(--fs-meta); line-height: 1.4; overflow-wrap: anywhere; }
+.qkey { flex: none; align-self: center; min-width: 18px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--tx3); font: 11px/16px var(--mono, ui-monospace, monospace); text-align: center; }
+.qother { align-items: center; cursor: default; }
+.qinput { flex: 1; min-width: 0; min-height: 36px; }
+.qhint { margin: var(--s2) 0 0; color: var(--wa); font-size: var(--fs-meta); }
+.qerror { margin: var(--s2) 0 0; color: var(--er); font-size: var(--fs-meta); }
+.qactions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s3); }
+.qactions .btn { min-height: 36px; }
+.qactions .btn:focus-visible, .qsum:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.qnote { display: flex; align-items: center; gap: var(--s2); max-width: 820px; margin: var(--s2) auto; padding: 0 var(--s3); box-sizing: border-box; color: var(--wa); font-size: var(--fs-meta); }
+.qcard.is-settled { background: transparent; border-color: var(--line); }
+.qsum { display: flex; align-items: center; gap: var(--s2); width: 100%; min-height: 36px; padding: var(--s1) var(--s3); background: none; border: 0; color: var(--tx2); font: inherit; font-size: var(--fs-meta); text-align: start; cursor: pointer; }
+.qshort { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx); }
+.qlist { margin: 0; padding: 0 var(--s3) var(--s3); font-size: var(--fs-meta); }
+.qlist dt { color: var(--tx2); margin-top: var(--s2); overflow-wrap: anywhere; }
+.qlist dd { margin: 2px 0 0; color: var(--tx); overflow-wrap: anywhere; }
+.thread-waiting { display: inline-block; width: 8px; height: 8px; margin-inline-end: var(--s1); border-radius: 50%; background: var(--wa); vertical-align: middle; }
+@media (hover: none), (pointer: coarse), (max-width: 768px) {
+  .qcard { width: calc(100% - 2 * var(--s2)); }
+  .qactions .btn, .qsum { min-height: 44px; }
+  .qinput { min-height: 44px; }
+  .qkey { display: none; }
+}

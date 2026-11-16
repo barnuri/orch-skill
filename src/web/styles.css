@@ -4,6 +4,7 @@
 @import "./shell/shell.css";
 @import "./shell/build-banner.css";
 @import "./chats/chats.css";
+@import "./chats/question.css";
 
 /* ---- Mobile shell (a chat composer docks to the bottom next) ----------------------------- */
 
