@@ -18,6 +18,12 @@
 }
 .rail-nav a:hover, .rail-toggle:hover { background: var(--hover); color: var(--tx); }
 .rail-nav a[aria-current="page"], .tabbar a[aria-current="page"] { color: var(--acct); background: var(--accs); box-shadow: inset 0 0 0 1px var(--accb); font-weight: 500; }
+.rail-row { display: flex; align-items: stretch; gap: 2px; }
+.rail-row > a:first-child { flex: 1; min-width: 0; }
+.rail-nav a.rail-open { flex: none; justify-content: center; width: var(--touch); padding: 0; color: var(--tx3); }
+.rail-nav a.rail-open:hover { color: var(--acct); }
+.rail-open svg { width: 16px; height: 16px; }
+.shell[data-rail="collapsed"] .rail-open { display: none; }
 .rail-toggle { margin: var(--s2); border-top: 1px solid transparent; }
 .nav-icon, .rail-toggle svg { width: 18px; height: 18px; flex: none; }
 .shell[data-rail="collapsed"] .rail-label { display: none; }
