@@ -1,5 +1,5 @@
 import type { ChatActivity } from "../../shared/chat-activity";
-import { type ChatPart, parseParts, partsForToolCall } from "../../shared/chat-parts";
+import { type AutomationPart, type ChatPart, parseParts, partsForToolCall } from "../../shared/chat-parts";
 import { answerPrompt, answerProblem, type QuestionPart, questionPartFromTool } from "../../shared/chat-question";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -28,6 +28,7 @@ import { type LivenessOptions, TurnLiveness } from "./turn-liveness";
 import { ArtifactHub, ArtifactStore, externalCandidate, readSettings } from "./artifacts";
 import type { ArtifactEvent } from "../../shared/artifacts";
 import { BrowserProfiles, browserEnv, ensureProfile, primaryForCwd } from "./browser-profile";
+import { AUTOMATION_INSTRUCTION } from "../../shared/chat-automation";
 import { indexRemove, indexUpsert, instructionBlock, memoryFingerprint, type Scope, Workspace } from "./workspace";
 
 export class HttpError extends Error {
@@ -113,6 +114,9 @@ export class ChatService {
   /** The per-chat message queue: what waits while a turn runs (see queue.ts). */
   readonly queue: ChatQueue;
   readonly liveness: TurnLiveness;
+  private readonly factory: SessionFactory;
+  /** Chats whose agent already heard the schedule/loop/monitor line in this server run. */
+  private readonly automationTold = new Set<string>();
   private readonly watchdog: ReturnType<typeof setInterval>;
   /** Long-lived `opencode serve` per profile env that opencode chat turns attach to (null: disabled, always standalone). */
   readonly opencodeServers: OpencodeServerPool | null = OpencodeServerPool.enabled() ? new OpencodeServerPool() : null;
@@ -130,7 +134,8 @@ export class ChatService {
     if (uploads > 0 || empties > 0) {
       console.log(`chats: startup sweep removed ${uploads} unattached upload(s) and archived ${empties} empty chat(s)`);
     }
-    this.manager = new SessionManager(opts.factory ?? defaultFactory(ctx, this.opencodeServers), opts.idleMs);
+    this.factory = opts.factory ?? defaultFactory(ctx, this.opencodeServers);
+    this.manager = new SessionManager(this.factory, opts.idleMs);
     this.queue = new ChatQueue(this.store, {
       isRunning: (chatId) => this.turns.has(chatId) || this.store.getChat(chatId)?.status === "running",
       start: (chatId, input) => this.sendMessage(chatId, input),
@@ -664,9 +669,57 @@ export class ChatService {
     this.artifactTurnStart(fresh, assistant.id);
     const block = content.trim() === "" ? "" : this.workspaceInstructions(fresh);
     const browserNote = content.trim() === "" ? "" : this.browser.startTurn({ id: fresh.id, cwd: this.usableCwd(fresh), projectPath: this.projectPathOf(fresh) }, fresh.harness === "local-llm");
-    const tail = [block, browserNote, this.artifactUserNote(fresh)].filter((t) => t !== "").join("\n\n");
+    const told = content.trim() === "" || (this.automationTold.has(chatId) && fresh.harness !== "local-llm");
+    this.automationTold.add(chatId);
+    const tail = [block, browserNote, this.artifactUserNote(fresh), told ? "" : AUTOMATION_INSTRUCTION].filter((t) => t !== "").join("\n\n");
     turn.promise = this.runTurn(fresh, turn, tail === "" ? content : `${content}\n\n${tail}`, paths).finally(() => this.browser.endTurn(chatId));
     return { user_message_id: userMsg.id, assistant_message_id: assistant.id };
+  }
+
+  /**
+   * Posts a finished block into the thread (a schedule, loop or monitor result) as an assistant message, marks the
+   * chat unread and moves it up the list. It never touches a running turn.
+   */
+  postBlock(chatId: string, input: { content: string; part: AutomationPart; failed?: boolean }): MessageRow {
+    this.chat(chatId);
+    const row = this.store.addMessage({ chat_id: chatId, role: "assistant", content: input.content, status: input.failed === true ? "error" : "done", error: input.failed === true ? input.content : null, parts: [{ type: "text", text: input.content }, input.part] });
+    this.store.setUnread(chatId, true);
+    this.store.touchChat(chatId);
+    this.emitRow(chatId, row);
+    return row;
+  }
+
+  markRead(chatId: string): void {
+    this.chat(chatId);
+    this.store.setUnread(chatId, false);
+  }
+
+  /**
+   * Runs one prompt in a new, isolated session with the chat's folder, harness and effort. The chat's own session,
+   * history and queue are untouched. Resolves with the final text, or the error.
+   */
+  async runIsolated(chatId: string, prompt: string): Promise<{ text: string; error: string | null; ms: number }> {
+    const chat = this.chat(chatId);
+    const started = Date.now();
+    const session = this.factory({ ...this.paramsFor(chat), chatId: `${chatId}~one-off-${started}`, resumeSessionId: null, history: () => [] });
+    let text = "";
+    let error: string | null = null;
+    try {
+      await session.start();
+      for await (const ev of session.send(prompt, [])) {
+        if (ev.type === "text-delta") {
+          text += ev.text;
+        } else if (ev.type === "error" || ev.type === "interrupted") {
+          error = ev.message;
+        }
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      await session.stop().catch(() => {});
+      await session.dispose().catch(() => {});
+    }
+    return { text: text.trim(), error, ms: Date.now() - started };
   }
 
   /** Resolves when the chat's running reply (if any) has been finalized. Used by tests and shutdown. */

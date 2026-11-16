@@ -16,6 +16,8 @@ export interface ChatRow {
   subfolder: string | null;
   /** low, medium, high or max; null is Auto: the harness gets no effort argument. */
   effort: string | null;
+  /** 1 when a schedule, loop or monitor posted into the chat and nobody has opened it since. */
+  unread: number;
 }
 
 export interface MessageRow {

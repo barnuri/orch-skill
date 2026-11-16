@@ -99,4 +99,7 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE chats ADD COLUMN subfolder TEXT;
   `,
+  `
+  ALTER TABLE chats ADD COLUMN unread INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

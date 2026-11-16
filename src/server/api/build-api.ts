@@ -5,6 +5,7 @@ import type { MiddlewareHandler } from "hono";
 import type { ServerContext } from "../types/server-context";
 import { ActiveController } from "./controllers/active.controller";
 import { BuildController } from "./controllers/build.controller";
+import { ChatAutomationController } from "./controllers/chat-automation.controller";
 import { ChatQueueController } from "./controllers/chat-queue.controller";
 import { ChatsController } from "./controllers/chats.controller";
 import { ChatQuestionsController } from "./controllers/chat-questions.controller";
@@ -54,6 +55,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new ChatsController(ctx), options);
   registerController(api, new ChatQuestionsController(ctx), options);
   registerController(api, new ChatQueueController(ctx), options);
+  registerController(api, new ChatAutomationController(ctx), options);
   registerController(api, new WorkspaceController(ctx), options);
   registerController(api, new BrowserProfilesController(ctx), options);
   const artifacts = new ArtifactsController(ctx);

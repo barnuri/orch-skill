@@ -10,6 +10,7 @@ import { loadRun, saveRun } from "../state/store.ts";
 import { trashPath } from "../state/trash.ts";
 import { readCatalog } from "../adapters/routing.ts";
 import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
+import { LIMITS, urlProblem, type MonitorSpec } from "../../../../src/shared/chat-automation.ts";
 import {
   dispatchSh, hex4, isUint, parseDuration, patchJsonSync, pidAlive, psCommand, readJsonOr, readJsonSync, runLimited, sleep, spawnOrch,
   stampUtc, writeJsonSync,
@@ -34,9 +35,9 @@ const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".spli
 const ADAPTER_NAMES = ["claude-native", ...VALID_HARNESSES];
 
 export const LOOP_USAGE =
-  "dispatch.ts loop start --every <dur> [--max N] [--until CMD] [--max-runtime <dur>] [--session fresh|resume|<id>] [--when-idle|--no-when-idle] (--profile P | <adapter>) <prompt|@file> [args...] | list | stop <id> | resume <id> | tail <id> [-n N]";
+  "dispatch.ts loop start --every <dur> [--max N] [--until CMD] [--max-runtime <dur>] [--session fresh|resume|<id>] [--when-idle|--no-when-idle] (--profile P | <adapter>) <prompt|@file> [args...] | list [--chat ID] | stop <id> | resume <id> | tail <id> [-n N]\n  chat target (flags before --profile): --chat ID [--mode message|fresh] [--until-re RE] [--until-text TEXT] [--cwd DIR] [--max-failures N]";
 export const WATCH_USAGE =
-  'dispatch.ts watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE] [--every DUR] [--max-runtime DUR] [--on-match PROMPT --profile P] | wait <id> [--timeout S] [--max-lines N] | events <id> [--since N] | list | stop <id>';
+  'dispatch.ts watch start --name N "<cmd>" [--match RE] [--ignore RE] [--until RE] [--every DUR] [--max-runtime DUR] [--on-match PROMPT --profile P] [--chat ID --meta JSON [--baseline]] | wait <id> [--timeout S] [--max-lines N] | events <id> [--since N] | list | stop <id>';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -150,6 +151,7 @@ function adapterSupportsResume(harness: string, mode: string): boolean {
 
 async function loopStart(args: string[]): Promise<number> {
   let every = "", max = "0", untilCmd = "", maxRuntime = "", sessionMode = "fresh", whenIdle = "";
+  let label = "", chat = "", chatMode = "message", untilRe = "", untilText = "", cwd = "", maxFailures = "";
   let i = 0;
   scan: for (; i < args.length; i++) {
     const a = args[i]!;
@@ -159,6 +161,13 @@ async function loopStart(args: string[]): Promise<number> {
       case "--until": untilCmd = args[++i] ?? ""; break;
       case "--max-runtime": maxRuntime = args[++i] ?? ""; break;
       case "--session": sessionMode = args[++i] ?? ""; break;
+      case "--chat": chat = args[++i] ?? ""; break;
+      case "--mode": chatMode = args[++i] ?? ""; break;
+      case "--until-re": untilRe = args[++i] ?? ""; break;
+      case "--until-text": untilText = args[++i] ?? ""; break;
+      case "--cwd": cwd = args[++i] ?? ""; break;
+      case "--label": label = args[++i] ?? ""; break;
+      case "--max-failures": maxFailures = args[++i] ?? ""; break;
       case "--when-idle": whenIdle = "true"; break;
       case "--no-when-idle": whenIdle = "false"; break;
       case "--profile": break scan;
@@ -172,6 +181,10 @@ async function loopStart(args: string[]): Promise<number> {
   const interval = parseDuration(every);
   if (interval === null || interval < (Number(process.env.ORCH_EVERY_MIN_SECS) >= 1 ? Number(process.env.ORCH_EVERY_MIN_SECS) : 10)) { err("loop start: --every must be a duration of at least 10s (e.g. 10m)\n"); return 2; }
   if (!isUint(max)) { err("loop start: --max must be a whole number\n"); return 2; }
+  if (chat && chatMode !== "message" && chatMode !== "fresh") { err("loop start: --mode must be message or fresh\n"); return 2; }
+  if (chat && args[i] !== "--profile") { err("loop start: --chat needs --profile (the chat's profile)\n"); return 2; }
+  if (untilRe) { try { new RegExp(untilRe); } catch { err("loop start: --until-re is not a valid regular expression\n"); return 2; } }
+  if (maxFailures && !isUint(maxFailures)) { err("loop start: --max-failures must be a whole number\n"); return 2; }
   const rest = args.slice(i);
   let kind: string, name: string, rawPrompt: string, argc: number;
   if (rest[0] === "--profile") { kind = "profile"; name = rest[1] ?? ""; rawPrompt = rest[2] ?? ""; argc = 3; }
@@ -217,6 +230,8 @@ async function loopStart(args: string[]): Promise<number> {
   writeFileSync(join(dir, "prompt.txt"), prompt);
   const now = nowEpoch();
   writeJsonSync(join(dir, "spec.json"), {
+    ...(chat ? { target: { kind: "chat", chat_id: chat, mode: chatMode } } : {}),
+    label, until_re: untilRe, until_text: untilText, cwd, max_failures: maxFailures ? Number(maxFailures) : chat ? LIMITS.maxFailures : LOOP_MAX_FAILURES,
     id, kind, name, interval, max: Number(max), until: untilCmd, args: targetArgs, t0: now, started: nowIso(), deadline: now + runtime,
     session_mode: sessionMode, session: sessionId, when_idle: whenIdle === "true",
   });
@@ -286,11 +301,12 @@ async function loopRun(args: string[]): Promise<number> {
     iter += 1;
     loopPatch(id, (o) => { o.in_flight = iter; });
     await loopRunTickStart(id, iter);
-    const prompt = `${readFileSync(join(dir, "prompt.txt"), "utf8")}\n\nTo end this loop, write STOP to the file at ${control}.`;
+    const cond = spec.until_text ? `\n\nStop condition: ${spec.until_text}. When it is true, write STOP to that file.` : "";
+    const prompt = `${readFileSync(join(dir, "prompt.txt"), "utf8")}${cond}\n\nTo end this loop, write STOP to the file at ${control}.`;
     const log = join(dir, `iter-${iter}.log`);
     const fd = openSync(log, "w");
     const p = Bun.spawn([process.execPath, process.env.ORCH_DISPATCH || join(import.meta.dir, "..", "..", "scripts", "dispatch.ts"), "run", ...(kind === "profile" ? ["--profile", name] : [name]), prompt, ...targetArgs], {
-      stdin: "ignore", stdout: fd, stderr: fd, env: env as any,
+      stdin: "ignore", stdout: fd, stderr: fd, env: env as any, ...(spec.cwd && existsSync(spec.cwd) ? { cwd: spec.cwd } : {}),
     });
     const rc = (await p.exited) ?? 1;
     closeSync(fd);
@@ -298,7 +314,7 @@ async function loopRun(args: string[]): Promise<number> {
     await loopRunTickEnd(id, iter, rc, log);
     fails = rc === 0 ? 0 : fails + 1;
 
-    if (fails >= LOOP_MAX_FAILURES) {
+    if (fails >= Number(spec.max_failures ?? LOOP_MAX_FAILURES)) {
       const ts = nowIso();
       loopPatch(id, (o) => { o.status = "failed"; o.reason = "failures"; o.in_flight = null; o.iteration = iter; o.last_exit = rc; o.last_ts = ts; o.ended = ts; o.pid = null; });
       await loopRunClose(id, "error");
@@ -312,6 +328,7 @@ async function loopRun(args: string[]): Promise<number> {
     let status = "running";
     let reason = "";
     if (untilCmd && (await runLimited(LOOP_UNTIL_TIMEOUT_SECS, ["sh", "-c", untilCmd])).code === 0) { status = "done"; reason = "until"; }
+    if (status === "running" && spec.until_re && reTest(spec.until_re, readFileSync(log, "utf8"))) { status = "done"; reason = "until"; }
     if (status === "running" && readFileSync(control, "utf8").split("\n")[0] === "STOP") { status = "stopped"; reason = "agent"; }
     if (status === "running" && max > 0 && iter >= max) { status = "done"; reason = "max"; }
     const ts = nowIso();
@@ -335,13 +352,16 @@ function loopAliveStatus(id: string): string {
   return s.status;
 }
 
-function loopList(): number {
+function loopList(args: string[] = []): number {
+  const ci = args.indexOf("--chat");
+  const chat = ci >= 0 ? args[ci + 1] ?? "" : "";
   const root = loopsHome();
   if (!existsSync(root)) { out("no loops\n"); return 0; }
   const rows: string[] = [];
   for (const id of dirsOf(root)) {
     const s = readJsonSync(join(root, id, "state.json"));
     const p = readJsonSync(join(root, id, "spec.json"));
+    if (chat && p.target?.chat_id !== chat) continue;
     rows.push([s.id, loopAliveStatus(id), `iter ${s.iteration}`, `every ${p.interval}s`, p.max > 0 ? `max ${p.max}` : "no max", p.name].join("\t"));
   }
   rows.sort().reverse();
@@ -549,15 +569,24 @@ async function watchRespawn(id: string): Promise<boolean> {
   return ok;
 }
 
-function watchActiveCount(): number {
-  return dirsOf(watchesHome()).filter((id) => watchAliveStatus(id) === "running").length;
+function watchActiveCount(chat = ""): number {
+  return dirsOf(watchesHome()).filter((id) => {
+    if (watchAliveStatus(id) !== "running") return false;
+    const t = readJsonOr<any>(join(watchesHome(), id, "spec.json"), {}).target;
+    return chat ? t?.chat_id === chat : t?.kind !== "chat";
+  }).length;
 }
 
 async function watchStart(args: string[]): Promise<number> {
-  let name = "", cmd = "", match = "", ignore = "", untilRe = "", every = "", onMatch = "", profile = "", maxRuntime = "";
+  let name = "", cmd = "", match = "", ignore = "", untilRe = "", every = "", onMatch = "", profile = "", maxRuntime = "", chat = "", metaRaw = "";
+  let baseline = false, replaces = "";
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     switch (a) {
+      case "--chat": chat = args[++i] ?? ""; break;
+      case "--meta": metaRaw = args[++i] ?? ""; break;
+      case "--baseline": baseline = true; break;
+      case "--replaces": replaces = args[++i] ?? ""; break;
       case "--name": name = args[++i] ?? ""; break;
       case "--match": match = args[++i] ?? ""; break;
       case "--ignore": ignore = args[++i] ?? ""; break;
@@ -586,15 +615,29 @@ async function watchStart(args: string[]): Promise<number> {
     const why = usageRefusal(await readCatalog(paths.profiles(home())), profile, "runs");
     if (why !== null) { err(`${why}\n`); return 2; }
   }
-  const limit = Number(process.env.WATCH_MAX_ACTIVE ?? 10);
-  const active = watchActiveCount();
-  if (active >= limit) { err(`watch start: ${active} watches already active (limit ${limit})\n`); return 1; }
+  let meta: any = null;
+  if (chat) {
+    try { meta = metaRaw ? JSON.parse(metaRaw) : {}; } catch { err("watch start: --meta is not valid JSON\n"); return 2; }
+    const sp = meta.spec as MonitorSpec | undefined;
+    if (sp?.type === "url") {
+      const why = urlProblem(sp.target, meta.allow_link_local === true);
+      if (why !== null) { err(`watch start: ${why}\n`); return 2; }
+      const urlMin = Number(process.env.ORCH_EVERY_MIN_SECS) >= 1 ? Number(process.env.ORCH_EVERY_MIN_SECS) : LIMITS.minUrlSecs;
+      if (interval < urlMin) { err(`watch start: a URL monitor needs --every of at least ${urlMin}s\n`); return 2; }
+    }
+    const n = watchActiveCount(chat);
+    if (n >= LIMITS.maxChatMonitors) { err(`watch start: ${n} monitors are already active in this chat (limit ${LIMITS.maxChatMonitors})\n`); return 1; }
+  } else {
+    const limit = Number(process.env.WATCH_MAX_ACTIVE ?? 10);
+    const active = watchActiveCount();
+    if (active >= limit) { err(`watch start: ${active} watches already active (limit ${limit})\n`); return 1; }
+  }
   mkdirSync(home(), { recursive: true });
   const id = `watch-${stampUtc()}-${hex4()}`;
   const dir = join(watchesHome(), id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "events.jsonl"), "");
-  writeJsonSync(join(dir, "spec.json"), { id, name, cmd, match, ignore, until: untilRe, interval, on_match: onMatch, profile, started: nowIso(), deadline: nowEpoch() + runtime });
+  writeJsonSync(join(dir, "spec.json"), { id, name, cmd, match, ignore, until: untilRe, interval, on_match: onMatch, profile, started: nowIso(), deadline: nowEpoch() + runtime, baseline, ...(replaces ? { replaces } : {}), ...(chat ? { target: { kind: "chat", chat_id: chat }, meta } : {}) });
   writeJsonSync(join(dir, "state.json"), { id, status: "running", events: 0, cursor: 0, last_event: null, last_dispatch_epoch: 0, pid: null, ended: null, reason: null });
   const pid = spawnOrch(["watch", "__run", id], join(dir, "log"));
   watchPatch(id, (o) => { o.pid = pid; });
@@ -679,6 +722,7 @@ async function watchStream(id: string, cmd: string, match: string, ignore: strin
 
 async function watchScheduled(id: string, cmd: string, match: string, ignore: string, untilRe: string, interval: number, deadline: number): Promise<string> {
   let last = "";
+  let skipFirst = readJsonSync(join(watchesHome(), id, "spec.json")).baseline === true;
   for (;;) {
     if (readJsonOr(join(watchesHome(), id, "state.json"), { status: "" }).status !== "running") return "";
     if (nowEpoch() >= deadline) return "max-runtime";
@@ -692,7 +736,8 @@ async function watchScheduled(id: string, cmd: string, match: string, ignore: st
       if (ignore && reTest(ignore, line)) continue;
       text += line + "\n";
     }
-    if (text !== "" && text !== last) {
+    if (skipFirst) { last = text; skipFirst = false; }
+    else if (text !== "" && text !== last) {
       await watchEmit(id, text.replace(/\n$/, ""));
       last = text;
       if (untilRe && reTest(untilRe, text)) return "until";
@@ -803,7 +848,9 @@ function watchEvents(args: string[]): number {
   return 0;
 }
 
-function watchList(): number {
+function watchList(args: string[] = []): number {
+  const ci = args.indexOf("--chat");
+  const chat = ci >= 0 ? args[ci + 1] ?? "" : "";
   const root = watchesHome();
   if (!existsSync(root)) { out("no watches\n"); return 0; }
   const rows: string[] = [];
@@ -811,6 +858,7 @@ function watchList(): number {
     const status = watchAliveStatus(id);
     const s = readJsonSync(join(root, id, "state.json"));
     const p = readJsonSync(join(root, id, "spec.json"));
+    if (chat && p.target?.chat_id !== chat) continue;
     rows.push([s.id, status, `${s.events} events`, p.name].join("\t"));
   }
   rows.sort().reverse();
@@ -881,7 +929,7 @@ const usage = (u: string) => () => {
 
 export const loopCommands = {
   "loop start": loopStart,
-  "loop list": () => loopList(),
+  "loop list": (a: string[]) => loopList(a),
   "loop stop": loopStop,
   "loop resume": loopResume,
   "loop tail": loopTail,
@@ -892,7 +940,7 @@ export const loopCommands = {
   "watch start": watchStart,
   "watch wait": watchWait,
   "watch events": watchEvents,
-  "watch list": () => watchList(),
+  "watch list": (a: string[]) => watchList(a),
   "watch stop": watchStop,
   "watch status-of": watchStatusOf,
   "watch __run": watchRun,

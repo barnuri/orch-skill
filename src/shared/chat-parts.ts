@@ -13,7 +13,21 @@ export type ChatPart =
   | { type: "todo"; items: TodoItem[] }
   | { type: "file"; name: string; mime: string; url?: string }
   | { type: "diff"; path: string; before: string; after: string }
+  | AutomationPart
   | QuestionPart;
+
+/** A block a schedule, loop or monitor posts into a chat (the text itself is the message `content`). */
+export type AutomationPart = {
+  type: "automation";
+  kind: "schedule" | "loop" | "monitor";
+  level: "result" | "error" | "info";
+  title: string;
+  item_id?: string;
+  /** Link to the full run (a dashboard path). */
+  link?: string;
+  /** Quiet counter, e.g. `iteration 3`. */
+  counter?: string;
+};
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string => (typeof v === "string" ? v : "");

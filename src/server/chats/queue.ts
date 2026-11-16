@@ -97,6 +97,12 @@ export class ChatQueue {
     return (this.db.query("SELECT * FROM chat_queue WHERE id = ? AND chat_id = ?").get(qid, chatId) as Raw | null) ?? null;
   }
 
+  /** One queue row in any state (the snapshot lists only waiting and running ones). */
+  find(chatId: string, qid: string): QueueItem | null {
+    const r = this.row(chatId, qid);
+    return r === null ? null : item(r);
+  }
+
   queued(chatId: string): QueueItem[] {
     return this.rows(chatId, "state = 'queued'").map(item);
   }

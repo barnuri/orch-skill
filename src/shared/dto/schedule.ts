@@ -1,8 +1,9 @@
 import { ZodDto, ZodField, ZodObject } from "@barnuri/zod-decorators";
 import { z } from "zod";
 
-const STATUS = z.enum(["running", "ok", "failed", "lost"]);
+const STATUS = z.enum(["running", "ok", "failed", "lost", "skipped"]);
 const KIND = z.enum(["prompt", "command"]);
+const RUN_KIND = z.enum(["prompt", "command", "chat"]);
 
 @ZodObject({ description: "One run of a schedule." })
 export class ScheduleRunDto extends ZodDto {
@@ -12,8 +13,8 @@ export class ScheduleRunDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "When it ended, taken from its exit marker. Null while running." })
   ended_at!: string | null;
 
-  @ZodField(KIND, { description: "Whether this run was a prompt or a command." })
-  kind!: "prompt" | "command";
+  @ZodField(RUN_KIND, { description: "Whether this run was a prompt, a command or a prompt posted into a chat." })
+  kind!: "prompt" | "command" | "chat";
 
   @ZodField(z.string(), { description: "A job id for a prompt run, a run directory for a command run." })
   ref!: string;
@@ -26,6 +27,18 @@ export class ScheduleRunDto extends ZodDto {
 
   @ZodField(z.string().nullable().optional(), { description: "Catalog model id a prompt run used. Null or absent: the profile's default model." })
   model?: string | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Chat schedules: id of the message the run posted." })
+  message_id?: string | null;
+
+  @ZodField(z.number().nullable().optional(), { description: "Chat schedules: how long the run took, in ms." })
+  duration_ms?: number | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Chat schedules: why the run failed." })
+  error?: string | null;
+
+  @ZodField(z.string().nullable().optional(), { description: "Chat schedules: a note, e.g. a missed run that was skipped." })
+  note?: string | null;
 }
 
 @ZodObject({ description: "A cron schedule that runs a prompt or a shell command." })
@@ -80,6 +93,15 @@ export class ScheduleDto extends ZodDto {
 
   @ZodField([ScheduleRunDto], { description: "The newest 30 runs, newest first." })
   runs!: ScheduleRunDto[];
+
+  @ZodField(z.object({ kind: z.literal("chat"), chat_id: z.string(), mode: z.enum(["message", "fresh"]) }).optional(), { description: "Set when the result returns to a chat." })
+  target?: { kind: "chat"; chat_id: string; mode: "message" | "fresh" };
+
+  @ZodField(z.string().optional(), { description: "IANA time zone of a chat schedule's cron." })
+  timezone?: string;
+
+  @ZodField(z.string().nullable().optional(), { description: "Why a chat schedule paused itself." })
+  pause_reason?: string | null;
 }
 
 @ZodObject({ description: "Every schedule, newest first." })

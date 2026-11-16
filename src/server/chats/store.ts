@@ -108,13 +108,22 @@ export class ChatStore {
     const row: ChatRow = {
       id: newId("chat"), project_id: input.project_id ?? null, title: input.title, harness: input.harness,
       profile: input.profile, model_id: input.model_id ?? null, session_id: null, status: "idle",
-      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0, cwd: input.cwd ?? null, subfolder: input.subfolder ?? null, effort: input.effort ?? null,
+      created_at: stamp, updated_at: stamp, archived_at: null, title_manual: input.title_manual === true ? 1 : 0, cwd: input.cwd ?? null, subfolder: input.subfolder ?? null, effort: input.effort ?? null, unread: 0,
     };
     this.db.query(
       `INSERT INTO chats (id, project_id, title, harness, profile, model_id, session_id, status, created_at, updated_at, title_manual, cwd, subfolder, effort)
        VALUES (?, ?, ?, ?, ?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?)`,
     ).run(row.id, row.project_id, row.title, row.harness, row.profile, row.model_id, stamp, stamp, row.title_manual, row.cwd, row.subfolder, row.effort);
     return row;
+  }
+
+  setUnread(id: string, unread: boolean): void {
+    this.db.query("UPDATE chats SET unread = ? WHERE id = ?").run(unread ? 1 : 0, id);
+  }
+
+  /** Bumps the chat to the top of the list without touching anything else. */
+  touchChat(id: string): void {
+    this.db.query("UPDATE chats SET updated_at = ? WHERE id = ?").run(now(), id);
   }
 
   getChat(id: string): ChatRow | null {

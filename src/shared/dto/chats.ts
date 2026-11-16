@@ -156,6 +156,9 @@ export class ChatDto extends ZodDto {
   @ZodField(z.string().nullable(), { description: "When it was archived. Chats are never deleted." })
   archived_at!: string | null;
 
+  @ZodField(z.number().int().optional(), { description: "1 when a schedule, loop or monitor posted into the chat and it was not opened since." })
+  unread?: number;
+
   @ZodField(z.number().int().optional(), { description: "1 once a person set the title. The first message never replaces such a title." })
   title_manual?: number;
 

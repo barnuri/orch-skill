@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { trashPath } from "../state/trash.ts";
+import { cronNextIn, machineZone, validZone } from "../../../../src/shared/cron-next.ts";
+import { LIMITS } from "../../../../src/shared/chat-automation.ts";
 import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { readCatalog, modelIdAllowed, hasHarnessDisabled } from "../adapters/routing.ts";
 import {
@@ -18,7 +20,7 @@ const CMD_TIMEOUT_DEFAULT = 3600;
 const NEXT_DAYS = 366;
 const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 export const SCHEDULE_USAGE =
-  'dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"';
+  'dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>" | record <id> --status ok|failed|skipped [--message-id M] [--duration-ms N] [--error E] [--advance] [--note T] [--at EPOCH]\n  chat target: add --chat <id> [--mode message|fresh] [--tz ZONE] [--once] --name N --cron C --prompt P; list --chat <id>';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -26,46 +28,9 @@ const home = () => orchHome();
 const schedDir = (id: string) => join(home(), "schedules", id);
 const schedFile = (id: string) => join(schedDir(id), "schedule.json");
 
-const ALIAS: Record<string, string> = { "@hourly": "0 * * * *", "@daily": "0 0 * * *", "@weekly": "0 0 * * 0", "@monthly": "0 0 1 * *" };
-const RANGE: Array<[number, number]> = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
-
 // First matching minute after `from` (epoch seconds, local time), or null for a bad or never-matching expression.
 export function cronNext(exprIn: string, from: number, days = NEXT_DAYS): number | null {
-  const expr = ALIAS[exprIn] ?? exprIn;
-  const f = expr.split(/\s+/).filter((x) => x !== "");
-  if (f.length !== 5) return null;
-  const set: Array<Set<number>> = [];
-  const star: boolean[] = [];
-  for (let i = 0; i < 5; i++) {
-    const [min, max] = RANGE[i]!;
-    const ok = new Set<number>();
-    star[i] = /^\*(\/1)?$/.test(f[i]!);
-    for (const part of f[i]!.split(",")) {
-      const slash = part.indexOf("/");
-      const r = slash < 0 ? part : part.slice(0, slash);
-      const sraw = slash < 0 ? undefined : part.slice(slash + 1);
-      const s = sraw === undefined ? 1 : /^\d+$/.test(sraw) ? Number(sraw) : NaN;
-      if (!Number.isFinite(s) || s < 1) return null;
-      let lo: number, hi: number;
-      let m: RegExpExecArray | null;
-      if (r === "*") [lo, hi] = [min, max];
-      else if ((m = /^(\d+)-(\d+)$/.exec(r))) [lo, hi] = [Number(m[1]), Number(m[2])];
-      else if (/^\d+$/.test(r)) [lo, hi] = [Number(r), sraw !== undefined ? max : Number(r)];
-      else return null;
-      if (lo < min || hi > max || lo > hi) return null;
-      for (let v = lo; v <= hi; v += s) ok.add(i === 4 && v === 7 ? 0 : v);
-    }
-    set[i] = ok;
-  }
-  const d = new Date((from - (from % 60) + 60) * 1000);
-  for (let n = 0; n < days * 1440; n++) {
-    const dayOk = star[2] || star[4]
-      ? set[2]!.has(d.getDate()) && set[4]!.has(d.getDay())
-      : set[2]!.has(d.getDate()) || set[4]!.has(d.getDay());
-    if (set[0]!.has(d.getMinutes()) && set[1]!.has(d.getHours()) && set[3]!.has(d.getMonth() + 1) && dayOk) return Math.floor(d.getTime() / 1000);
-    d.setTime(d.getTime() + 60000);
-  }
-  return null;
+  return cronNextIn(exprIn, from, undefined, days);
 }
 
 function fmtLocal(epoch: number): string {
@@ -79,9 +44,9 @@ const exists = (id: string) => !!id && existsSync(schedFile(id));
 const read = (id: string) => readJsonSync(schedFile(id));
 const patch = (id: string, fn: (o: any) => void) => patchJsonSync(schedFile(id), fn);
 
-function setNext(id: string): void {
+function setNext(id: string, at = nowEpoch()): void {
   const s = read(id);
-  const n = cronNext(s.cron, nowEpoch());
+  const n = cronNextIn(s.cron, at, s.timezone || undefined);
   patch(id, (o) => {
     o.next_at = n;
   });
@@ -245,11 +210,16 @@ async function modelOk(profile: string, model: string): Promise<boolean> {
 }
 
 async function add(args: string[]): Promise<number> {
-  let name = "", cron = "", prompt = "", profile = "", model = "", command = "", workdir = "", timeout = "";
+  let name = "", cron = "", prompt = "", profile = "", model = "", command = "", workdir = "", timeout = "", chat = "", mode = "message", tz = "";
+  let once = false;
   for (let i = 0; i < args.length; ) {
     const k = args[i]!;
     const v = args[i + 1] ?? "";
+    if (k === "--once") { once = true; i += 1; continue; }
     switch (k) {
+      case "--chat": chat = v; break;
+      case "--mode": mode = v; break;
+      case "--tz": tz = v; break;
       case "--name": name = v; break;
       case "--cron": cron = v; break;
       case "--prompt": prompt = v; break;
@@ -265,7 +235,16 @@ async function add(args: string[]): Promise<number> {
   if (!name || !cron) { err(`usage: ${SCHEDULE_USAGE}\n`); return 2; }
   if (prompt && command) { err("schedule add: give --prompt or --command, not both\n"); return 2; }
   let kind: string;
-  if (prompt) {
+  if (chat) {
+    if (command || profile || model || workdir || timeout) { err("schedule add: --chat takes only --prompt (the chat's own harness runs it)\n"); return 2; }
+    if (!prompt) { err("schedule add: --chat needs --prompt\n"); return 2; }
+    if (mode !== "message" && mode !== "fresh") { err("schedule add: --mode must be message or fresh\n"); return 2; }
+    if (tz && !validZone(tz)) { err(`schedule add: unknown time zone: ${tz}\n`); return 2; }
+    const p = await resolvePrompt(prompt, "schedule add");
+    if (p === null) return 2;
+    prompt = p;
+    kind = "prompt";
+  } else if (prompt) {
     kind = "prompt";
     if (!profile) { err("schedule add: --prompt needs --profile\n"); return 2; }
     const rc = await profileOk(profile);
@@ -291,7 +270,15 @@ async function add(args: string[]): Promise<number> {
     if (d === null) { err(`schedule add: bad --timeout: ${timeout}\n`); return 2; }
     secs = d;
   }
-  if (cronNext(cron, nowEpoch()) === null) { err(`schedule add: bad or never-matching cron: ${cron}\n`); return 2; }
+  const zone = chat ? tz || machineZone() : "";
+  const first = cronNextIn(cron, nowEpoch(), zone || undefined);
+  if (first === null) { err(`schedule add: bad or never-matching cron: ${cron}\n`); return 2; }
+  if (chat) {
+    const second = cronNextIn(cron, first, zone);
+    if (second !== null && second - first < LIMITS.minScheduleSecs) { err(`schedule add: a chat schedule must be at least ${LIMITS.minScheduleSecs / 60} minutes apart\n`); return 2; }
+    const active = loadIds().filter((x) => { const o = read(x); return o.target?.kind === "chat" && o.enabled === true; }).length;
+    if (active >= LIMITS.maxChatSchedules) { err(`schedule add: ${active} chat schedules are already active (limit ${LIMITS.maxChatSchedules})\n`); return 1; }
+  }
   const id = `sch-${stampUtc()}-${hex4()}`;
   ensureDir(schedDir(id));
   const o = {
@@ -302,6 +289,7 @@ async function add(args: string[]): Promise<number> {
     command: kind === "command" ? command : null,
     workdir: workdir === "" ? null : workdir,
     timeout: secs, next_at: null, last_run_at: null, runs: [],
+    ...(chat ? { target: { kind: "chat", chat_id: chat, mode }, timezone: zone, once, consecutive_failures: 0, retry_at: null, pause_reason: null } : {}),
   };
   writeFileSync(schedFile(id), JSON.stringify(o, null, 2) + "\n");
   setNext(id);
@@ -317,7 +305,7 @@ async function edit(args: string[]): Promise<number> {
   for (let i = 1; i < args.length; i += 2) {
     const k = args[i]!;
     if (i + 1 >= args.length) { err(`schedule edit: ${k} needs a value\n`); return 2; }
-    if (!["--name", "--cron", "--prompt", "--profile", "--model", "--command", "--workdir", "--timeout"].includes(k)) {
+    if (!["--name", "--cron", "--prompt", "--profile", "--model", "--command", "--workdir", "--timeout", "--tz", "--mode"].includes(k)) {
       err(`schedule edit: unknown argument: ${k}\n`);
       return 2;
     }
@@ -326,6 +314,8 @@ async function edit(args: string[]): Promise<number> {
   }
   if (has.size === 0) { err("schedule edit: nothing to change\n"); return 2; }
   const s = read(id);
+  if (s.target?.kind === "chat") return editChat(id, s, v);
+  if (has.has("tz") || has.has("mode")) { err("schedule edit: --tz and --mode belong to a chat schedule\n"); return 2; }
   const kind = s.kind as string;
   const oldCron = s.cron ?? "";
   const oldNext = s.next_at;
@@ -397,6 +387,31 @@ async function edit(args: string[]): Promise<number> {
   return 0;
 }
 
+function editChat(id: string, s: any, v: Record<string, string>): number {
+  for (const k of ["profile", "model", "command", "workdir", "timeout"]) if (k in v) { err(`schedule edit: --${k} does not apply to a chat schedule\n`); return 2; }
+  if ("name" in v && !v.name) { err("schedule edit: --name cannot be empty\n"); return 2; }
+  if ("prompt" in v && !v.prompt) { err("schedule edit: --prompt cannot be empty\n"); return 2; }
+  if ("mode" in v && v.mode !== "message" && v.mode !== "fresh") { err("schedule edit: --mode must be message or fresh\n"); return 2; }
+  if ("tz" in v && !validZone(v.tz!)) { err(`schedule edit: unknown time zone: ${v.tz}\n`); return 2; }
+  const cron = v.cron ?? s.cron;
+  const zone = v.tz ?? s.timezone ?? machineZone();
+  const first = cronNextIn(cron, nowEpoch(), zone);
+  if (first === null) { err(`schedule edit: bad or never-matching cron: ${cron}\n`); return 2; }
+  const second = cronNextIn(cron, first, zone);
+  if (second !== null && second - first < LIMITS.minScheduleSecs) { err(`schedule edit: a chat schedule must be at least ${LIMITS.minScheduleSecs / 60} minutes apart\n`); return 2; }
+  patch(id, (o) => {
+    if ("name" in v) o.name = v.name;
+    if ("cron" in v) o.cron = v.cron;
+    if ("prompt" in v) o.prompt = v.prompt;
+    if ("mode" in v) o.target.mode = v.mode;
+    if ("tz" in v) o.timezone = v.tz;
+    o.updated_at = nowIso();
+  });
+  if (read(id).enabled === true) setNext(id);
+  out(`edited: ${id}\n`);
+  return 0;
+}
+
 function loadIds(): string[] {
   const d = join(home(), "schedules");
   if (!existsSync(d)) return [];
@@ -404,11 +419,15 @@ function loadIds(): string[] {
 }
 
 function list(args: string[]): number {
-  const asJson = args[0] === "--json";
+  const asJson = args.includes("--json");
+  const ci = args.indexOf("--chat");
+  const chat = ci >= 0 ? args[ci + 1] ?? "" : "";
+  if (ci >= 0 && !chat) { err("schedule list: --chat needs a chat id\n"); return 2; }
   const rows: any[] = [];
   for (const id of loadIds()) {
     reap(id);
     const s = read(id);
+    if (chat && s.target?.chat_id !== chat) continue;
     rows.push({ ...s, last_status: s.runs?.[0]?.status ?? null });
   }
   if (asJson) {
@@ -434,7 +453,7 @@ function show(args: string[]): number {
 function setEnabled(value: boolean, args: string[]): number {
   const id = args[0] ?? "";
   if (!exists(id)) { err(`unknown schedule: ${id}\n`); return 2; }
-  patch(id, (o) => { o.enabled = value; });
+  patch(id, (o) => { o.enabled = value; if (value) { o.consecutive_failures = 0; o.retry_at = null; o.pause_reason = null; } });
   if (!value) patch(id, (o) => { o.next_at = null; });
   else setNext(id);
   out(`${id}: ${value ? "enabled" : "disabled"}\n`);
@@ -452,6 +471,7 @@ async function remove(args: string[]): Promise<number> {
 async function runNow(args: string[]): Promise<number> {
   const id = args[0] ?? "";
   if (!exists(id)) { err(`unknown schedule: ${id}\n`); return 2; }
+  if (read(id).target?.kind === "chat") { err("schedule run: a chat schedule runs inside the dashboard server (POST /api/chats/{id}/schedules/{sid}/run-now)\n"); return 2; }
   if ((await fire(id)) === null) return 1;
   out(`started: ${id}\n`);
   return 0;
@@ -462,13 +482,67 @@ async function tick(): Promise<number> {
   for (const id of loadIds()) {
     reap(id);
     const s = read(id);
-    if (s.enabled !== true) continue;
+    if (s.enabled !== true || s.target?.kind === "chat") continue;
     const next = Number(s.next_at ?? 0);
     if (!(next > 0 && next <= now)) continue;
     setNext(id);
     if (running(id)) { out(`skipped (still running): ${id}\n`); continue; }
     if ((await fire(id)) !== null) out(`fired: ${id}\n`);
   }
+  return 0;
+}
+
+// The single writer for what a chat schedule's run did. The dashboard server runs the prompt in the chat and then calls
+// this: it records the run, counts failures (retry once after 5 minutes, pause at 3 in a row) and moves next_at.
+function record(args: string[]): number {
+  const id = args[0] ?? "";
+  if (!exists(id)) { err(`unknown schedule: ${id}\n`); return 2; }
+  const f: Record<string, string> = {};
+  let advance = false;
+  for (let i = 1; i < args.length; i++) {
+    const k = args[i]!;
+    if (k === "--advance") { advance = true; continue; }
+    if (!["--status", "--message-id", "--duration-ms", "--error", "--note", "--at"].includes(k) || i + 1 >= args.length) { err(`schedule record: bad argument: ${k}\n`); return 2; }
+    f[k.slice(2)] = args[++i]!;
+  }
+  const status = f.status ?? "";
+  if (!["ok", "failed", "skipped"].includes(status)) { err("schedule record: --status must be ok, failed or skipped\n"); return 2; }
+  const s = read(id);
+  if (s.target?.kind !== "chat") { err("schedule record: not a chat schedule\n"); return 2; }
+  const t = nowIso();
+  const at = f.at && isUint(f.at) ? Number(f.at) : nowEpoch();
+  const wasRetry = typeof s.retry_at === "number" && s.retry_at <= at;
+  patch(id, (o) => {
+    const run = {
+      started_at: t, ended_at: t, kind: "chat", ref: f["message-id"] ?? "", status, exit: null, model: null,
+      message_id: f["message-id"] ?? null, duration_ms: f["duration-ms"] ? Number(f["duration-ms"]) : null, error: f.error ?? null, note: f.note ?? null,
+    };
+    o.runs = [run, ...o.runs].slice(0, RUNS_KEEP);
+    if (status !== "skipped") o.last_run_at = t;
+    if (status === "ok") { o.consecutive_failures = 0; o.retry_at = null; }
+    else if (status === "failed") {
+      o.consecutive_failures = Number(o.consecutive_failures ?? 0) + 1;
+      if (o.consecutive_failures >= LIMITS.maxFailures) {
+        o.enabled = false; o.next_at = null; o.retry_at = null; o.pause_reason = `paused after ${LIMITS.maxFailures} failed runs in a row: ${f.error ?? "failed"}`;
+      } else o.retry_at = wasRetry ? null : at + LIMITS.retryDelaySecs;
+    }
+  });
+  const o = read(id);
+  if (o.enabled === true && advance) {
+    if (o.once === true && status !== "failed") patch(id, (x) => { x.enabled = false; x.next_at = null; x.pause_reason = "ran once"; });
+    else setNext(id, at);
+  }
+  out(`recorded: ${id} ${status}\n`);
+  return 0;
+}
+
+// Pauses a schedule for a stated reason (an archived chat); `enable` clears it.
+function pauseWith(args: string[]): number {
+  const id = args[0] ?? "";
+  if (!exists(id)) { err(`unknown schedule: ${id}\n`); return 2; }
+  const reason = args[1] ?? "paused";
+  patch(id, (o) => { o.enabled = false; o.next_at = null; o.retry_at = null; o.pause_reason = reason; });
+  out(`${id}: paused\n`);
   return 0;
 }
 
@@ -513,6 +587,8 @@ export const scheduleCommands = {
   "schedule log": log,
   "schedule tick": () => tick(),
   "schedule next": next,
+  "schedule record": record,
+  "schedule pause": pauseWith,
   "schedule __runcmd": scheduleRunCmd,
   schedule: () => scheduleUsage(),
 };
