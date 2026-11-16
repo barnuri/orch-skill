@@ -5,6 +5,7 @@ import { isLive, retryTarget } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
 import { groupThread } from "./chat-group";
 import { MessageView, ToolsView } from "./MessageView";
+import { ThinkingContext, thinkingRowId } from "./thread-live";
 import { WorkingIndicator } from "./WorkingIndicator";
 import { useNow } from "./use-chat-thread";
 
@@ -35,6 +36,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
   const retry = retryTarget(messages);
   const working = [...messages].reverse().find((m) => m.role === "assistant" && isLive(m));
   const items = useMemo(() => groupThread(messages), [messages]);
+  const thinking = useMemo(() => thinkingRowId(messages), [messages]);
   const lastReply = [...messages].reverse().find((m) => m.role === "assistant" || m.role === "user");
   const regen = lastReply !== undefined && lastReply.role === "assistant" && !isLive(lastReply) && retry === null
     ? [...messages].reverse().find((m) => m.role === "user" && m.id < lastReply.id)
@@ -90,6 +92,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
 
   return (
     <div className="thread-wrap">
+      <ThinkingContext.Provider value={thinking}>
       <div className="thread-scroll" ref={parent} onScroll={onScroll} data-testid="thread-scroll">
         {loadingOlder ? <p className="thread-note">Loading earlier messages…</p> : null}
         {!hasOlder && messages.length > 0 ? <p className="thread-note">Start of the conversation</p> : null}
@@ -122,6 +125,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
         {working !== undefined ? <WorkingIndicator message={working} now={now} fallbackModel={fallbackModel} /> : null}
         {tail}
       </div>
+      </ThinkingContext.Provider>
       {!stick ? (
         <button type="button" className="jump-pill" onClick={jump}>
           ↓ Jump to latest{anyLive ? " · working" : ""}

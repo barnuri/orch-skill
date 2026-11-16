@@ -1,0 +1,25 @@
+/* Thoughts: calm gray text, no boxes or badges, a thin rule on the inline start. The text colour is --tx3 (4.5:1 or better on --bg in both themes). */
+.reasoning { margin-block: var(--s1); color: var(--tx3); font-size: var(--fs-meta); }
+.reasoning-toggle {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: var(--s2); min-height: 32px; cursor: pointer;
+  color: var(--tx3); font-size: var(--fs-meta); border-radius: var(--r-sm);
+}
+.reasoning-toggle:hover { color: var(--tx2); }
+.reasoning-toggle:disabled { cursor: default; }
+.reasoning-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.reasoning-chev { transition: transform var(--t-fast); transform: rotate(-90deg); }
+.reasoning-toggle[aria-expanded="true"] .reasoning-chev { transform: none; }
+:root[dir="rtl"] .reasoning-toggle:not([aria-expanded="true"]) .reasoning-chev { transform: rotate(90deg); }
+.reasoning .working-dots i { background: var(--tx3); }
+.reasoning-body {
+  margin-top: var(--s1); padding-inline-start: var(--s3); border-inline-start: 1px solid var(--border-strong);
+  color: var(--tx3); font-size: var(--fs-meta); line-height: 1.6; white-space: pre-wrap; unicode-bidi: plaintext; text-align: start;
+  overflow-wrap: anywhere; text-wrap: pretty; user-select: text;
+}
+.reasoning-body.is-capped {
+  max-height: calc(6 * 1.6em); overflow-y: auto; scrollbar-width: none; outline-offset: 2px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 1.8em); mask-image: linear-gradient(to bottom, transparent 0, black 1.8em);
+}
+.reasoning-body.is-capped::-webkit-scrollbar { display: none; }
+@media (pointer: coarse) { .reasoning-toggle { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .reasoning-chev { transition: none; } }

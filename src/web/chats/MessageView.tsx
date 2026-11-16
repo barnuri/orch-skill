@@ -110,7 +110,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
     const parts = partsOf(message);
     const thought = parts?.find((p) => p.type === "reasoning");
     if (thought?.type === "reasoning") {
-      return <Reasoning text={thought.text} live={false} />;
+      return <Reasoning id={message.id} text={thought.text} startedAt={message.started_at} finishedAt={message.finished_at} />;
     }
     const question = questionOf(message);
     if (question !== null) {
