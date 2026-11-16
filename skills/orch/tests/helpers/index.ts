@@ -34,7 +34,7 @@ const DROP = [
   "HARNESS_ORCH_HOME", "ORCH_DISPATCH", "LLM_HUB_URL", "LLM_HUB_V1_URL", "LLM_HUB_KEY",
 ];
 export function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string, string> {
-  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
+  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
   for (const k of DROP) delete env[k];
   Object.assign(env, extra);
   return Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined)) as Record<string, string>;
