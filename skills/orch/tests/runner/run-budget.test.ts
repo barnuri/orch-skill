@@ -71,3 +71,72 @@ test("fast tier runs unit only and reports slowest", () => {
   expect(ran()).not.toContain("other/bad");
   expect(r.all).toMatch(/slowest:/);
 });
+
+// test-budget and test-all: written against scripts/test-budget.ts and scripts/test-all.ts (falls back to .sh until they land).
+import { cpSync, chmodSync } from "node:fs";
+import { REPO_ROOT } from "../helpers";
+const scriptCmd = (dir: string, name: string) => (existsSync(join(dir, "scripts", `${name}.ts`)) ? ["bun", join(dir, "scripts", `${name}.ts`)] : ["bash", join(dir, "scripts", `${name}.sh`)]);
+const copyScripts = (to: string) => cpSync(join(REPO_ROOT, "scripts"), join(to, "scripts"), { recursive: true });
+
+test("test-budget: chunks, budget cut, resume, failing chunk", () => {
+  const T = tempDir(), B = join(T, "bun");
+  mkdirSync(join(B, "src/a"), { recursive: true }); mkdirSync(join(B, "src/node_modules/x"), { recursive: true });
+  copyScripts(B);
+  for (const n of ["a/one", "a/two", "three", "four"]) writeFileSync(join(B, "src", `${n}.test.ts`), "");
+  writeFileSync(join(B, "src/five.test.tsx"), ""); writeFileSync(join(B, "src/node_modules/x/skip.test.ts"), "");
+  const fakebin = join(T, "fakebun");
+  writeFileSync(fakebin, `#!/usr/bin/env bash
+for f in "$@"; do
+  echo "$f" >> "${T}/bun-ran.log"
+  case "$f" in *three*) sleep "\${FAKE_BUN_SLOW:-0}" ;; *four*) [ -n "\${FAKE_BUN_FAIL:-}" ] && exit 1 ;; esac
+done
+echo " $# pass"
+`); chmodSync(fakebin, 0o755);
+  const progress = join(T, "bun-progress.json");
+  const run = (args: string[], extra: Record<string, string> = {}) => runCmd([...scriptCmd(B, "test-budget"), ...args], { cwd: B, env: { ORCH_TEST_LOCK: "0", ORCH_BUN_TEST_CMD: fakebin, ORCH_BUN_TEST_PROGRESS: progress, ...extra } });
+  let r = run(["--chunk", "1", "--budget", "1"], { FAKE_BUN_SLOW: "60" });
+  expect(r.rc).toBe(75);
+  expect(r.all.trim().split("\n").pop()).toMatch(/PARTIAL: \d+ of 5 files, run again with --resume$/);
+  const rec = readFileSync(progress, "utf8");
+  expect(rec).not.toMatch(/skip\.test/);
+  expect(rec).toMatch(/"\.\/src\/three\.test\.ts": "not_run"/);
+  expect(rec).toMatch(/"\.\/src\/a\/one\.test\.ts": "passed"/);
+  writeFileSync(join(T, "bun-ran.log"), "");
+  r = run(["--resume"]);
+  expect(r.rc).toBe(0);
+  const ran = readFileSync(join(T, "bun-ran.log"), "utf8");
+  expect(ran).not.toMatch(/a\/one/); expect(ran).toMatch(/three/);
+  expect(existsSync(progress)).toBe(false);
+  r = run(["--chunk", "2"], { FAKE_BUN_FAIL: "1" });
+  expect(r.rc).toBe(1); expect(r.all).toMatch(/bun chunk FAILED.*five.*four/s);
+  expect(existsSync(progress)).toBe(false);
+}, 120000);
+
+test("test-all: stops at a suite budget once, then resumes", () => {
+  const T = tempDir(), A = join(T, "all");
+  mkdirSync(join(A, "skills/orch/tests"), { recursive: true });
+  copyScripts(A);
+  const log = join(T, "all-ran.log");
+  writeFileSync(join(A, "skills/orch/tests/run.ts"), `import { appendFileSync } from "node:fs";
+const a = process.argv.slice(2).join(" ");
+appendFileSync(${JSON.stringify(log)}, "bash " + a + "\\n");
+if (a.includes("--resume")) { console.log("3 passed, 0 failed"); process.exit(0); }
+console.log("1 passed, 0 failed"); console.log("PARTIAL: 1 of 3 files, run again with --resume"); process.exit(75);
+`);
+  // stub the other suites in place of the real scripts
+  for (const [n, body] of [["test-budget", `echo "bun $*" >> "${log}"; echo "bun: 5 passed"; exit 0`], ["typecheck", `echo types >> "${log}"; echo "typecheck: ok"`], ["lint-optional", `echo lint >> "${log}"`]]) {
+    for (const ext of ["ts", "sh"]) if (existsSync(join(A, "scripts", `${n}.${ext}`))) Bun.spawnSync(["trash", join(A, "scripts", `${n}.${ext}`)]);
+    writeFileSync(join(A, "scripts", `${n}.sh`), body + "\n");
+  }
+  const progress = join(T, "all-progress");
+  const run = (args: string[] = []) => runCmd([...scriptCmd(A, "test-all"), ...args], { cwd: A, env: { ORCH_TEST_LOCK: "0", ORCH_TEST_ALL_PROGRESS: progress } });
+  writeFileSync(log, "");
+  let r = run();
+  expect(r.rc).toBe(75);
+  expect(r.all.trim().split("\n").pop()).toMatch(/PARTIAL: suites left: bash, run again with --resume$/);
+  writeFileSync(log, "");
+  r = run(["--resume"]);
+  expect(r.rc).toBe(0);
+  expect(readFileSync(log, "utf8").trim()).toBe("bash --resume");
+  expect(existsSync(progress)).toBe(false);
+}, 120000);

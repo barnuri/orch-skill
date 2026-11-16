@@ -45,9 +45,9 @@ skills/orch/
                                   core/ (config, locks), adapters/ (adapters, harness, herdr, hub, routing, profile-sanity),
                                   runs/ (runs, batch, health, owners, pause, wait, ...), automation/ (loops, schedules),
                                   dashboard/ (serve, suggest, demo). A new lib file must be added to ORCH_LIB_FILES.
-  tests/run.sh                    the bash test runner: fast tier (tests/unit/) by default, --changed, --full
-  tests/test-lib.sh, test-home.sh shared helpers (SCRIPT_DIR = skills/orch/scripts, TESTS_DIR = skills/orch/tests)
-  tests/<category>/*.test.sh      announce/, adapters/, automation/, config/, dashboard/, runs/
+  tests/run.ts                    the test runner: fast tier (tests/unit/) by default, --changed, --full
+  tests/helpers/                  shared TypeScript helpers (seedHome, orch, fakeBin, fakeHerdrBin, fakeHub, ...)
+  tests/<category>/*.test.ts      unit/, runs/, adapters/, config/, dashboard/, announce/, automation/, runner/, parity/
   references/                     adapter contract + state/config schemas
   templates/profiles.json         seed for ~/.harness-orch/profiles.json
 ```
@@ -128,7 +128,7 @@ update** button (POST `/api/build/restart`, which runs `service.sh restart`). Yo
 last step of a task:
 
 ```bash
-bash skills/orch/tests/run.sh              # must be 0 failed
+bun skills/orch/tests/run.ts               # must be 0 failed
 bash scripts/typecheck.sh       # must print `typecheck: ok`
 bash scripts/service.sh restart             # pick up the change
 bash scripts/service.sh status              # confirm: state = running, listener answering
@@ -162,14 +162,14 @@ Use the `verify` repo skill (`.claude/skills/verify/SKILL.md`: browser, herdr an
 
 ## Tests
 
-The skill tests are being ported from bash to Bun: `skills/orch/tests/**/*.test.ts` run with `bun skills/orch/tests/run.ts` (same flags as `run.sh`: `--changed[=ref]`, `--full`, `--budget N`, `--resume`, name fragments; exit 75 on a partial run). Shared helpers (`seedHome`, `tempHome`, `cli`, `dispatch`, `fakeBin`, `fakeAdapter`, `fakeHerdr`, `fakeHub`, `waitUntil`) are in `skills/orch/tests/helpers/index.ts`. Ported tests drive the CLI in a temp home, so they survive the bash removal. The remaining `*.test.sh` files still run with `run.sh`; port a file, then `trash` the bash one.
+The skill tests are TypeScript: `skills/orch/tests/<category>/*.test.ts` (unit, runs, adapters, config, dashboard, announce, automation, runner, parity), run by `bun skills/orch/tests/run.ts`. Each file runs as its own `bun test` process in a parallel pool. Shared helpers (`seedHome`, `tempHome`, `orch`, `cli`, `dispatch`, `fakeBin`, `fakeAdapter`, `fakeHerdrBin` (a TypeScript fake herdr), `fakeHub`, `opencodeFixture`, `waitUntil`, `normState`) are in `skills/orch/tests/helpers/index.ts`. Tests drive the CLI as a black box in a temp home (`dispatch.sh` routes to `bun skills/orch/core/cli.ts`), so they stay valid while the bash libs are removed. The `parity/` cases now run every case line on two fresh homes and require identical output and home tree.
 
 ```bash
-bun skills/orch/tests/run.ts               # FAST tier: tests/unit/*.test.ts
-bash skills/orch/tests/run.sh              # FAST tier (default, under 30 s): tests/unit/*.test.sh only
-bash skills/orch/tests/run.sh --changed    # fast tier + tests mapped from changed files (git diff + untracked)
-bash skills/orch/tests/run.sh --full       # every skills/orch/tests/<category>/*.test.sh, slowest first, 300 s budget
-bash skills/orch/tests/run.sh --resume     # after exit 75: run only the files not yet passed
+bun skills/orch/tests/run.ts               # FAST tier (default, under 30 s): tests/unit/*.test.ts only
+bun skills/orch/tests/run.ts --changed     # fast tier + tests mapped from changed files (changed-map.txt; git diff + untracked)
+bun skills/orch/tests/run.ts --full        # every category, slowest first, 300 s budget
+bun skills/orch/tests/run.ts --resume      # after exit 75: run only the files not yet passed
+bun skills/orch/tests/run.ts wait pause    # only files whose id (<category>/<name>) contains a fragment
 bun test --timeout 300000 --parallel=6 --retry=1 src   # TypeScript suite (bun run test; --retry=1 absorbs known load flakes only)
 bun run test:changed                         # quick local mode: only tests affected by git changes
 bun run test:random                          # --randomize, to expose test-order dependence
@@ -186,18 +186,15 @@ then kills them. Each file's result (passed, failed, not_run) goes to `${TMPDIR}
 (bun: `orch-bun-test-progress.json`, test-all: `orch-test-all-progress`). The run prints
 `PARTIAL: N of M files, run again with --resume` and exits 75. On exit 75 run `--resume` until it exits
 0 or 1. Never raise the budget. A run that runs every file clears the progress file. Tests:
-`tests/runner/run-budget.test.sh`.
+`tests/runner/run-budget.test.ts`.
 
-`tests/run.sh` runs each test file as its own job on its own temp homes and merges the tallies. File ids
+`tests/run.ts` runs each test file as its own `bun test` job on its own temp homes and merges the tallies. File ids
 are `<category>/<name>`. Pass a name fragment to run matching files only, or `ORCH_TEST_JOBS=1` to go serial.
 Each file is capped (30 s fast tier, 240 s otherwise, `ORCH_TEST_FILE_CAP`) and killed with its process
 group on timeout. The runner prints per-file seconds and the 5 slowest files before the totals line.
-A new test file needs only a category folder, the `.test.sh` suffix and a final `N passed, M failed` line.
+A new test file needs only a category folder and the `.test.ts` suffix.
 
-The fast tier lives in `tests/unit/`: `smoke.test.sh` (`bash -n`, side-effect-free sourcing in
-`ORCH_LIB_FILES` order, help and usage) plus one `<lib-stem>.test.sh` per lib, each under 5 s. They call
-`load_dispatch` (`tests/test-lib.sh`) to source `dispatch.sh` in-process against a seeded home, so they
-pay no process start per assertion. A new lib gets a `tests/unit/<stem>.test.sh`.
+The fast tier lives in `tests/unit/`: `smoke.test.ts` (every core command module loads, the command table is wired, usage lines), plus CLI-behaviour tests, each under 5 s. A new core command gets a test in `tests/unit/` or its category.
 
 `--changed[=ref]` maps each changed path to test files named `<stem>` or `<stem>-*`, plus the extras in
 `tests/changed-map.txt`. A path with no mapping (docs, config) runs the fast tier only.
@@ -206,16 +203,12 @@ pay no process start per assertion. A new lib gets a `tests/unit/<stem>.test.sh`
 gate. On exit 75 resume, never raise the budget. Stop any other test command at 5 minutes (`timeout 300`).
 Use `bun test <file>` for TypeScript. Many agents share this machine: five full suites at
 once pushed the load to 17-50 and made every run several times slower. Full runs (`test-all.sh`,
-`tests/run.sh --full`, `bun run test`) each take a machine-wide heavy-test slot
+`tests/run.ts --full`, `bun run test`) each take a machine-wide heavy-test slot
 (`scripts/heavy-test-lock.sh`: flock on `${TMPDIR}/orch-test-heavy.N`, `ORCH_TEST_SLOTS`, default 2).
 A third run waits and prints who holds the slots. A dead holder frees its slot by itself. Fast, changed
 and fragment runs and single bun files take no slot. `ORCH_TEST_LOCK=0` skips the lock.
 
-For a home that only needs to be initialised, call `seed_home "$home"` (`tests/test-home.sh`) instead of
-`dispatch.sh init`. It copies a template home and skips the 2-4 s first-run migrations. The template is
-cached in `${TMPDIR}/orch-test-home-template.<cksum>`, keyed by `dispatch.sh`, the libs and the templates.
-Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds
-of the last full run, in `${TMPDIR}/orch-bash-test-timings`), and `ORCH_TEST_JOBS=N` is a real pool.
+For a home that only needs to be initialised, call `seedHome()` (`tests/helpers`) instead of `dispatch.sh init`. It copies a template home (built once per process, or `ORCH_TEST_HOME_TEMPLATE`) and skips the 2-4 s first-run migrations. Keep `init` where the test is about init. The runner starts the slowest files first (per-file seconds of the last run, in `${TMPDIR}/orch-ts-test-timings.json`), and `ORCH_TEST_JOBS=N` is a real pool.
 
 Process start latency, not CPU, is the cost, so concurrency is the lever. Route and reader tests that
 spawn `dispatch.sh` use `describe.concurrent` with an `afterAll` that stops the servers, and spawn
