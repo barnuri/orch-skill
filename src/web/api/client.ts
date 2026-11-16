@@ -1,3 +1,4 @@
+import { ServerInfoDto } from "../../shared/dto/server-info";
 import type { z } from "zod";
 import { ActiveEnvelopeDto } from "../../shared/dto/active";
 import { BuildInfoDto, RestartAcceptedDto } from "../../shared/dto/build";
@@ -55,6 +56,7 @@ function typed<T>(schema: unknown): z.ZodType<T> {
 
 const activeSchema = typed<ActiveEnvelope>(ActiveEnvelopeDto.schema);
 const buildSchema = typed<BuildInfo>(BuildInfoDto.schema);
+const serverInfoSchema = typed<ServerInfoDto>(ServerInfoDto.schema);
 const restartSchema = typed<RestartAcceptedDto>(RestartAcceptedDto.schema);
 const schedulesSchema = typed<SchedulesEnvelope>(SchedulesEnvelopeDto.schema);
 const harnessesSchema = typed<HarnessesEnvelope>(HarnessesEnvelopeDto.schema);
@@ -89,6 +91,10 @@ export class ApiClient {
 
   getBuild(): Promise<ApiResult<BuildInfo>> {
     return this.request("GET", `${API_BASE}/build`, buildSchema, { quiet: true });
+  }
+
+  getServerInfo(): Promise<ApiResult<ServerInfoDto>> {
+    return this.request("GET", `${API_BASE}/server-info`, serverInfoSchema, { quiet: true });
   }
 
   requestRestart(): Promise<ApiResult<RestartAcceptedDto>> {

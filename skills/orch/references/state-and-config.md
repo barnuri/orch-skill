@@ -258,6 +258,39 @@ Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dash
 | `require_token` | when `true`, loopback peers must present the bearer token too |
 | `allow_remote` | when `true`, non-loopback peers need no bearer token |
 
+### Optional HTTPS listener (opt-in)
+
+HTTP on `port` is the default and stays that way. Every internal caller (dashboard to `dispatch.ts`, watchdog,
+CLI socket, service status, `/api/build`, tests, verify scripts) uses `http://127.0.0.1:<port>`; nothing redirects
+to https, no HSTS, no `upgrade-insecure-requests`, no cookies. A second listener starts in the same process only
+when `https_port` is non-zero, so a page can run in a secure context (microphone, clipboard, install to home screen).
+Same app, routes and auth rules as HTTP. If it cannot start (certificate error, port busy) HTTP still runs and
+`serve status` says why.
+
+| Field | Meaning |
+|---|---|
+| `https_port` | `0` or missing = off (default). `6725` is the conventional port: `serve config https_port on` |
+| `tls_mode` | `auto` (tailscale, then mkcert, then `localca`), `tailscale`, `mkcert`, `localca`, `selfsigned`, `files` |
+| `tls_cert`, `tls_key` | absolute paths, `files` mode only |
+| `secure_link_hint` | `true` (default): the dashboard may show a quiet, dismissable "Open the secure link" hint on a non-local http page after the microphone or clipboard was tried. `false` turns it off |
+
+Certificates are made lazily on the first start of the HTTPS listener, under `<home>/tls/` (keys 0600, never logged
+or served): `tailscale.crt/key` (from `tailscale cert`; needs HTTPS Certificates enabled in the Tailscale admin
+console, DNS page), `mkcert.crt/key` (uses the existing mkcert CA only), `ca/ca.crt` + `ca/ca.key` and `leaf.crt/key`
+(local CA mode: ECDSA P-256 root, 10 years, pathlen 0; 90-day leaf with serverAuth and SANs for localhost,
+127.0.0.1, ::1, the hostname, `<hostname>.local`, the MagicDNS name and local IPs; re-issued when the IPs or names change),
+`selfsigned.crt/key`. Renewal runs at boot and hourly (under 20 days left, or the name set changed) and hot-swaps
+the HTTPS listener only. `serve tls renew` forces it and signals the server (SIGHUP).
+
+Public routes on every listener, no token: `/ca.crt` (PEM, `application/x-x509-ca-cert`), `/ca.mobileconfig` (iOS
+profile, `com.apple.security.root`), `/trust` (steps for iOS, Android, macOS, Windows and a QR of the secure URL).
+They expose only the public CA. `GET /api/server-info` reports the HTTPS state (`https_url` is informational; no
+generated link uses it, links keep the origin the user is on).
+
+CLI: `serve config https_port 6725|on|off`, `serve config tls_mode <mode>`, `serve tls info` (source, expiry, CA
+SHA-256, Tailscale hint), `serve tls renew`, `serve tls trust-help`. `serve status` and `service.ts status` print
+`http: ...` and `https: off` or `https: <url> (cert: <source>, expires ...)`. `serve config set` keeps these keys.
+
 `orch serve config show|get|set` reads and writes this file. `service.ts install` updates it;
 `service.ts restart` (or `orch serve --stop` then `orch serve`) picks up edits. CLI
 `--host`/`--port` on `orch serve` override for one shot only.

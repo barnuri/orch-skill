@@ -8,6 +8,7 @@ import { BuildController } from "./controllers/build.controller";
 import { ChatQueueController } from "./controllers/chat-queue.controller";
 import { ChatsController } from "./controllers/chats.controller";
 import { ChatQuestionsController } from "./controllers/chat-questions.controller";
+import { ServerInfoController } from "./controllers/server-info.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
 import { HealthController } from "./controllers/health.controller";
@@ -39,6 +40,7 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new HealthController(ctx), options);
   registerController(api, new ActiveController(ctx), options);
   registerController(api, new BuildController(ctx), options);
+  registerController(api, new ServerInfoController(ctx), options);
   registerController(api, new SchedulesController(ctx), options);
   registerController(api, new RunsController(ctx), options);
   registerController(api, new RunHealthController(ctx), options);

@@ -1,4 +1,4 @@
-import type { Server } from "bun";
+import type { Server, TLSOptions } from "bun";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 
@@ -10,6 +10,7 @@ import { orchPaths } from "./files/paths";
 import { jsonResponse } from "./http/responses";
 import { logError } from "./http/route";
 import { MAX_UPLOAD_REQUEST_BYTES } from "./chats/limits";
+import { caCrtResponse, mobileConfigResponse, trustPageResponse } from "./tls/trust-routes";
 import { MAX_BODY_BYTES } from "./routes/document-routes";
 import type { ServerContext } from "./types/server-context";
 import type { ServerOptions } from "./types/server-options";
@@ -37,21 +38,27 @@ function contextOf(options: ServerOptions): ServerContext {
     requireRemoteToken: options.requireRemoteToken,
     harnesses: options.harnesses,
     outcomes: options.outcomes,
+    ...(options.tls === undefined ? {} : { tls: options.tls }),
+    ...(options.httpsPort === undefined ? {} : { httpsPort: options.httpsPort }),
+    ...(options.secureLinkHint === undefined ? {} : { secureLinkHint: options.secureLinkHint }),
   };
 }
 
-/**
- * Binds the dashboard + `/api/*` server. Changes the process cwd to the dashboard
- * directory first — Bun emits the bundled chunk URLs relative to `process.cwd()`,
- * so from any other cwd they resolve to `/../../dashboard/chunk-…` and 404.
- */
-export function startServer(options: ServerOptions): Server<undefined> {
+type Api = ReturnType<typeof buildApi>;
+
+/** One Hono app shared by the HTTP listener and the optional HTTPS listener. */
+export function buildApp(options: ServerOptions): Api {
+  return buildApi(contextOf(options));
+}
+
+function listen(options: ServerOptions, api: Api, hostPort: { port: number; tls?: TLSOptions }): Server<undefined> {
   process.chdir(DASHBOARD_DIR);
   const ctx = contextOf(options);
-  const api = buildApi(ctx);
+  const trust = { tls: ctx.tls, hostname: ctx.hostname, bindHost: ctx.bindHost };
   return Bun.serve({
     hostname: options.host,
-    port: options.port,
+    port: hostPort.port,
+    ...(hostPort.tls === undefined ? {} : { tls: hostPort.tls }),
     development: false,
     // Explicit: without it a second `orch serve` silently steals the port from the running
     // one — the first process stays alive but stops receiving requests. We want EADDRINUSE
@@ -72,6 +79,10 @@ export function startServer(options: ServerOptions): Server<undefined> {
       "/chat/icon.svg": () => chatIconResponse(CHAT_ICON_LIGHT),
       "/chat/icon-dark.svg": () => chatIconResponse(CHAT_ICON_DARK),
       "/chat/:id": chatIndex,
+      // Public CA only (no token, no key): lets a phone trust the optional HTTPS listener.
+      "/ca.crt": () => caCrtResponse(trust),
+      "/ca.mobileconfig": () => mobileConfigResponse(trust),
+      "/trust": (req: Request) => trustPageResponse(trust, req),
       /* unknown paths below /chat/ fall to the Hono 404 via `fetch` */ "/next": Response.redirect("/", 301),
     },
     fetch: (req: Request, server: Server<undefined>): Response | Promise<Response> => api.fetch(req, { server }),
@@ -81,4 +92,18 @@ export function startServer(options: ServerOptions): Server<undefined> {
       return jsonResponse(500, { error: "internal" });
     },
   });
+}
+
+/**
+ * Binds the dashboard + `/api/*` server over plain HTTP. Changes the process cwd to the dashboard
+ * directory first — Bun emits the bundled chunk URLs relative to `process.cwd()`,
+ * so from any other cwd they resolve to `/../../dashboard/chunk-…` and 404.
+ */
+export function startServer(options: ServerOptions, api: Api = buildApp(options)): Server<undefined> {
+  return listen(options, api, { port: options.port });
+}
+
+/** The opt-in HTTPS listener: same app, same routes, same auth. A failure here never touches the HTTP one. */
+export function startHttpsServer(options: ServerOptions, httpsPort: number, tls: { cert: string; key: string }, api: Api = buildApp(options)): Server<undefined> {
+  return listen(options, api, { port: httpsPort, tls: { cert: tls.cert, key: tls.key } });
 }

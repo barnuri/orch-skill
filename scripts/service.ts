@@ -15,6 +15,9 @@
 // Install flags update that file; edit it directly and `service.ts restart` to apply.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { hostname as osHostname } from "node:os";
+import { readTlsConfig } from "../src/server/tls/config.ts";
+import { formatHttpsLine, readTlsStatus } from "../src/server/tls/status-file.ts";
 import { DISPATCH, HOME, REPO_DIR, run, sleep, trashPath, which } from "./lib/util.ts";
 
 const SKILL_DIR = join(REPO_DIR, "skills/orch");
@@ -419,6 +422,8 @@ async function cmdStatus(): Promise<number> {
   out((await listening()) ? "answering\n" : `no answer — see ${logFile()}\n`);
   authSummary();
   out(`dashboard: ${dashboardUrl()}\n`);
+  // HTTPS is opt-in; the checks above stay on plain HTTP.
+  out(`http: http://${osHostname()}:${port}/\n${formatHttpsLine(readTlsStatus(orchHome), readTlsConfig(orchHome).httpsPort, osHostname())}\n`);
   return 0;
 }
 

@@ -21,7 +21,7 @@ import { doctor } from "./commands/doctor.ts";
 import { nodeDispatch, nodeRetry, runFinish } from "./commands/dispatch.ts";
 import { planCommand, planApply } from "./commands/plan.ts";
 import { msgSend, msgRead } from "./commands/msg.ts";
-import { serveCommand, serveStatus, serveConfig, serveRecover, uiCommand, artifactCommand } from "./commands/serve.ts";
+import { serveCommand, serveStatus, serveConfig, serveRecover, serveTls, uiCommand, artifactCommand } from "./commands/serve.ts";
 import { suggestCommand, syncCommand } from "./commands/suggest.ts";
 import { demoCommand } from "./commands/demo.ts";
 import { orchHome } from "./state/home.ts";
@@ -141,6 +141,7 @@ export const COMMANDS: Record<string, Handler> = {
   "serve status": serveStatus,
   "serve config": serveConfig,
   "serve recover": serveRecover,
+  "serve tls": serveTls,
   ui: uiCommand,
   artifact: artifactCommand,
   suggest: suggestCommand,

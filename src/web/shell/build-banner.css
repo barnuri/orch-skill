@@ -37,3 +37,4 @@
   .build-actions .btn { min-height: var(--touch-coarse); }
   .build-link { min-height: var(--touch-coarse); }
 }
+.secure-hint { position: fixed; bottom: var(--s3); left: var(--s3); right: var(--s3); z-index: 20; max-width: 560px; margin: 0 auto; padding: var(--s2) var(--s3); font-size: var(--fs-sm, 13px); color: var(--tx2); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r-lg); overflow-wrap: anywhere; }

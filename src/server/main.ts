@@ -1,7 +1,12 @@
 import type { Server } from "bun";
+import type { ServerOptions } from "./types/server-options";
 import { resolve } from "node:path";
 
-import { startServer } from "./app";
+import { buildApp, startHttpsServer, startServer } from "./app";
+import { readTlsConfig } from "./tls/config";
+import { TlsManager } from "./tls/manager";
+import { writeTlsStatus } from "./tls/status-file";
+import type { TlsMaterial } from "./tls/sources";
 import { startCliSocket } from "./cli-socket";
 import { SERVE_USAGE, parseServeArgs, urlsFor } from "./cli";
 import { ensureHome } from "./files/ensure-home";
@@ -113,9 +118,39 @@ export async function main(argv: readonly string[]): Promise<number> {
   ensureHome(args.home, TEMPLATES_DIR);
   const token = ensureToken(args.home);
 
+  // HTTPS is opt-in: the manager exists only when https_port is non-zero, and nothing is generated before.
+  const tlsConfig = readTlsConfig(args.home);
+  const manager = tlsConfig.httpsPort > 0
+    ? new TlsManager(args.home, tlsConfig, (m) => void swapHttps(m).catch(() => {}))
+    : null;
+  let httpsServer: Server<undefined> | null = null;
+  let options: ServerOptions;
+
+  const publish = (): void => {
+    if (manager !== null) writeTlsStatus(args.home, manager.status());
+  };
+  const bindHttps = (m: TlsMaterial): void => {
+    if (manager === null) return;
+    try {
+      httpsServer = startHttpsServer(options, tlsConfig.httpsPort, { cert: m.cert, key: m.key }, api);
+      manager.setListening(true);
+    } catch (err) {
+      httpsServer = null;
+      const code = bindCodeOf(err);
+      manager.setListening(false, code === null ? "HTTPS listener failed to start (certificate rejected)" : `cannot bind HTTPS port ${tlsConfig.httpsPort}: ${code}`);
+    }
+    publish();
+  };
+  async function swapHttps(m: TlsMaterial): Promise<void> {
+    if (httpsServer !== null) await httpsServer.stop(true);
+    httpsServer = null;
+    bindHttps(m);
+  }
+
   let server: Server<undefined>;
+  let api: ReturnType<typeof buildApp>;
   try {
-    server = startServer({
+    options = {
       home: args.home,
       host: args.host,
       port: args.port,
@@ -124,7 +159,12 @@ export async function main(argv: readonly string[]): Promise<number> {
       requireRemoteToken: args.requireRemoteToken,
       harnesses: args.harnesses,
       outcomes: args.outcomes,
-    });
+      httpsPort: tlsConfig.httpsPort,
+      secureLinkHint: tlsConfig.secureLinkHint,
+      ...(manager === null ? {} : { tls: manager }),
+    };
+    api = buildApp(options);
+    server = startServer(options, api);
   } catch (err) {
     const code = bindCodeOf(err);
     if (code === null) {
@@ -151,6 +191,23 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   const cliSocket = startCliSocket(args.home);
   if (cliSocket) process.on("exit", () => cliSocket.stop());
+  if (manager !== null) {
+    // After HTTP is up: any failure here (certificate code, port busy) only ever costs the HTTPS listener.
+    try {
+      const m = await manager.load();
+      if (m !== null) {
+        bindHttps(m);
+        process.stderr.write(`serve: HTTPS on port ${tlsConfig.httpsPort} (opt-in; HTTP stays the default)\n`);
+      } else {
+        process.stderr.write(`serve: HTTPS is off: ${manager.status().problem ?? "no certificate"}\n`);
+        publish();
+      }
+      manager.startTimer();
+      process.on("SIGHUP", () => void manager.check().then(publish).catch(() => {}));
+    } catch (err) {
+      process.stderr.write(`serve: HTTPS is off: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
   startTicker(args.home);
   startReconciler(args.home, orchPaths(args.home));
   startHealthWatcher(args.home);

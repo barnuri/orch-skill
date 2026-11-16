@@ -153,6 +153,16 @@ When the running server is older than the sources, the header shows a **Server o
 date** pill; its **Restart and update** button restarts the installed service (it needs the
 service; without it the panel shows the manual start command).
 
+### Optional HTTPS (microphone and other secure-context features)
+
+The dashboard is plain HTTP on :6724 by default and everything inside orch uses that. If you want the microphone or
+clipboard on a phone, opt in to a second listener: `bun skills/orch/scripts/dispatch.ts serve config https_port on`
+(port 6725; `0` turns it off), then restart (`scripts/service.ts restart`). `serve status` shows `https: off` or the
+URL with its certificate source and expiry. With Tailscale and HTTPS Certificates enabled (admin console, DNS page)
+the certificate is real and trusted with no step. Otherwise orch makes a local certificate authority: open
+`http://<machine>:6724/trust` on the phone once and follow the steps (iOS profile, Android install, QR code).
+`serve tls info|renew|trust-help` and the `serve.json` keys are in `skills/orch/references/state-and-config.md`.
+
 ## Herdr: watch every job in a pane
 
 [Herdr](https://github.com/herdrdev/herdr) is a terminal multiplexer for coding agents. With the setting on,

@@ -7,6 +7,11 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync, appe
 import { join, resolve } from "node:path";
 import { env, err, home as ioHome, out } from "../io.ts";
 import { ensureHome } from "../state/profiles.ts";
+import { DEFAULT_HTTPS_PORT, TLS_CONFIG_KEYS, readTlsConfig, tlsDir, validateTlsSetting } from "../../../../src/server/tls/config.ts";
+import { formatHttpsLine, readTlsStatus } from "../../../../src/server/tls/status-file.ts";
+import { parseCert, fingerprintOf } from "../../../../src/server/tls/issue.ts";
+import { realDeps, resolveTls, tailscaleState } from "../../../../src/server/tls/sources.ts";
+import { hostname as osHostname } from "node:os";
 
 // ORCH_BUN overrides the bun that runs the server; a path or name that does not resolve is an error (127).
 function bunBin(): string | null {
@@ -29,7 +34,8 @@ export const ARTIFACT_USAGE = "dispatch.ts artifact <run-id> [--out DIR]";
 export const SERVE_STATUS_USAGE = "dispatch.ts serve status [--json]";
 export const SERVE_RECOVER_USAGE = "dispatch.ts serve recover [--start|--no-start]";
 export const SERVE_CONFIG_USAGE =
-  "dispatch.ts serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]";
+  "dispatch.ts serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote] | serve config <https_port|tls_mode|tls_cert|tls_key|secure_link_hint> <value>";
+export const SERVE_TLS_USAGE = "dispatch.ts serve tls info | serve tls renew | serve tls trust-help";
 export const UI_USAGE = "dispatch.ts ui [--stop]";
 
 const ROOT = resolve(import.meta.dir, "../../../..");
@@ -209,16 +215,110 @@ export async function serveConfig(args: string[]): Promise<number> {
       ar: ar ? ar === "1" : configBool(home, "allow_remote"),
     };
     const tmp = `${f.config}.tmp.${process.pid}`;
+    let extra: Record<string, unknown> = {};
+    try {
+      extra = JSON.parse(readText(f.config)) as Record<string, unknown>;
+    } catch {}
     writeFileSync(
       tmp,
-      JSON.stringify({ host: cur.host, port: Number(cur.port), require_token: cur.rt, allow_remote: cur.ar }, null, 2) + "\n",
+      JSON.stringify({ ...extra, host: cur.host, port: Number(cur.port), require_token: cur.rt, allow_remote: cur.ar }, null, 2) + "\n",
     );
     require("node:fs").renameSync(tmp, f.config);
     out(readText(f.config) + "\n");
     return 0;
   }
+  if ((TLS_CONFIG_KEYS as readonly string[]).includes(verb)) return serveConfigTls(home, verb, rest[0]);
   err(`usage: ${SERVE_CONFIG_USAGE}\n`);
   return 2;
+}
+
+// `serve config https_port 6725`: HTTPS is opt-in, 0 turns it off, `on` means the default port.
+function serveConfigTls(home: string, key: string, raw: string | undefined): number {
+  if (raw === undefined) {
+    err(`usage: ${SERVE_CONFIG_USAGE}\n`);
+    return 2;
+  }
+  let value = raw;
+  if (key === "https_port") value = raw === "on" ? String(DEFAULT_HTTPS_PORT) : raw === "off" ? "0" : raw;
+  const bad = validateTlsSetting(key, value);
+  if (bad !== null) {
+    err(`serve config: ${bad}\n`);
+    return 2;
+  }
+  if (!ensureServeConfig(home)) return 1;
+  const f = serveFiles(home);
+  let cur: Record<string, unknown> = {};
+  try {
+    cur = JSON.parse(readText(f.config)) as Record<string, unknown>;
+  } catch {}
+  cur[key] = key === "https_port" ? Number(value) : key === "secure_link_hint" ? ["true", "1"].includes(value) : value;
+  const tmp = `${f.config}.tmp.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(cur, null, 2) + "\n");
+  require("node:fs").renameSync(tmp, f.config);
+  out(readText(f.config) + "\n");
+  err("serve: restart the server to apply (`dispatch.ts serve recover` or `scripts/service.ts restart`)\n");
+  return 0;
+}
+
+const TRUST_HELP = `Trust the orch certificate authority once per device; later certificates need no step.
+iPhone or iPad: open https://<this-machine>:<https_port>/ca.mobileconfig in Safari, tap Allow, then Settings > Profile Downloaded > Install, then Settings > General > About > Certificate Trust Settings and switch on the orch local CA.
+Android: download /ca.crt from the same address, then Settings > Security > Encryption and credentials > Install a certificate > CA certificate, and pick the file.
+macOS: open /ca.crt, add it to the System keychain, double-click it and set Trust to Always Trust.
+Windows: open /ca.crt, Install Certificate > Local Machine > Trusted Root Certification Authorities.
+Open http://<this-machine>:<http_port>/trust for the same steps with a QR code. A Tailscale certificate (tls_mode tailscale) needs none of this.
+`;
+
+// serve tls info | renew | trust-help
+export async function serveTls(args: string[]): Promise<number> {
+  const home = ioHome();
+  const verb = args[0] ?? "";
+  if (verb === "trust-help") {
+    out(TRUST_HELP);
+    return 0;
+  }
+  if (verb !== "info" && verb !== "renew") {
+    err(`usage: ${SERVE_TLS_USAGE}\n`);
+    return 2;
+  }
+  const cfg = readTlsConfig(home);
+  if (verb === "renew") {
+    if (cfg.httpsPort === 0) {
+      err("serve tls renew: https is off; run `dispatch.ts serve config https_port on` first\n");
+      return 1;
+    }
+    const r = await resolveTls(home, cfg, realDeps(), { force: true });
+    if (r.material === null) {
+      err(`serve tls renew: ${r.problem ?? "no certificate"}\n`);
+      return 1;
+    }
+    out(`renewed: cert=${r.material.source} expires=${r.material.notAfter.toISOString().slice(0, 10)}\n`);
+    const pid = readText(serveFiles(home).pid);
+    if (pidAlive(pid)) {
+      try {
+        process.kill(Number(pid), "SIGHUP");
+        out("the running server reloads it now\n");
+      } catch {}
+    }
+    return 0;
+  }
+  return tlsInfo(home, cfg);
+}
+
+async function tlsInfo(home: string, cfg: ReturnType<typeof readTlsConfig>): Promise<number> {
+  const host = osHostname();
+  const status = readTlsStatus(home);
+  out(`${formatHttpsLine(status, cfg.httpsPort, host)}\n`);
+  out(`tls_mode=${cfg.mode} https_port=${cfg.httpsPort}\n`);
+  const ts = await tailscaleState(realDeps());
+  if (ts.name !== null) out(`tailscale: ${ts.name} ${ts.certsEnabled ? "certificates enabled" : "certificates NOT enabled"}\n`);
+  if (ts.problem !== null && ts.name !== null) out(`${ts.problem}\n`);
+  try {
+    const caFile = join(tlsDir(home), "ca", "ca.crt");
+    const ca = parseCert(readText(caFile));
+    if (ca !== null) out(`local CA SHA-256: ${fingerprintOf(ca)}\n`);
+  } catch {}
+  for (const p of status?.problems ?? []) out(`tried: ${p}\n`);
+  return 0;
 }
 
 // serve/ is 0700 and its log 0600: the log holds the tokenized URL bun prints at startup.
@@ -428,6 +528,19 @@ export async function serveRecover(args: string[]): Promise<number> {
   return 0;
 }
 
+function httpsJson(home: string): unknown {
+  const cfg = readTlsConfig(home);
+  if (cfg.httpsPort === 0) return { enabled: false };
+  const st = readTlsStatus(home);
+  return { enabled: true, port: cfg.httpsPort, listening: st?.listening ?? false, source: st?.source ?? null, not_after: st?.not_after ?? null, problem: st?.problem ?? null, warning: st?.warning ?? null };
+}
+
+async function tlsHints(home: string, cfg: ReturnType<typeof readTlsConfig>): Promise<void> {
+  if (cfg.mode !== "auto" && cfg.mode !== "tailscale") return;
+  const ts = await tailscaleState(realDeps());
+  if (ts.name !== null && !ts.certsEnabled) out(`hint: ${ts.problem}\n`);
+}
+
 export async function serveStatus(args: string[]): Promise<number> {
   let asJson = false;
   for (const a of args) {
@@ -449,6 +562,7 @@ export async function serveStatus(args: string[]): Promise<number> {
         port: d.port === "" ? null : Number(d.port),
         host: d.host === "" ? null : d.host,
         url: d.url === "" ? null : d.url,
+        https: httpsJson(home),
       }) + "\n",
     );
     return d.rc;
@@ -461,6 +575,12 @@ export async function serveStatus(args: string[]): Promise<number> {
     case "bun_missing": out("state=unavailable reason=bun_missing\n"); break;
     case "sources_stale": out(`state=stale listener=answering pid=${d.pid} port=${d.port}\n`); break;
     default: out(`state=unknown reason=${d.reason}\n`);
+  }
+  if (d.rc === 0) {
+    const host = osHostname();
+    const cfg = readTlsConfig(home);
+    out(`http: http://${host}:${d.port}/\n${formatHttpsLine(readTlsStatus(home), cfg.httpsPort, host)}\n`);
+    if (cfg.httpsPort > 0) await tlsHints(home, cfg);
   }
   return d.rc;
 }

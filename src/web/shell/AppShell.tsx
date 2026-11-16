@@ -1,3 +1,4 @@
+import { SecureLinkHint } from "./SecureLinkHint";
 import { Suspense, lazy, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRoute } from "../router/use-route";
@@ -95,6 +96,7 @@ export function AppShell() {
       <Rail current={current} collapsed={collapsed} onToggle={toggleRail} />
       <div className="shell-main">
         <Header route={route} />
+        <SecureLinkHint />
         <main id="main" tabIndex={-1}>
           {authRequired ? <TokenGate /> : <Suspense fallback={null}><Page route={route} /></Suspense>}
         </main>
