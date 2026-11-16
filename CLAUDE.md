@@ -162,7 +162,10 @@ Use the `verify` repo skill (`.claude/skills/verify/SKILL.md`: browser, herdr an
 
 ## Tests
 
+The skill tests are being ported from bash to Bun: `skills/orch/tests/**/*.test.ts` run with `bun skills/orch/tests/run.ts` (same flags as `run.sh`: `--changed[=ref]`, `--full`, `--budget N`, `--resume`, name fragments; exit 75 on a partial run). Shared helpers (`seedHome`, `tempHome`, `cli`, `dispatch`, `fakeBin`, `fakeAdapter`, `fakeHerdr`, `fakeHub`, `waitUntil`) are in `skills/orch/tests/helpers/index.ts`. Ported tests drive the CLI in a temp home, so they survive the bash removal. The remaining `*.test.sh` files still run with `run.sh`; port a file, then `trash` the bash one.
+
 ```bash
+bun skills/orch/tests/run.ts               # FAST tier: tests/unit/*.test.ts
 bash skills/orch/tests/run.sh              # FAST tier (default, under 30 s): tests/unit/*.test.sh only
 bash skills/orch/tests/run.sh --changed    # fast tier + tests mapped from changed files (git diff + untracked)
 bash skills/orch/tests/run.sh --full       # every skills/orch/tests/<category>/*.test.sh, slowest first, 300 s budget
