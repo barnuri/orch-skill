@@ -67,3 +67,10 @@ runs-group test fixer, other-groups test fixer, typecheck cache and parallel tes
 - bun tier (src): 1325 pass, 0 fail, 141.8 s wall. DONE.
 - orch tier (`run.ts --full`, per-file cap 30 s): 45 tests passed, 1 failed, 50 files, 125 s wall (was 182 s with 58 failures). 23 of 50 files were KILLED by the 30 s cap under load (they pass alone): classify-adapters, herdr-runner, routing-claude, announce, loops-watches, demo-and-harness, init-profiles, schedules-service, serve-ui, service-restart, run-budget, cost-digest, health, identity-panes-stop, inbox, lifecycle, lifecycle-retry, liveness, owner-bind, state-lock, visibility, wait, coordinator. NOT GREEN: the full tier is not yet under the per-file cap. Cause: one process start per detaching CLI call and per fake herdr, plus daemon and job waits.
 - A rerun with cap 90 s is in `$TMPDIR/final-orch2.log`.
+
+## F. Status at 2026-11-16 22:20
+- bun tier (`src`): 1,847 pass, 4 fail (reasoning tests that needed their own DOM: fixed in ce1602a, passes alone 5/5 and 3 runs of the artifacts file), 158 s.
+- orch tier (`run.ts --full`, cap 60 s): 131 passed, 1 failed (`runs/liveness`, 31 s), 64 files, 121 s wall. Slowest: serve-ui 45 s, herdr-runner-jobs 41 s, owner-bind 39 s, routing-claude 36 s, demo-and-harness 36 s.
+- Not under the 90 s target; cause is process start per call under load 15 to 35. Next: lazy imports in dispatch.ts or in-process announce and start.
+- Built since section E: voice conversation mode and the cut-off fix, installable apps and web push, HTTPS with a local CA (opt-in), per-chat subfolder, schedules, loops and monitors from chat, profile usage, collapsible sidebar and start page, queue, artifacts, question tool, settings and effort, workspace, browser profile, design pass.
+- Open: `cr-final-review`, `final-gate-full`, `bun-verify`, `session-retro` (docs/session-retro.md exists, not the node), and the 38 boxes of docs/to-verify.md (live phone checks: voice, install, push, trust the CA).
