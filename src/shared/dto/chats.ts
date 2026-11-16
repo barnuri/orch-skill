@@ -364,6 +364,9 @@ export class MessageDto extends ZodDto {
   @ZodField(z.array(z.looseObject({ type: z.string() })).nullable().optional(), { description: "Typed parts (text, reasoning, tool-call, todo, file, diff; see src/shared/chat-parts.ts). Null on rows stored before parts existed: render `content`." })
   parts?: Array<{ type: string; [key: string]: unknown }> | null;
 
+  @ZodField(z.looseObject({ state: z.enum(["starting", "thinking", "writing", "tool", "waiting"]), since: z.string(), last_event_at: z.string(), state_ms: z.number(), idle_ms: z.number(), tool: z.looseObject({ id: z.string(), name: z.string(), started_at: z.string() }).nullable().optional() }).nullable().optional(), { description: "Only on a reply that is running: what the agent is doing (starting, thinking, writing, tool, waiting), since when, when it last sent anything, and the running tool. Also sent as the `activity` SSE event. Null when the reply is not running." })
+  activity?: { state: "starting" | "thinking" | "writing" | "tool" | "waiting"; since: string; last_event_at: string; state_ms: number; idle_ms: number; tool?: { id: string; name: string; started_at: string } | null } | null;
+
   @ZodField(z.array(AttachmentDto.schema), { description: "Files attached to this message." })
   attachments!: AttachmentDto[];
 }
@@ -372,9 +375,6 @@ export class MessageDto extends ZodDto {
 export class MessagePageDto extends ZodDto {
   @ZodField(z.array(MessageDto.schema), { description: "The messages, newest first. Reverse them to display." })
   items!: MessageDto[];
-
-  @ZodField(z.looseObject({ state: z.enum(["starting", "thinking", "writing", "tool", "waiting"]), since: z.string(), last_event_at: z.string(), state_ms: z.number(), idle_ms: z.number(), tool: z.looseObject({ id: z.string(), name: z.string(), started_at: z.string() }).nullable().optional() }).nullable().optional(), { description: "Only on a reply that is running: what the agent is doing (starting, thinking, writing, tool, waiting), since when, when it last sent anything, and the running tool. Also sent as the `activity` SSE event. Null when the reply is not running." })
-  activity?: { state: "starting" | "thinking" | "writing" | "tool" | "waiting"; since: string; last_event_at: string; state_ms: number; idle_ms: number; tool?: { id: string; name: string; started_at: string } | null } | null;
 
   @ZodField(z.string().nullable(), { description: "Pass as `cursor` for older messages. Null when there are none." })
   next_cursor!: string | null;
@@ -391,11 +391,17 @@ export class SendMessageDto extends ZodDto {
 
 @ZodObject({ description: "The turn has started. Follow it on GET /api/chats/{id}/events." })
 export class SendResultDto extends ZodDto {
-  @ZodField(z.string(), { description: "Id of the stored user message." })
-  user_message_id!: string;
+  @ZodField(z.string().nullable(), { description: "Id of the stored user message. Null when the message was queued." })
+  user_message_id!: string | null;
 
-  @ZodField(z.string(), { description: "Id of the assistant message that is now streaming." })
-  assistant_message_id!: string;
+  @ZodField(z.string().nullable(), { description: "Id of the assistant message that is now streaming. Null when the message was queued." })
+  assistant_message_id!: string | null;
+
+  @ZodField(z.boolean().optional(), { description: "True when a reply was running and the message went into the chat's queue." })
+  queued?: boolean;
+
+  @ZodField(z.string().nullable().optional(), { description: "Id of the queue item, `que-…`, when queued." })
+  queue_id?: string | null;
 }
 
 @ZodObject({ description: "Result of a stop request." })
@@ -509,15 +515,21 @@ export class HarnessOptionDto extends ZodDto {
   @ZodField(z.boolean(), { description: "True when one live process serves a whole chat. False when each message starts a process and only resumes the session if the adapter can." })
   persistent!: boolean;
 
+  @ZodField(z.array(z.string()).optional(), { description: "Effort levels the harness takes, lowest first. Empty: no effort control." })
+  efforts?: string[];
+
   @ZodField(z.enum(["process", "session", "replay"]).optional(), { description: "How the chat remembers: one live process, the harness's own session resumed per message, or recent history replayed in the prompt." })
   memory?: "process" | "session" | "replay";
 
   @ZodField(z.array(ProfileOptionDto.schema), { description: "Profiles on this harness." })
   profiles!: ProfileOptionDto[];
 }
-  @ZodField(z.array(z.string()).optional(), { description: "Effort levels the harness takes, lowest first. Empty: no effort control." })
-  efforts?: string[];
 
+@ZodObject({ description: "Which use the options are for." })
+export class ChatOptionsQueryDto extends ZodDto {
+  @ZodField(z.enum(["chat", "runs"]).optional(), { description: "`chat` (default) lists profiles and harnesses allowed for chat; `runs` lists those allowed for orch runs (the Schedules page)." })
+  use?: "chat" | "runs";
+}
 
 @ZodObject({ description: "Everything the harness, profile and model pickers need." })
 export class ChatOptionsDto extends ZodDto {
@@ -529,4 +541,7 @@ export class ChatOptionsDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "settings.default_profile." })
   default_profile!: string | null;
+
+  @ZodField(z.record(z.string(), z.string()).optional(), { description: "Profiles left out of the pickers because their profile or harness is limited to orch runs, with the reason. A chat that already uses one keeps working; show the reason as a warning." })
+  not_for_chat?: Record<string, string>;
 }

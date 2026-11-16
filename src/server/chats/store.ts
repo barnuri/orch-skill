@@ -37,6 +37,11 @@ export class ChatStore {
     this.db.close();
   }
 
+  /** The open database, for the queue tables (queue.ts) that live in the same file. */
+  get handle(): Database {
+    return this.db;
+  }
+
   private migrate(): void {
     this.db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
     const done = new Set(this.db.query("SELECT version FROM schema_migrations").all().map((r) => (r as { version: number }).version));
@@ -226,11 +231,6 @@ export class ChatStore {
     return this.getMessage(id);
   }
 
-  appendContent(id: string, text: string): void {
-    this.db.query("UPDATE messages SET content = content || ? WHERE id = ?").run(text, id);
-  }
-
-  finalizeMessage(id: string, fin: { status: "done" | "error" | "stopped"; error?: string | null; model_used?: string | null; input_tokens?: number; output_tokens?: number; cost_usd?: number | null; context_truncated?: boolean; warning?: string | null }): MessageRow | null {
   /** The tool row that holds question `qid` (the harness call id) in a chat, or null. */
   findQuestionRow(chatId: string, qid: string): MessageRow | null {
     const hit = this.db.query("SELECT * FROM messages WHERE chat_id = ? AND role = 'tool' AND parts LIKE '%\"type\":\"question\"%' AND instr(parts, ?) > 0 ORDER BY id DESC").all(chatId, JSON.stringify(qid)) as MessageRow[];
@@ -251,6 +251,11 @@ export class ChatStore {
     return rows.map((r) => r.id);
   }
 
+  appendContent(id: string, text: string): void {
+    this.db.query("UPDATE messages SET content = content || ? WHERE id = ?").run(text, id);
+  }
+
+  finalizeMessage(id: string, fin: { status: "done" | "error" | "stopped"; error?: string | null; model_used?: string | null; input_tokens?: number; output_tokens?: number; cost_usd?: number | null; context_truncated?: boolean; warning?: string | null }): MessageRow | null {
     this.db.query(
       `UPDATE messages SET status = ?, error = ?, model_used = COALESCE(?, model_used), input_tokens = ?, output_tokens = ?,
        cost_usd = ?, finished_at = ?, context_truncated = ?, warning = ? WHERE id = ?`,
@@ -295,6 +300,11 @@ export class ChatStore {
     this.db.query("UPDATE messages SET content = ? WHERE id = ?").run(content, id);
   }
 
+  /** Ids and chats of every reply still marked streaming or pending. */
+  streamingRows(): Array<{ id: string; chat_id: string }> {
+    return this.db.query("SELECT id, chat_id FROM messages WHERE status IN ('streaming','pending')").all() as Array<{ id: string; chat_id: string }>;
+  }
+
   /**
    * At startup a streaming message is either still served by a surviving process (`keep`: its turn is re-attached,
    * the row and its chat stay running) or has lost its process: it ends as `error` marked `interrupted:` with the
@@ -320,11 +330,6 @@ export class ChatStore {
       }
     }
     return hit.length;
-  /** Ids and chats of every reply still marked streaming or pending. */
-  streamingRows(): Array<{ id: string; chat_id: string }> {
-    return this.db.query("SELECT id, chat_id FROM messages WHERE status IN ('streaming','pending')").all() as Array<{ id: string; chat_id: string }>;
-  }
-
   }
 
   search(q: string, opts: { projectId?: string | null; limit?: number }): SearchHit[] {

@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isLive, retryTarget } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
@@ -18,10 +19,13 @@ interface Props {
   onOpenImage: (a: Attachment) => void;
   onRetry: (text: string) => void;
   fallbackModel?: string | undefined;
+  /** Rendered after the last message (the queued messages); `tailKey` changing keeps a bottom-stuck thread at the bottom. */
+  tail?: ReactNode;
+  tailKey?: number;
 }
 
 /** Virtualized thread. Sticks to the bottom only while the reader is there; prepends keep the reading position. */
-export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder, onOpenImage, onRetry, fallbackModel }: Props) {
+export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder, onOpenImage, onRetry, fallbackModel, tail, tailKey = 0 }: Props) {
   const parent = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const stickRef = useRef(true);
@@ -29,6 +33,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
   const anyLive = messages.some(isLive);
   const now = useNow(anyLive);
   const retry = retryTarget(messages);
+  const working = [...messages].reverse().find((m) => m.role === "assistant" && isLive(m));
   const items = useMemo(() => groupThread(messages), [messages]);
   const lastReply = [...messages].reverse().find((m) => m.role === "assistant" || m.role === "user");
   const regen = lastReply !== undefined && lastReply.role === "assistant" && !isLive(lastReply) && retry === null
@@ -72,7 +77,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
     if (el !== null && stickRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [total, messages.length, working?.activity?.state]);
+  }, [total, messages.length, working?.activity?.state, tailKey]);
 
   const jump = (): void => {
     const el = parent.current;
@@ -114,11 +119,12 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
             );
           })}
         </div>
-      </div>
         {working !== undefined ? <WorkingIndicator message={working} now={now} fallbackModel={fallbackModel} /> : null}
+        {tail}
+      </div>
       {!stick ? (
         <button type="button" className="jump-pill" onClick={jump}>
-          ↓ Jump to latest{anyLive ? " · streaming" : ""}
+          ↓ Jump to latest{anyLive ? " · working" : ""}
         </button>
       ) : null}
     </div>

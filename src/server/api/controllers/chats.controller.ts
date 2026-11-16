@@ -3,10 +3,11 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Response as ResponseS
 
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import {
-  AttachmentsDto, ChatConfigDto, ChatDto, ChatEnvelopeDto, ChatIdParamsDto, ChatInputDto, ChatOptionsDto, ChatPageDto,
+  AttachmentsDto, ChatConfigDto, ChatDto, ChatEnvelopeDto, ChatIdParamsDto, ChatInputDto, ChatOptionsDto, ChatOptionsQueryDto, ChatPageDto,
   ChatProjectDto, ChatRenameDto, FolderListDto, FolderQueryDto, FolderSetDto, PageQueryDto, ChatSearchQueryDto, ChatsQueryDto, MessagePageDto, SearchResultDto,
   SendMessageDto, SendResultDto, StopResultDto,
 } from "../../../shared/dto/chats";
+import { QueueError } from "../../chats/queue";
 import { type ChatService, chatServiceFor, HttpError } from "../../chats/service";
 import { eventStream } from "../../chats/sse";
 import { deleteUnattached, saveUploads, serveAttachment, UploadError } from "../../chats/uploads";
@@ -46,9 +47,10 @@ export class ChatsController {
     summary: "Harness, profile and model choices",
     description: "Every harness with its profiles and each profile's allowed models, for the three pickers of a new chat. `enabled` follows settings.disabled_harnesses and the profile's `enabled`; `configured` is false when a needed env var is unset; `persistent` says whether one live process serves the chat. A picker with one entry has no real choice: show it disabled.",
   })
+  @Query(ChatOptionsQueryDto.schema)
   @ResponseSchema(ChatOptionsDto.schema, { description: "The choices." })
-  options(): Response {
-    return jsonResponse(200, this.service.options());
+  options(c: ApiContext): Response {
+    return jsonResponse(200, this.service.options(valid<{ use?: "chat" | "runs" }>(c, "query").use));
   }
 
   @Get("/chats/search", {
@@ -241,24 +243,25 @@ export class ChatsController {
 
   @Post("/chats/{id}/messages", {
     summary: "Send a message",
-    description: "Stores the user message, starts the agent's reply and answers 202 at once with both message ids. Follow the reply on GET /api/chats/{id}/events. Answers 409 while a reply is already running, 400 for an empty message, unknown attachments, or a harness, profile or model that is no longer allowed.",
+    description: "Stores the user message, starts the agent's reply and answers 202 at once with both message ids. Follow the reply on GET /api/chats/{id}/events. While a reply is running (or earlier messages wait) the message goes into the chat's queue instead and the answer is 202 with `queued: true` and `queue_id`; the ids are null then. Answers 409 when the queue is full or the chat is archived, 400 for an empty message, unknown attachments, or a harness, profile or model that is no longer allowed.",
   })
   @Param(ChatIdParamsDto.schema)
   @Body(SendMessageDto.schema)
   @ResponseSchema(SendResultDto.schema, { status: 202, description: "The turn has started." })
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Invalid message." })
-  @ResponseSchema(ErrorDto.schema, { status: 409, description: "A reply is already running, or the chat is archived." })
+  @ResponseSchema(ErrorDto.schema, { status: 409, description: "The queue is full (20), or the chat is archived." })
   send(c: ApiContext): Response {
     try {
-      return jsonResponse(202, this.service.sendMessage(idOf(c), valid(c, "json")));
+      const sent = this.service.submit(idOf(c), valid(c, "json"));
+      return jsonResponse(202, sent.queued ? { queued: true, queue_id: sent.item.id, user_message_id: null, assistant_message_id: null } : { queued: false, queue_id: null, user_message_id: sent.user_message_id, assistant_message_id: sent.assistant_message_id });
     } catch (err) {
-      return failure(err);
+      return err instanceof QueueError ? jsonResponse(err.status, { error: err.message }) : failure(err);
     }
   }
 
   @Post("/chats/{id}/stop", {
     summary: "Stop the running reply",
-    description: "Stops the reply that is streaming. The text received so far is kept and the message ends as `stopped`. The next message resumes the same session. `stopped` is false when nothing was running.",
+    description: "Stops the reply that is streaming. The text received so far is kept and the message ends as `stopped`. The next message resumes the same session. Messages waiting in the queue stay queued and the queue is paused (POST /queue/resume starts it again). `stopped` is false when nothing was running.",
   })
   @Param(ChatIdParamsDto.schema)
   @ResponseSchema(StopResultDto.schema, { description: "Done." })

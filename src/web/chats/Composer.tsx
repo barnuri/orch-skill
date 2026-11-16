@@ -162,7 +162,7 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
   );
 
   const uploading = pending.some((p) => p.error === null);
-  const canSend = blocked === null && !running && !sending && !uploading && (text.trim() !== "" || attachments.length > 0);
+  const canSend = blocked === null && !sending && !uploading && (text.trim() !== "" || attachments.length > 0);
 
   const submit = async (): Promise<void> => {
     if (!canSend || sendingRef.current) {
@@ -376,14 +376,13 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
           </button>
         ) : null}
         {running ? (
-          <button type="button" className="btn danger composer-send" onClick={onStop}>
+          <button type="button" className="btn danger composer-stop" onClick={onStop}>
             Stop
           </button>
-        ) : (
-          <button type="button" className="btn primary composer-send" disabled={!canSend} onClick={() => void submit()} title={uploading ? "Wait for uploads" : undefined}>
-            {uploading ? "Uploading…" : "Send"}
-          </button>
-        )}
+        ) : null}
+        <button type="button" className="btn primary composer-send" disabled={!canSend} onClick={() => void submit()} title={uploading ? "Wait for uploads" : running ? "Add to the queue: it runs when the reply ends" : undefined}>
+          {uploading ? "Uploading…" : running ? "Queue" : "Send"}
+        </button>
       </div>
     </div>
   );

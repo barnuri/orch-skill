@@ -170,7 +170,7 @@ describe("uploads over HTTP", () => {
 });
 
 describe("a reply over HTTP", () => {
-  test("202 on send, SSE streams to the end, history and search have it, a busy chat is 409", async () => {
+  test("202 on send, SSE streams to the end, history and search have it, a message sent to a busy chat is queued", async () => {
     const srv = server();
     const chat = await makeChat(srv);
     const sse = await srv.api(`/api/chats/${chat.id}/events`);
@@ -204,7 +204,9 @@ describe("a reply over HTTP", () => {
 
     const slow = await json(srv, `/api/chats/${chat.id}/messages`, { content: "SLOW" });
     expect(slow.status).toBe(202);
-    expect((await json(srv, `/api/chats/${chat.id}/messages`, { content: "again" })).status).toBe(409);
+    // A message sent while a reply runs waits in the chat's queue instead of failing.
+    const again = await json(srv, `/api/chats/${chat.id}/messages`, { content: "again" });
+    expect([again.status, ((await again.json()) as { queued: boolean }).queued]).toEqual([202, true]);
     expect((await json(srv, `/api/chats/${chat.id}/config`, { harness: "claude", profile: "main", model_id: null })).status).toBe(409);
     const stop = await json(srv, `/api/chats/${chat.id}/stop`);
     expect(await stop.json()).toEqual({ ok: true, stopped: true });

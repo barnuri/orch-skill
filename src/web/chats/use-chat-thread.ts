@@ -5,6 +5,8 @@ import { applyChatEvent, prependOlder, resumeId, sortMessages } from "../lib/cha
 import type { Message } from "../lib/chat-types";
 import { followSse } from "../lib/sse";
 import type { ConnState } from "../lib/sse";
+import { EMPTY_QUEUE } from "./queue-logic";
+import type { QueueSnapshot } from "./queue-logic";
 
 export interface ChatThread {
   messages: Message[];
@@ -13,6 +15,9 @@ export interface ChatThread {
   hasOlder: boolean;
   loadingOlder: boolean;
   running: boolean;
+  /** The chat's message queue (queue event of the live stream). */
+  queue: QueueSnapshot;
+  setQueue: (queue: QueueSnapshot) => void;
   conn: ConnState;
   loadOlder: () => Promise<void>;
   send: (text: string, attachmentIds: readonly string[]) => Promise<string | null>;
@@ -27,6 +32,7 @@ export function useChatThread(chatId: string): ChatThread {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [running, setRunning] = useState(false);
+  const [queue, setQueue] = useState<QueueSnapshot>(EMPTY_QUEUE);
   const [conn, setConn] = useState<ConnState>("connecting");
   const latest = useRef<Message[]>([]);
   latest.current = messages;
@@ -38,6 +44,7 @@ export function useChatThread(chatId: string): ChatThread {
     setLoadError(null);
     setCursor(null);
     setRunning(false);
+    setQueue(EMPTY_QUEUE);
     void (async () => {
       const page = await chatsApi.messages(chatId, null);
       if (abort.signal.aborted) {
@@ -72,6 +79,11 @@ export function useChatThread(chatId: string): ChatThread {
             if (ev.event === "status") {
               const status = (data as { status?: unknown } | null)?.status;
               setRunning(status === "running");
+            } else if (ev.event === "queue") {
+              const snap = data as QueueSnapshot | null;
+              if (snap !== null && Array.isArray(snap.items)) {
+                setQueue(snap);
+              }
             } else {
               next = applyChatEvent(next, { event: ev.event, data }, now);
             }
@@ -115,7 +127,7 @@ export function useChatThread(chatId: string): ChatThread {
     await chatsApi.stop(chatId);
   }, [chatId]);
 
-  return { messages, loading, loadError, hasOlder: cursor !== null, loadingOlder, running, conn, loadOlder, send, stop };
+  return { messages, loading, loadError, hasOlder: cursor !== null, loadingOlder, running, queue, setQueue, conn, loadOlder, send, stop };
 }
 
 /** A clock that ticks once a second while `active`, for live durations. */

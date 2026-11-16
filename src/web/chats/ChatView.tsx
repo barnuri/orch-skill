@@ -4,7 +4,7 @@ import { chatsApi } from "../api/chats";
 import { describeFailure } from "../api/result";
 import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
-import { isLive, messageDurationMs, modelLabel } from "../lib/chat-logic";
+import { isLive, messageDurationMs, modelLabel, resolvePickers } from "../lib/chat-logic";
 import type { Selection } from "../lib/chat-logic";
 import { formatDuration } from "../lib/duration";
 import type { Attachment, Chat, ChatOptions, Message, Project } from "../lib/chat-types";
@@ -41,13 +41,14 @@ function LastReplyStats({ reply }: { reply: Message | null }) {
 }
 
 /** The chat's title bar: rename (pencil or title click), move to project, archive. Exported for tests. */
-export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer }: {
+export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer, queue = EMPTY_QUEUE }: {
   chat: Chat;
   options: ChatOptions | undefined;
   modelUsed: string | null;
   lastReply: Message | null;
   projects: Project[];
   onOpenDrawer: () => void;
+  queue?: QueueSnapshot;
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -68,8 +69,8 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
   };
   const client = useQueryClient();
   const [pickingFolder, setPickingFolder] = useState(false);
-  const pickFolder = async (path: string | null): Promise<string | null> => {
   const [workspace, setWorkspace] = useState(false);
+  const pickFolder = async (path: string | null): Promise<string | null> => {
     const res = await chatsApi.setChatFolder(chat.id, path);
     void refreshChats(client);
     return res.kind === "ok" ? null : describeFailure(res, "could not set the folder");
@@ -117,13 +118,13 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
           <FolderPicker title="Folder for this chat" current={chat.cwd ?? null} onPick={pickFolder} onClose={() => { setPickingFolder(false); }} />
         ) : null}
       </div>
-      <LastReplyStats reply={lastReply} />
       {workspace ? <WorkspacePanel chat={chat} onClose={() => { setWorkspace(false); }} /> : null}
-      <div className="chat-head-actions">
+      <LastReplyStats reply={lastReply} />
       <QueueCounter snapshot={queue} />
       <button type="button" className="btn chat-head-ws" aria-haspopup="dialog" onClick={() => { setWorkspace(true); }} data-testid="workspace-btn">
         Workspace
       </button>
+      <div className="chat-head-actions">
         <div className="move-select">
           <Select aria-label="Move to project" value={chat.project_id ?? NO_PROJECT} options={projectOptions} onChange={(v) => void move(v)} />
         </div>
@@ -135,7 +136,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
   );
 }
 
-function Config({ chat, options, running, modelUsed }: { chat: Chat; options: ChatOptions; running: boolean; modelUsed: string | null }) {
+function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat; options: ChatOptions; running: boolean; modelUsed: string | null; lastFailed: boolean }) {
   const toast = useToast();
   const [sel, setSel] = useState<Selection>({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
   useEffect(() => {
@@ -154,13 +155,15 @@ function Config({ chat, options, running, modelUsed }: { chat: Chat; options: Ch
     if (res.kind !== "ok") {
       toast("error", res.kind === "error" && res.status === 409 ? "A reply is running: change this between turns" : describeFailure(res, "could not change"));
       setSel({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
-    }
       setEffort(chat.effort ?? null);
+    }
     void refreshChats();
   };
   // Store the pickers' choice when the chat's own profile or model is unusable; otherwise every send fails and the
   // locked pickers already claim the fixed value, so the user has nothing to switch.
-  const repair = running ? null : repairSelection(options, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
+  // A chat on a profile that is now limited to orch runs keeps working: no repair, an amber warning instead.
+  const runsOnlyReason = options.not_for_chat?.[chat.profile] ?? null;
+  const repair = running || runsOnlyReason !== null ? null : repairSelection(options, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
   const repairKey = repair === null ? "" : `${repair.harness}/${repair.profile}/${repair.model ?? ""}`;
   useEffect(() => {
     if (repair !== null) {
@@ -189,6 +192,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const options = useChatOptions();
   const projects = useProjects(false);
   const thread = useChatThread(chatId);
+  const artifacts = useArtifacts(chatId);
   const voice = useVoiceConversation({
     messages: thread.messages,
     send: async (text) => {
@@ -206,12 +210,12 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const chat = chatQuery.data;
   const rows = thread.messages;
   const todos = latestTodos(rows);
+  const asking = pendingQuestion(rows);
+  const answerQuestion = useAnswerQuestion(chatId);
   const running = thread.running || rows.some(isLive);
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
 
-  const asking = pendingQuestion(rows);
-  const answerQuestion = useAnswerQuestion(chatId);
   if (chatQuery.isError) {
     return <div className="chat-empty"><p>This chat could not be loaded.</p></div>;
   }
@@ -221,7 +225,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   const blocked = chat.archived_at !== null ? "Archived chat: unarchive it to continue" : null;
 
   const send = async (text: string, ids: readonly string[]): Promise<string | null> => {
-    const failure = await thread.send(text, ids);
+    const failure = await thread.send(artifacts.compose(text), ids);
     if (failure === null) {
       void refreshChats();
     }
@@ -229,6 +233,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
   };
 
   return (
+    <ArtifactLayout state={artifacts}>
     <div className="chat-view" data-chat={chat.id}>
       <Header
         chat={chat}
@@ -237,6 +242,7 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
         lastReply={lastReply}
         projects={projects.data ?? []}
         onOpenDrawer={onOpenDrawer}
+        queue={thread.queue}
       />
       {chat.warning != null ? <p className="thread-note chat-warning" role="status" data-testid="chat-warning">{chat.warning}</p> : null}
       {thread.loadError !== null ? <p className="thread-note" role="alert">{thread.loadError}</p> : null}
@@ -252,14 +258,14 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
           onLoadOlder={thread.loadOlder}
           onOpenImage={setLightbox}
           fallbackModel={modelLabel(options.data, { harness: chat.harness, profile: chat.profile, model: chat.model_id })}
+          tail={<QueueBubbles items={thread.queue.items} />}
+          tailKey={waiting(thread.queue).length}
           onRetry={(text) => {
             void send(text, []).then((failure) => {
               if (failure !== null) {
                 toast("error", failure);
               }
             });
-          tail={<QueueBubbles items={thread.queue.items} />}
-          tailKey={waiting(thread.queue).length}
           }}
         />
       )}
@@ -271,5 +277,6 @@ export function ChatView({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawe
       <Composer key={chat.id} chatId={chat.id} blocked={blocked} running={running} toolbar={options.data === undefined ? undefined : <Config chat={chat} options={options.data} running={running} modelUsed={modelUsed} lastFailed={lastReply?.status === "error"} />} onSend={send} onStop={() => void thread.stop()} onOpenImage={setLightbox} voice={voice} />
       {lightbox !== null ? <Lightbox attachment={lightbox} onClose={() => { setLightbox(null); }} /> : null}
     </div>
+    </ArtifactLayout>
   );
 }
