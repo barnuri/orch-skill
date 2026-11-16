@@ -19,6 +19,7 @@ import { OpencodeParser } from "./sessions/opencode-session";
 import { ClaudeParser } from "./sessions/claude-session";
 import { killGroup, listTurns, type TurnMeta, type TurnParser, turnEvents, turnPaths, sweepTurnFiles } from "./sessions/turn-files";
 import { PlainParser, sweepPromptDirs } from "./sessions/turn-session";
+import { indexRemove, indexUpsert, instructionBlock, memoryFingerprint, type Scope, Workspace } from "./workspace";
 
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -85,6 +86,8 @@ export class ChatService {
   readonly manager: SessionManager;
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly turns = new Map<string, Turn>();
+  /** Fingerprint of the memories the agent last heard about, per chat (see workspaceInstructions). */
+  private readonly lastBlock = new Map<string, string>();
   readonly recovered: number;
   /** Long-lived `opencode serve` per profile env that opencode chat turns attach to (null: disabled, always standalone). */
   readonly opencodeServers: OpencodeServerPool | null = OpencodeServerPool.enabled() ? new OpencodeServerPool() : null;
@@ -207,7 +210,9 @@ export class ChatService {
     this.checkProject(input.project_id);
     const cwd = input.cwd === undefined ? null : this.checkedFolder(input.cwd);
     const given = input.title?.trim().slice(0, MAX_TITLE_CHARS) ?? "";
-    return this.store.createChat({ ...input, cwd, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+    const row = this.store.createChat({ ...input, cwd, title: given || DEFAULT_TITLE, title_manual: given !== "" && given !== DEFAULT_TITLE });
+    this.indexChat(row);
+    return row;
   }
 
   /** A person's title: trimmed, 1 to MAX_TITLE_CHARS characters, and never replaced by the auto-title afterwards. */
@@ -220,7 +225,9 @@ export class ChatService {
     if (clean.length > MAX_TITLE_CHARS) {
       throw new HttpError(400, `title: longer than ${MAX_TITLE_CHARS} characters`);
     }
-    return this.store.renameChat(id, clean) as ChatRow;
+    const row = this.store.renameChat(id, clean) as ChatRow;
+    this.indexChat(row);
+    return row;
   }
 
   /** Harness, profile and model may change at any time between turns. A new harness cannot resume the old one's session, so its history is replayed. */
@@ -244,6 +251,7 @@ export class ChatService {
       // A live session keeps the directory it started in; drop it so the next turn starts in the new one.
       void this.manager.drop(id);
     }
+    this.afterMove(before, row);
     return row;
   }
 
@@ -272,10 +280,11 @@ export class ChatService {
 
   /** Sets or clears (null) the chat's own folder. It overrides the project's folder from the next turn; a running turn keeps its folder. */
   setChatFolder(id: string, path: string | null): ChatRow {
-    this.chat(id);
+    const before = this.chat(id);
     const folder = this.checkedFolder(path);
     const row = this.store.setChatCwd(id, folder) as ChatRow;
     void this.manager.drop(id);
+    this.afterMove(before, row);
     return row;
   }
 
@@ -294,6 +303,89 @@ export class ChatService {
   effectiveCwd(chat: ChatRow): string | null {
     const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
     return chat.cwd ?? project?.path ?? null;
+  }
+
+  /** The folder a turn really runs in (exists, and inside the roots when it is the chat's own), or null for the scratch folder. */
+  usableCwd(chat: ChatRow): string | null {
+    const wanted = this.effectiveCwd(chat);
+    // A chat folder is checked again at every turn: a symlink swapped after it was picked must not lead outside the roots.
+    if (wanted !== null && existsSync(wanted) && statSync(wanted).isDirectory() && (chat.cwd === null || folderUsable(wanted, chatRoots(this.home)))) {
+      return wanted;
+    }
+    return null;
+  }
+
+  // ---- workspace ----
+
+  /** The chat's own workspace, or the one its folder shares. The folder scope needs a folder (400 otherwise). */
+  workspace(chat: ChatRow, scope: Scope): Workspace {
+    const cwd = this.usableCwd(chat);
+    if (scope === "folder") {
+      if (cwd === null) {
+        throw new HttpError(400, "scope: this chat has no folder, so there is no shared folder workspace");
+      }
+      return new Workspace("folder", join(cwd, ".orch", "shared"), cwd);
+    }
+    const meta = { id: chat.id, title: chat.title, created_at: chat.created_at, harness: chat.harness, updated_at: chat.updated_at };
+    return cwd === null ? new Workspace("chat", join(this.home, "chats", "data", chat.id), null, meta) : new Workspace("chat", join(cwd, ".orch", "chats", chat.id), cwd, meta);
+  }
+
+  private indexChat(chat: ChatRow): void {
+    try {
+      const cwd = this.usableCwd(chat);
+      if (cwd !== null) {
+        indexUpsert(cwd, chat, false);
+      }
+    } catch {
+      // the index is a convenience: never fail a chat call for it
+    }
+  }
+
+  /** The workspace stays where it was when a chat moves; the new one records where the old one is. */
+  private afterMove(before: ChatRow, after: ChatRow): void {
+    try {
+      const from = this.usableCwd(before);
+      const to = this.usableCwd(after);
+      if (from === to) {
+        return;
+      }
+      const old = this.workspace(before, "chat");
+      if (from !== null) {
+        indexRemove(from, before.id);
+      }
+      if (old.exists()) {
+        this.workspace(after, "chat").ensure(old.root);
+      }
+      if (to !== null) {
+        indexUpsert(to, after, false);
+      }
+    } catch {
+      // a broken folder must not fail the move
+    }
+  }
+
+  /** The text appended to the agent's prompt, or "": sent on the first turn and whenever a MEMORY.md changed. */
+  workspaceInstructions(chat: ChatRow): string {
+    try {
+      const own = this.workspace(chat, "chat");
+      own.ensure();
+      const cwd = this.usableCwd(chat);
+      const shared = cwd === null ? null : this.workspace(chat, "folder");
+      shared?.ensure();
+      if (cwd !== null) {
+        indexUpsert(cwd, chat, true);
+      }
+      const print = memoryFingerprint(shared?.readMemory().content ?? "", own.readMemory().content);
+      // local-llm keeps no session: only the prompt carries the instructions, every turn.
+      if (this.lastBlock.get(chat.id) === print && chat.harness !== "local-llm") {
+        return "";
+      }
+      this.lastBlock.set(chat.id, print);
+      const project = chat.project_id === null ? null : this.store.getProject(chat.project_id);
+      return instructionBlock({ shared: shared?.root ?? null, chat: own.root, projectInstructions: project?.description ?? "" });
+    } catch {
+      return "";
+    }
   }
 
   /** Why the chat will not run where the user expects, or null: its folder is gone or no longer allowed. */
@@ -368,7 +460,9 @@ export class ChatService {
     this.emit(chatId, { event: "status", data: { chat_id: chatId, status: "running" } });
     const turn: Turn = { assistantId: assistant.id, stopRequested: false, detached: false, session: null, pid: null, abort: new AbortController(), promise: Promise.resolve() };
     this.turns.set(chatId, turn);
-    turn.promise = this.runTurn(this.chat(chatId), turn, content, paths);
+    const fresh = this.chat(chatId);
+    const block = content.trim() === "" ? "" : this.workspaceInstructions(fresh);
+    turn.promise = this.runTurn(fresh, turn, block === "" ? content : `${content}\n\n${block}`, paths);
     return { user_message_id: userMsg.id, assistant_message_id: assistant.id };
   }
 
@@ -399,12 +493,7 @@ export class ChatService {
   }
 
   private paramsFor(chat: ChatRow): SessionParams {
-    let cwd = join(this.home, "chats", "workspace");
-    const wanted = this.effectiveCwd(chat);
-    // A chat folder is checked again at every turn: a symlink swapped after it was picked must not lead outside the roots.
-    if (wanted !== null && existsSync(wanted) && statSync(wanted).isDirectory() && (chat.cwd === null || folderUsable(wanted, chatRoots(this.home)))) {
-      cwd = wanted;
-    }
+    const cwd = this.usableCwd(chat) ?? join(this.home, "chats", "workspace");
     mkdirSync(cwd, { recursive: true });
     return { chatId: chat.id, home: this.home, harness: chat.harness, profile: chat.profile, modelId: chat.model_id, cwd, resumeSessionId: chat.session_id, history: () => this.historyFor(chat.id) };
   }
