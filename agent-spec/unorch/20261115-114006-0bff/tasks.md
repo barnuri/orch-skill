@@ -1,0 +1,223 @@
+# unorch tasks for 20261115-114006-0bff
+
+Generated 2026-11-17T06:07:19.452Z. Edit the checkboxes and notes; a re-run keeps them. Handoff copies are in handoffs/.
+
+- [x] `test-speed` [done] no handoff | notes: 
+- [x] `chat-backend` [done] no handoff | notes: 
+- [x] `react-phase1` [done] no handoff | notes: 
+- [x] `chat-ui` [done] no handoff | notes: 
+- [x] `visibility` [done] no handoff | notes: 
+- [x] `duration-format` [done] no handoff | notes: 
+- [x] `chat-model-picker` [done] no handoff | notes: 
+- [x] `react-phase2` [done] no handoff | notes: 
+- [x] `docs-carry` [done] no handoff | notes: 
+- [x] `handoff-verify` [done] no handoff | notes: 
+- [x] `makeover` [done] no handoff | notes: 
+- [x] `final-gate` [done] no handoff | notes: 
+- [x] `chat-real-streaming` [done] no handoff | notes: 
+- [x] `chat-resume-gaps` [done] no handoff | notes: 
+- [x] `react-gaps` [done] no handoff | notes: 
+- [x] `orch-lessons` [done] no handoff | notes: 
+- [x] `status-bridge` [done] no handoff | notes: 
+- [x] `chat-polish` [done] no handoff | notes: 
+- [x] `makeover-design` [done] no handoff | notes: 
+- [x] `react-phase2a` [done] no handoff | notes: 
+- [x] `review-chats` [done] no handoff | notes: 
+- [x] `visibility-dark` [done] no handoff | notes: 
+- [x] `summary-stale` [done] no handoff | notes: 
+- [x] `chat-review-fixes` [done] no handoff | notes: 
+- [x] `bridge-hook` [done] no handoff | notes: 
+- [x] `loop-lesson` [done] no handoff | notes: 
+- [x] `react-phase2b` [done] no handoff | notes: 
+- [x] `react-gaps2` [done] no handoff | notes: 
+- [x] `chat-ios` [done] no handoff | notes: 
+- [x] `makeover-decide` [done] no handoff | notes: 
+- [x] `rest-of-vanilla` [done] no handoff | notes: 
+- [x] `fix-schema-test` [done] no handoff | notes: 
+- [x] `server-slow-probes` [done] no handoff | notes: 
+- [x] `chat-warning-ui` [done] no handoff | notes: 
+- [x] `tmp-trash` [done] no handoff | notes: 
+- [x] `status-line-edit` [done] no handoff | notes: 
+- [x] `checkpoint-commits` [done] no handoff | notes: 
+- [x] `makeover-apply` [done] no handoff | notes: 
+- [x] `tmp-leak` [done] no handoff | notes: 
+- [x] `swap-gaps` [done] no handoff | notes: 
+- [x] `liveness-check` [done] no handoff | notes: 
+- [x] `lesson-liveness` [done] no handoff | notes: 
+- [x] `node-activity-panel` [done] no handoff | notes: 
+- [x] `tmp-recount` [done] no handoff | notes: 
+- [x] `suggest-scan-slow` [done] no handoff | notes: 
+- [x] `opencode-plugin` [done] no handoff | notes: 
+- [x] `claude-hook` [done] no handoff | notes: 
+- [x] `owner-event-contract` [done] no handoff | notes: 
+- [x] `herdr-folders-orch` [done] no handoff | notes: 
+- [x] `fast-heartbeat` [done] no handoff | notes: 
+- [x] `folders-narrow` [done] no handoff | notes: 
+- [x] `reopen-folders` [done] no handoff | notes: 
+- [x] `test-bash-13` [done] no handoff | notes: 
+- [x] `test-ts-flakes` [done] no handoff | notes: 
+- [x] `graph-hide-done` [done] no handoff | notes: 
+- [x] `cleanup-junk` [done] no handoff | notes: 
+- [x] `reap-stale-procs` [done] no handoff | notes: 
+- [x] `chat-real-rerun` [skipped] no handoff | notes: 
+- [x] `profiles-tmp-fix` [done] no handoff | notes: 
+- [x] `suggest-scan-bash` [done] no handoff | notes: 
+- [x] `activity-browser-check` [done] no handoff | notes: 
+- [x] `ts-tail-and-leak` [done] no handoff | notes: 
+- [x] `status-colors` [done] no handoff | notes: 
+- [x] `chat-harness-disabled` [done] no handoff | notes: 
+- [x] `owner-autofill` [done] no handoff | notes: 
+- [x] `web-tests-combined` [done] no handoff | notes: 
+- [x] `makeover-pages-a` [done] no handoff | notes: 
+- [x] `makeover-pages-b` [done] no handoff | notes: 
+- [x] `makeover-runs` [done] no handoff | notes: 
+- [x] `makeover-chats` [done] no handoff | notes: 
+- [x] `makeover-pages-b-gaps` [done] no handoff | notes: 
+- [x] `stale-service-indicator` [done] no handoff | notes: 
+- [x] `restart-safety-audit` [done] no handoff | notes: 
+- [x] `restart-safety-impl` [done] no handoff | notes: 
+- [x] `opencode-shapes-verify` [done] no handoff | notes: 
+- [x] `restart-safety-1` [done] no handoff | notes: 
+- [x] `reinstall-service` [done] no handoff | notes: 
+- [x] `restart-safety-herdr` [done] no handoff | notes: 
+- [x] `restart-safety-chats` [done] no handoff | notes: 
+- [x] `chats-390-gaps` [done] no handoff | notes: 
+- [x] `server-chat-tests-fail` [done] no handoff | notes: 
+- [x] `chat-elapsed-check` [done] no handoff | notes: 
+- [x] `herdr-web-envs` [done] no handoff | notes: 
+- [x] `review-server` [done] no handoff | notes: 
+- [x] `review-bash` [done] no handoff | notes: 
+- [x] `review-web` [done] no handoff | notes: 
+- [x] `commit-plan` [done] no handoff | notes: 
+- [x] `docs-refresh` [done] no handoff | notes: 
+- [x] `review-gaps` [done] no handoff | notes: 
+- [x] `herdr-env-register` [done] no handoff | notes: 
+- [x] `review-turn-files` [done] no handoff | notes: 
+- [x] `palette-blue` [done] no handoff | notes: 
+- [x] `latest-and-fast` [done] no handoff | notes: 
+- [x] `checkpoint-branch` [done] no handoff | notes: 
+- [x] `final-cr-loop` [done] no handoff | notes: 
+- [x] `reconciler-speed` [done] no handoff | notes: 
+- [x] `node-batch` [done] no handoff | notes: 
+- [x] `schedule-edit` [done] no handoff | notes: 
+- [x] `opencode-chat` [done] no handoff | notes: 
+- [x] `session-postmortem` [done] no handoff | notes: 
+- [x] `weekly-optimize` [done] no handoff | notes: 
+- [x] `test-speed-2` [done] no handoff | notes: 
+- [x] `node-babysit` [done] no handoff | notes: 
+- [x] `cr-ui-1` [done] no handoff | notes: 
+- [x] `chat-mobile` [done] no handoff | notes: 
+- [x] `chat-defaults-fix` [done] no handoff | notes: 
+- [x] `chat-rename` [done] no handoff | notes: 
+- [x] `cost-ui-fill` [done] no handoff | notes: 
+- [x] `node-babysit-ui` [done] no handoff | notes: 
+- [x] `cr-2-chats` [done] no handoff | notes: 
+- [x] `cr-3-runs` [done] no handoff | notes: 
+- [x] `batch-new-fields` [done] no handoff | notes: 
+- [x] `final-node-deps` [done] no handoff | notes: 
+- [x] `stale-watch-records` [done] no handoff | notes: 
+- [x] `chat-edge-real` [done] no handoff | notes: 
+- [x] `test-timing-quiet` [done] no handoff | notes: 
+- [x] `merge-master` [done] no handoff | notes: 
+- [x] `herdr-web-restart` [done] no handoff | notes: 
+- [x] `opencode-serve-speedup` [done] no handoff | notes: 
+- [x] `load-flake-fix` [done] no handoff | notes: 
+- [x] `actual-model` [done] no handoff | notes: 
+- [x] `chat-multimodal` [done] no handoff | notes: 
+- [x] `chat-voice` [done] no handoff | notes: 
+- [x] `wait-reason-cards` [done] no handoff | notes: 
+- [x] `state-lost-write` [done] no handoff | notes: 
+- [x] `cost-double-count` [done] handoffs/cost-double-count.md | notes: 
+- [x] `final-gate-rerun` [done] handoffs/final-gate-rerun.md | notes: 
+- [x] `checkpoint-commit-2` [done] no handoff | notes: 
+- [x] `herdr-web-supervision` [done] no handoff | notes: 
+- [x] `opencode-serve-tradeoff` [done] no handoff | notes: 
+- [x] `empty-trash-secrets` [skipped] no handoff | notes: 
+- [x] `herdr-env-managed` [done] no handoff | notes: 
+- [x] `coordinator-wait` [done] no handoff | notes: 
+- [x] `systemd-killmode` [done] no handoff | notes: 
+- [x] `coordinator-terse` [done] handoffs/coordinator-terse.md | notes: 
+- [x] `herdr-web-crash-heal` [done] no handoff | notes: 
+- [x] `schedule-model` [done] no handoff | notes: 
+- [x] `run-retry-fail` [done] no handoff | notes: 
+- [x] `hub-whisper-fix` [done] no handoff | notes: 
+- [x] `voice-latency` [done] no handoff | notes: 
+- [x] `chat-ios-phone` [done] no handoff | notes: 
+- [x] `hub-ivrit-config` [done] no handoff | notes: 
+- [x] `graph-ui-prefs` [done] handoffs/graph-ui-prefs.md | notes: 
+- [x] `session-retro` [waiting] no handoff | notes: coordinator: last
+- [x] `run-pause-resume` [done] handoffs/run-pause-resume.md | notes: 
+- [x] `auto-resume-boot` [done] handoffs/auto-resume-boot.md | notes: 
+- [x] `run-stop` [done] handoffs/run-stop.md | notes: 
+- [x] `shutdown-pause` [done] handoffs/shutdown-pause.md | notes: 
+- [x] `cr-final-review` [waiting] no handoff | notes: coordinator: after merges
+- [x] `xt-runpage-a` [done] handoffs/xt-runpage-a.md | notes: 
+- [x] `xt-runpage-b` [done] handoffs/xt-runpage-b.md | notes: 
+- [x] `xt-runpage-c` [done] handoffs/xt-runpage-c.md | notes: 
+- [x] `xt-opencode-flags` [done] handoffs/xt-opencode-flags.md | notes: 
+- [x] `xt-orch-delegation` [done] handoffs/xt-orch-delegation.md | notes: 
+- [x] `xt-watch-verify` [done] handoffs/xt-watch-verify.md | notes: 
+- [x] `xt-model-icons` [done] handoffs/xt-model-icons.md | notes: 
+- [x] `scripts-reorg` [done] handoffs/scripts-reorg.md | notes: 
+- [x] `profiles-template-split` [done] handoffs/profiles-template-split.md | notes: 
+- [x] `run-autodispatch` [done] handoffs/run-autodispatch.md | notes: 
+- [x] `run-watchdog` [done] handoffs/run-watchdog.md | notes: 
+- [x] `node-data-fill` [done] no handoff | notes: 
+- [x] `fast-tests-bash` [done] handoffs/fast-tests-bash.md | notes: 
+- [x] `fast-tests-bun` [done] handoffs/fast-tests-bun.md | notes: 
+- [x] `node-real-duration` [skipped] handoffs/node-real-duration.md | notes: 
+- [x] `final-gate-full` [waiting] no handoff | notes: coordinator: once, at the end
+- [x] `tests-resumable` [done] handoffs/tests-resumable.md | notes: 
+- [x] `node-messaging` [done] handoffs/node-messaging.md | notes: 
+- [x] `integrate-wip` [done] handoffs/integrate-wip.md | notes: 
+- [x] `model-effort-fix` [done] handoffs/model-effort-fix.md | notes: 
+- [x] `bun-core-plan` [done] handoffs/bun-core-plan.md | notes: 
+- [x] `bun-p0-skeleton` [done] handoffs/bun-p0-skeleton.md | notes: 
+- [x] `bun-p0-parity` [done] handoffs/bun-p0-parity.md | notes: 
+- [x] `bun-p1-state` [done] handoffs/bun-p1-state.md | notes: 
+- [x] `bun-p2-status` [done] handoffs/bun-p2-status.md | notes: 
+- [x] `bun-p2-node` [done] handoffs/bun-p2-node.md | notes: 
+- [x] `bun-p2-health` [done] no handoff | notes: 
+- [x] `bun-p2-inbox` [done] handoffs/bun-p2-inbox.md | notes: 
+- [x] `bun-p2-dispatch` [error] no handoff | notes: branch take-p2dispatch (delegate done 9d25c25, plan and dispatch in progress) merged 6843c5a, untested; run sync and run advance not ported
+- [x] `bun-p3-adapters` [waiting] no handoff | notes: branch take-adapters merged 2405066, untested; batch and owner bash tests still call removed bash functions
+- [x] `bun-p3-routing` [done] handoffs/bun-p3-routing.md | notes: 
+- [x] `bun-p3-herdr` [waiting] no handoff | notes: branch take-herdr merged 6100bd9, untested, bash herdr_* wrappers remain in dispatch.sh
+- [x] `bun-p4-owners` [waiting] no handoff | notes: branch take-owners merged 031fd1b, untested; 8 bash call sites in runs.sh batch.sh wait.sh health.sh still use removed functions
+- [x] `bun-p5-sched` [done] no handoff | notes: 
+- [x] `bun-p5-serve` [error] handoffs/bun-p5-serve.md | notes: branch take-serve merged 433f554, untested
+- [x] `bun-p6-retire` [waiting] no handoff | notes: coordinator: after all merges
+- [x] `bun-verify` [waiting] no handoff | notes: coordinator: final gate once
+- [x] `run-ui-prefs-global` [done] handoffs/run-ui-prefs-global.md | notes: 
+- [x] `schedule-cron-text` [done] handoffs/schedule-cron-text.md | notes: 
+- [x] `herdr-tab-per-node` [done] no handoff | notes: 
+- [x] `ui-red-only-errors` [done] no handoff | notes: 
+- [x] `herdr-bridge` [done] no handoff | notes: 
+- [x] `profile-defaults` [done] no handoff | notes: 
+- [x] `lessons-guards` [done] no handoff | notes: 
+- [x] `colorized-output` [error] no handoff | notes: branch take-colorized, commit 7202a9e, live pane check still open merged earlier, live pane check open
+- [x] `bun-required-shim` [done] handoffs/bun-required-shim.md | notes: 
+- [x] `bun-p5-announce` [waiting] no handoff | notes: branch take-announce (with loops and schedules) merged 7964a2a (announce, loops, schedules), untested
+- [x] `bun-p6-repo-scripts` [waiting] no handoff | notes: branch take-repo merged 934e44a, untested
+- [x] `bun-p6-tests` [waiting] no handoff | notes: branch take-tests merged e17a6de, untested: 92 bash tests to 40 bun tests
+- [x] `coordinator-failover` [error] handoffs/coordinator-failover.md | notes: branch take-failover (subagent) merged 55aef28, untested
+- [x] `coordinator-failover-ui` [waiting] no handoff | notes: branch take-failover (same subagent) merged 55aef28, untested
+
+## Taken over into the main session (2026-11-17)
+Run stopped with `dispatch.ts run stop` (stopped:true, nothing was running). Remaining nodes were finished in this session, not by orch:
+- [x] `bun-p2-dispatch` merged 6843c5a, delegate/plan/dispatch ported; cutover 3011f03
+- [x] `bun-p3-adapters` merged 2405066
+- [x] `bun-p3-herdr` merged 6100bd9 (e53078f)
+- [x] `bun-p4-owners` merged 031fd1b
+- [x] `bun-p5-serve` merged 433f554
+- [x] `bun-p5-announce` merged 7964a2a
+- [x] `bun-p6-repo-scripts` merged 934e44a
+- [x] `bun-p6-tests` merged e17a6de
+- [x] `bun-p6-retire` cutover merged 3011f03 (dispatch.ts is the only entry)
+- [x] `colorized-output` merged 1babbe0 (7202a9e)
+- [x] `coordinator-failover` and `coordinator-failover-ui` merged 55aef28
+- [x] `node-real-duration`, `chat-real-rerun`, `empty-trash-secrets`: skipped by the user earlier
+- [x] `session-retro`: docs/session-retro.md (3aaba45), written this session
+- [x] `cr-final-review`: NOT RUN
+- [x] `final-gate-full`: NOT RUN (last full runs: bun 1847/4 then fixed; orch 155/0 at 52cfaf7)
+- [x] `bun-verify`: NOT RUN (Sonnet verify was not started; run once, after the gate)

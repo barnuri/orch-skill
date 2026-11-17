@@ -10,7 +10,7 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [x] P17 job folder wins over owner events (no false stuck or stalled) | fixed: 2026-11-16 e93ef0a | check: ORCH_HERDR=0 bun test src/server/watchdog
 - [x] P18 watchdog flags clear themselves | fixed: 2026-11-16 8c79174 | check: ORCH_HERDR=0 bun test src/server/watchdog src/web/shell
 - [x] P19 red only for errors | fixed: 2026-11-16 8c79174 | check: bun test src/web/colour-red.test.ts
-- [x] P24 one session cost is counted once | fixed: 2026-11-16 85b8e0f | check: bun skills/orch/tests/run.ts owner
+- [!] P24 one session cost is counted once | fixed: 2026-11-16 85b8e0f | check: bun skills/orch/tests/run.ts owner | REGRESSED 2026-11-17
 - [x] P29 node_modules is not tracked and not a self symlink | fixed: 2026-11-16 08e6788 | check: test ! -L node_modules
 - [x] P30 web bundle has no node imports | fixed: 2026-11-16 392844f | check: bun scripts/typecheck.ts
 - [x] P31 strict typecheck is clean | fixed: 2026-11-16 0d20d1e dc5ae5f | check: bun scripts/typecheck.ts
@@ -20,16 +20,16 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [x] P45 cron expression shows its meaning | fixed: 2026-11-16 8c79174 | check: bun test src/web/lib/cron-text.test.ts
 - [x] P43 agent output keeps colour (pty, ANSI log) | fixed: 2026-11-16 7202a9e | check: bun test skills/orch/core/commands/herdr-launch.test.ts src/web/lib/ansi.test.ts
 - [x] P6 parallel cap 15 | fixed: 2026-11-16 profile-defaults | check: grep -q "auto_dispatch_max_parallel" src/server/runs/auto-dispatch.ts
-- [x] P1 CLI call takes seconds (run status 0.356 s, node update 0.215 s, batch x10 0.478 s, help 0.083 s at load 19; was 7.1 s) | fixed: 2026-11-16 7e0d55d | check: bun scripts/bench-status.ts 0.5
+- [!] P1 CLI call takes seconds (run status 0.356 s, node update 0.215 s, batch x10 0.478 s, help 0.083 s at load 19; was 7.1 s) | fixed: 2026-11-16 7e0d55d | check: bun scripts/bench-status.ts 0.5 | REGRESSED 2026-11-17
 - [x] P7 early end resumes the same session | fixed: 2026-11-16 95b214b | check: bun skills/orch/tests/run.ts lessons
-- [x] P9 retry keeps the prompt and prepends unread answers | fixed: 2026-11-16 da06bc6 | check: bun test skills/orch/tests/core-gaps
+- [!] P9 retry keeps the prompt and prepends unread answers | fixed: 2026-11-16 da06bc6 | check: bun test skills/orch/tests/core-gaps | REGRESSED 2026-11-17
 - [ ] P12 asks are answered fast (bridge delivers) | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P14 coordinator repoint by session id | fixed: - | check: bun skills/orch/tests/run.ts coordinator
 - [ ] P15 answers reach the retry of an ended node | fixed: - | check: bun skills/orch/tests/run.ts inbox
 - [x] P20 one live job per node | fixed: 2026-11-16 75510c7 | check: bun skills/orch/tests/run.ts lessons
-- [x] P21 reset to waiting releases the engine claim | fixed: 2026-11-16 da06bc6 | check: ORCH_HERDR=0 bun test src/server/runs/auto-dispatch.test.ts
+- [!] P21 reset to waiting releases the engine claim | fixed: 2026-11-16 da06bc6 | check: ORCH_HERDR=0 bun test src/server/runs/auto-dispatch.test.ts | REGRESSED 2026-11-17
 - [x] P22 duration counts only running time | fixed: 2026-11-16 efe541f | check: bun skills/orch/tests/run.ts timing
-- [x] P23 cards show model, role, tier, effort, cost | fixed: 2026-11-16 8461841 | check: bun skills/orch/tests/run.ts owner
+- [!] P23 cards show model, role, tier, effort, cost | fixed: 2026-11-16 8461841 | check: bun skills/orch/tests/run.ts owner | REGRESSED 2026-11-17
 - [ ] P26 one worktree per code node | fixed: - | check: test -n "$(git worktree list | grep -c take)"
 - [ ] P34 tests run dispatch.ts with bun | fixed: - | check: ! grep -rq '"bash", DISPATCH' skills/orch/tests
 - [ ] P38 src tests pass (9 fixed in 558646b, rerun pending) | fixed: - | check: ORCH_HERDR=0 bun test --parallel=6 src
