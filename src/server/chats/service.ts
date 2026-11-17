@@ -175,6 +175,8 @@ export class ChatService {
       }
       const verdict = this.liveness.verdict(chatId, this.pidOf(turn));
       if (verdict.kind === "dead") {
+        // Report the silence before failing it: a tick that lands past both thresholds must not skip the stall report.
+        this.emitActivity(chatId, turn);
         turn.failure = verdict.message;
         turn.failedAt = Date.now();
         void this.stopTurn(turn).catch(() => undefined);
