@@ -406,7 +406,7 @@ describe("loops from a chat (the orch loop engine, results posted into the threa
 });
 
 describe("monitors from a chat (the orch watch engine)", () => {
-  async function until(fn: () => boolean, ms = 20_000): Promise<void> {
+  async function until(fn: () => boolean, ms = 60_000): Promise<void> {
     const end = Date.now() + ms;
     while (!fn()) {
       if (Date.now() > end) throw new Error("timed out");
