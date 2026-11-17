@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -55,8 +55,11 @@ describe("a fresh server process always starts HTTP", () => {
     const { home, proc, up } = await boot({ https_port: freePort(), tls_mode: "files", tls_cert: "/nonexistent/c.pem", tls_key: "/nonexistent/k.pem" }, port);
     try {
       expect(up).toBe(true);
-      await Bun.sleep(500);
-      const st = JSON.parse(readFileSync(join(home, "serve", "tls.json"), "utf8")) as { listening: boolean; problem: string };
+      const statusFile = join(home, "serve", "tls.json");
+      for (let i = 0; i < 150 && !(existsSync(statusFile) && readFileSync(statusFile, "utf8").includes("cannot be read")); i++) {
+        await Bun.sleep(200);
+      }
+      const st = JSON.parse(readFileSync(statusFile, "utf8")) as { listening: boolean; problem: string };
       expect(st.listening).toBe(false);
       expect(st.problem).toContain("cannot be read");
       expect((await fetch(`http://127.0.0.1:${port}/api/health`)).status).toBe(200);
