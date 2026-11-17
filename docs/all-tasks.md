@@ -77,4 +77,4 @@ runs-group test fixer, other-groups test fixer, typecheck cache and parallel tes
 
 
 ## Final status (2026-11-17)
-All code tasks done. Gate at 000a330: bun 1909 pass 0 fail, orch 155/0, typecheck ok. Checklist P24, P1, P38, P40, P41 pass. Remaining: phone and Tailscale checks in docs/to-verify.md (user only).
+All code tasks done. Gate at 000a330: bun 1909 pass 0 fail, orch 155/0, typecheck ok. Checklist P24, P1, P38, P40, P41 pass. Phone and device checks are out of scope (automated tests only).

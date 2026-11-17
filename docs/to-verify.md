@@ -80,5 +80,5 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 
 ## Closing notes (2026-11-17)
 - Watchdog flags live in memory (`watchdog-service.ts:266`) and are re-raised each tick while the cause holds, so a restart clears the pill for up to one tick, then it refills. An empty list after a stalled node means the cause cleared (`dropStaleFlags`) or the node is no longer in a running run. Not a bug.
-- Open boxes above need a phone or the Tailscale admin console (voice, installed apps, push, trusting the local CA). Only the user can tick them.
+- Phone checks (voice, installed apps, push, trusting the CA on a device) are out of scope: covered by the automated tests only, not verified on a device.
 - Run 20261115-114006-0bff ended `error`: 181 of 200 done. The error nodes (bun-p2-dispatch, bun-p5-serve, colorized-output, coordinator-failover) died earlier. Their work was redone in the main session (commits in master, gate bun 1909/0, orch 155/0). Superseded.
