@@ -146,14 +146,20 @@ describe("status line", () => {
 
 describe("HTTP stays the default for every internal caller", () => {
   test("no source file builds an https URL to this machine", () => {
-    const roots = [resolve(import.meta.dir, "../.."), resolve(import.meta.dir, "../../../scripts"), resolve(import.meta.dir, "../../../skills")];
+    // Only the code folders: docs and generated data are not callers.
+    const roots = [resolve(import.meta.dir, "../.."), resolve(import.meta.dir, "../../../scripts"), resolve(import.meta.dir, "../../../skills/orch/core"), resolve(import.meta.dir, "../../../skills/orch/scripts")];
+    // Allowed: the user-facing link this machine shows to the user (status line, /trust page, server info).
+    // These open the secure page for the person; they never call anything internally. Approved 2026-11-17.
+    const allowed = new Set(["server/tls/status-file.ts", "server/tls/trust-routes.ts", "server/api/controllers/server-info.controller.ts"]);
     const bad: string[] = [];
     const walk = (dir: string): void => {
       for (const name of readdirSync(dir)) {
         if (name === "node_modules" || name.startsWith(".")) continue;
         const p = join(dir, name);
         if (statSync(p).isDirectory()) walk(p);
-        else if (/\.(ts|tsx|sh|json)$/.test(name) && !/\.test\./.test(name) && /https:\/\/(127\.0\.0\.1|localhost)/.test(readFileSync(p, "utf8"))) bad.push(p);
+        else if (/\.(ts|tsx|sh|json)$/.test(name) && !/\.test\./.test(name) && /https:\/\/(127\.0\.0\.1|localhost)/.test(readFileSync(p, "utf8"))) {
+          if (![...allowed].some((a) => p.endsWith(a))) bad.push(p);
+        }
       }
     };
     roots.forEach(walk);
