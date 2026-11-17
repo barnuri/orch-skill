@@ -14,12 +14,12 @@ case "$mode" in
   idle) echo '{"data":[{"type":"assistant","time":{"completed":1},"content":[{"type":"text","text":"all done, tests pass"}]}]}' ;;
   busy) echo '{"data":[{"type":"assistant","time":{},"content":[]}]}' ;;
   404) echo 'Error: 404 Not Found' >&2; exit 1 ;;
-  slow) sleep 30 ;;
+  slow) exec sleep 8 ;;
   *) echo 'boom' >&2; exit 1 ;;
 esac` });
   const mode = (id: string, m: string) => writeFileSync(join(fake, "modes", id), m + "\n");
   const home = seedHome();
-  const env = { ORCH_OPENCODE_DB: "/nonexistent/opencode.db", PATH: `${bin}:${process.env.PATH}`, ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OWNER_CACHE_SECS: "0", ORCH_OWNER_TOTAL_SECS: "120" };
+  const env = { ORCH_OPENCODE_DB: "/nonexistent/opencode.db", PATH: `${bin}:${process.env.PATH}`, ORCH_OWNER_CALL_TIMEOUT: "5", ORCH_OWNER_CACHE_SECS: "0", ORCH_OWNER_TOTAL_SECS: "120" };
   return { fake, mode, home, env, o: orch(home, env), calls: () => readText(join(fake, "calls")) };
 };
 

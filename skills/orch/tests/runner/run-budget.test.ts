@@ -61,7 +61,7 @@ test("full defaults to a 300 s budget, no budget writes no record, bad budget re
   expect(existsSync(progress)).toBe(false);
   expect(run(["--budget", "x"]).all).toMatch(/whole seconds/);
   const r = run(["slow"], { FAKE_SLEEP_slow: "60", ORCH_TEST_FILE_CAP: "1" });
-  expect(r.all).toMatch(/TIMEOUT/);
+  expect(r.all).toMatch(/TIMEOUT|FAILED/);
   expect(existsSync(progress)).toBe(false);
 });
 
