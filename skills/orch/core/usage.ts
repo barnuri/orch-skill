@@ -12,6 +12,7 @@ import { RUN_CARRY_USAGE } from "./commands/carry.ts";
 import { NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE } from "./commands/owners.ts";
 import { NODE_SELECTIONS_USAGE } from "./commands/selections.ts";
 import { NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE } from "./commands/inbox.ts";
+import { COORDINATOR_USAGE } from "./commands/coordinator.ts";
 
 const RUNS_SECTION = [
   "Runs and nodes (a run is a DAG of nodes; state lives under the config home):",
@@ -22,6 +23,7 @@ const RUNS_SECTION = [
   PLAN_USAGE, PLAN_APPLY_USAGE, MSG_SEND_USAGE, MSG_READ_USAGE,
   NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE, NODE_SELECTIONS_USAGE,
   NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE,
+  COORDINATOR_USAGE,
 ].join("\n");
 
 export const USAGE = `dispatch.ts classify "<task description>" [--complexity trivial|small|medium|large] [--prefer-local]

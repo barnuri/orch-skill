@@ -389,20 +389,45 @@ fix the cause in the skill or the dispatcher, not only in the run. Record each l
 `agent-spec/<slug>/handoff.md` and, if it is a rule, in this file.
 
 Speed rules for the coordinator:
-- Run deterministic work (tests, typecheck, commits, restarts, status reads, file checks) as plain
-  commands in the coordinator, not through an agent. Use `dispatch.ts` subcommands for state changes.
+- **No tests in the coordinator.** The coordinator never runs tests or typecheck, not even "one quick
+  check". Only child nodes run tests, and only the targeted tests of the files they touched; one
+  `verify` node runs the full suite once at the end. The coordinator reads their reports.
+- **Orch dispatches every node.** The coordinator never starts a foreground subagent (the `task` tool or
+  any call that blocks its turn). Add the node and run `orch node dispatch <run> <node>`; orch starts it
+  in its own job with the pinned profile and records tokens and cost. Follow-ups go to the node with
+  `node tell` or `node retry`, never by a blocking subagent call.
+- Run the other deterministic work (commits, restarts, status reads, file checks) as plain commands in
+  the coordinator, not through an agent. Use `dispatch.ts` subcommands for state changes.
 - Start every node whose dependencies are done at once. Never wait on a node that does not block the next one.
 - Read `state.json` fresh before reporting a status. Keep `run wait --follow` running so a finished node is
   acted on within a minute, not at the next user prompt.
 - Check a node's output files before you accept `done`.
-- Tests of this skill (`bun skills/orch/tests/run.ts`): after an edit run `run.ts --changed` (fast
+- Tests of this skill (`bun skills/orch/tests/run.ts`), run by the node that made the edit: after an edit run `run.ts --changed` (fast
   tier plus the tests of the changed files). Before a commit run the fast tier (`run.ts`, under 30 s).
   Run `run.ts --full` once, at the end, in one node. A path-only or doc-only change runs the fast tier only.
   Add `--budget 300` to stop a run at 5 minutes. It prints the files that did not finish; rerun only those.
 
+## Coordinator model and rotation
+
+Coordinator sessions that orch starts use `settings.coordinator_model` in `profiles.json` (default
+`llm-hub/copilot/claude-sonnet-5-5`). Start one with `orch coordinator start <run>`.
+
+Keep the coordinator context small. After each wake, check your context size. When it passes
+`settings.coordinator_rotate_tokens` (default 200000), run
+`orch coordinator rotate <run> --tokens <N> --summary "<decisions, open questions, next steps>"`.
+It writes a handoff to `runs/<run>/coordinator-handoffs/`, starts a fresh coordinator with that handoff,
+and you end your session after the current turn. Below the threshold it prints `ok` and does nothing.
+
 ## Keep the prompt free
 
 The user must be able to keep typing while a run works. Never wait for a node in the foreground. Start the watch in the background (`run wait <run> --follow`, in a loop that restarts it) with the harness's background command, and act when it reports. In opencode use a background shell command: it notifies the session when it ends, so the user can send new questions and tasks in the meantime. The dashboard watchdog (`GET /api/watchdog`) does the deterministic work (start ready nodes, liveness, done checks, retries) without any session.
+
+## Short prompts and shell commands
+
+Start each dispatched or subagent prompt with the one-line preamble in
+[references/subagent-preamble.md](references/subagent-preamble.md); do not paste the rules. Use the `workdir`
+tool argument instead of `cd`, the edit tool instead of python heredocs, and `scripts/o.ts`,
+`scripts/run-nodes.ts`, `scripts/job-tail.ts` instead of inline `jq`/`o(){...}` one-offs.
 
 ## Babysitting
 
@@ -422,13 +447,6 @@ Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run 
 
 Pick the form by what this session can do:
 - **Background shell that tells you when a command ends** (opencode, Claude Code background Bash): run `orch run wait <run>` in the background. When it ends, act on the events, then start it again at once.
-## Short prompts and shell commands
-
-Start each dispatched or subagent prompt with the one-line preamble in
-[references/subagent-preamble.md](references/subagent-preamble.md); do not paste the rules. Use the `workdir`
-tool argument instead of `cd`, the edit tool instead of python heredocs, and `scripts/o.ts`,
-`scripts/run-nodes.ts`, `scripts/job-tail.ts` instead of inline `jq`/`o(){...}` one-offs.
-
 - **A Monitor tool that streams a command's lines**: monitor `orch run wait <run> --follow` (it ends by itself when the run ends).
 - **Neither** (pi and similar): call `orch run wait <run> --timeout 600` once per turn.
 
@@ -442,7 +460,7 @@ Treat every substantive task as a graph, the way Claude Code's ultracode does: p
 2. **Start and finish live.** `node update <run> <node> running` when work on the node begins, `done` or `error` the moment it ends. Never mark nodes in a batch afterwards: the dashboard duration would read seconds.
 3. **Cross-check.** Add a `verify` node (`--role validation`, `--after` the nodes it checks) that reads their out dirs and tests the result. A failed check is an `error` on that node, then retry.
 4. **Report what ran inline.** Work done in this session or by a subagent has no job to read usage from. Record it: `orch node report <run> <node> --model M [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X]`. Pass only numbers you know.
-5. **Fan out.** Prefer dispatched nodes or subagents over doing parallel steps yourself.
+5. **Fan out.** Dispatch nodes with `orch node dispatch`; never do parallel steps yourself and never start foreground subagents.
 6. **Stay free to monitor.** Use `run sync` and `node digest` instead of reading logs, and give the user the `#/run/<run-id>` link when the run starts.
 
 ## Delegation workflow

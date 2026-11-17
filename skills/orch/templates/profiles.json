@@ -16,6 +16,8 @@
     "max_attempts": 5,
     "max_nodes": 12,
     "planner_profile": "claude-planner",
+    "coordinator_model": "llm-hub/copilot/claude-sonnet-5-5",
+    "coordinator_rotate_tokens": 200000,
     "herdr": false,
     "learning": {
       "auto_record_memory": true,

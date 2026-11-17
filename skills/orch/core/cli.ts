@@ -80,6 +80,8 @@ export const COMMANDS: Record<string, Handler> = {
   "run broadcast": L(inbox, (m) => m.cmdRunBroadcast),
   "run rule": L(inbox, (m) => m.cmdRunRule),
   "run repoint": L(inbox, (m) => m.cmdRunRepoint),
+  "coordinator start": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorStart),
+  "coordinator rotate": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorRotate),
   "run pause": L(pause, (m) => m.runPause),
   "run resume": L(pause, (m) => m.runResume),
   "run stop": L(pause, (m) => m.runStop),
