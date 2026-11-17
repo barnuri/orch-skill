@@ -14,7 +14,9 @@ All scripts, entry points, tests, tools and future code in this repo are written
 install.ts / uninstall.ts         register/unregister this folder with Claude Code
 scripts/service.ts                optional always-on dashboard service (launchd / systemd --user)
 scripts/*.ts                      service, typecheck, test-all/budget/fast, heavy-test-lock, lint, precommit-smoke, demo/mod capture;
-                                  lib/util.ts holds the shared helpers; verify/*.ts are the repo verify checks
+                                  lib/util.ts holds the shared helpers; verify/*.ts are the repo verify checks;
+                                  o.ts, run-nodes.ts, job-tail.ts are coordinator shortcuts (references/subagent-preamble.md):
+                                  use them, the `workdir` tool argument (not `cd`) and the edit tool (not python heredocs)
 package.json / bun.lock           the dashboard server's dependencies (hono, zod, decorators)
 src/                              the dashboard code, kept OUT of the skill so loading the skill never pulls it in
   server/                         Bun + Hono server

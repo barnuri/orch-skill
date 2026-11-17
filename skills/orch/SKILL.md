@@ -422,6 +422,13 @@ Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run 
 
 Pick the form by what this session can do:
 - **Background shell that tells you when a command ends** (opencode, Claude Code background Bash): run `orch run wait <run>` in the background. When it ends, act on the events, then start it again at once.
+## Short prompts and shell commands
+
+Start each dispatched or subagent prompt with the one-line preamble in
+[references/subagent-preamble.md](references/subagent-preamble.md); do not paste the rules. Use the `workdir`
+tool argument instead of `cd`, the edit tool instead of python heredocs, and `scripts/o.ts`,
+`scripts/run-nodes.ts`, `scripts/job-tail.ts` instead of inline `jq`/`o(){...}` one-offs.
+
 - **A Monitor tool that streams a command's lines**: monitor `orch run wait <run> --follow` (it ends by itself when the run ends).
 - **Neither** (pi and similar): call `orch run wait <run> --timeout 600` once per turn.
 
