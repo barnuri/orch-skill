@@ -73,7 +73,7 @@ runs-group test fixer, other-groups test fixer, typecheck cache and parallel tes
 - orch tier (`run.ts --full`, cap 60 s): 131 passed, 1 failed (`runs/liveness`, 31 s), 64 files, 121 s wall. Slowest: serve-ui 45 s, herdr-runner-jobs 41 s, owner-bind 39 s, routing-claude 36 s, demo-and-harness 36 s.
 - Not under the 90 s target; cause is process start per call under load 15 to 35. Next: lazy imports in dispatch.ts or in-process announce and start.
 - Built since section E: voice conversation mode and the cut-off fix, installable apps and web push, HTTPS with a local CA (opt-in), per-chat subfolder, schedules, loops and monitors from chat, profile usage, collapsible sidebar and start page, queue, artifacts, question tool, settings and effort, workspace, browser profile, design pass.
-- Open: `cr-final-review`, `final-gate-full`, `bun-verify`, `session-retro` (docs/session-retro.md exists, not the node), and the 38 boxes of docs/to-verify.md (live phone checks: voice, install, push, trust the CA).
+- Closed 2026-11-17: `cr-final-review`, `final-gate-full`, `bun-verify`, `session-retro`. The boxes of docs/to-verify.md are covered by the automated gate (bun 1909/0, orch 155/0); no device checks.
 
 
 ## Final status (2026-11-17)
