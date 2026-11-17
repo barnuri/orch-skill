@@ -166,9 +166,10 @@ describe.concurrent("GET /api/runs/:id", () => {
     ]);
   });
 
+  // A running node's timing is derived from the clock, so its body (and ETag) changes every second.
   test("an unchanged run answers 304", async () => {
     const srv = server();
-    seed(srv, RUN_ID, runState());
+    seed(srv, RUN_ID, runState({ nodes: [node("a", "done"), node("b", "done"), node("c", "waiting")] }));
     const etag = (await srv.api(`/api/runs/${RUN_ID}`)).headers.get("etag") ?? "";
     const res = await srv.api(`/api/runs/${RUN_ID}`, { headers: { "If-None-Match": etag } });
     expect(res.status).toBe(304);
