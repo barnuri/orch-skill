@@ -56,7 +56,9 @@ switch (k) {
       appendFileSync(join(S, "starts"), "x\n");
       await Bun.sleep(50);
       writeFileSync(sock, String(process.pid));
-      while (existsSync(sock)) await Bun.sleep(50);
+      // A test that stops before removing the socket must not leave this server running for hours: it ends after 120 s.
+      const deadline = Date.now() + 120_000;
+      while (existsSync(sock) && Date.now() < deadline) await Bun.sleep(50);
       process.exit(0);
     }
     console.error(`fake herdr: unsupported ${a.join(" ")}`); process.exit(2);
