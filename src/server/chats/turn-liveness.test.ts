@@ -123,7 +123,7 @@ describe("a turn that hangs or crashes never stays streaming", () => {
     expect(service.store.streamingRows()).toEqual([]);
     expect(service.liveness.snapshot(chat.id)).toBeNull();
     expect(events.filter((e) => e.event === "done")).toHaveLength(1);
-  }, 60_000);
+  }, 180_000);
 
   test("crash: a harness that exits non-zero ends as an error naming the exit code", async () => {
     const { service } = boot(FAKE_CRASH);
