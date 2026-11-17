@@ -76,3 +76,9 @@ here are the ones a check cannot cover (live behaviour, UI, herdr, hub).
 - [x] All take-* and wt-* worktrees and branches merged and removed (done, only master and the user-kept cp2 worktree remain)
 - [ ] The orch run `20261115-114006-0bff` is finished or archived (paused with `auto_dispatch` off today).
 - [ ] Chat folders (chat cwd, project default, picker, chips): run a real claude, pi and opencode chat in a folder under ~/sandbox/private, open the picker on a phone, move a chat and check the next turn cwd; `PUT /api/projects/{id}` has no roots check; `chat_roots` has no settings UI
+
+
+## Closing notes (2026-11-17)
+- Watchdog flags live in memory (`watchdog-service.ts:266`) and are re-raised each tick while the cause holds, so a restart clears the pill for up to one tick, then it refills. An empty list after a stalled node means the cause cleared (`dropStaleFlags`) or the node is no longer in a running run. Not a bug.
+- Open boxes above need a phone or the Tailscale admin console (voice, installed apps, push, trusting the local CA). Only the user can tick them.
+- Run 20261115-114006-0bff ended `error`: 181 of 200 done. The error nodes (bun-p2-dispatch, bun-p5-serve, colorized-output, coordinator-failover) died earlier. Their work was redone in the main session (commits in master, gate bun 1909/0, orch 155/0). Superseded.

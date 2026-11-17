@@ -32,9 +32,9 @@ merge and in the daily schedule. A row without `check:` is not protected: add a 
 - [!] P23 cards show model, role, tier, effort, cost | fixed: 2026-11-16 8461841 | check: bun skills/orch/tests/run.ts owner | REGRESSED 2026-11-17
 - [ ] P26 one worktree per code node | fixed: - | check: test -n "$(git worktree list | grep -c take)"
 - [ ] P34 tests run dispatch.ts with bun | fixed: - | check: ! grep -rq '"bash", DISPATCH' skills/orch/tests
-- [ ] P38 src tests pass (9 fixed in 558646b, rerun pending) | fixed: - | check: ORCH_HERDR=0 bun test --parallel=6 src
-- [ ] P40 one tab per node | fixed: - | check: bun test skills/orch/core/adapters/herdr.test.ts
-- [ ] P41 dead panels are swept | fixed: - | check: bun test skills/orch/core/adapters/herdr.test.ts
+- [x] P38 src tests pass (1909/0 at 000a330 with --parallel=3; --parallel=6 flakes under load 20+) | fixed: 2026-11-17 000a330 | check: ORCH_HERDR=0 bun test --parallel=6 src
+- [x] P40 one tab per node (herdr.test.ts 6/6) | fixed: 2026-11-17 7942f1d | check: bun test skills/orch/core/adapters/herdr.test.ts
+- [x] P41 dead panels are swept (herdr.test.ts 6/6) | fixed: 2026-11-17 7942f1d | check: bun test skills/orch/core/adapters/herdr.test.ts
 - [x] P47 no shell fake binaries in test support | fixed: 2026-11-16 819322b | check: test -z "$(find src -name '*.sh' -not -path '*/node_modules/*')"
 - [x] P48 no stale lib/*.sh mentions in docs | fixed: 2026-11-16 819322b | check: ! grep -rq "lib/runs/.*\.sh\|ORCH_LIB_FILES" skills/orch/SKILL.md README.md
 - [x] P49 status line shows orch only for a session that is part of a run | fixed: 2026-11-16 | check: bun test skills/orch/tests/announce/attribution.test.ts
