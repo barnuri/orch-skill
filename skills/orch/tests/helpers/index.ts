@@ -1,10 +1,11 @@
 // Shared helpers for tests/**/*.test.ts. Bun built-ins only.
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, chmodSync, readdirSync, appendFileSync, renameSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, chmodSync, readdirSync, appendFileSync, renameSync, utimesSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterAll } from "bun:test";
 import { inProcess, stopInProcess } from "./inproc.ts";
 import { templateHome } from "./template.ts";
+import { reapUnder } from "../lib/reap.ts";
 
 export const TESTS_DIR = resolve(import.meta.dir, "..");
 export const ORCH_DIR = resolve(TESTS_DIR, "..");
@@ -23,6 +24,9 @@ const TRASH_ROOT = join(tmpdir(), "orch-test-trash", String(process.pid));
 let trashN = 0;
 export function trashSync(p: string): void {
   if (!existsSync(p)) return;
+  // Stop the runners of this home before it is moved, or they keep ticking with no record. A home without
+  // runner dirs has none; skipping the process scan there keeps each trash call fast (ps takes about 0.4 s).
+  if (["loops", "watches", "jobs", "health", "serve", "serve.json"].some((d) => existsSync(join(p, d)))) reapUnder(p);
   try {
     mkdirSync(TRASH_ROOT, { recursive: true });
     renameSync(p, join(TRASH_ROOT, `${++trashN}-${basename(p)}`));
@@ -93,7 +97,7 @@ function resolveBun(cmd: string[]): string[] {
 }
 
 export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string; stdin?: string; spawn?: boolean } = {}): Result {
-  const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
+  const env = cleanEnv({ ORCH_NO_DONE_GATE: "1", ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const oargs = orchArgs(cmd);
   if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs)) {
     const t1 = Date.now(), r = inProcess(oargs, env, opts.stdin);
@@ -108,7 +112,7 @@ export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string
 }
 
 export async function runCmdAsync(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string } = {}): Promise<Result> {
-  const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
+  const env = cleanEnv({ ORCH_NO_DONE_GATE: "1", ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const p = Bun.spawn(resolveBun(cmd), { env, cwd: opts.cwd, stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { rc: await p.exited, out, err, all: out + err };
@@ -210,7 +214,11 @@ export function normState(home: string, run: string): string {
 export const eventKeys = (home: string, run: string) => JSON.stringify(events(home, run).map((e) => [e.kind, e.node, e.from, e.to, e.note, e.by]));
 export const handoff = (home: string, run: string, node: string) => {
   mkdirSync(join(home, "runs", run, "out", node), { recursive: true });
-  writeFileSync(join(home, "runs", run, "out", node, "handoff.md"), "handoff\n");
+  const file = join(home, "runs", run, "out", node, "handoff.md");
+  writeFileSync(file, "handoff\n");
+  // A handoff older than the node's start counts as stale; a test writes it before the node runs, so date it ahead.
+  const ahead = new Date(Date.now() + 3600_000);
+  utimesSync(file, ahead, ahead);
 };
 
 export const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };

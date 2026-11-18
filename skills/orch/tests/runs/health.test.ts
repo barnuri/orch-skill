@@ -83,7 +83,7 @@ test("ready set and slots", () => {
   expect(JSON.stringify(out)).not.toMatch(/"kind":"ready"/);
   o("node", "update", R, "p", "done");
   expect(JSON.stringify(hj(R))).toMatch(/"note":"ready: c"/);
-  o("run", "finish", R);
+  o("run", "finish", R, "--force", "--reason", "test");
 });
 
 test("late deps, needs-user, gates", () => {
@@ -183,7 +183,7 @@ test("health monitor", async () => {
   await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "2", ORCH_EVERY_MIN_SECS: "1", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
   expect(active().filter((a) => a.status === "running" && a.name === `health:${R}`).length).toBe(1);
   renameSync(join(home, "runs/0000-bad"), join(home, "bad-run"));
-  o("run", "finish", R);
+  o("run", "finish", R, "--force", "--reason", "test");
   await waitUntil(() => active().filter((a) => a.status === "running").length === 0, 60);
   expect(active().filter((a) => a.status === "running").length).toBe(0);
   expect(readText(join(home, "runs", R, "events.jsonl"))).toMatch(/monitor stopped \(run done\)/);

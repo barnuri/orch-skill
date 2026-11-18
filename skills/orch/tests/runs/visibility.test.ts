@@ -56,7 +56,7 @@ test("backfill, --at, stale, status, wait", async () => {
   const w = await runCmdAsync(["bun", DISPATCH, "run", "wait", R, "--timeout", "20"], { home, env: { ORCH_WAIT_POLL_SECS: "1" } }).then((x) => ({ rc: x.rc, out: x.out }));
   await waiter;
   expect(w.rc).toBe(0);
-  expect(w.out).toMatch(/^s running->done$/m);
+  expect(w.out).toMatch(/^s running->done \[unknown\]$/m);
   const R2 = o("run", "start", "wait timeout").out.trim();
   o("node", "add", R2, "x", "X"); o("node", "update", R2, "x", "running");
   expect(o("run", "wait", R2, "--timeout", "2").rc).toBe(124);

@@ -1,12 +1,14 @@
 // A session shows orch activity only when it is part of a run (coordinator or node owner).
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attributed, scan } from "../../core/commands/announce.ts";
+import { autoCleanup, tempDir } from "../helpers/index.ts";
+
+autoCleanup();
 
 function homeWith(run: Record<string, unknown>, extra: { watches?: Record<string, unknown> } = {}): string {
-  const home = mkdtempSync(join(tmpdir(), "orch-announce-"));
+  const home = tempDir("orch-announce-");
   mkdirSync(join(home, "runs", "r1"), { recursive: true });
   writeFileSync(join(home, "runs", "r1", "state.json"), JSON.stringify({ status: "running", ...run }));
   for (const [id, w] of Object.entries(extra.watches ?? {})) {

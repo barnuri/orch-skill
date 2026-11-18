@@ -36,7 +36,7 @@ test("run lifecycle", () => {
   expect(r.rc).toBe(2);
   o("node", "update", "life-1", "n2", "error", "--error", "boom");
   expect(st().nodes[1].error).toBe("boom");
-  expect(o("run", "finish", "life-1").out).toMatch(/^error$/m);
+  expect(o("run", "finish", "life-1", "--force", "--reason", "test").out).toMatch(/^error$/m);
   expect(st().finished).not.toBeNull();
   expect(o("run", "list").out).toMatch(/life-1.error.Lifecycle test.1\/3/);
 
@@ -52,7 +52,7 @@ test("run lifecycle", () => {
   r = o("node", "add", "opts-1", "c", "x", "--tier", "smart-auto");
   expect(r.rc).toBe(2); expect(r.all).toMatch(/--tier must be one of/);
   expect(o("--help").all).toMatch(/\[--role R\] \[--tier T\] \[--model M\] \[--plan-backed\] \[--acceptance/);
-  o("run", "finish", "opts-1");
+  o("run", "finish", "opts-1", "--force", "--reason", "test");
 });
 
 test("node dispatch with claude-native", async () => {
@@ -95,7 +95,7 @@ test("prune with trash unavailable", async () => {
   o("node", "add", "old-1", "x", "x");
   const oldJob = o("node", "dispatch", "old-1", "x", "claude-native", "hi").out.trim();
   await waitUntil(() => existsSync(join(home, "jobs", oldJob, "exit_code")), 60);
-  o("run", "sync", "old-1"); o("run", "finish", "old-1");
+  o("run", "sync", "old-1"); o("run", "finish", "old-1", "--force", "--reason", "test");
   editJson(join(home, "runs/old-1/state.json"), (s) => { s.finished = "2020-01-01T00:00:00Z"; });
   let r = o("prune", "--dry-run");
   expect(r.rc).toBe(0);
@@ -116,7 +116,7 @@ test("prune with trash unavailable", async () => {
   r = o("prune", "--older-than", "xyz");
   expect(r.all).toMatch(/expects <N>d, <N>h or <N>/);
   expect(r.rc).toBe(2);
-  o("run", "start", "old2", "--id", "old-2"); o("run", "finish", "old-2");
+  o("run", "start", "old2", "--id", "old-2"); o("run", "finish", "old-2", "--force", "--reason", "test");
   editJson(join(home, "runs/old-2/state.json"), (s) => { s.finished = "2020-01-01T00:00:00Z"; });
   editJson(join(home, "profiles.json"), (p) => { p.settings.retention_days = 1; });
   o("run", "start", "trigger", "--id", "trig-1");

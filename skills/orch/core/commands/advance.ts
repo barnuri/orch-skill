@@ -105,14 +105,17 @@ export async function runAdvance(args: string[]): Promise<number> {
     if (count(run, "waiting", "running") === 0 && run.nodes.length > 0) {
       if (finish && run.status === "running") {
         let last = "";
+        let frc = 0;
         const w = process.stdout.write.bind(process.stdout);
         (process.stdout as any).write = (s: string) => ((last = String(s).trim().split("\n").pop() ?? last), true);
         try {
-          await runFinish([runId]);
+          frc = await runFinish([runId]);
         } finally {
           (process.stdout as any).write = w;
         }
-        out(`finished: ${last}\n`);
+        if (frc === 0) out(`finished: ${last}\n`);
+        else err(`advance: run not finished, fix the failures above (run verify ${runId})\n`);
+        return frc === 0 ? 0 : 1;
       }
       return 0;
     }

@@ -13,7 +13,7 @@ import { activityRows, staleMinutes, staleNodes } from "../state/timing.ts";
 import { loadProfilesDoc, maxParallelCap, settingFrom } from "../state/settings.ts";
 import { trashPath } from "../state/trash.ts";
 import { ev, findNode, setStatus, doneVerify, nextRetryAt, ID_PATTERN } from "../runs/node.ts";
-import { closeJobTab, jobGoneNote } from "../adapters/herdr.ts";
+import { closeJobTab, hcJobTail, jobGoneNote } from "../adapters/herdr.ts";
 import { hubNodeSettle } from "../adapters/hub.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { nodeReady } from "./run.ts";
@@ -49,6 +49,16 @@ async function runIds(home: string): Promise<string[]> {
 
 // ---- run start ---------------------------------------------------------------------------------------
 
+// The last node of every run (tests set ORCH_NO_DONE_GATE=1 to start without it): waits for all others (after_all), runs `run verify`, writes the result as its handoff.
+function doneGateNode(now: string, runId: string): Record<string, any> {
+  const prompt = `Run \`dispatch.ts run verify ${runId}\` and write its full output, with the exit code, to $ORCH_NODE_OUT/handoff.md. Change nothing else. Finish with the verify result: clean or the numbered failures.`;
+  return {
+    id: "done-gate", label: "Final gate: run verify", status: "waiting", profile: null, adapter: null, model: null, model_id: null, job_id: null, session: null,
+    started: null, finished: null, error: null, log_tail: [], usage: {}, cost: null, created: now, updated: now, prompt, dispatch_args: [], attempts: [],
+    role: "validation", tier: null, plan_backed: false, acceptance: "run verify exits 0", after_all: true,
+  };
+}
+
 export async function runStart(args: string[]): Promise<number> {
   const title = args[0] ?? "";
   if (!title) return (errLine(`usage: ${RUN_START_USAGE}`), 2);
@@ -72,7 +82,7 @@ export async function runStart(args: string[]): Promise<number> {
   const session = process.env.CLAUDE_CODE_SESSION_ID || process.env.OPENCODE_SESSION_ID || `pid-${process.ppid}`;
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, harness_session: session, started: nowIso(), finished: null, status: "running", nodes: [], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");
@@ -128,7 +138,7 @@ export async function runCancel(args: string[]): Promise<number> {
       if (n.status === "running") Object.assign(n, { status: "error", error: "cancelled", finished: ctx.now, next_retry_at: null });
       else if (n.status === "waiting") Object.assign(n, { status: "skipped", finished: ctx.now, next_retry_at: null });
     }
-    r.status = "cancelled";
+    if (r.status !== "covered") r.status = "cancelled";
     r.finished = ctx.now;
     ev(ctx, "run", "", "", "cancelled", "");
   });
@@ -241,7 +251,8 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
     const jobDir = join(paths.jobs(home), job);
     const st = jobStatus(paths.jobs(home), job) ?? "done exit=unknown";
     const log = join(jobDir, "log");
-    const tail = tailLines(log);
+    let tail = tailLines(log);
+    if (tail.length === 0) tail = await hcJobTail(jobDir, LOG_TAIL_LINES);
     let cost: any = null;
     try {
       const c = JSON.parse(readFileSync(join(jobDir, "usage.json"), "utf8"));
@@ -315,7 +326,7 @@ const quotaLike = (n: Record<string, any>): boolean =>
 
 async function autoRetryErrors(home: string, runId: string): Promise<number> {
   const run = await loadRun(home, runId);
-  if (!run || run.status === "cancelled") return 0;
+  if (!run || run.status === "cancelled" || run.status === "covered") return 0;
   const doc = await loadProfilesDoc(home);
   const maxRaw = settingFrom(doc, "max_attempts", "5");
   if (!(maxRaw === "-1" || (/^[0-9]+$/.test(maxRaw) && Number(maxRaw) >= 1))) {

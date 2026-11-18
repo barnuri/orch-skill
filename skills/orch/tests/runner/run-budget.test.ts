@@ -13,6 +13,8 @@ function fakeTree() {
   mkdirSync(join(tests, "helpers"), { recursive: true });
   copyFileSync(join(TESTS_DIR, "run.ts"), join(tests, "run.ts"));
   copyFileSync(join(TESTS_DIR, "helpers/template.ts"), join(tests, "helpers/template.ts"));
+  mkdirSync(join(tests, "lib"), { recursive: true });
+  copyFileSync(join(TESTS_DIR, "lib/reap.ts"), join(tests, "lib/reap.ts"));
   for (const n of ["slow", "mid", "fast"]) {
     writeFileSync(join(tests, "unit", `${n}.test.ts`), `import {test} from "bun:test";
 import {appendFileSync} from "node:fs";

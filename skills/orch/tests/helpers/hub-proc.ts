@@ -7,9 +7,21 @@ const s = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
   if (d) await Bun.sleep(d);
   return Response.json({ choices: [{ message: { content: "echo:" + content + "|model=" + model } }] });
 } });
-console.log(s.port);`;
-  const proc = Bun.spawn(["bun", "-e", src], { stdout: "pipe" });
-  const first = await proc.stdout.getReader().read();
-  const port = Number(new TextDecoder().decode(first.value).trim());
-  return { port, url: `http://127.0.0.1:${port}`, stop: () => proc.kill() };
+process.stdout.write(String(s.port) + "\\n");`;
+  let lastErr = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const proc = Bun.spawn(["bun", "-e", src], { stdout: "pipe", stderr: "pipe" });
+    const reader = proc.stdout.getReader();
+    let text = "";
+    while (!/\n/.test(text)) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      text += new TextDecoder().decode(chunk.value);
+    }
+    const port = Number(text.replace(/\x1b\[[0-9;]*m/g, "").trim());
+    if (Number.isInteger(port) && port > 0) return { port, url: `http://127.0.0.1:${port}`, stop: () => proc.kill() };
+    lastErr = text.trim();
+    proc.kill();
+  }
+  throw new Error(`spawnEchoHub: no port after 3 tries: ${lastErr}`);
 }

@@ -7,6 +7,7 @@ import type { RunEnvelope } from "../../shared/types/run-envelope";
 import type { ActivityEnvelope } from "../lib/owner-activity";
 import type { RunsEnvelope } from "../../shared/types/runs-envelope";
 import type { HealthSummary, RunHealthEnvelope } from "../../shared/types/run-health";
+import type { RunRequirementsEnvelope } from "../../shared/types/run-requirements";
 import type { WatchdogStatus } from "../../shared/types/watchdog";
 
 /**
@@ -83,5 +84,13 @@ export const watchdogStatusSchema = typed<WatchdogStatus>(
     last_actions: z.array(watchdogActionSchema),
     runs: z.record(z.string(), z.looseObject({})),
     flags: z.array(z.looseObject({ run: z.string(), node: z.string(), rule: z.string(), detail: z.string(), at: z.string() })),
+    ghosts: z.number().int().nonnegative().default(0),
+  }),
+);
+
+export const runRequirementsSchema = typed<RunRequirementsEnvelope>(
+  z.looseObject({
+    generated_at: z.string(),
+    requirements: z.array(z.looseObject({ id: z.string(), status: z.string(), nodes: z.array(z.looseObject({ id: z.string() })), evidence: z.array(z.looseObject({ note: z.string() })) })),
   }),
 );

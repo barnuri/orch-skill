@@ -4,8 +4,9 @@ import { authHeaders } from "../api/chats";
 import { followSse, type ConnState } from "../lib/sse";
 import type { RunEvent } from "../../shared/types/run-event";
 import { mergeEvents } from "../lib/run-activity";
+import type { RequirementView } from "../../shared/types/run-requirements";
 import type { HealthSummary, RunHealth } from "../../shared/types/run-health";
-import { eventsSchema, healthSummarySchema, runHealthSchema, watchdogStatusSchema } from "./schemas";
+import { eventsSchema, healthSummarySchema, runHealthSchema, runRequirementsSchema, watchdogStatusSchema } from "./schemas";
 import type { WatchdogStatus } from "../../shared/types/watchdog";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { api } from "../api/client";
@@ -218,6 +219,23 @@ export function useRunEvents(runId: string): RunEvent[] {
       }
       held.current = mergeEvents(held.current, result.body.events);
       return held.current;
+    },
+    refetchInterval: POLL_MS,
+    retry: false,
+  });
+  return query.data ?? [];
+}
+
+/** A run's requirements ledger, on the same POLL_MS as the run. */
+export function useRunRequirements(runId: string): RequirementView[] {
+  const query = useQuery({
+    queryKey: [`run-requirements:${runId}`],
+    queryFn: async () => {
+      const result = await api.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/requirements`, runRequirementsSchema, { quiet: true });
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body.requirements;
     },
     refetchInterval: POLL_MS,
     retry: false,

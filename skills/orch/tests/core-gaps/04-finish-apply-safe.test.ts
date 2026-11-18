@@ -16,7 +16,7 @@ test("run finish applies pending safe suggestions after the scan", () => {
   o("node", "add", "r1", "a", "A", "--profile", "claude-default");
   o("node", "update", "r1", "a", "running");
   o("node", "update", "r1", "a", "done");
-  expect(o("run", "finish", "r1").out.trim()).toBe("done");
+  expect(o("run", "finish", "r1", "--force", "--reason", "test node has no handoff").out.trim()).toBe("done");
   const sug = readJson(join(home, "suggestions.json")).suggestions.find((s: any) => s.id === "s-mem");
   expect(sug?.status).toBe("applied");
   expect(readJson(join(home, "memory.json")).some((m: any) => m.note === "from-finish")).toBe(true);

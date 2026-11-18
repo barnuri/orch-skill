@@ -18,7 +18,7 @@ import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
 export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [--force] [--early-end] [<prompt|@file>]";
-export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled]";
+export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled] [--force --reason T]";
 export const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
 const RUN_STATUSES = ["done", "error", "cancelled"];
 export const VALID_HARNESSES = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
@@ -154,7 +154,8 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   const targetName = isProfile ? rest[1] ?? "" : rest[0]!;
   const promptIdx = isProfile ? 2 : 1;
   const rawPrompt = rest[promptIdx] ?? "";
-  let prompt = rawPrompt;
+  const nodeGoal = String(node.label ?? "");
+  let prompt = appendNodeGoal(rawPrompt, nodeGoal);
   if (!rawPrompt.startsWith("@")) {
     let inject = "";
     if (((run.rules ?? []) as any[]).length > 0) inject = await inboxRulesBlock(run, runId, nodeId);
@@ -167,6 +168,7 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   const outDir = await nodeOutDir(home, runId, nodeId, run);
   try {
     await mkdir(outDir, { recursive: true });
+    await Bun.write(join(outDir, "goal.md"), `${nodeGoal}\n`);
   } catch {
     return fail(`node dispatch: cannot create ${outDir}`, 1);
   }
@@ -180,6 +182,8 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   }
   const env: Record<string, string> = {
     ORCH_NODE_OUT: outDir,
+    ORCH_NODE_GOAL: nodeGoal,
+    ORCH_NODE_GOAL_FILE: join(outDir, "goal.md"),
     ORCH_RUN_ID: runId,
     ORCH_NODE_ID: nodeId,
     ORCH_DISPATCH: dispatchPath(),
@@ -274,6 +278,13 @@ export function resumeSessionOf(n: Record<string, any>, adapter: string): string
   const owner = String(n.owner_id ?? "");
   if (owner.startsWith("ses_") && (n.owner_kind ?? "session") === "session") return owner;
   return own;
+}
+
+// A prompt that only points at the node goal gets the goal text appended, so the agent does not need a lookup.
+const SEE_GOAL_ONLY = /^\s*see (?:the )?node goal\.?\s*$/i;
+export function appendNodeGoal(prompt: string, goal: string): string {
+  if (!goal || !SEE_GOAL_ONLY.test(prompt)) return prompt;
+  return `${prompt.trim()}\n\n## Your task\n${goal}\n`;
 }
 
 export const EARLY_END_MESSAGE = "You ended early. Read your task and handoff notes, continue, and write handoff.md in $ORCH_NODE_OUT before you finish";
@@ -378,7 +389,7 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
     }
     Object.assign(x, { status: "waiting", job_id: null, adapter: adapter || null, profile: profile || null, session: null, started: null, finished: null, error: null, log_tail: [], cost: null, actual_model: null, updated: now, next_retry_at: null });
     ev(ctx, "retry", nodeId, "", "waiting", "");
-    if (r.finished != null) {
+    if (r.finished != null && r.status !== "covered") {
       r.status = "running";
       r.finished = null;
     }
@@ -440,24 +451,44 @@ export async function runFinish(args: string[]): Promise<number> {
   const [runArg = ""] = args;
   if (!runArg) return (errLine(`usage: ${RUN_FINISH_USAGE}`), 2);
   let status = "";
+  let force = false;
+  let reason = "";
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--status") status = rest[++i] ?? "";
+    else if (rest[i] === "--force") force = true;
+    else if (rest[i] === "--reason") {
+      reason = rest[i + 1] ?? "";
+      if (reason === "" || reason.startsWith("--")) return (errLine(`run finish: --reason expects a text, not a flag\n  usage: ${RUN_FINISH_USAGE}`), 2);
+      i++;
+    }
     else return (errLine(`run finish: unknown argument ${rest[i]}`), 2);
   }
+  if (force && !reason) return (errLine(`run finish: --force needs --reason "<why>"\n  usage: ${RUN_FINISH_USAGE}`), 2);
   const home = orchHome();
   const runId = await resolveRun(home, runArg);
   if (runId === null) return 1;
+  const pre = await loadRun(home, runId);
+  if (!pre) return (errLine(`run ${runId}: unknown run`), 2);
+  if (!force && status !== "cancelled") {
+    const { verifyRun, formatFailures } = await import("./verify.ts");
+    const fails = await verifyRun(home, runId, pre);
+    if (fails.length > 0) {
+      errLine(`run finish refused: ${fails.length} verify failure(s)\n${formatFailures(fails)}fix them, or: dispatch.ts run finish ${runId} --force --reason "<why>"`);
+      return 1;
+    }
+  }
   let final = "";
   const rc = await mutateRun(home, runId, (run, ctx) => {
     final = status || (run.nodes.some((n) => n.status === "error") ? "error" : "done");
     if (!RUN_STATUSES.includes(final)) throw new OpError(`run finish: status must be one of: ${RUN_STATUSES.join(" ")}`);
-    run.status = final;
+    if (run.status !== "covered") run.status = final;
     run.finished = ctx.now;
-    ev(ctx, "run", "", "", final, "");
+    if (force) run.force_finish_reason = reason;
+    ev(ctx, "run", "", "", final, force ? `forced: ${reason}` : "");
   });
   if (rc !== 0) return rc;
   learningAfterFinish(home, true);
-  process.stdout.write(final + "\n");
+  process.stdout.write((pre.status === "covered" ? "covered" : final) + "\n");
   return 0;
 }

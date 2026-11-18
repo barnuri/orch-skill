@@ -147,3 +147,25 @@ export class HealthSummaryDto extends ZodDto {
   @ZodField(HerdrHealthDto.schema.nullable().optional(), { description: "The orch herdr instance's latest check; null before the first one." })
   herdr?: HerdrHealthDto | null;
 }
+
+@ZodObject({ description: "A run's requirements ledger, with the state of every linked node." })
+export class RunRequirementsEnvelopeDto extends ZodDto {
+  @ZodField(z.string(), { description: "When the answer was built, ISO 8601 UTC." })
+  generated_at!: string;
+
+  @ZodField(
+    z.array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        status: z.string(),
+        reason: z.string().nullable(),
+        ok: z.boolean(),
+        nodes: z.array(z.object({ id: z.string(), status: z.string(), done: z.boolean(), handoff: z.boolean(), unverified: z.boolean() })),
+        evidence: z.array(z.object({ note: z.string(), file: z.string().nullable(), test: z.string().nullable(), at: z.string() })),
+      }),
+    ),
+    { description: "One entry per requirement. `ok` is true for handled, superseded and waived." },
+  )
+  requirements!: unknown[];
+}

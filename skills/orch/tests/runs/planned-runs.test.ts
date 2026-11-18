@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { orch, seedHome, editJson, runState, readJson, readText, autoCleanup } from "../helpers";
+import { orch, seedHome, editJson, runState, readJson, readText, autoCleanup, handoff } from "../helpers";
 import { spawnEchoHub } from "../helpers/hub-proc.ts";
 autoCleanup();
 
@@ -60,6 +60,9 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   const sync = o("run", "sync", "plan-1").out;
   const running = sync.split("\n").filter((l) => l.endsWith("\trunning")).length;
   expect(sync).toMatch(new RegExp(`^slots: ${2 - running}$`, "m"));
+  // The echo-hub nodes write no handoff; the run gate (run verify) needs one per done node.
+  for (const id of ["plan", "a", "b", "c", "merge"]) handoff(home, "plan-1", id);
+  o("node", "update", "plan-1", "plan", "done"); // re-check: clears unverified now that the handoff exists
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--interval", "1", "--timeout", "60");
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^finished: done$/m);
