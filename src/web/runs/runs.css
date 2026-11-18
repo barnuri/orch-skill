@@ -159,3 +159,20 @@ main:has(.run-page) { max-width: none; }
 .coordinator-block { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; }
 .coordinator-unreachable .coordinator-warn { color: var(--status-stale); }
 .coordinator-candidates { list-style: none; margin: 0; padding: 0; width: 100%; }
+
+.requirements-panel { margin-bottom: var(--s3); }
+.requirements-panel ul { list-style: none; padding: 0; margin: 0; }
+.requirements-panel li { padding: var(--s1) 0; }
+.requirements-panel .req-nodes { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
+.requirements-panel .req-evidence { padding-left: var(--s3); }
+.requirements-panel .req-ok { color: var(--ok, #2a7); }
+.requirements-panel .req-warn { color: var(--warn, #c80); }
+.requirements-panel .req-err { color: var(--err, #c33); }
+
+.run-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
+.covered-link { color: var(--status-covered); font-size: var(--fs-meta); text-decoration: none; cursor: pointer; }
+.covered-link:hover { text-decoration: underline; }
+.covers-block { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--status-covered-bd); border-radius: var(--r-md); background: var(--status-covered-bg); }
+.covers-block h3 { margin: 0 0 var(--s2); color: var(--status-covered); font-size: var(--fs-ctl); }
+.covers-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
+.covers-nodes, .covers-map { font-size: var(--fs-meta); color: var(--tx2); }

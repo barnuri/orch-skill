@@ -16,15 +16,19 @@ import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
 import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
 import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
-import { isNotFound, useProfileFacts, useRun, useRunEvents, useRunHealth, type LiveState } from "./queries";
+import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunRequirements, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
 import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
 import { CoordinatorBlock } from "./CoordinatorBlock";
 import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
+import { RequirementsPanel } from "./RunRequirements";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
 import { FailureBanner, LongRunningBanner, RunStateNotice } from "./RunAttention";
 import { useNow } from "./use-now";
+import { RunTable, ViewSwitch } from "./RunTable";
+import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
+import { CoveredByLink, CoversBlock } from "./RunCover";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -197,9 +201,27 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   );
   const shownCount = match === null ? run.nodes.length : run.nodes.filter(match).length;
   const [selected, setSelected] = useState<string | null>(null);
+  const [runView, setRunView] = useState<RunView>(() => parseViewParam(location.hash) ?? loadRunView());
+  useEffect(() => {
+    const onHash = (): void => {
+      const v = parseViewParam(location.hash);
+      if (v !== null) {
+        setRunView(v);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const changeView = (next: RunView): void => {
+    setRunView(next);
+    saveRunView(next);
+    history.replaceState(history.state, "", `${location.pathname}${location.search}${hashWithView(location.hash, next)}`);
+  };
   const [flash, setFlash] = useState(0);
   const events = useRunEvents(run.run_id);
   const health = useRunHealth(run.run_id, run.status === "running");
+  const requirements = useRunRequirements(run.run_id);
+  const allRuns = useRuns().data?.runs ?? [];
   const toast = useToast();
   const lastSnapshot = useRef<RunSnapshot | null>(null);
   const nowMs = useNow(run.nodes.some((node) => node.status === "running"));
@@ -216,13 +238,17 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         <div className="run-head">
           <h1>{runTitle(run)}</h1>
           <Chip status={run.status} />
+          <CoveredByLink run={run} runs={allRuns} />
+          {run.force_finish_reason ? <span className="muted run-forced">forced finish: {run.force_finish_reason}</span> : null}
           <a className="muted" href="#/">
             ← all runs
           </a>
+          <ViewSwitch view={runView} onChange={changeView} />
           <RunActions run={run} />
           <LiveIndicator state={live} />
         </div>
         <RunMeta run={run} events={events} />
+        <CoversBlock runId={run.run_id} runs={allRuns} />
         <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
         <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
         <CoordinatorBlock runId={run.run_id} state={run.coordinator_state} />
@@ -238,6 +264,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
             setFlash((n) => n + 1);
           }}
         />
+        <RequirementsPanel requirements={requirements} onSelect={setSelected} />
         {hasUnreviewed(run.nodes) ? (
           <div className="notice warn run-stale-banner" role="status">
             <b>{FINISHED_BY_OWNER}</b>
@@ -246,6 +273,18 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         ) : null}
       </div>
       <div className="layout run-layout">
+        {runView === "table" ? (
+          <RunTable
+            run={run}
+            filter={filter}
+            harnessByProfile={facts.harnessByProfile}
+            selectedId={selected}
+            onSelect={(id) => {
+              setSelected(id);
+              setFlash((n) => n + 1);
+            }}
+          />
+        ) : (
         <GraphViewport
           run={run}
           selectedId={selected}
@@ -257,6 +296,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           maxAttempts={facts.maxAttempts}
           match={match}
         />
+        )}
         <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
       </div>
       <ActivityFeed events={events} />

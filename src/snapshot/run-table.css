@@ -1,0 +1,27 @@
+.view-switch { display: inline-flex; gap: 4px; }
+.view-switch .btn.is-on, .rt-tools .btn.is-on { background: var(--accent, #3b6ea5); color: #fff; }
+.run-table-wrap { padding: 8px 12px; min-width: 0; flex: 1 1 auto; }
+.rt-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.rt-cols { position: relative; }
+.rt-cols summary { list-style: none; cursor: pointer; }
+.rt-cols-menu { position: absolute; z-index: 5; background: var(--panel, #fff); border: 1px solid var(--border, #ccc); padding: 8px; display: grid; gap: 4px; max-height: 60vh; overflow: auto; min-width: 200px; }
+.rt-scroll { overflow: auto; max-height: 70vh; border: 1px solid var(--border, #ddd); }
+.run-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.run-table th { position: sticky; top: 0; z-index: 2; background: var(--panel, #f4f4f4); text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border, #ccc); }
+.run-table td { padding: 4px 8px; border-bottom: 1px solid var(--border, #eee); vertical-align: top; max-width: 360px; }
+.rt-sort { all: unset; cursor: pointer; padding: 6px 8px; display: block; font-weight: 600; }
+.rt-sort:focus-visible, .rt-row:focus-visible { outline: 2px solid var(--accent, #3b6ea5); outline-offset: -2px; }
+.rt-row { cursor: pointer; }
+.rt-row:hover, .rt-row.selected { background: var(--hover, rgba(59, 110, 165, 0.12)); }
+.rt-main { position: sticky; top: 30px; z-index: 1; background: var(--panel, #eef3f8); font-style: italic; cursor: default; border-left: 3px solid var(--accent, #3b6ea5); }
+.rt-badge { margin-left: 6px; padding: 0 6px; border: 1px solid currentColor; border-radius: 8px; font-size: 10px; }
+.rt-goal, .rt-sum { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; color: var(--muted, #666); }
+.rt-sum { display: inline; }
+.rt-id { font-weight: 600; }
+.rt-model { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.rt-verdict { padding: 0 6px; border-radius: 8px; font-size: 11px; border: 1px solid currentColor; }
+.rt-verdict.v-full { color: #2e7d32; }
+.rt-verdict.v-partial { color: #b26a00; }
+.rt-verdict.v-blocked { color: #8a5a00; border-style: dashed; }
+.rt-verdict.v-unknown { color: #666; }
+.run-main{min-width:0}

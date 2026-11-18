@@ -13,6 +13,7 @@ import type { AppState } from "../state/app-state";
 import { confirmDialog } from "../ui/confirm-dialog";
 import { toast } from "../ui/toast";
 import { eventsFor } from "../state/run-events";
+import { readRunView, renderRunTable, renderViewSwitch } from "./run-table-view";
 import { renderNodePanel } from "./node-panel";
 import { renderActivity, runUpdatedAt, staleBanner } from "./run-activity";
 
@@ -176,12 +177,14 @@ export function renderRun(state: AppState, onSelect: (nodeId: string) => void): 
       staleBanner(run),
     ]),
   );
-  page.appendChild(
-    el("div", { class: "layout run-layout" }, [
-      mountGraph(run, state.selectedNode, onSelect, state.profileHarness, state.maxAttempts),
-      renderNodePanel(run, state.selectedNode, state.maxAttempts),
-    ]),
-  );
+  const main = el("div", { class: "run-main" });
+  const mountView = (view: "graph" | "table"): void => {
+    main.replaceChildren(view === "table" ? renderRunTable(run, state.selectedNode, onSelect) : mountGraph(run, state.selectedNode, onSelect, state.profileHarness, state.maxAttempts));
+  };
+  const head = page.querySelector(".run-head");
+  head?.appendChild(renderViewSwitch(readRunView(), mountView));
+  mountView(readRunView());
+  page.appendChild(el("div", { class: "layout run-layout" }, [main, renderNodePanel(run, state.selectedNode, state.maxAttempts)]));
   page.appendChild(renderActivity(eventsFor(run.run_id)));
   frag.appendChild(page);
   return frag;
