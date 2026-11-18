@@ -13,6 +13,7 @@ import { coordinatorAutoRecord, coordSweep } from "./inbox.ts";
 import { healthMonitorFind, healthMonitorStart } from "./health.ts";
 import { healthEverySec, healthMap, stallMinutes } from "../runs/health.ts";
 import { nodeReady } from "./run.ts";
+import { resultText } from "../runs/node.ts";
 
 export const RUN_WAIT_USAGE = "dispatch.ts run wait <run-id> [--timeout SECS] [--stall-min N] [--json] [--follow] [--include-notes]";
 const POLL_DEFAULT = 2;
@@ -20,7 +21,7 @@ const RESCAN_DEFAULT = 15;
 const COORD_SWEEP_SECS = 20;
 const WAKE = new Set(["stalled", "dead", "no-report"]);
 
-type Ev = { kind: string; node: string | null; from?: string | null; to?: string | null; note?: string | null };
+type Ev = { kind: string; node: string | null; from?: string | null; to?: string | null; note?: string | null; result?: string | null };
 type Snap = { status: string; nodes: Record<string, { s: string; needs: string | null; e: string | null }>; ready: string[] };
 type Cursor = { n: number; snap?: Snap; health?: Record<string, string>; settled?: boolean };
 
@@ -48,12 +49,17 @@ export function scan(run: any, evs: any[], cur: Cursor, hm: Record<string, { h: 
   const snap: Snap = structuredClone(cur.snap);
   const health = { ...h0 };
   const out: Ev[] = [];
+  const resOf = (id: string, to: unknown): string | null => {
+    if (to !== "done") return null;
+    const t = resultText(run.nodes.find((x: any) => x.id === id) ?? {}, 200);
+    return t === "" ? "[unknown]" : t;
+  };
   for (const e of evs) {
     if (typeof e !== "object" || e === null || e.node == null) continue;
     if (e.kind === "status") {
       if (snap.nodes[e.node]?.s === e.to) continue;
       snap.nodes[e.node] = { ...(snap.nodes[e.node] ?? { needs: null, e: null }), s: e.to };
-      out.push({ kind: "status", node: e.node, from: e.from, to: e.to, note: e.to === "error" ? e.note ?? null : null });
+      out.push({ kind: "status", node: e.node, from: e.from, to: e.to, note: e.to === "error" ? e.note ?? null : null, result: resOf(e.node, e.to) });
     } else if (e.kind === "needs-user") {
       const nu = (e.note ?? "cleared") === "cleared" ? null : e.note;
       if ((snap.nodes[e.node]?.needs ?? null) === nu) continue;
@@ -71,7 +77,7 @@ export function scan(run: any, evs: any[], cur: Cursor, hm: Record<string, { h: 
   const diff: Ev[] = [];
   for (const [id, c] of Object.entries(now.nodes)) {
     const p = snap.nodes[id] ?? null;
-    if (p !== null && p.s !== c.s) diff.push({ kind: "status", node: id, from: p.s, to: c.s, note: c.s === "error" ? c.e : null });
+    if (p !== null && p.s !== c.s) diff.push({ kind: "status", node: id, from: p.s, to: c.s, note: c.s === "error" ? c.e : null, result: resOf(id, c.s) });
     if (c.needs !== null && (p?.needs ?? null) !== c.needs) diff.push({ kind: "needs-user", node: id, note: c.needs });
   }
   const newReady = now.ready.filter((i) => !(snap.ready ?? []).includes(i));
@@ -102,11 +108,11 @@ export function scan(run: any, evs: any[], cur: Cursor, hm: Record<string, { h: 
 function render(runId: string, json: boolean, events: Ev[]): string {
   if (json) {
     const at = nowIso();
-    return events.map((e) => JSON.stringify({ at, run: runId, kind: e.kind, node: e.node, from: e.from ?? null, to: e.to ?? null, note: e.note ?? null })).join("\n") + "\n";
+    return events.map((e) => JSON.stringify({ at, run: runId, kind: e.kind, node: e.node, from: e.from ?? null, to: e.to ?? null, note: e.note ?? null, ...(e.result ? { result: e.result } : {}) })).join("\n") + "\n";
   }
   return events
     .map((e) => {
-      if (e.kind === "status") return `${e.node} ${e.from ?? "-"}->${e.to}` + (e.note ? `: ${e.note}` : "");
+      if (e.kind === "status") return `${e.node} ${e.from ?? "-"}->${e.to}` + (e.note ? `: ${e.note}` : "") + (e.result ? ` ${e.result}` : "");
       if (e.kind === "ready") return `ready: ${e.note}`;
       if (e.kind === "run-ended") return `run ended: ${e.to}`;
       if (e.kind === "settled") return `settled: ${e.note}`;

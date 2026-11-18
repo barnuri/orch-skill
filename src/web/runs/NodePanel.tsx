@@ -12,7 +12,7 @@ import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { ansiSegments, stripAnsi } from "../lib/ansi";
 import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
-import { AFTER_THE_FACT, UNOWNED_TITLE, lastActivity, nodeFlags, ownerChip, ownerText } from "../lib/node-flags";
+import { AFTER_THE_FACT, UNOWNED_TITLE, handoffText, lastActivity, nodeFlags, ownerChip, ownerIdShort, ownerText, resultChip } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
 import { modelPick, pickLabel } from "../lib/model-pick";
 import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, effortTitle, modelMetric, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
@@ -154,6 +154,8 @@ function DetailList({ node, run, maxAttempts, waitingOn = [] }: { node: RunNode;
   const duration = useNodeDuration(node, run);
   const effort = effortText(node);
   const wait = waitReason(node, waitingOn);
+  const handoff = handoffText(node);
+  const result = resultChip(node);
   return (
     <dl>
       <Row k="id" value={node.id} cls="mono" />
@@ -169,6 +171,20 @@ function DetailList({ node, run, maxAttempts, waitingOn = [] }: { node: RunNode;
       {node.tier ? <Row k="tier" value={node.tier} /> : null}
       {effort === null ? null : <Row k="effort" value={effort} title={effortTitle(node)} />}
       <Row k="profile" value={node.profile ?? "—"} />
+      <Row k="owner id" value={ownerIdShort(node) ?? "—"} cls="mono" />
+      {result === null ? null : (
+        <Row
+          k="result"
+          value={
+            <>
+              <span className={`result-pill result-${result.verdict}`}>{result.verdict}</span>
+              {result.summary === "" ? "" : ` ${result.summary}`}
+              {result.followUp === "" || result.followUp.toLowerCase() === "none" ? "" : ` | follow_up: ${result.followUp}`}
+            </>
+          }
+        />
+      )}
+      {handoff === null ? null : <Row k="handoff" value={handoff.text} cls={handoff.missing ? "missing" : ""} />}
       <Row k="adapter" value={node.adapter ?? "—"} />
       <Row k="job" value={node.job_id ?? "—"} cls="mono" />
       <Row k="session" value={node.session ?? "—"} cls="mono" />

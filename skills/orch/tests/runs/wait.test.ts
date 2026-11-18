@@ -24,7 +24,7 @@ test("wait: change, timeout, needs-user, follow --json", async () => {
   let r = await ow(R, "--timeout", "60");
   await p;
   expect(r.rc).toBe(0);
-  expect(r.out).toMatch(/^a running->done$/m);
+  expect(r.out).toMatch(/^a running->done \[unknown\]$/m);
   expect(r.out).toMatch(/^ready: b$/m);
   r = await ow(R, "--timeout", "1");
   expect(r.rc).toBe(124);
@@ -49,7 +49,7 @@ test("wait: change, timeout, needs-user, follow --json", async () => {
   o("node", "update", R, "b", "error", "--error", "boom");
   await Bun.sleep(500);
   o("node", "update", R, "q", "--clear-needs-user"); o("node", "update", R, "q", "skipped");
-  o("run", "finish", R, "--status", "done");
+  o("run", "finish", R, "--status", "done", "--force", "--reason", "test");
   expect(await proc.exited).toBe(0);
   const log = await text;
   expect(log).toMatch(/"kind":"status","node":"w","from":"running","to":"done"/);

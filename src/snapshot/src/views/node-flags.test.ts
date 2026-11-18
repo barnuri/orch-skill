@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import type { RunNode } from "../../../shared/types/run-node";
 import { healthClass, needsUserReason, nodeFlags, ownerText } from "./node-flags";
@@ -42,4 +42,13 @@ test("needs-user reason: trimmed text, null when absent or blank", () => {
   expect(needsUserReason({ ...base, needs_user: "" } as RunNode)).toBeNull();
   expect(needsUserReason({ ...base, needs_user: null } as RunNode)).toBeNull();
   expect(needsUserReason(base)).toBeNull();
+});
+
+import { resultChip } from "./node-flags";
+describe("resultChip", () => {
+  test("verdict, unknown for done without result, null otherwise", () => {
+    expect(resultChip({ status: "done", result: { verdict: "partial", summary: "s", follow_up: "f", at: "" } } as never)?.verdict).toBe("partial");
+    expect(resultChip({ status: "done" } as never)?.verdict).toBe("unknown");
+    expect(resultChip({ status: "running" } as never)).toBeNull();
+  });
 });

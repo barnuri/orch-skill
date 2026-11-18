@@ -152,6 +152,10 @@ export interface RunNode {
   last_activity?: string | null;
   /** Computed by the server: running with no activity for settings.stale_minutes. */
   stale?: boolean;
+  /** Computed by the server: the node's out dir holds a non-empty handoff.md. Undefined for older runs. */
+  handoff_present?: boolean;
+  /** One-line result the node recorded with `node result`; verdict "unknown" when it finished without one. */
+  result?: { verdict: "full" | "partial" | "blocked" | "unknown"; summary: string; follow_up: string; at: string } | null;
   /** Model and usage the coordinator reported with `node report`. Optional for older runs. */
   report?: NodeReport | null;
   /** llm-hub native mode: the model the hub expected before dispatch and the one it used. */
@@ -174,6 +178,12 @@ export interface NodeSessionStats {
   session_total?: NodeSessionTotals;
   /** Set once the node ended and took its final share. */
   final?: boolean;
+  /** Largest context one assistant step sent: input + cache read + cache write. Session-wide when nodes share a session. */
+  peak_context?: number;
+  /** Assistant message count. */
+  steps?: number;
+  /** Mean context per assistant step. */
+  avg_context?: number;
   created: string;
   updated: string;
   duration_s: number;

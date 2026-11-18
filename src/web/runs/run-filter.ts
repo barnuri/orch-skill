@@ -32,12 +32,17 @@ export interface NodeFilter {
   model: string;
   /** Free text over label and id, case-insensitive. */
   q: string;
+  /** The node's recorded result verdict; a node with no result counts as "unknown". */
+  verdict: Verdict | "";
 }
 
-export const EMPTY_FILTER: NodeFilter = { status: "", profile: "", model: "", q: "" };
+export const VERDICTS = ["full", "partial", "blocked", "unknown"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+export const EMPTY_FILTER: NodeFilter = { status: "", profile: "", model: "", q: "", verdict: "" };
 
 export function isFilterActive(filter: NodeFilter): boolean {
-  return filter.status !== "" || filter.profile !== "" || filter.model !== "" || filter.q.trim() !== "";
+  return filter.status !== "" || filter.profile !== "" || filter.model !== "" || filter.q.trim() !== "" || filter.verdict !== "";
 }
 
 export function nodeModel(node: RunNode): string {
@@ -56,6 +61,9 @@ export function matchesFilter(run: RunState, node: RunNode, filter: NodeFilter, 
     return false;
   }
   if (filter.model !== "" && nodeModel(node) !== filter.model) {
+    return false;
+  }
+  if (filter.verdict !== "" && (node.result?.verdict ?? "unknown") !== filter.verdict) {
     return false;
   }
   const q = filter.q.trim().toLowerCase();
@@ -97,6 +105,7 @@ export function parseFilter(hash: string): NodeFilter {
     profile: params.get("profile") ?? "",
     model: params.get("model") ?? "",
     q: params.get("q") ?? "",
+    verdict: (VERDICTS as readonly string[]).includes(params.get("verdict") ?? "") ? (params.get("verdict") as Verdict) : "",
   };
 }
 
@@ -105,7 +114,12 @@ export function hashWithFilter(hash: string, filter: NodeFilter): string {
   const cut = hash.indexOf("?");
   const base = cut < 0 ? hash : hash.slice(0, cut);
   const params = new URLSearchParams();
-  for (const key of ["status", "profile", "model", "q"] as const) {
+  // The view switch shares the hash query and survives a filter change.
+  const view = cut < 0 ? null : new URLSearchParams(hash.slice(cut + 1)).get("view");
+  if (view !== null) {
+    params.set("view", view);
+  }
+  for (const key of ["status", "profile", "model", "q", "verdict"] as const) {
     if (filter[key] !== "") {
       params.set(key, filter[key]);
     }

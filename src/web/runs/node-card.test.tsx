@@ -83,6 +83,17 @@ describe("NodeCard rows", () => {
     expect(card(node({ model: "hub/smart-auto-balance" } as Partial<RunNode>)).container.querySelector(".model-icon")?.getAttribute("data-family")).toBe("fallback");
   });
 
+  test("peak context chip shows on the card and warns over 200k", () => {
+    const st = (peak: number) => ({ session: "ses_a", cost: 1, tokens: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 }, created: "", updated: "", duration_s: 1, busy: false, peak_context: peak });
+    const ok = card(node({ session_stats: st(120000) })).container.querySelector(".context-chip");
+    expect(ok?.querySelector("text")?.textContent).toBe("ctx 120k");
+    expect(ok?.getAttribute("data-peak-context")).toBe("ok");
+    cleanup();
+    expect(card(node({ session_stats: st(230000) })).container.querySelector(".context-chip")?.getAttribute("data-peak-context")).toBe("over");
+    cleanup();
+    expect(card(node()).container.querySelector(".context-chip")).toBeNull();
+  });
+
   test("a needs_user node carries its own needs-you chip, the reason in its tooltip", () => {
     const { container } = card(node({ needs_user: "real iPhone keyboard check" }));
     const chip = container.querySelector(".needs-you-chip");
@@ -91,6 +102,11 @@ describe("NodeCard rows", () => {
     expect(container.querySelector(".task-node")?.getAttribute("aria-label")).toContain("needs you");
     cleanup();
     expect(card(node()).container.querySelector(".needs-you-chip")).toBeNull();
+  });
+
+  test("a running card shows its progress in the status row", () => {
+    const { container } = card(node({ status: "running", progress: "3/10" }));
+    expect(container.querySelector(".st")?.textContent).toContain("running 3/10 · attempt 1/5");
   });
 
   test("the model row reads alias → actual when the served model differs", () => {

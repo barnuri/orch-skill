@@ -6,12 +6,12 @@ import { markFor, MARKS } from "../lib/harness-marks";
 import { NODE_H, NODE_W, ORCH_NODE_H, ORCH_NODE_W, layoutDag } from "../lib/dag-layout";
 import type { DagLayout } from "../lib/dag-layout";
 import { truncate } from "../lib/format";
-import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, needsUserReason, nodeFlags, ownerChip } from "../lib/node-flags";
+import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, needsUserReason, nodeFlags, ownerChip, resultChip } from "../lib/node-flags";
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
 import { familyOf, iconModelOf } from "../lib/model-family";
-import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, roleTierMetric, statusLine, waitReason, waitingOnDeps } from "../lib/node-metrics";
+import { META_MAX_CHARS, attemptLine, cardUsageMetric, durationMetric, modelMetric, peakContextMetric, roleTierMetric, statusLine, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
 import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
@@ -35,6 +35,23 @@ const MODEL_ICON_GAP_CHARS = 2;
 const META_RIGHT_X = NODE_W - 12;
 const STAGE_LABEL_Y = 16;
 
+/** Peak context of the node, at the right edge of the usage row; the warning colour above 200k. */
+function ContextChip({ node }: { node: RunNode }) {
+  const m = peakContextMetric(node);
+  if (m === null) {
+    return null;
+  }
+  return (
+    <g className={m.over ? "context-chip over" : "context-chip"} transform={`translate(${META_RIGHT_X - 58} ${USAGE_Y - 11})`} data-peak-context={m.over ? "over" : "ok"}>
+      <title>{m.title}</title>
+      <rect width={58} height={15} rx={7.5} />
+      <text x={29} y={11} textAnchor="middle">
+        {m.text}
+      </text>
+    </g>
+  );
+}
+
 /** A node blocked on the user carries its own "needs you" chip, the reason in its tooltip. */
 function NeedsYouChip({ reason }: { reason: string }) {
   return (
@@ -43,6 +60,23 @@ function NeedsYouChip({ reason }: { reason: string }) {
       <rect width={62} height={15} rx={7.5} />
       <text x={31} y={11} textAnchor="middle">
         needs you
+      </text>
+    </g>
+  );
+}
+
+/** Verdict chip of a finished node: green full, amber partial, red blocked, grey unknown. The summary is the tooltip. */
+function ResultChipView({ node }: { node: RunNode }) {
+  const chip = resultChip(node);
+  if (chip === null) {
+    return null;
+  }
+  return (
+    <g className={`result-chip result-${chip.verdict}`} transform={`translate(${META_RIGHT_X - 60} ${STATUS_Y - 11})`} data-result={chip.verdict}>
+      <title>{[chip.summary, chip.followUp !== "" && chip.followUp.toLowerCase() !== "none" ? `follow_up: ${chip.followUp}` : ""].filter((t) => t !== "").join("\n") || chip.verdict}</title>
+      <rect width={60} height={15} rx={7.5} />
+      <text x={30} y={11} textAnchor="middle">
+        {chip.verdict}
       </text>
     </g>
   );
@@ -237,12 +271,14 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
         {wait === null ? statusLine(node, maxAttempts) : wait.text}
         {wait === null ? null : <title>{wait.title}</title>}
       </text>
+      <ResultChipView node={node} />
       <ModelIcon family={familyOf(iconModelOf(node))} x={META_LEFT_X} y={MODEL_Y - 10} />
       <MetricText metric={model} base={pick?.isAuto === true ? "model auto" : "model"} x={META_LEFT_X + MODEL_ICON_GAP} y={MODEL_Y} max={META_MAX_CHARS - MODEL_ICON_GAP_CHARS} />
       {autoTitle === null ? null : <title>{autoTitle}</title>}
       <line className="metrics-rule" x1={META_LEFT_X} y1={METRICS_RULE_Y} x2={META_RIGHT_X} y2={METRICS_RULE_Y} />
       <MetricText metric={duration} base="metric dur" x={META_LEFT_X} y={DURATION_Y} max={META_MAX_CHARS} />
       <MetricText metric={usage} base="metric cost" x={META_LEFT_X} y={USAGE_Y} max={META_MAX_CHARS} />
+      <ContextChip node={node} />
       {roleTier.present ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
       <Health node={node} runId={runId} />
       {isCyclic ? (

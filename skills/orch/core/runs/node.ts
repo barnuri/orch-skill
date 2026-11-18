@@ -3,7 +3,7 @@
 // per-op rules in lib/runs/batch.sh. Works on an in-memory run object. The caller loads and saves
 // state.json under the run lock. Each op validates everything before it mutates, so a failing op
 // leaves the run as it was. Messages match the bash text byte for byte.
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { paths } from "../state/home.ts";
@@ -28,7 +28,7 @@ const HUB_ROLE_TIERS_DEFAULT: Record<string, string> = {
 export const USAGE = {
   add: 'dispatch.ts node add <run-id> <node-id> "<label>" [--after a,b] [--profile P] [--role R] [--tier T] [--model M] [--plan-backed] [--acceptance "<checks>"] [--origin loop|watch]',
   report: "dispatch.ts node report <run-id> <node-id> [--model M] [--input-tokens N] [--output-tokens N] [--cache-read-tokens N] [--usd X] [--note \"text\"]",
-  update: `dispatch.ts node update <run-id> <node-id> [${NODE_STATUSES.join("|")}] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]`,
+  update: `dispatch.ts node update <run-id> <node-id> [${NODE_STATUSES.join("|")}] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--reason T] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]`,
   batch: "dispatch.ts node batch <run-id> [--file F] [--dry-run]   (one JSON op per line on stdin or in F)",
 };
 
@@ -265,6 +265,14 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
     ...(a.origin ? { origin: a.origin } : {}),
   });
   run.edges = [...(run.edges ?? []), ...kept.map((d) => [d, a.id])];
+  // The done-gate stays last: a node added after it ran makes it wait again.
+  const gate = findNode(run, "done-gate");
+  if (gate && gate.after_all && a.id !== "done-gate" && ["done", "error", "skipped"].includes(gate.status)) {
+    Object.assign(gate, { status: "waiting", finished: null, error: null, unverified: null, next_retry_at: null, skip_reason: null, updated: ctx.now });
+  } else if (gate && gate.after_all && a.id !== "done-gate" && gate.status === "running") {
+    // The running gate verified a node list that no longer holds: it ends as an error, or waits again.
+    gate.rerun = true;
+  }
   ev(ctx, "add", a.id, "", "waiting", a.label);
   return `add ${a.id} "${a.label}"`;
 }
@@ -419,6 +427,7 @@ export function setStatus(run: RunState, id: string, status: string, job: string
   }
   if (ownerVal) n.owner = ownerVal;
   if (status === "waiting") {
+    n.result = null;
     for (const k of ["started", "finished", "error", "owner", "job_id", "owner_kind", "owner_id", "owner_state"]) n[k] = null;
   }
   if (status === "done" && ctx.by !== "owner-liveness") {
@@ -435,17 +444,97 @@ export function setStatus(run: RunState, id: string, status: string, job: string
 
 // node_done_verify: a done node must leave a non-empty handoff.md. Otherwise: one stderr line and
 // `unverified` on the node.
+// Why a handoff file does not count: "missing" | "empty" | "stale" (older than the node's latest attempt) | "" when it counts.
+// The latest attempt starts at started_at (else dispatched_at); both are whole-second ISO times, so the mtime is compared at second grain.
+export function handoffProblem(file: string, n: Record<string, any>): "" | "missing" | "empty" | "stale" {
+  let st;
+  let text: string;
+  try {
+    st = statSync(file);
+    text = readFileSync(file, "utf8");
+  } catch {
+    return "missing";
+  }
+  if (text.trim() === "") return "empty";
+  const start = epochOf(String(n.started_at ?? n.dispatched_at ?? ""));
+  if (start !== null && st.mtimeMs < start * 1000) return "stale";
+  return "";
+}
+
+export const VERDICTS = ["full", "partial", "blocked"];
+export const RESULT_USAGE = `dispatch.ts node result [<run-id> <node-id>] --verdict ${VERDICTS.join("|")} --summary "<one sentence>" [--follow-up "<findings or none>"]   (run and node default to ORCH_RUN_ID and ORCH_NODE_ID)`;
+
+// One line: newlines and runs of spaces collapse so the result stays on one line everywhere it is shown.
+export const oneLine = (t: string): string => t.replace(/\s+/g, " ").trim();
+
+// A node that finishes with no recorded result gets verdict "unknown" and one stderr warning.
+export function ensureResult(run: RunState, id: string, ctx: Ctx): void {
+  const n = requireNode(run, id);
+  if (isEngineNode(ctx.runId, n)) return;
+  const r = n.result;
+  if (r && typeof r === "object" && typeof r.verdict === "string") return;
+  n.result = { verdict: "unknown", summary: "", follow_up: "", at: ctx.now };
+  ctx.stderr.push(`done without a result: ${id} recorded verdict unknown. Record it: orch node result <run> ${id} --verdict full|partial|blocked --summary "..." --follow-up "..."`);
+}
+
+// A done node whose result asks for follow-up: partial or blocked, and the follow_up is not "none".
+export function needsFollowUp(n: Record<string, any>): boolean {
+  const r = n.result;
+  if (!r || (r.verdict !== "partial" && r.verdict !== "blocked")) return false;
+  return oneLine(String(r.follow_up ?? "")).toLowerCase().replace(/[.\s]+$/, "") !== "none";
+}
+
+// The one-line form shown in wait lines, status and node show: "[verdict] summary | follow_up: text".
+export function resultText(n: Record<string, any>, max = 0): string {
+  const r = n.result;
+  if (!r || typeof r !== "object") return "";
+  const fu = oneLine(String(r.follow_up ?? ""));
+  const sum = oneLine(String(r.summary ?? ""));
+  let t = [sum, fu && fu.toLowerCase() !== "none" ? `follow_up: ${fu}` : ""].filter(Boolean).join(" | ");
+  if (max > 0 && t.length > max) t = t.slice(0, max - 1) + "…";
+  return `[${String(r.verdict)}]${t ? " " + t : ""}`;
+}
+
+export interface ResultArgs { pos: string[]; id: string; verdict: string; summary: string; followUp: string; followSet: boolean }
+
+export function parseResultArgs(args: string[]): ResultArgs {
+  const a: ResultArgs = { pos: [], id: "", verdict: "", summary: "", followUp: "", followSet: false };
+  const pos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const k = args[i]!;
+    if (k === "--verdict") a.verdict = nextValue(args, i++);
+    else if (k === "--summary") a.summary = nextValue(args, i++);
+    else if (k === "--follow-up") { a.followUp = nextValue(args, i++); a.followSet = true; }
+    else if (k.startsWith("-")) fail(`node result: unknown argument ${k}\n  usage: ${RESULT_USAGE}`);
+    else pos.push(k);
+  }
+  a.pos = pos;
+  a.id = pos[1] ?? "";
+  return a;
+}
+
+export function applyResult(run: RunState, a: ResultArgs, ctx: Ctx): string {
+  const n = requireNode(run, a.id);
+  if (!VERDICTS.includes(a.verdict)) fail(`node result: --verdict must be one of: ${VERDICTS.join(" ")}`);
+  const summary = oneLine(a.summary);
+  if (a.verdict === "blocked" && summary === "") fail("node result: a blocked verdict needs a non-empty --summary");
+  if (summary === "") fail("node result: --summary is required");
+  const follow = oneLine(a.followUp) || (a.verdict === "full" ? "none" : "");
+  n.result = { verdict: a.verdict, summary, follow_up: follow, at: ctx.now };
+  n.updated = ctx.now;
+  ev(ctx, "note", a.id, "", "", `result ${a.verdict}: ${summary}`);
+  return `result ${a.id}`;
+}
+
 export function doneVerify(run: RunState, id: string, ctx: Ctx): void {
   const n = requireNode(run, id);
   if (isEngineNode(ctx.runId, n)) return;
+  ensureResult(run, id, ctx);
   const recorded = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : "";
   const handoff = join(recorded || paths.runOutDir(ctx.home, ctx.runId, id), "handoff.md");
-  try {
-    if (statSync(handoff).size > 0) return;
-  } catch {
-    // missing: fall through
-  }
-  ctx.stderr.push(`done without handoff: ${id} (${handoff} missing or empty), marked unverified`);
+  const why = handoffProblem(handoff, n);
+  if (why === "") return;
+  ctx.stderr.push(`done without handoff: ${id} (${handoff} ${why === "stale" ? "is older than the latest attempt" : "missing or empty"}), marked unverified`);
   n.unverified = true;
   ev(ctx, "note", id, "", "", "done without handoff: marked unverified");
 }
@@ -460,6 +549,7 @@ export interface UpdateArgs {
   at: string;
   owner: string;
   force: boolean;
+  reason: string;
   depsSet: boolean;
   deps: string;
   needsSet: boolean;
@@ -478,6 +568,7 @@ export function parseUpdateArgs(args: string[]): UpdateArgs {
     at: "",
     owner: "",
     force: false,
+    reason: "",
     depsSet: false,
     deps: "",
     needsSet: false,
@@ -498,6 +589,13 @@ export function parseUpdateArgs(args: string[]): UpdateArgs {
       case "--at": a.at = nextValue(args, i); i++; break;
       case "--owner": a.owner = nextValue(args, i); i++; break;
       case "--force": a.force = true; break;
+      case "--reason": {
+        const v = args[i + 1];
+        if (v === undefined || v === "" || v.startsWith("--")) fail("node update: --reason expects a text, not a flag");
+        a.reason = v;
+        i++;
+        break;
+      }
       case "--after":
         if (i + 1 >= args.length) fail('node update: --after expects a,b or "*" (or "" to clear)');
         a.deps = args[i + 1]!;
@@ -522,6 +620,7 @@ export function parseUpdateArgs(args: string[]): UpdateArgs {
     }
     i++;
   }
+  if (a.status === "skipped" && a.force && !a.reason) fail(`node update: skipping with --force needs --reason "<why>"`);
   if (!a.status && !a.depsSet && !a.needsSet && !a.holdSet) fail(`usage: ${USAGE.update}`);
   return a;
 }
@@ -622,13 +721,23 @@ export function applyUpdate(run: RunState, a: UpdateArgs, ctx: Ctx): string {
     if (epoch === null) fail("node update: --at is not a valid time");
     if (epoch > (epochOf(ctx.now) ?? 0)) fail("node update: --at is in the future");
   }
-  setStatus(run, a.id, a.status, a.job, a.err, a.at, a.owner, ctx);
-  if (a.status === "done" && old !== "done") {
+  if (a.status === "skipped" && a.force && !a.reason) fail(`node update: skipping with --force needs --reason "<why>"`);
+  let status = a.status;
+  if (n.id === "done-gate" && n.rerun === true && old === "running") {
+    // A node was added while the gate ran: its verify predates that node, so the gate waits again.
+    n.rerun = false;
+    if (status === "done") status = "waiting";
+  }
+  setStatus(run, a.id, status, a.job, a.err, a.at, a.owner, ctx);
+  if (status !== a.status) ev(ctx, "note", a.id, "", "", "a node was added during the gate: gate waits again");
+  if (a.status === "skipped" && a.reason) n.skip_reason = a.reason;
+  else if (old === "skipped" && a.status !== "skipped") n.skip_reason = null;
+  if (status === "done" && old !== "done") {
     if (ctx.batch) ctx.verify.push(a.id);
     else doneVerify(run, a.id, ctx);
   }
   if (a.depsSet || a.needsSet || a.holdSet) depsBlock(run, a, deps, ctx);
-  return `update ${a.id} -> ${a.status}`;
+  return `update ${a.id} -> ${status}`;
 }
 
 // ---- report --------------------------------------------------------------------------------------

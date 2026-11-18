@@ -11,7 +11,7 @@ import { runLimited } from "../state/proc.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
-import { applyReport, ev, findNode, ownerParse, parseReportArgs, setStatus, SMART_AUTO_TIERS, type Ctx } from "../runs/node.ts";
+import { applyReport, ensureResult, ev, findNode, ownerParse, parseReportArgs, setStatus, SMART_AUTO_TIERS, type Ctx } from "../runs/node.ts";
 import { loadEnvFile, nodeSelectionsText } from "./selections.ts";
 import { mutateRun, resolveRun } from "./node.ts";
 
@@ -138,6 +138,23 @@ export function sessionIndex(): Sess[] {
       busy: r.time_busy != null && (r.time_idle == null || r.time_busy > r.time_idle),
     };
   });
+}
+
+export interface SessPeak { peak_context: number; steps: number; avg_context: number }
+
+// session_context_peaks: per session, the largest context one assistant step sent (input + cache read + cache write),
+// the assistant step count and the mean context. Reads the per-message tokens in session_message. {} when unavailable.
+export function sessionPeaks(ids: string[]): Record<string, SessPeak> {
+  const want = [...new Set(ids)].filter((i) => /^ses_[A-Za-z0-9]+$/.test(i));
+  if (want.length === 0) return {};
+  const ctx = `(coalesce(json_extract(data,'$.tokens.input'),0) + coalesce(json_extract(data,'$.tokens.cache.read'),0) + coalesce(json_extract(data,'$.tokens.cache.write'),0))`;
+  const rows = dbQuery(
+    `select session_id, count(*) as steps, max(${ctx}) as peak, avg(${ctx}) as avg from session_message
+      where type = 'assistant' and json_extract(data,'$.tokens') is not null and session_id in (${want.map(() => "?").join(",")})
+      group by session_id`, ...want);
+  const out: Record<string, SessPeak> = {};
+  for (const r of rows ?? []) out[r.session_id] = { peak_context: Math.round(r.peak ?? 0), steps: r.steps ?? 0, avg_context: Math.round(r.avg ?? 0) };
+  return out;
 }
 
 // opencode_db_session_model: "<provider>/<model>" of the newest assistant message; never a selector.
@@ -319,6 +336,7 @@ export function applyOwnerState(run: RunState, ctx: Ctx, node: string, state: st
       setStatus(run, node, "done", "", "", "", "", ctx);
       n.auto = true;
       n.unverified = true;
+      ensureResult(run, node, ctx);
       n.owner_state = "finished";
       n.owner_checked = now;
       n.report = { ...(n.report ?? {}), reported_by: by, note: note === "" ? "owner finished (no final message)" : note, at: now };
@@ -673,7 +691,7 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
 
 const arrCmp = (a: [string, number], b: [string, number]) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]);
 
-function fillNodes(run: RunState, ix: Sess[], nowEpoch: number, stall: number, nowIsoText: string): void {
+function fillNodes(run: RunState, ix: Sess[], nowEpoch: number, stall: number, nowIsoText: string, peaks: Record<string, SessPeak> = {}): void {
   const by = new Map(ix.map((s) => [s.id, s]));
   const all: Node[] = structuredClone(run.nodes);
   const machineReport = (n: Node): boolean => {
@@ -740,6 +758,7 @@ function fillNodes(run: RunState, ix: Sess[], nowEpoch: number, stall: number, n
       session: s.id, cost: sh.cost, tokens: sh.tokens, baseline: sh.base,
       session_total: { cost: s.cost, tokens: s.tokens }, created: todate(s.created), updated: todate(s.updated),
       duration_s: s.updated - s.created, busy: s.busy, ...(final ? { final: true } : {}),
+      ...(peaks[s.id] ?? {}),
     };
     if (((n.job_id ?? "") === "" || n.owner_bind === "job") && (n.cost == null || n.cost.cost_basis === "opencode-session")) {
       if (machineReport(n)) n.cost = sessionCost(s, sh);
@@ -773,6 +792,8 @@ function fillNodes(run: RunState, ix: Sess[], nowEpoch: number, stall: number, n
         fill(n, by.get(b)!, true);
         n.stalled = null;
         n.stalled_reason = null;
+      } else if (n.session_stats && n.session_stats.peak_context == null && peaks[n.session_stats.session]) {
+        Object.assign(n.session_stats, peaks[n.session_stats.session]);
       }
     } else if (n.status !== "running") {
       continue;
@@ -814,7 +835,8 @@ export async function ownersFillIndexRun(home: string, runId: string, ixIn?: Ses
   const ix = ixIn ?? sessionIndex();
   const stall = await stallSecs(home);
   const nowEpoch = Math.floor(Date.now() / 1000);
-  const apply = (r: RunState, at: string) => fillNodes(r, ix, nowEpoch, stall, at);
+  const peaks = sessionPeaks(run.nodes.flatMap((n) => [n.owner_id, n.session, n.session_stats?.session].filter((x): x is string => typeof x === "string")));
+  const apply = (r: RunState, at: string) => fillNodes(r, ix, nowEpoch, stall, at, peaks);
   const next = structuredClone(run);
   apply(next, nowIso());
   const newly: string[] = [];
@@ -1207,9 +1229,10 @@ export async function nodeBrief(args: string[]): Promise<number> {
   const run = await loadRun(home, runId);
   if (!run) { err(`run ${runId}: unknown run`); return 2; }
   if (!findNode(run, nodeId)) { err(`node ${nodeId}: not in this run`); return 2; }
-  process.stdout.write(`You are node "${nodeId}" of orch run "${runId}". Keep the run graph true with these orch commands:
+  process.stdout.write(`You are node "${nodeId}" of orch run "${runId}". Your task is in $ORCH_NODE_GOAL and in the file $ORCH_NODE_GOAL_FILE. Keep the run graph true with these orch commands:
 - At least every 5 minutes while you work: orch node ping ${runId} ${nodeId} --note "<what you just did>" [--progress 3/10]
 - When you know your real model and token numbers: orch node report ${runId} ${nodeId} --model <model> --input-tokens N --output-tokens N --note "<summary>"
+- When the work is finished: write handoff.md (the long detail) in $ORCH_NODE_OUT, then right after it record the one-line result: orch node result ${runId} ${nodeId} --verdict full|partial|blocked --summary "<one sentence>" --follow-up "<findings or none>". (Inside the node, "orch node result --verdict ... --summary ... --follow-up ..." works too: it reads ORCH_RUN_ID and ORCH_NODE_ID.) blocked needs a summary. The main session reads handoff.md only when the result says partial, blocked or has a follow_up.
 - When the work is finished AND verified (tests ran, output read): orch node update ${runId} ${nodeId} done
 - On failure: orch node update ${runId} ${nodeId} error --error "<reason>"
 Rules: never redirect a command to /dev/null (no >/dev/null, no 2>/dev/null). Read the result of every orch command. Never mark done before you verified the work.

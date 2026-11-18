@@ -3,7 +3,7 @@ import type { RunNode } from "../../../shared/types/run-node";
 import type { RunState } from "../../../shared/types/run-state";
 import { svgEl } from "../dom/el";
 import { markAgo, markLive } from "../dom/live-clock";
-import { AFTER_THE_FACT, UNOWNED_TITLE, healthClass, needsUserReason, nodeFlags, ownerChip } from "../views/node-flags";
+import { AFTER_THE_FACT, UNOWNED_TITLE, healthClass, needsUserReason, nodeFlags, ownerChip, resultChip } from "../views/node-flags";
 import { truncate } from "../dom/format";
 import {
   NODE_H,
@@ -45,9 +45,24 @@ const META_MAX_CHARS: number = Math.floor((NODE_W - META_LEFT_X - (NODE_W - META
 const HEALTH_Y: number = 129;
 const STAGE_LABEL_Y: number = 16;
 
-/** The status row: `done · attempt 1/5`. Fits the node's width. */
+/** `HH:MM` of an ISO time, local clock; null when the value is not a time. */
+export function retryClock(iso: string | null | undefined): string | null {
+  const ms = iso === undefined || iso === null ? Number.NaN : Date.parse(iso);
+  return Number.isNaN(ms) ? null : new Date(ms).toTimeString().slice(0, 5);
+}
+
+/**
+ * The status row: `done · attempt 1/5`. A running node with progress reads `running 3/10 · attempt 1/5`;
+ * an errored node with a retry time reads `error 2/5 · retry 14:02`. Fits the node's width.
+ */
 export function statusLine(node: RunNode, maxAttempts: number): string {
-  return truncate(`${node.status} · ${attemptLine(node, maxAttempts)}`, Math.max(META_MIN_CHARS, META_MAX_CHARS));
+  const progress = node.status === "running" && node.progress !== undefined && node.progress !== null && node.progress !== "" ? node.progress : null;
+  const retry = node.status === "error" ? retryClock(node.next_retry_at) : null;
+  const text =
+    retry === null
+      ? `${node.status}${progress === null ? "" : ` ${progress}`} · ${attemptLine(node, maxAttempts)}`
+      : `${node.status} ${(node.attempts ?? []).length + 1}/${maxAttempts === -1 ? "∞" : maxAttempts} · retry ${retry}`;
+  return truncate(text, Math.max(META_MIN_CHARS, META_MAX_CHARS));
 }
 
 export function attemptLine(node: RunNode, maxAttempts: number): string {
@@ -289,6 +304,21 @@ function nodeGroup(
     group.appendChild(title);
   }
   appendMetrics(group, node, run);
+  const verdict = resultChip(node);
+  if (verdict !== null) {
+    const chip = svgEl("g", {
+      class: `result-chip result-${verdict.verdict}`,
+      transform: `translate(${META_RIGHT_X - 60} ${STATUS_Y - 11})`,
+      "data-result": verdict.verdict,
+    });
+    const tip = svgEl("title", {});
+    const followUp = verdict.followUp !== "" && verdict.followUp.toLowerCase() !== "none" ? `follow_up: ${verdict.followUp}` : "";
+    tip.textContent = [verdict.summary, followUp].filter((t) => t !== "").join("\n") || verdict.verdict;
+    chip.appendChild(tip);
+    chip.appendChild(svgEl("rect", { width: "60", height: "15", rx: "7.5" }));
+    chip.appendChild(svgText({ x: "30", y: "11", "text-anchor": "middle" }, verdict.verdict));
+    group.appendChild(chip);
+  }
   if (isCyclic) {
     group.appendChild(
       svgText({ class: "cycle", x: String(NODE_W - 8), y: "14", "text-anchor": "end" }, "cycle"),

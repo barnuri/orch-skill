@@ -26,7 +26,7 @@ test("wait --follow: restart without loss or duplicates, rescan", async () => {
   const printed = (f: { buf: () => string }, line: string) => waitUntil(() => f.buf().split("\n").includes(line), 40);
   let f = await start();
   o("node", "update", R, "a", "done");
-  expect(await printed(f, "a running->done")).toBe(true);
+  expect(await printed(f, "a running->done [unknown]")).toBe(true);
   o("node", "update", R, "b", "error", "--error", "boom");
   expect(await printed(f, "b running->error: boom")).toBe(true);
   o("node", "update", R, "c", "waiting");
@@ -35,17 +35,17 @@ test("wait --follow: restart without loss or duplicates, rescan", async () => {
   expect(await printed(f, "c waiting->running")).toBe(true);
   o("node", "update", R, "d", "done");
   o("run", "wait", R, "--timeout", "1");
-  expect(await printed(f, "d running->done")).toBe(true);
+  expect(await printed(f, "d running->done [unknown]")).toBe(true);
   f.p.kill(); await f.p.exited;
   const first = f.buf();
   o("node", "update", R, "e", "done");
   f = await start();
-  expect(await printed(f, "e running->done")).toBe(true);
+  expect(await printed(f, "e running->done [unknown]")).toBe(true);
   o("node", "update", R, "c", "done");
-  expect(await printed(f, "c running->done")).toBe(true);
+  expect(await printed(f, "c running->done [unknown]")).toBe(true);
   f.p.kill(); await f.p.exited;
   const all = first + f.buf();
-  for (const l of ["a running->done", "d running->done", "e running->done"]) expect(all.split("\n").filter((x) => x === l).length).toBe(1);
+  for (const l of ["a running->done [unknown]", "d running->done [unknown]", "e running->done [unknown]"]) expect(all.split("\n").filter((x) => x === l).length).toBe(1);
 
   const sf = join(home, "runs", R, "state.json");
   o("node", "add", R, "s", "s");

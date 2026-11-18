@@ -1,6 +1,7 @@
 @import "./fonts.css";
 @import "./tokens.css";
 @import "./components.css";
+@import "./run-table.css";
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -719,7 +720,25 @@ h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.015em; margin:
 .node .health.running { fill: var(--status-running); }
 .node .health.error { fill: var(--status-error); font-weight: 600; }
 .node .needs-you-chip rect { fill: var(--status-waiting-bg); stroke: var(--status-waiting-bd); }
+.node .context-chip rect { fill: none; stroke: var(--border); }
+.node .context-chip text { fill: var(--tx2); font: 600 9px var(--font-sans, sans-serif); }
+.node .context-chip.over rect { fill: var(--status-waiting-bg); stroke: var(--status-waiting-bd); }
+.node .context-chip.over text { fill: var(--status-waiting); }
 .node .needs-you-chip text { fill: var(--status-waiting); font: 600 10px var(--font-sans, sans-serif); }
+.node .result-chip text { font: 600 10px var(--font-sans, sans-serif); }
+.node .result-chip.result-full rect { fill: var(--status-done-bg); stroke: var(--status-done-bd); }
+.node .result-chip.result-full text { fill: var(--status-done); }
+.node .result-chip.result-partial rect { fill: var(--status-stale-bg); stroke: var(--status-stale-bd); }
+.node .result-chip.result-partial text { fill: var(--status-stale); }
+.node .result-chip.result-blocked rect { fill: var(--status-stale-bg); stroke: var(--status-stale-bd); }
+.node .result-chip.result-blocked text { fill: var(--status-stale); }
+.node .result-chip.result-unknown rect { fill: none; stroke: var(--border); }
+.node .result-chip.result-unknown text { fill: var(--tx2); }
+.result-pill { display: inline-block; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); font-weight: 600; font-size: 11px; }
+.result-pill.result-full { color: var(--status-done); border-color: var(--status-done-bd); background: var(--status-done-bg); }
+.result-pill.result-partial { color: var(--status-stale); border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
+.result-pill.result-blocked { color: var(--status-stale); border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
+.result-pill.result-unknown { color: var(--tx2); }
 .run-stale-banner { margin-top: 8px; }
 .run-activity { margin-top: 16px; }
 .activity-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

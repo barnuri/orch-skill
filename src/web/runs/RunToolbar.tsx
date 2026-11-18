@@ -1,6 +1,6 @@
 import type { RunState } from "../../shared/types/run-state";
 import type { LiveState } from "./queries";
-import { filterOptions, isFilterActive, EMPTY_FILTER, SUMMARY_BUCKETS, type NodeFilter, type RunSummary, type SummaryBucket } from "./run-filter";
+import { filterOptions, isFilterActive, EMPTY_FILTER, SUMMARY_BUCKETS, VERDICTS, type NodeFilter, type RunSummary, type SummaryBucket } from "./run-filter";
 
 const LIVE_TEXT: Readonly<Record<LiveState, { text: string; title: string }>> = {
   live: { text: "live", title: "Live: the run stream is open and the page updates by itself" },
@@ -85,6 +85,14 @@ export function NodeFilterBar({ run, filter, harnessByProfile, shown, onChange }
       <select className="input" aria-label="Filter by model" value={filter.model} onChange={(event) => onChange({ ...filter, model: event.target.value })}>
         <option value="">any model</option>
         {options.models.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select className="input" aria-label="Filter by result verdict" value={filter.verdict} onChange={(event) => onChange({ ...filter, verdict: event.target.value as NodeFilter["verdict"] })}>
+        <option value="">any verdict</option>
+        {VERDICTS.map((name) => (
           <option key={name} value={name}>
             {name}
           </option>

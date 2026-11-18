@@ -10,6 +10,10 @@ import { appendEvents, loadRun, saveRun, type RunState } from "../state/store.ts
 import {
   applyAdd,
   applyReport,
+  applyResult,
+  parseResultArgs,
+  RESULT_USAGE,
+  resultText,
   applyUpdate,
   loadChain,
   loadHub,
@@ -174,4 +178,44 @@ export async function nodeReport(args: string[]): Promise<number> {
     return 2;
   }
   return mutateRun(home, runId, (run, ctx) => applyReport(run, a, ctx));
+}
+
+// `node result [<run> <node>] --verdict V --summary S [--follow-up F]`: run and node fall back to the node's env.
+export async function nodeResult(args: string[]): Promise<number> {
+  let a;
+  try {
+    a = parseResultArgs(args);
+  } catch (e) {
+    errLine((e as Error).message);
+    return 2;
+  }
+  const runArg = a.pos[0] ?? process.env.ORCH_RUN_ID ?? "";
+  a.id = a.pos[1] ?? process.env.ORCH_NODE_ID ?? "";
+  if (!runArg || !a.id) {
+    errLine(`usage: ${RESULT_USAGE}`);
+    return 2;
+  }
+  const home = orchHome();
+  const runId = await resolveRun(home, runArg);
+  if (runId === null) return 1;
+  return mutateRun(home, runId, (run, ctx) => applyResult(run, a, ctx));
+}
+
+// `node show <run> <node>`: the node's result in full, then the node as JSON.
+export async function nodeShow(args: string[]): Promise<number> {
+  const [runArg = "", id = ""] = args;
+  if (!runArg || !id) {
+    errLine("usage: dispatch.ts node show <run-id> <node-id>");
+    return 2;
+  }
+  const home = orchHome();
+  const runId = await resolveRun(home, runArg);
+  if (runId === null) return 1;
+  const run = await loadRun(home, runId);
+  const n = run?.nodes.find((x: any) => x.id === id);
+  if (!n) return (errLine(`node ${id}: not in this run`), 2);
+  const r = resultText(n);
+  if (r) process.stdout.write(`result: ${r}${(n as any).result?.at ? ` (at ${(n as any).result.at})` : ""}\n`);
+  process.stdout.write(JSON.stringify(n, null, 2) + "\n");
+  return 0;
 }

@@ -231,6 +231,21 @@ export function cardUsageMetric(node: RunNode): Metric {
   return { text: `${tokens} · ${usd}`, present: usage.tokens !== null || usage.usd !== null, title };
 }
 
+/** Peak context above which the chip turns to a warning. */
+export const CONTEXT_WARN_TOKENS = 200_000;
+
+/** The peak context of one assistant step (`session_stats.peak_context`), or null when the node has none. */
+export function peakContextMetric(node: RunNode): { text: string; over: boolean; title: string } | null {
+  const stats = node.session_stats;
+  const peak = stats?.peak_context;
+  if (typeof peak !== "number") {
+    return null;
+  }
+  const steps = stats?.steps === undefined ? "" : `, ${stats.steps} steps, avg ${Math.round((stats.avg_context ?? 0) / 1000)}k`;
+  const over = peak > CONTEXT_WARN_TOKENS;
+  return { text: `ctx ${Math.round(peak / 1000)}k`, over, title: `peak context ${peak.toLocaleString("en-US")} tokens${steps}${over ? ` (over ${CONTEXT_WARN_TOKENS / 1000}k)` : ""}` };
+}
+
 /** `role · tier`, or null when neither is set. */
 export function roleTierText(node: RunNode): string | null {
   const raw: (string | null)[] = [node.role ?? null, node.tier ?? null];
@@ -331,10 +346,26 @@ export function attemptLine(node: RunNode, maxAttempts: number): string {
   return `attempt ${current}/${maxAttempts}`;
 }
 
-/** The status row of a node card: `done · attempt 1/5`. Fits the node's width. */
+/** `HH:MM` of an ISO time, local clock; null when the value is not a time. */
+export function retryClock(iso: string | null | undefined): string | null {
+  const ms = iso === undefined || iso === null ? Number.NaN : Date.parse(iso);
+  return Number.isNaN(ms) ? null : new Date(ms).toTimeString().slice(0, 5);
+}
+
+/**
+ * The status row of a node card: `done · attempt 1/5`. A running node with progress reads
+ * `running 3/10 · attempt 1/5`; an errored node with a retry time reads `error 2/5 · retry 14:02`.
+ * Fits the node's width.
+ */
 export function statusLine(node: RunNode, maxAttempts: number): string {
   const word = isStarting(node) ? STARTING_TEXT : node.status;
-  return truncate(`${word} · ${attemptLine(node, maxAttempts)}`, Math.max(META_MIN_CHARS, META_MAX_CHARS));
+  const progress = node.status === "running" ? nonEmpty(node.progress ?? null) : null;
+  const retry = node.status === "error" ? retryClock(node.next_retry_at) : null;
+  const text =
+    retry === null
+      ? `${word}${progress === null ? "" : ` ${progress}`} · ${attemptLine(node, maxAttempts)}`
+      : `${word} ${(node.attempts ?? []).length + 1}/${maxAttempts === -1 ? "∞" : maxAttempts} · retry ${retry}`;
+  return truncate(text, Math.max(META_MIN_CHARS, META_MAX_CHARS));
 }
 
 export const READY_NOT_STARTED_TEXT = "ready, not started";

@@ -69,9 +69,9 @@ describe("node filter", () => {
   });
 
   test("round-trips through the run hash and leaves the route id alone", () => {
-    const hash = hashWithFilter("#/run/r1", { status: "error", profile: "", model: "", q: "build api" });
+    const hash = hashWithFilter("#/run/r1", { status: "error", profile: "", model: "", q: "build api", verdict: "" });
     expect(hash).toBe("#/run/r1?status=error&q=build+api");
-    expect(parseFilter(hash)).toEqual({ status: "error", profile: "", model: "", q: "build api" });
+    expect(parseFilter(hash)).toEqual({ status: "error", profile: "", model: "", q: "build api", verdict: "" });
     expect(parseRoute(hash)).toEqual({ kind: "run", runId: "r1" });
     expect(routeKey(parseRoute(hash))).toBe(routeKey(parseRoute("#/run/r1")));
     expect(hashWithFilter(hash, EMPTY_FILTER)).toBe("#/run/r1");

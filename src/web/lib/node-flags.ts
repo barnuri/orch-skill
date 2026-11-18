@@ -36,6 +36,26 @@ export function ownerText(node: RunNode): string | null {
   return owner === node.job_id || owner.startsWith("job-") ? `job ${owner}` : owner;
 }
 
+/** The owner id cut to 12 characters, or null when no owner is recorded. */
+export function ownerIdShort(node: RunNode): string | null {
+  const id = node.owner_id || node.owner || "";
+  if (id === "") {
+    return null;
+  }
+  return id.length > 12 ? `${id.slice(0, 12)}...` : id;
+}
+
+/** The handoff row: null for runs older than the field, else present, or why it is not. */
+export function handoffText(node: RunNode): { text: string; missing: boolean } | null {
+  if (node.handoff_present === undefined || node.handoff_present === null) {
+    return null;
+  }
+  if (node.handoff_present) {
+    return { text: "handoff present", missing: false };
+  }
+  return node.status === "done" ? { text: "done without handoff", missing: true } : { text: "no handoff yet", missing: true };
+}
+
 /** ISO time of a running node's newest sign of life; null for a node that is not running. */
 export function lastActivity(node: RunNode): string | null {
   return node.status === "running" ? (node.last_activity ?? node.updated ?? node.started ?? null) : null;
@@ -112,4 +132,20 @@ export function holdReason(node: RunNode): string | null {
 /** True when any node is done only because its owner said so. */
 export function hasUnreviewed(nodes: readonly RunNode[]): boolean {
   return nodes.some((n) => n.status === "done" && n.unverified === true);
+}
+
+export interface ResultChip {
+  /** full | partial | blocked | unknown */
+  verdict: string;
+  summary: string;
+  followUp: string;
+}
+
+/** The recorded node result for a done node (`node result`), or null. A done node without one is "unknown". */
+export function resultChip(node: RunNode): ResultChip | null {
+  const r = node.result;
+  if (r === undefined || r === null) {
+    return node.status === "done" ? { verdict: "unknown", summary: "", followUp: "" } : null;
+  }
+  return { verdict: r.verdict, summary: r.summary, followUp: r.follow_up };
 }

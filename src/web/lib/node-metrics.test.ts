@@ -21,7 +21,7 @@ import {
   roleTierText,
   runTotals,
   summaryUsageMetric,
-  usageMetric,
+  usageMetric, peakContextMetric,
 } from "./node-metrics.ts";
 
 function node(overrides: Partial<RunNode> = {}): RunNode {
@@ -266,7 +266,7 @@ describe("alias → actual model", () => {
 
   test("shows the alias alone when the actual model matches it or is missing", () => {
     expect(modelMetric(node({ model: "claude-opus-5-5", actual_model: "claude-opus-5-5" })).text).toBe("claude-opus-5-5");
-    expect(modelMetric(node({ model: "hub/smart-auto-balance" })).text).toBe("hub/smart-auto-balance");
+    expect(modelMetric(node({ model: "hub/smart-auto-balance" })).text).toBe("smart-auto-balance");
   });
 
   test("actualModelMetric shows the placeholder when no actual model is known", () => {
@@ -289,6 +289,12 @@ describe("real run time", () => {
     expect(metric.liveSince).toBe(at(0));
     expect(statusLine(n, 3)).toStartWith(STARTING_TEXT);
   });
+  test("the status row shows progress while running and the retry time after an error", () => {
+    expect(statusLine(node({ status: "running", progress: "3/10" }), 5)).toBe("running 3/10 · attempt 1/5");
+    expect(statusLine(node({ status: "done", progress: "3/10" }), 5)).toBe("done · attempt 1/5");
+    const retryAt = new Date(2026, 10, 17, 14, 2).toISOString();
+    expect(statusLine(node({ status: "error", next_retry_at: retryAt, attempts: [{ job_id: null, error: "x", finished: null, log_tail: [], profile: null }] }), 5)).toBe("error 2/5 · retry 14:02");
+  });
   test("a timed node shows run time and queue time", () => {
     const n = node({ status: "done", dispatched_at: at(0), started_at: at(5), finished_at: at(65), seg_open: false, run_segments: [{ dispatched: at(0), start: at(5), end: at(65) }] });
     const metric = durationMetric(n, null, T0 + 100_000);
@@ -306,5 +312,21 @@ describe("real run time", () => {
     const totals = runTotals({ started: at(0), finished: at(120), nodes: [node()], pauses: [{ from: at(30), to: at(90) }] });
     expect(totals.duration.text).toBe("1m 0s");
     expect(totals.duration.title).toContain("1m 0s paused or stopped, left out");
+  });
+});
+
+describe("peakContextMetric", () => {
+  const withPeak = (peak?: number) =>
+    node({ session_stats: { session: "ses_abc", cost: 1, tokens: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 }, created: "", updated: "", duration_s: 1, busy: false, ...(peak === undefined ? {} : { peak_context: peak, steps: 4, avg_context: 90000 }) } });
+
+  test("no peak, no chip", () => {
+    expect(peakContextMetric(withPeak())).toBeNull();
+    expect(peakContextMetric(node())).toBeNull();
+  });
+  test("warns only above 200k", () => {
+    expect(peakContextMetric(withPeak(200000))).toMatchObject({ text: "ctx 200k", over: false });
+    const over = peakContextMetric(withPeak(250000));
+    expect(over).toMatchObject({ text: "ctx 250k", over: true });
+    expect(over?.title).toContain("4 steps");
   });
 });
