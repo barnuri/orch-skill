@@ -15,6 +15,7 @@ import type { NotifyInput } from "../push/hub";
 import { readSchedules } from "../schedules/schedule-reader";
 import type { ServerContext } from "../types/server-context";
 import { pushHubFor } from "../push/hub";
+import { goalClosing } from "../../shared/chat-automation";
 import { HttpError, chatServiceFor } from "./service";
 import type { ChatService } from "./service";
 
@@ -664,8 +665,9 @@ export class ChatAutomation {
       const why: Record<string, string> = { max: "reached its maximum of iterations", until: "its stop condition was met", "max-runtime": "reached its time limit", agent: "the agent ended it", failures: "it failed several times in a row", stopped: "you stopped it" };
       const reason = String(state["reason"] ?? "");
       const failed = status === "failed";
+      const goal = goalClosing(label, reason, total);
       this.service.postBlock(chatId, {
-        content: `Loop ended: ${why[reason] ?? (reason || status)}.`,
+        content: goal ?? `Loop ended: ${why[reason] ?? (reason || status)}.`,
         part: { type: "automation", kind: "loop", level: failed ? "error" : "info", title: `Loop: ${label}`, item_id: id, counter: `${total} iterations` },
         failed,
       });

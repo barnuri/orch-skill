@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { AUTOMATION_INSTRUCTION, durationSecs, guessMonitor, onceCron, parseSlash, parseWhen, presetCron, urlProblem } from "./chat-automation";
+import { AUTOMATION_INSTRUCTION, durationSecs, goalClosing, guessMonitor, onceCron, parseSlash, parseWhen, presetCron, urlProblem } from "./chat-automation";
 
 describe("presets", () => {
   test("presets map to cron", () => {
@@ -95,5 +95,57 @@ describe("urlProblem", () => {
 
   test("credentials in the URL are refused", () => {
     expect(urlProblem("https://user:pw@example.com")).toMatch(/user name/);
+  });
+});
+
+describe("parseSlash: /goal and /feedback", () => {
+  test("/goal with an objective starts a goal, keeping case and punctuation", () => {
+    expect(parseSlash("/goal Ship the Feedback page, all tests green")).toEqual({ cmd: "goal", objective: "Ship the Feedback page, all tests green" });
+  });
+
+  test("/goal stop and /goal alone are the stop and show commands", () => {
+    expect(parseSlash("/goal stop")).toEqual({ cmd: "goal-stop" });
+    expect(parseSlash("/GOAL   STOP ")).toEqual({ cmd: "goal-stop" });
+    expect(parseSlash("/goal")).toEqual({ cmd: "goal-show" });
+  });
+
+  test("/feedback with text adds it, list and work are their own commands", () => {
+    expect(parseSlash("/feedback The run list is slow")).toEqual({ cmd: "feedback-add", text: "The run list is slow" });
+    expect(parseSlash("/feedback list")).toEqual({ cmd: "feedback-list" });
+    expect(parseSlash("/feedback work")).toEqual({ cmd: "feedback-work" });
+  });
+
+  test("/feedback without text is an error, not an empty item", () => {
+    expect(parseSlash("/feedback")).toEqual({ cmd: "error", message: "Say the feedback, or use /feedback list or /feedback work" });
+  });
+
+  test("words that only start with a command name are not commands", () => {
+    expect(parseSlash("/goals are hard")).toBeNull();
+    expect(parseSlash("/feedbacks")).toBeNull();
+  });
+
+  test("the first-turn hint mentions /goal and /feedback", () => {
+    expect(AUTOMATION_INSTRUCTION).toContain("/goal");
+    expect(AUTOMATION_INSTRUCTION).toContain("/feedback");
+  });
+});
+
+describe("goalClosing", () => {
+  test("agent stop means the goal was met", () => {
+    expect(goalClosing("Goal: ship it", "agent", 3)).toBe("Goal met after 3 iterations.");
+    expect(goalClosing("Goal: ship it", "agent", 1)).toBe("Goal met after 1 iteration.");
+  });
+
+  test("the iteration cap means the goal was not met", () => {
+    expect(goalClosing("Goal: ship it", "max", 20)).toBe("Goal not met: stopped at the maximum of 20 iterations.");
+  });
+
+  test("a user stop and other ends are reported", () => {
+    expect(goalClosing("Goal: ship it", "stopped", 2)).toBe("Goal stopped by you.");
+    expect(goalClosing("Goal: ship it", "failures", 2)).toBe("Goal not met: loop ended (failures).");
+  });
+
+  test("a loop that is not a goal keeps the default closing line", () => {
+    expect(goalClosing("Loop: news", "agent", 3)).toBeNull();
   });
 });

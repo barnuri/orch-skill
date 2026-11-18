@@ -12,11 +12,25 @@ export const LIMITS = {
   retryDelaySecs: 300,
   maxFailures: 3,
   graceHoursDefault: 6,
+  goalIntervalSecs: 10,
+  goalMaxIterations: 20,
 } as const;
 
 /** One line for the agent, once per session. It may suggest; the user confirms. No tool creates anything. */
 export const AUTOMATION_INSTRUCTION =
-  "You may suggest a schedule, loop or monitor for this chat: ask the user to confirm, then use /schedule, /loop or /watch";
+  "You may suggest /schedule, /loop or /watch (the user confirms first). /goal runs toward an objective; /feedback records feedback on orch";
+
+/** Label prefix of a loop started by /goal. */
+export const GOAL_PREFIX = "Goal: ";
+
+/** The closing line of a goal loop, or null when the loop is not a goal. `agent` means the agent wrote STOP: the goal is met. */
+export function goalClosing(label: string, reason: string, iterations: number): string | null {
+  if (!label.startsWith(GOAL_PREFIX)) return null;
+  if (reason === "agent") return `Goal met after ${iterations} iteration${iterations === 1 ? "" : "s"}.`;
+  if (reason === "max") return `Goal not met: stopped at the maximum of ${iterations} iterations.`;
+  if (reason === "stopped") return "Goal stopped by you.";
+  return `Goal not met: loop ended (${reason || "unknown"}).`;
+}
 
 export const SCHEDULED_PREFIX = "Scheduled: ";
 export const RESULT_TITLE = "Scheduled result: ";
@@ -113,11 +127,15 @@ export type SlashCommand =
   | { cmd: "schedule"; cron: string; prompt: string }
   | { cmd: "loop"; every: string; prompt: string }
   | { cmd: "watch"; what: string }
+  | { cmd: "goal"; objective: string }
+  | { cmd: "goal-stop" | "goal-show" }
+  | { cmd: "feedback-add"; text: string }
+  | { cmd: "feedback-list" | "feedback-work" }
   | { cmd: "error"; message: string };
 
 /** A composer line that starts with one of the automation commands, or null for ordinary text. */
 export function parseSlash(text: string): SlashCommand | null {
-  const m = /^\/(schedules|schedule|loops|loop|monitors|watch)\b\s*(.*)$/is.exec(text.trim());
+  const m = /^\/(schedules|schedule|loops|loop|monitors|watch|goal|feedback)\b\s*(.*)$/is.exec(text.trim());
   if (m === null) {
     return null;
   }
@@ -125,6 +143,17 @@ export function parseSlash(text: string): SlashCommand | null {
   const rest = (m[2] ?? "").trim();
   if (name === "schedules" || name === "loops" || name === "monitors") {
     return { cmd: name };
+  }
+  if (name === "goal") {
+    if (rest === "") return { cmd: "goal-show" };
+    if (rest.toLowerCase() === "stop") return { cmd: "goal-stop" };
+    return { cmd: "goal", objective: rest };
+  }
+  if (name === "feedback") {
+    if (rest === "") return { cmd: "error", message: "Say the feedback, or use /feedback list or /feedback work" };
+    if (rest.toLowerCase() === "list") return { cmd: "feedback-list" };
+    if (rest.toLowerCase() === "work") return { cmd: "feedback-work" };
+    return { cmd: "feedback-add", text: rest };
   }
   if (name === "schedule") {
     const w = parseWhen(rest);

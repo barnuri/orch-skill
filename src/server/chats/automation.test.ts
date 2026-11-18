@@ -582,7 +582,7 @@ describe("the agent hears about it once", () => {
     await s.service.settledAll(s.chat.id);
     s.service.sendMessage(s.chat.id, { content: "again" });
     await s.service.settledAll(s.chat.id);
-    expect(s.plan.prompts[0]).toContain("You may suggest a schedule, loop or monitor");
-    expect(s.plan.prompts[1]).not.toContain("You may suggest a schedule");
+    expect(s.plan.prompts[0]).toContain("You may suggest /schedule, /loop or /watch");
+    expect(s.plan.prompts[1]).not.toContain("You may suggest /schedule");
   });
 });

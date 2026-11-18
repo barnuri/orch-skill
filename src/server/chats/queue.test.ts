@@ -232,23 +232,75 @@ describe("queue: edit and delete races", () => {
 });
 
 describe("queue: send now", () => {
-  test("stops the running reply (partial kept) and runs the chosen message next, the others after it", async () => {
+  test("with a running reply: stops it (partial kept), sends only the chosen message; the other 2 stay queued and the queue pauses", async () => {
     const { service, h, chatId } = setup();
     const a = service.submit(chatId, { content: "A" }) as { assistant_message_id: string };
     service.submit(chatId, { content: "B" });
-    const c = (service.submit(chatId, { content: "C" }) as { item: { id: string } }).item.id;
+    service.submit(chatId, { content: "C" });
+    const d = (service.submit(chatId, { content: "D" }) as { item: { id: string } }).item.id;
     await until(() => h.turns.length === 1);
-    const result = await service.queue.sendNow(chatId, c);
+    const result = await service.queue.sendNow(chatId, d);
     expect(result.interrupted).toBe(true);
-    expect(h.prompts).toEqual(["A", "C"]);
+    expect(h.prompts).toEqual(["A", "D"]);
     expect(service.store.getMessage(a.assistant_message_id)).toMatchObject({ status: "stopped", content: "partial of A" });
-    expect(service.queue.snapshot(chatId)).toMatchObject({ paused: false });
-    expect(service.queue.snapshot(chatId).items.map((i) => [i.text, i.state])).toEqual([["C", "running"], ["B", "queued"]]);
-    h.current().finish();
-    await until(() => h.turns.length === 3);
-    expect(h.prompts).toEqual(["A", "C", "B"]);
+    expect(service.queue.snapshot(chatId).items.map((i) => [i.text, i.state])).toEqual([["D", "running"], ["B", "queued"], ["C", "queued"]]);
     h.current().finish();
     await service.settledAll(chatId);
+    expect(h.prompts).toEqual(["A", "D"]);
+    expect(service.queue.snapshot(chatId)).toMatchObject({ paused: true, reason: "Sent one message now. 2 more are waiting: Resume to send them." });
+    expect(service.queue.snapshot(chatId).items.map((i) => [i.text, i.state, i.position])).toEqual([["B", "queued", 1], ["C", "queued", 2]]);
+    service.queue.resume(chatId);
+    await until(() => h.prompts.length === 3);
+    expect(h.prompts).toEqual(["A", "D", "B"]);
+    expect(service.queue.snapshot(chatId).paused).toBe(false);
+    h.current().finish();
+    await until(() => h.prompts.length === 4);
+    expect(h.prompts).toEqual(["A", "D", "B", "C"]);
+    h.current().finish();
+    await service.settledAll(chatId);
+  });
+
+  test("on a paused queue with nothing running: sends only the chosen message; the other 2 stay queued and the queue pauses again", async () => {
+    const { service, h, chatId } = setup();
+    service.submit(chatId, { content: "A" });
+    service.submit(chatId, { content: "B" });
+    service.submit(chatId, { content: "C" });
+    const d = (service.submit(chatId, { content: "D" }) as { item: { id: string } }).item.id;
+    h.current().fail();
+    await service.settledAll(chatId);
+    const result = await service.queue.sendNow(chatId, d);
+    expect(result.interrupted).toBe(false);
+    expect(h.prompts).toEqual(["A", "D"]);
+    h.current().finish();
+    await service.settledAll(chatId);
+    expect(h.prompts).toEqual(["A", "D"]);
+    expect(service.queue.snapshot(chatId)).toMatchObject({ paused: true, reason: "Sent one message now. 2 more are waiting: Resume to send them." });
+    expect(texts(service, chatId)).toEqual(["B", "C"]);
+  });
+
+  test("send now on the only queued message does not pause the queue", async () => {
+    const { service, h, chatId } = setup();
+    service.submit(chatId, { content: "A" });
+    const b = (service.submit(chatId, { content: "B" }) as { item: { id: string } }).item.id;
+    await until(() => h.turns.length === 1);
+    await service.queue.sendNow(chatId, b);
+    expect(h.prompts).toEqual(["A", "B"]);
+    h.current().finish();
+    await service.settledAll(chatId);
+    expect(service.queue.snapshot(chatId)).toMatchObject({ items: [], paused: false });
+  });
+
+  test("a normal queue without send now still drains by itself", async () => {
+    const { service, h, chatId } = setup();
+    service.submit(chatId, { content: "A" });
+    service.submit(chatId, { content: "B" });
+    service.submit(chatId, { content: "C" });
+    h.auto = true;
+    h.current().finish();
+    await until(() => h.turns.length === 3);
+    await service.settledAll(chatId);
+    expect(h.prompts).toEqual(["A", "B", "C"]);
+    expect(service.queue.snapshot(chatId).paused).toBe(false);
   });
 
   test("on a paused queue with nothing running it just starts that message", async () => {

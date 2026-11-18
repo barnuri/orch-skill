@@ -9,6 +9,10 @@ import { useNow } from "./use-chat-thread";
 import { browserVoice, useDictation } from "./use-voice";
 import type { Conversation, VoiceDeps } from "./use-voice";
 import { appendTranscript, formatElapsed } from "../lib/voice-logic";
+import { skillsApi } from "../api/skills";
+import { filterMenu, insertMenuItem, menuAction, slashContext } from "../../shared/slash-commands";
+import type { SkillSuggestion } from "../../shared/slash-commands";
+import { SlashMenu } from "./SlashMenu";
 
 interface Pending {
   key: number;
@@ -81,6 +85,12 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
   const [problems, setProblems] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [caret, setCaret] = useState(() => text.length);
+  const [menuActive, setMenuActive] = useState(0);
+  const [menuDismissed, setMenuDismissed] = useState(false);
+  const [skills, setSkills] = useState<SkillSuggestion[] | null>(null);
+  const skillsRequested = useRef(false);
+  const pendingCaret = useRef<number | null>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const counter = useRef(0);
@@ -123,8 +133,40 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
     if (el !== null) {
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      if (pendingCaret.current !== null) {
+        el.setSelectionRange(pendingCaret.current, pendingCaret.current);
+        pendingCaret.current = null;
+      }
     }
   }, [text]);
+
+  const slash = slashContext(text, caret);
+  const menuRows = slash !== null && !menuDismissed ? filterMenu(slash, skills ?? []) : [];
+  const menuOpen = menuRows.length > 0;
+  const activeRow = Math.min(menuActive, menuRows.length - 1);
+  const menuId = `slash-menu-${chatId}`;
+
+  useEffect(() => {
+    if (slash === null || skillsRequested.current) {
+      return;
+    }
+    skillsRequested.current = true;
+    void skillsApi.list().then((res) => {
+      setSkills(res.kind === "ok" ? res.body.skills : []);
+    });
+  }, [slash !== null]);
+
+  const pickRow = (index: number): void => {
+    const row = menuRows[index];
+    if (slash === null || row === undefined) {
+      return;
+    }
+    const next = insertMenuItem(text, caret, slash, row.name);
+    pendingCaret.current = next.caret;
+    setCaret(next.caret);
+    setText(next.text);
+    setMenuActive(0);
+  };
 
   const addFiles = useCallback(
     (files: File[]) => {
@@ -187,6 +229,18 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const action = menuOpen ? menuAction(event.key, activeRow, menuRows.length) : null;
+    if (action !== null) {
+      event.preventDefault();
+      if (action.type === "move") {
+        setMenuActive(action.index);
+      } else if (action.type === "pick") {
+        pickRow(action.index);
+      } else {
+        setMenuDismissed(true);
+      }
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !window.matchMedia(COARSE).matches) {
       event.preventDefault();
       void submit();
@@ -299,6 +353,7 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
         </div>
       ) : null}
       {toolbar !== undefined ? <div className="composer-toolbar" data-testid="composer-toolbar">{toolbar}</div> : null}
+      {menuOpen ? <SlashMenu id={menuId} rows={menuRows} active={activeRow} onPick={pickRow} /> : null}
       <div className="composer-row">
         <input
           ref={fileInput}
@@ -331,7 +386,18 @@ export function Composer({ chatId, blocked, running, toolbar, onSend, onStop, on
           disabled={blocked !== null}
           onChange={(e) => {
             setText(e.target.value);
+            setCaret(e.target.selectionStart);
+            setMenuActive(0);
+            setMenuDismissed(false);
           }}
+          onSelect={(e) => {
+            setCaret(e.currentTarget.selectionStart);
+          }}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? menuId : undefined}
+          aria-activedescendant={menuOpen ? `${menuId}-${activeRow}` : undefined}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />

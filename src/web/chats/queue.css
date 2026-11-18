@@ -53,8 +53,7 @@
 .queue-editor { width: 100%; min-height: 72px; resize: vertical; font-family: var(--font-sans); font-size: var(--fs-body); line-height: 1.45; padding: var(--s2) var(--s3); }
 .queue-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 .queue-hint { font-size: var(--fs-micro); color: var(--tx3); }
-.queue-confirm { flex-basis: 100%; display: grid; gap: var(--s2); padding: var(--s2) var(--s3); border-radius: var(--r-md); border: 1px solid var(--status-stale-bd); background: var(--status-stale-bg); }
-.queue-confirm p { margin: 0; color: var(--tx1); font-size: var(--fs-meta); }
+.queue-status { margin: var(--s1) 0 0; color: var(--tx2); font-size: var(--fs-meta); flex-basis: 100%; }
 
 /* Pending bubbles: quiet, dashed, until the message starts and becomes a normal one. */
 .queue-bubbles { display: grid; gap: var(--s3); padding-top: var(--s3); }

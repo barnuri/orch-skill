@@ -90,6 +90,26 @@ describe("queue and a pending question", () => {
     await service.settledAll(chatId);
   });
 
+  test("send now while a question waits: sends only the chosen message, the rest stay queued and the queue pauses", async () => {
+    const { service, h, chatId } = setup();
+    h.askNext = true;
+    service.submit(chatId, { content: "A" });
+    service.submit(chatId, { content: "B" });
+    service.submit(chatId, { content: "C" });
+    h.current().finish();
+    await service.settledAll(chatId);
+    expect(service.queue.snapshot(chatId).waiting_for_answer).toBe(true);
+    const b = service.queue.snapshot(chatId).items[0]?.id as string;
+    h.askNext = false;
+    await service.queue.sendNow(chatId, b);
+    expect(h.prompts).toEqual(["A", "B"]);
+    h.current().finish();
+    await service.settledAll(chatId);
+    expect(service.queue.snapshot(chatId)).toMatchObject({ paused: true, reason: "Sent one message now. 1 more is waiting: Resume to send them." });
+    expect(service.queue.snapshot(chatId).items.map((i) => [i.text, i.state])).toEqual([["C", "queued"]]);
+    expect(h.prompts).toEqual(["A", "B"]);
+  });
+
   test("Resume does not start a message while the question waits", async () => {
     const { service, h, chatId } = setup();
     h.askNext = true;

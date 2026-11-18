@@ -21,7 +21,7 @@ function qidOf(c: ApiContext): string {
   return c.req.param("qid") as string;
 }
 
-@Controller({ path: "/api", tags: ["chats"] })
+@Controller({ path: "/api", tags: ["chats", "queue"] })
 export class ChatQueueController {
   private readonly service: ChatService;
 

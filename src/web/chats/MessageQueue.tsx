@@ -88,13 +88,12 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [confirming, setConfirming] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [sentNotice, setSentNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
-  const confirmButton = useRef<HTMLButtonElement>(null);
   const ids = list.map((i) => i.id);
 
   useEffect(() => {
@@ -102,20 +101,12 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
       editor.current?.focus();
     }
   }, [editing]);
-  useEffect(() => {
-    if (confirming !== null) {
-      confirmButton.current?.focus();
-    }
-  }, [confirming]);
-  // An item that left the queue (it started, or it was removed elsewhere) ends its edit or confirmation.
+  // An item that left the queue (it started, or it was removed elsewhere) ends its edit.
   useEffect(() => {
     if (editing !== null && !ids.includes(editing)) {
       setEditing(null);
     }
-    if (confirming !== null && !ids.includes(confirming)) {
-      setConfirming(null);
-    }
-  }, [ids.join(","), editing, confirming]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed on the id list
+  }, [ids.join(","), editing]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed on the id list
 
   if (list.length === 0) {
     return null;
@@ -172,8 +163,11 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
     void run(id, () => queueApi.cancel(chatId, id), "could not delete", () => void refresh());
   };
   const sendNow = (id: string): void => {
-    setConfirming(null);
-    void run(id, () => queueApi.sendNow(chatId, id), "could not send now", () => void refresh());
+    setSentNotice(null);
+    void run(id, () => queueApi.sendNow(chatId, id), "could not send now", (body) => {
+      setSentNotice(body.interrupted ? "The running reply was interrupted. This message runs next." : "This message is running now.");
+      void refresh();
+    });
   };
   const onEditKey = (event: KeyboardEvent<HTMLTextAreaElement>, id: string): void => {
     if (event.key === "Escape") {
@@ -213,6 +207,7 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
       </header>
       {snapshot.paused ? <p className="queue-paused" role="status" data-testid="queue-paused">{pausedNotice(snapshot.reason, list.length)}</p> : snapshot.waiting_for_answer === true ? <p className="queue-paused queue-waiting" role="status" data-testid="queue-waiting">{waitingNotice(list.length)}</p> : null}
       {notes.tray !== undefined ? <p className="queue-note" role="alert">{notes.tray}</p> : null}
+      {sentNotice !== null ? <p className="queue-status" role="status" data-testid="queue-status">{sentNotice}</p> : null}
       {open ? (
         <>
           {running ? (
@@ -281,19 +276,10 @@ export function QueueTray({ chatId, snapshot, running, runningText = null, onSto
                     <button type="button" className="icon-btn queue-act" aria-label={`Move message ${index + 1} up`} title="Move up" disabled={busy || index === 0} onClick={() => { move(item.id, -1); }}><Arrow down={false} /></button>
                     <button type="button" className="icon-btn queue-act" aria-label={`Move message ${index + 1} down`} title="Move down" disabled={busy || index === list.length - 1} onClick={() => { move(item.id, 1); }}><Arrow down /></button>
                     <button type="button" className="btn queue-act" onClick={() => { setDraft(item.text); setEditing(item.id); note(item.id, null); }}>Edit</button>
-                    <button type="button" className="btn queue-act" disabled={busy} onClick={() => { if (running) { setConfirming(item.id); } else { sendNow(item.id); } }}>Send now</button>
+                    <button type="button" className="btn queue-act" disabled={busy} onClick={() => { sendNow(item.id); }}>Send now</button>
                     <button type="button" className="btn danger queue-act" disabled={busy} onClick={() => { remove(item.id); }}>Delete</button>
                   </div>
                 )}
-                {confirming === item.id ? (
-                  <div className="queue-confirm" role="alertdialog" aria-label="Confirm send now" data-testid="queue-confirm">
-                    <p>This stops the running reply. What it wrote so far is kept, then this message runs next.</p>
-                    <div className="queue-edit-actions">
-                      <button type="button" ref={confirmButton} className="btn danger" onClick={() => { sendNow(item.id); }}>Stop reply and send now</button>
-                      <button type="button" className="btn" onClick={() => { setConfirming(null); }}>Keep waiting</button>
-                    </div>
-                  </div>
-                ) : null}
                 {notes[item.id] !== undefined ? <p className="queue-note" role="alert">{notes[item.id]}</p> : null}
               </li>
             ))}

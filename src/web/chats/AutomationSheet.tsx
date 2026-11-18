@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { type SlashCommand, guessMonitor, parseSlash, SCHEDULE_PRESETS, LIMITS } from "../../shared/chat-automation";
+import { GOAL_PREFIX, type SlashCommand, guessMonitor, parseSlash, SCHEDULE_PRESETS, LIMITS } from "../../shared/chat-automation";
 import { machineZone } from "../../shared/cron-next";
 import type { ChatLoop, ChatMonitor, LogEntry } from "../../shared/types/chat-automation";
 import type { Schedule } from "../../shared/types/schedule";
 import { automationApi } from "../api/automation";
+import { feedbackChatApi } from "../api/feedback-chat";
 import { describeFailure } from "../api/result";
 import type { ApiResult } from "../api/result";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -57,8 +58,63 @@ export function AutomationHost({ chatId, children }: { chatId: string; children:
     void client.invalidateQueries({ queryKey: ["automation", chatId] });
   };
 
+  const goalLoop = async (): Promise<ChatLoop | undefined> => {
+    const res = await automationApi.loops(chatId);
+    if (res.kind !== "ok") return undefined;
+    return res.body.items.find((l) => l.label.startsWith(GOAL_PREFIX) && l.status === "running");
+  };
+
+  const runFeedback = async (cmd: SlashCommand & { cmd: "feedback-add" | "feedback-list" | "feedback-work" }): Promise<string | null> => {
+    if (cmd.cmd === "feedback-add") {
+      const res = await feedbackChatApi.add(cmd.text, chatId);
+      if (res.kind !== "ok") return describeFailure(res, "could not save the feedback");
+      toast("ok", `Feedback saved: ${res.body.item.id}`);
+      return null;
+    }
+    if (cmd.cmd === "feedback-list") {
+      const res = await feedbackChatApi.list();
+      if (res.kind !== "ok") return describeFailure(res, "could not load the feedback");
+      const open = res.body.items.filter((i) => i.status === "new" || i.status === "queued" || i.status === "working");
+      toast("ok", open.length === 0 ? "No open feedback." : open.map((i) => `${i.id} ${i.status}: ${i.text}`).join("\n"));
+      return null;
+    }
+    const res = await feedbackChatApi.work();
+    if (res.kind !== "ok") return describeFailure(res, "could not start the feedback run");
+    if (res.body.run_id === null) {
+      toast("ok", "No new feedback to work on.");
+      return null;
+    }
+    toast("ok", `Feedback run created: ${res.body.run_id}, ${res.body.items.length} item(s). Open #/run/${res.body.run_id}`);
+    return null;
+  };
+
   const runSlash = async (cmd: SlashCommand): Promise<string | null> => {
     if (cmd.cmd === "error") return cmd.message;
+    if (cmd.cmd === "feedback-add" || cmd.cmd === "feedback-list" || cmd.cmd === "feedback-work") return runFeedback(cmd);
+    if (cmd.cmd === "goal-show") {
+      const g = await goalLoop();
+      toast("ok", g ? `Goal: ${g.label.slice(GOAL_PREFIX.length)} (iteration ${g.iteration} of ${g.max})` : "No goal is running.");
+      return null;
+    }
+    if (cmd.cmd === "goal-stop") {
+      const g = await goalLoop();
+      if (!g) return "No goal is running.";
+      const res = await automationApi.loopAction(chatId, g.id, "stop");
+      if (res.kind !== "ok") return describeFailure(res, "could not stop the goal");
+      refresh();
+      toast("ok", "Goal stopped.");
+      return null;
+    }
+    if (cmd.cmd === "goal") {
+      const res = await automationApi.createLoop(chatId, {
+        label: `${GOAL_PREFIX}${nameFrom(cmd.objective)}`, prompt: `Work toward this goal: ${cmd.objective}`, until_text: cmd.objective,
+        every: LIMITS.goalIntervalSecs, max: LIMITS.goalMaxIterations, mode: "message",
+      });
+      if (res.kind !== "ok") return describeFailure(res, "could not start the goal");
+      refresh();
+      toast("ok", `Goal started: ${cmd.objective}. Up to ${LIMITS.goalMaxIterations} iterations, every ${LIMITS.goalIntervalSecs}s.`);
+      return null;
+    }
     if (cmd.cmd === "schedules" || cmd.cmd === "loops" || cmd.cmd === "monitors") {
       setList(cmd.cmd);
       return null;

@@ -20,13 +20,15 @@ interface Props {
   onOpenImage: (a: Attachment) => void;
   onRetry: (text: string) => void;
   fallbackModel?: string | undefined;
+  /** The chat uses a router model: replies show `auto -> <model>`. */
+  autoChat?: boolean | undefined;
   /** Rendered after the last message (the queued messages); `tailKey` changing keeps a bottom-stuck thread at the bottom. */
   tail?: ReactNode;
   tailKey?: number;
 }
 
 /** Virtualized thread. Sticks to the bottom only while the reader is there; prepends keep the reading position. */
-export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder, onOpenImage, onRetry, fallbackModel, tail, tailKey = 0 }: Props) {
+export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder, onOpenImage, onRetry, fallbackModel, autoChat, tail, tailKey = 0 }: Props) {
   const parent = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const stickRef = useRef(true);
@@ -114,6 +116,7 @@ export function VirtualMessages({ messages, hasOlder, loadingOlder, onLoadOlder,
                   message={entry.message}
                   now={now}
                   fallbackModel={fallbackModel}
+                  autoChat={autoChat}
                   onOpenImage={onOpenImage}
                   onRetry={retry !== null && retry.assistant.id === entry.message.id ? () => { onRetry(retry.text); } : undefined}
                   onRegenerate={regen !== undefined && lastReply?.id === entry.message.id ? () => { onRetry(regen.content); } : undefined}

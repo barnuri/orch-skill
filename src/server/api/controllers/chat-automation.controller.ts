@@ -20,7 +20,7 @@ function guarded(work: () => Promise<Response> | Response): Promise<Response> {
   return Promise.resolve().then(work).catch((err: unknown) => failure(err));
 }
 
-@Controller({ path: "/api", tags: ["chats"] })
+@Controller({ path: "/api", tags: ["chats", "schedules", "loops"] })
 export class ChatAutomationController {
   private readonly auto: ChatAutomation;
 

@@ -4,7 +4,8 @@ import { chatsApi } from "../api/chats";
 import { describeFailure } from "../api/result";
 import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
-import { isLive, messageDurationMs, modelLabel, resolvePickers } from "../lib/chat-logic";
+import { autoLabel } from "../../shared/auto-model";
+import { isAutoChat, isLive, messageDurationMs, modelLabel, resolvePickers } from "../lib/chat-logic";
 import type { Selection } from "../lib/chat-logic";
 import { formatDuration } from "../lib/duration";
 import type { Attachment, Chat, ChatOptions, Message, Project } from "../lib/chat-types";
@@ -47,10 +48,12 @@ function LastReplyStats({ reply }: { reply: Message | null }) {
 }
 
 /** The chat's title bar: rename (pencil or title click), move to project, archive. Exported for tests. */
-export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDrawer, queue = EMPTY_QUEUE }: {
+export function Header({ chat, options, modelUsed, expected = false, lastReply, projects, onOpenDrawer, queue = EMPTY_QUEUE }: {
   chat: Chat;
   options: ChatOptions | undefined;
   modelUsed: string | null;
+  /** True while a reply runs: `modelUsed` is the last reply's. */
+  expected?: boolean;
   lastReply: Message | null;
   projects: Project[];
   onOpenDrawer: () => void;
@@ -114,7 +117,7 @@ export function Header({ chat, options, modelUsed, lastReply, projects, onOpenDr
           )}
         </div>
         <span className="chat-summary mono" data-testid="picker-summary">
-          {pickerSummary(chat, options, modelUsed)}
+          {pickerSummary(chat, options, modelUsed, expected)}
         </span>
         <span className="chat-session-note" data-testid="session-note">{sessionNote(chat, options)}</span>
         <span className="chat-folder-row">
@@ -195,8 +198,8 @@ function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat;
     : chat.harness === "" || chat.profile === "" ? { tone: "warn", text: "Harness or model not set" }
     : null;
   return (
-    <ChatSettings summary={pickerSummary({ ...chat, effort: effort as Chat["effort"] }, options, modelUsed)} badge={badge}>
-      <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} onChange={(n) => void change(n)} effort={{ value: effort, onChange: (e) => void change(sel, e) }} />
+    <ChatSettings summary={pickerSummary({ ...chat, effort: effort as Chat["effort"] }, options, modelUsed, running)} badge={badge}>
+      <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} expected={running} onChange={(n) => void change(n)} effort={{ value: effort, onChange: (e) => void change(sel, e) }} />
       {projectPath === null ? null : <SubfolderField projectPath={projectPath} value={chat.subfolder ?? null} onSave={saveSubfolder} />}
     </ChatSettings>
   );
@@ -243,6 +246,7 @@ function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: 
   useEffect(() => stopVoice, [chatId, stopVoice]);
   const modelUsed = [...rows].reverse().find((m) => m.role === "assistant" && m.model_used !== null)?.model_used ?? null;
   const lastReply = [...rows].reverse().find((m) => m.role === "assistant") ?? null;
+  const autoChat = chat !== undefined && isAutoChat(options.data, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
 
   const unread = chat?.unread === 1;
   useEffect(() => {
@@ -278,6 +282,7 @@ function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: 
         chat={chat}
         options={options.data}
         modelUsed={modelUsed}
+        expected={running}
         lastReply={lastReply}
         projects={projects.data ?? []}
         onOpenDrawer={onOpenDrawer}
@@ -296,7 +301,8 @@ function ChatViewBody({ chatId, onOpenDrawer }: { chatId: string; onOpenDrawer: 
           loadingOlder={thread.loadingOlder}
           onLoadOlder={thread.loadOlder}
           onOpenImage={setLightbox}
-          fallbackModel={modelLabel(options.data, { harness: chat.harness, profile: chat.profile, model: chat.model_id })}
+          fallbackModel={autoChat ? autoLabel(modelUsed, true) : modelLabel(options.data, { harness: chat.harness, profile: chat.profile, model: chat.model_id })}
+          autoChat={autoChat}
           tail={<>{awaitingAnswer ? <WaitingIndicator /> : null}<QueueBubbles items={thread.queue.items} /></>}
           tailKey={waiting(thread.queue).length + (awaitingAnswer ? 100 : 0)}
           onRetry={(text) => {

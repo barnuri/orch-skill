@@ -125,6 +125,33 @@ describe("chat queue API", () => {
     expect(await userTexts(srv, chat.id)).toEqual(["long one", "b edited", "c"]);
   }, 60_000);
 
+  test("send now on the 3rd of 3 queued: sends only it; the other 2 stay queued, the queue pauses; resume sends the next one", async () => {
+    const srv = server();
+    process.env.FAKE_SLOW_TICKS = "400";
+    const chat = (await (await json(srv, "/api/chats", { harness: "claude", profile: "main" })).json()) as { id: string };
+    const base = `/api/chats/${chat.id}`;
+    expect((await json(srv, `${base}/messages`, { content: "long one" })).status).toBe(202);
+    const add = async (text: string): Promise<string> => ((await (await json(srv, `${base}/queue`, { content: text })).json()) as { item: { id: string } }).item.id;
+    await add("a");
+    await add("b");
+    const c = await add("c");
+    process.env.FAKE_SLOW_TICKS = "1";
+    const sent = await json(srv, `${base}/queue/${c}/send-now`);
+    expect(((await sent.json()) as { interrupted: boolean }).interrupted).toBe(true);
+    await until(async () => {
+      const q = await queueOf(srv, chat.id);
+      return q.paused && q.items.length === 2;
+    });
+    const paused = await queueOf(srv, chat.id);
+    expect(paused).toMatchObject({ paused: true, reason: "Sent one message now. 2 more are waiting: Resume to send them." });
+    expect(paused.items.map((i) => [i.text, i.state])).toEqual([["a", "queued"], ["b", "queued"]]);
+    expect(await userTexts(srv, chat.id)).toEqual(["long one", "c"]);
+    const resumed = await json(srv, `${base}/queue/resume`);
+    expect(((await resumed.json()) as Snap).paused).toBe(false);
+    await until(async () => (await queueOf(srv, chat.id)).items.length === 0);
+    expect(await userTexts(srv, chat.id)).toEqual(["long one", "c", "a", "b"]);
+  }, 60_000);
+
   test("the OpenAPI document lists the queue routes", async () => {
     const doc = (await (await server().api("/api/openapi.json")).json()) as { paths: Record<string, unknown> };
     for (const p of ["/api/chats/{id}/queue", "/api/chats/{id}/queue/{qid}", "/api/chats/{id}/queue/{qid}/send-now", "/api/chats/{id}/queue/reorder", "/api/chats/{id}/queue/resume"]) {

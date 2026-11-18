@@ -86,6 +86,8 @@ export class ChatQueue {
   private readonly db: Database;
   /** Chats where send-now is cutting the running turn: the item to start next. */
   private readonly sendNowTarget = new Map<string, string>();
+  /** Chats whose running turn was started by send-now: the queue pauses after it when messages still wait. One-shot. */
+  private readonly sendNowOnce = new Set<string>();
 
   constructor(private readonly store: ChatStore, private readonly host: QueueHost, private readonly home: string) {
     this.db = store.handle;
@@ -271,8 +273,8 @@ export class ChatQueue {
   }
 
   /**
-   * Starts this queued message next. A running turn is stopped first (its partial reply is kept); the queue then
-   * goes on from this message even when it was paused.
+   * Starts this queued message next. A running turn is stopped first (its partial reply is kept). Only this message
+   * is sent: when its turn ends and others still wait, the queue pauses (see `turnEnded`).
    */
   async sendNow(chatId: string, qid: string): Promise<{ interrupted: boolean }> {
     const cur = this.row(chatId, qid);
@@ -281,12 +283,13 @@ export class ChatQueue {
     }
     this.reorder(chatId, [qid]);
     this.setPause(chatId, false, null);
+    this.sendNowTarget.set(chatId, qid);
     if (!this.host.isRunning(chatId)) {
       this.advance(chatId, true);
+      this.sendNowTarget.delete(chatId);
       this.publish(chatId);
       return { interrupted: false };
     }
-    this.sendNowTarget.set(chatId, qid);
     const stopped = await this.host.stopRunning(chatId);
     // The turn ended on its own before the stop reached it, or its end hook ran without seeing the marker: start it here.
     if (this.sendNowTarget.get(chatId) === qid) {
@@ -322,11 +325,19 @@ export class ChatQueue {
       return;
     }
     this.renumber(chatId);
+    const bySendNow = this.sendNowTarget.get(chatId) === next.id;
+    this.sendNowTarget.delete(chatId);
+    if (bySendNow) {
+      this.sendNowOnce.add(chatId);
+    } else {
+      this.sendNowOnce.delete(chatId);
+    }
     try {
       const started = this.host.start(chatId, { content: next.text, attachment_ids: item(next).attachment_ids });
       this.db.query("UPDATE chat_queue SET message_id = ? WHERE id = ?").run(started.user_message_id, next.id);
     } catch (err) {
       // It never started: give the message its place back and wait for a person.
+      this.sendNowOnce.delete(chatId);
       this.db.query("UPDATE chat_queue SET state = 'queued', position = 0 WHERE id = ?").run(next.id);
       this.reorder(chatId, [next.id]);
       this.setPause(chatId, true, `The next message could not start: ${err instanceof Error ? err.message : String(err)}`);
@@ -337,20 +348,26 @@ export class ChatQueue {
   /** Called by the service after a turn is finalized and no longer counted as running. */
   turnEnded(chatId: string, status: "done" | "error" | "stopped"): void {
     const finished = this.db.query("UPDATE chat_queue SET state = 'sent' WHERE chat_id = ? AND state = 'running'").run(chatId).changes > 0;
-    const target = this.sendNowTarget.get(chatId);
-    if (target !== undefined) {
-      this.sendNowTarget.delete(chatId);
+    if (this.sendNowTarget.has(chatId)) {
+      // The stopped turn ends here; advance starts the send-now message and marks its turn.
       this.setPause(chatId, false, null);
       this.advance(chatId, true);
+      this.sendNowTarget.delete(chatId);
       this.publish(chatId);
       return;
     }
+    const sentNow = this.sendNowOnce.delete(chatId);
     if (!this.hasQueued(chatId)) {
       const wasPaused = this.isPaused(chatId);
       this.setPause(chatId, false, null);
       if (finished || wasPaused) {
         this.publish(chatId);
       }
+      return;
+    }
+    if (status === "done" && sentNow) {
+      const waiting = this.queued(chatId).length;
+      this.pause(chatId, `Sent one message now. ${waiting} more ${waiting === 1 ? "is" : "are"} waiting: Resume to send them.`);
       return;
     }
     if (status === "done" && !this.isPaused(chatId)) {

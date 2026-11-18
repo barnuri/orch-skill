@@ -149,29 +149,31 @@ describe("QueueTray", () => {
     await waitFor(() => { expect(screen.getByRole("alert").textContent).toBe("Already started"); });
   });
 
-  test("Send now asks before it cuts a running reply, and does nothing until confirmed", async () => {
+  test("Send now sends on one click while a reply runs, and says it interrupted that reply", async () => {
     const sent: string[] = [];
     Object.assign(queueApi, { sendNow: async (_c: string, id: string) => { sent.push(id); return ok({ ok: true, interrupted: true }); }, read: async () => ok(three) });
     tray();
     fireEvent.click(within(row(1)).getByRole("button", { name: "Send now" }));
-    const confirm = screen.getByTestId("queue-confirm");
-    expect(confirm.textContent).toContain("stops the running reply");
-    expect(sent).toEqual([]);
-    fireEvent.click(within(confirm).getByRole("button", { name: "Keep waiting" }));
-    expect(screen.queryByTestId("queue-confirm")).toBeNull();
-    expect(sent).toEqual([]);
-    fireEvent.click(within(row(1)).getByRole("button", { name: "Send now" }));
-    fireEvent.click(within(screen.getByTestId("queue-confirm")).getByRole("button", { name: "Stop reply and send now" }));
     await waitFor(() => { expect(sent).toEqual(["que-b"]); });
+    await waitFor(() => { expect(screen.getByTestId("queue-status").textContent).toBe("The running reply was interrupted. This message runs next."); });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
-  test("with no reply running, Send now starts the message without a question", async () => {
+  test("with many queued and no reply running, one click on Send now starts the message and says it did not interrupt", async () => {
     const sent: string[] = [];
     Object.assign(queueApi, { sendNow: async (_c: string, id: string) => { sent.push(id); return ok({ ok: true, interrupted: false }); }, read: async () => ok(three) });
     tray({ running: false });
     fireEvent.click(within(row(2)).getByRole("button", { name: "Send now" }));
-    expect(screen.queryByTestId("queue-confirm")).toBeNull();
     await waitFor(() => { expect(sent).toEqual(["que-c"]); });
+    await waitFor(() => { expect(screen.getByTestId("queue-status").textContent).toBe("This message is running now."); });
+  });
+
+  test("Send now stays a native, focusable button", () => {
+    tray();
+    const button = within(row(1)).getByRole("button", { name: "Send now" });
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("tabindex")).toBeNull();
   });
 
   test("a paused queue shows why, with Resume", async () => {
