@@ -1,11 +1,13 @@
 import {
   harnessProblem,
   harnessUsable,
+  isAutoChat,
   modelLabel,
   profileProblem,
   profileUsable,
   resolvePickers,
 } from "../lib/chat-logic";
+import { autoLabel } from "../../shared/auto-model";
 import type { Selection } from "../lib/chat-logic";
 import { memoryNote } from "../lib/chat-logic";
 import type { Chat, ChatOptions } from "../lib/chat-types";
@@ -21,6 +23,8 @@ interface PickersProps {
   locked: boolean;
   /** Model the last reply actually used. */
   modelUsed: string | null;
+  /** True while a reply runs: the model shown is the last reply's, not yet this one's. */
+  expected?: boolean;
   /** The chat's effort (null is Auto) and how to change it. Omitted: no effort row. */
   effort?: { value: string | null; onChange: (next: string | null) => void };
 }
@@ -32,7 +36,7 @@ function withCurrent(list: PickerOption[], value: string, label: string): Picker
 /** Harness, profile and model selects. A select with one usable choice is disabled and shows it. */
 export const EFFORT_LABELS: Readonly<Record<string, string>> = { low: "Low", medium: "Medium", high: "High", max: "Max" };
 
-export function Pickers({ options, selection, onChange, locked, modelUsed, effort }: PickersProps) {
+export function Pickers({ options, selection, onChange, locked, modelUsed, expected = false, effort }: PickersProps) {
   const state = resolvePickers(options, selection);
   const sel = state.selection;
   const harnessOpts = withCurrent(
@@ -108,7 +112,7 @@ export function Pickers({ options, selection, onChange, locked, modelUsed, effor
       )}
       <p className="pickers-meta">
         {memoryNote(state.harness.options.find((h) => h.id === state.harness.value))}
-        {modelUsed !== null ? <span> · last reply used <code>{modelUsed}</code></span> : null}
+        {isAutoChat(options, sel) ? <span> · <code data-testid="picker-auto-model" title={modelUsed ?? undefined}>{autoLabel(modelUsed, expected)}</code></span> : modelUsed !== null ? <span> · last reply used <code>{modelUsed}</code></span> : null}
         {state.problem !== null ? <span className="picker-problem" role="alert" data-testid="picker-problem">{state.problem}</span> : null}
       </p>
     </div>
@@ -116,9 +120,10 @@ export function Pickers({ options, selection, onChange, locked, modelUsed, effor
 }
 
 /** Which model a chat is using: the one the agent reported, else the one the chat is set to. */
-export function pickerSummary(chat: Chat, options: ChatOptions | undefined, modelUsed: string | null): string {
-  const configured = modelLabel(options, { harness: chat.harness, profile: chat.profile, model: chat.model_id });
-  return `${chat.harness} · ${chat.profile} · ${modelUsed ?? configured}${chat.effort == null ? "" : ` · ${chat.effort}`}`;
+export function pickerSummary(chat: Chat, options: ChatOptions | undefined, modelUsed: string | null, expected = false): string {
+  const sel = { harness: chat.harness, profile: chat.profile, model: chat.model_id };
+  const configured = isAutoChat(options, sel) ? autoLabel(modelUsed, expected) : modelUsed ?? modelLabel(options, sel);
+  return `${chat.harness} · ${chat.profile} · ${configured}${chat.effort == null ? "" : ` · ${chat.effort}`}`;
 }
 
 /** Whether replies share one live process or each message starts its own. Null while the options load. */

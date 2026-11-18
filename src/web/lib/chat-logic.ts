@@ -1,3 +1,4 @@
+import { isAutoSelector } from "../../shared/auto-model";
 import type { Attachment, ChatOptions, HarnessOption, Message, ModelOption, ProfileOption } from "./chat-types";
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -255,6 +256,13 @@ export function resolvePickers(options: ChatOptions, wanted: Selection | null): 
     canStart: problem === null && selection.harness !== "" && selection.profile !== "",
     problem,
   };
+}
+
+/** True when the chat's model is a router (Smart Auto, Copilot auto): the model that serves each reply is not the one set. */
+export function isAutoChat(options: ChatOptions | undefined, sel: Selection): boolean {
+  const profile = options?.harnesses.find((h) => h.id === sel.harness)?.profiles.find((p) => p.name === sel.profile);
+  const model = profile?.models.find((m) => m.id === sel.model) ?? profile?.models.find((m) => m.default);
+  return [sel.model, model?.id, model?.slug].some((id) => isAutoSelector(id));
 }
 
 /** The label for the model a chat is configured with. */

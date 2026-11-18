@@ -15,7 +15,7 @@ import { renderNodeTranscript } from "./node-transcript";
 import { modelPick, pickLabel } from "../graph/model-pick";
 import { stripAnsi } from "../dom/ansi";
 import { selectionTimeline } from "./selection-timeline";
-import { AFTER_THE_FACT, UNOWNED_TITLE, nodeFlags, ownerChip, ownerText } from "./node-flags";
+import { AFTER_THE_FACT, UNOWNED_TITLE, handoffText, nodeFlags, ownerChip, ownerIdShort, ownerText } from "./node-flags";
 
 const NODE_PANEL_ID: string = "node-panel";
 const SELECTED_CLASS: string = "just-selected";
@@ -150,6 +150,11 @@ function detailList(node: RunNode, maxAttempts: number, waitingOn: readonly stri
   const roleTier = roleTierText(node);
   detailRow(list, "role · tier", roleTier ?? "not set", roleTier === null ? "missing" : "");
   detailRow(list, "profile", node.profile ?? "—");
+  detailRow(list, "owner id", ownerIdShort(node) ?? "—", "mono");
+  const handoff = handoffText(node);
+  if (handoff !== null) {
+    detailRow(list, "handoff", handoff.text, handoff.missing ? "missing" : "");
+  }
   detailRow(list, "adapter", node.adapter ?? "—");
   detailRow(list, "job", node.job_id ?? "—", "mono");
   detailRow(list, "session", node.session ?? "—", "mono");

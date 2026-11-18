@@ -49,6 +49,12 @@ describe("statusLine", () => {
     expect(statusLine(node({ status: "done" }), 5)).toBe("done · attempt 1/5");
   });
 
+  test("shows progress while running and the retry time after an error", () => {
+    expect(statusLine(node({ status: "running", progress: "3/10" }), 5)).toBe("running 3/10 · attempt 1/5");
+    const retryAt = new Date(2026, 10, 17, 14, 2).toISOString();
+    expect(statusLine(node({ status: "error", next_retry_at: retryAt, attempts: [{ job_id: null, error: "x", finished: null, log_tail: [], profile: null }] }), 5)).toBe("error 2/5 · retry 14:02");
+  });
+
   test("fits the node width", () => {
     expect(statusLine(node({ status: "running", attempts: new Array(5).fill({ job_id: null, error: null, finished: null, log_tail: [], profile: null }) }), 5).length).toBeLessThanOrEqual(26);
   });

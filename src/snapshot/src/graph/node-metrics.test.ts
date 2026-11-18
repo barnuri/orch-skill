@@ -265,7 +265,7 @@ describe("alias → actual model", () => {
 
   test("shows the alias alone when the actual model matches it or is missing", () => {
     expect(modelMetric(node({ model: "claude-opus-5-5", actual_model: "claude-opus-5-5" })).text).toBe("claude-opus-5-5");
-    expect(modelMetric(node({ model: "hub/smart-auto-balance" })).text).toBe("hub/smart-auto-balance");
+    expect(modelMetric(node({ model: "hub/smart-auto-balance" })).text).toBe("smart-auto-balance");
   });
 
   test("actualModelMetric shows the placeholder when no actual model is known", () => {

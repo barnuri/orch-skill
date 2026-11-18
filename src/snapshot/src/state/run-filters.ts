@@ -1,4 +1,4 @@
-import type { RunStatus } from "../../../shared/types/run-status";
+import { RUN_STATUSES, type RunStatus } from "../../../shared/types/run-status";
 import type { RunSummary } from "../../../shared/types/run-summary";
 import { RUN_FILTERS_KEY } from "../constants";
 
@@ -36,7 +36,7 @@ function isRunAge(value: unknown): value is RunAge {
 }
 
 function isStatusFilter(value: unknown): value is RunFilters["status"] {
-  return value === ALL_STATUSES || value === "running" || value === "done" || value === "error";
+  return value === ALL_STATUSES || (typeof value === "string" && (RUN_STATUSES as readonly string[]).includes(value));
 }
 
 /** Unknown or half-written stored JSON falls back to the default field by field. */

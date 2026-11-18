@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState } from "react";
+import { autoLabel } from "../../shared/auto-model";
 import { formatDuration } from "../lib/duration";
 import { formatTokens, isLive, messageDurationMs, messageNotes } from "../lib/chat-logic";
 import type { Attachment, Message } from "../lib/chat-types";
@@ -25,9 +26,11 @@ interface MessageViewProps {
   onRegenerate?: (() => void) | undefined;
   /** The model the chat is configured with, shown when the agent reported none. */
   fallbackModel?: string | undefined;
+  /** The chat uses a router model: the footer shows `auto -> <model>`. */
+  autoChat?: boolean | undefined;
 }
 
-function Footer({ message, now, fallbackModel, onRegenerate }: { message: Message; now: number; fallbackModel?: string | undefined; onRegenerate?: (() => void) | undefined }) {
+function Footer({ message, now, fallbackModel, autoChat, onRegenerate }: { message: Message; now: number; fallbackModel?: string | undefined; autoChat?: boolean | undefined; onRegenerate?: (() => void) | undefined }) {
   const ms = messageDurationMs(message, now);
   const tokens = formatTokens(message.input_tokens, message.output_tokens);
   return (
@@ -36,7 +39,9 @@ function Footer({ message, now, fallbackModel, onRegenerate }: { message: Messag
       <SpeakButton message={message} />
       {message.content.trim() !== "" && !isLive(message) ? <CopyButton text={message.content} label="Copy" className="msg-act" /> : null}
       {onRegenerate !== undefined ? <button type="button" className="msg-act" data-testid="msg-regenerate" onClick={onRegenerate}>Regenerate</button> : null}
-      {message.model_used !== null ? (
+      {autoChat === true ? (
+        <span className="msg-meta mono" data-testid="msg-model" title={message.model_used ?? "The agent did not report which model served this reply"}>{autoLabel(message.model_used)}</span>
+      ) : message.model_used !== null ? (
         <span className="msg-meta mono" data-testid="msg-model">{message.model_used}</span>
       ) : fallbackModel !== undefined ? (
         <span className="msg-meta mono" data-testid="msg-model" title="The agent reported no model: this is the one the chat is set to">{fallbackModel}</span>
@@ -155,7 +160,7 @@ function AutomationBlock({ message, part }: { message: Message; part: Extract<No
   );
 }
 
-export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, fallbackModel }: MessageViewProps) {
+export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, fallbackModel, autoChat }: MessageViewProps) {
   if (message.role === "tool") {
     const parts = partsOf(message);
     const thought = parts?.find((p) => p.type === "reasoning");
@@ -189,7 +194,7 @@ export function MessageView({ message, now, onOpenImage, onRetry, onRegenerate, 
         )}
         {message.status === "error" ? <ErrorNotice error={message.error} onRetry={onRetry} /> : null}
       </div>
-      {live ? null : <Footer message={message} now={now} fallbackModel={fallbackModel} onRegenerate={onRegenerate} />}
+      {live ? null : <Footer message={message} now={now} fallbackModel={fallbackModel} autoChat={autoChat} onRegenerate={onRegenerate} />}
       {messageNotes(message).map((n) => (
         <p key={n.key} className="msg-warning" data-testid={`msg-${n.key}`} title={n.title}>{n.text}</p>
       ))}

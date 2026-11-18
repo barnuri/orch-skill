@@ -276,6 +276,11 @@ export class ChatStore {
     this.db.query("UPDATE messages SET selected_effort = ?, selected_model = ? WHERE id = ?").run(selection.effort, selection.model, id);
   }
 
+  /** Stores the model that really served a reply (the hub's pick for Smart Auto). */
+  setModelUsed(id: string, model: string): void {
+    this.db.query("UPDATE messages SET model_used = ? WHERE id = ?").run(model, id);
+  }
+
   finalizeMessage(id: string, fin: { status: "done" | "error" | "stopped"; error?: string | null; model_used?: string | null; input_tokens?: number; output_tokens?: number; cost_usd?: number | null; context_truncated?: boolean; warning?: string | null }): MessageRow | null {
     this.db.query(
       `UPDATE messages SET status = ?, error = ?, model_used = COALESCE(?, model_used), input_tokens = ?, output_tokens = ?,

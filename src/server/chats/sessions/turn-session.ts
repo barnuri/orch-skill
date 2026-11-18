@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readCopilotServedModel } from "../served-model";
 import { buildReplayPrompt } from "./history-replay";
 import { agentCouldNotRun, INTERRUPTED_TEXT, startTurn, tailTurn, TurnHandle, type TurnParser, turnsDir } from "./turn-files";
 import { type AgentEvent, type AgentSession, type SessionParams, type TurnInfo, withAttachments } from "./types";
@@ -186,6 +187,7 @@ export class TurnSession implements AgentSession {
         env.ORCH_SESSION_ID = minted;
       }
       const text = built?.prompt ?? withAttachments(prompt, attachments);
+      const turnStart = Date.now() - 1000;
       const result = yield* this.runOnce(this.attempt++ === 0 ? turnId : `${turnId}.r${this.attempt - 1}`, turnId, text, env, minted);
       if (result === null) {
         return;
@@ -210,6 +212,12 @@ export class TurnSession implements AgentSession {
         }
       }
       this.sessionId = id;
+      if (harness === "copilot" && id !== null) {
+        const served = readCopilotServedModel(id, turnStart);
+        if (served !== null) {
+          yield { type: "served-model", model: served };
+        }
+      }
       yield { type: "done", session_id: id };
       return;
     }

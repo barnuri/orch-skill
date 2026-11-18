@@ -33,14 +33,15 @@ export function shortModel(model: string): string {
 export function modelPick(node: RunNode): ModelPick | null {
   const configured = nonEmpty(node.model_id) ?? nonEmpty(node.model);
   const actual = nonEmpty(node.main_model) ?? nonEmpty(node.hub?.actual?.model);
-  const expected = nonEmpty(node.hub?.expected?.model);
+  const pinned = configured !== null && !/smart-auto/.test(configured);
+  const expected = pinned ? null : nonEmpty(node.hub?.expected?.model);
   const picked = actual ?? expected;
   if (picked === null) {
     return configured === null
       ? null
       : {
           model: configured,
-          short: configured,
+          short: shortModel(configured),
           isAuto: false,
           isExpected: false,
           tier: null,

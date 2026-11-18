@@ -922,6 +922,7 @@ export class ChatService {
     const id = turn.assistantId;
     let content = "";
     let usage = { input: 0, output: 0, cost: null as number | null, model: null as string | null };
+    let served: string | null = null;
     let truncated = false;
     let warning: string | null = null;
     let outcome: { status: "done" | "error" | "stopped"; error: string | null } | null = null;
@@ -993,6 +994,8 @@ export class ChatService {
         if (!replay) {
           this.emit(chat.id, { event: "usage", id: `${id}.${content.length}`, data: { message_id: id, input_tokens: ev.input_tokens, output_tokens: ev.output_tokens, cost_usd: ev.cost_usd, model: ev.model } });
         }
+      } else if (ev.type === "served-model") {
+        served = ev.model;
       } else if (ev.type === "context-truncated") {
         truncated = true;
       } else if (ev.type === "warning") {
@@ -1044,7 +1047,7 @@ export class ChatService {
     const current = this.store.getMessage(id);
     const final = (current !== null && (current.status === "streaming" || current.status === "pending")
       ? this.store.finalizeMessage(id, {
-        status: outcome.status, error: outcome.error, model_used: usage.model, input_tokens: usage.input, output_tokens: usage.output, cost_usd: usage.cost,
+        status: outcome.status, error: outcome.error, model_used: served ?? usage.model, input_tokens: usage.input, output_tokens: usage.output, cost_usd: usage.cost,
         context_truncated: truncated, warning,
       })
       : current) as MessageRow;
@@ -1085,6 +1088,9 @@ export class ChatService {
       return;
     }
     this.store.setSelection(messageId, selection);
+    if (selection.model !== null) {
+      this.store.setModelUsed(messageId, selection.model);
+    }
     const row = this.store.getMessage(messageId);
     if (row !== null) {
       this.emitRow(chatId, row);

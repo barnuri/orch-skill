@@ -4,6 +4,8 @@ export type AgentEvent =
   | { type: "tool-result"; id: string; output: string; error: boolean }
   | { type: "reasoning-delta"; text: string }
   | { type: "usage"; input_tokens: number; output_tokens: number; cost_usd: number | null; model: string | null }
+  /** The model that really served the turn, when the harness only knows a selector such as `auto`. */
+  | { type: "served-model"; model: string }
   | { type: "warning"; message: string }
   | { type: "context-truncated" }
   | { type: "done"; session_id: string | null }
