@@ -20,6 +20,7 @@ function schedule(patch: Partial<Schedule>): Schedule {
 describe("router", () => {
   test("keeps the deep links", () => {
     expect(parseRoute("#/profiles")).toEqual({ kind: "profiles" });
+    expect(parseRoute("#/feedback")).toEqual({ kind: "feedback" });
     expect(parseRoute("#/run/abc%20d")).toEqual({ kind: "run", runId: "abc d" });
     expect(parseRoute("#/run/%E0%A4%A")).toEqual({ kind: "list" });
     expect(parseRoute("")).toEqual({ kind: "list" });

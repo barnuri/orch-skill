@@ -7,7 +7,8 @@ export type Route =
   | { kind: "harnesses" }
   | { kind: "schedules" }
   | { kind: "memory" }
-  | { kind: "suggestions" };
+  | { kind: "suggestions" }
+  | { kind: "feedback" };
 
 export type RouteKind = Route["kind"];
 
@@ -22,6 +23,7 @@ const SECTION_HASHES: Readonly<Record<string, Route>> = {
   "#/schedules": { kind: "schedules" },
   "#/memory": { kind: "memory" },
   "#/suggestions": { kind: "suggestions" },
+  "#/feedback": { kind: "feedback" },
 };
 
 // The hash is user-controlled: a malformed escape must fall back to the list, not throw.
@@ -99,6 +101,7 @@ export const SECTION_HREF: Readonly<Record<RouteKind, string>> = {
   schedules: "#/schedules",
   memory: "#/memory",
   suggestions: "#/suggestions",
+  feedback: "#/feedback",
 };
 
 export const NAV_LINKS: readonly { href: string; label: string }[] = [
@@ -109,6 +112,7 @@ export const NAV_LINKS: readonly { href: string; label: string }[] = [
   { href: "#/schedules", label: "Schedules" },
   { href: "#/memory", label: "Memory" },
   { href: "#/suggestions", label: "Suggestions" },
+  { href: "#/feedback", label: "Feedback" },
 ];
 
 /** The hash of the start page for a new chat, optionally in a project or a folder. Nothing is created until the first message is sent. */
