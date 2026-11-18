@@ -28,6 +28,8 @@ test("streaming watch, loop runs, when-idle, truncation", async () => {
   expect(Bun.spawnSync(["pgrep", "-f", join(bin, "beat")]).exitCode).not.toBe(0);
   let id = o("loop", "start", "--every", "1s", "--max", "2", "--profile", "claude-default", "Check the PR").out.trim();
   await until(() => runState(home, id).status === "done");
+  expect(runState(home, id).status).toBe("done");
+  expect(runState(home, id).force_finish_reason).toBe("loop ended");
   expect(o("run", "list").out).toContain(id);
   expect(runState(home, id).nodes.map((n: any) => `${n.id} ${n.status}`).join(" ")).toBe("i1 done i2 done");
   expect(existsSync(join(home, "runs", id, "out/i1/output.txt"))).toBe(true);

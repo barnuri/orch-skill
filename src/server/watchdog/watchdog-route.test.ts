@@ -15,6 +15,7 @@ describe("GET /api/watchdog", () => {
     expect(Array.isArray(body.last_actions)).toBe(true);
     expect(Array.isArray(body.flags)).toBe(true);
     expect(typeof body.runs).toBe("object");
+    expect(Number.isInteger(body.ghosts)).toBe(true);
   });
 
   test("needs the token when the loopback bypass is off", async () => {

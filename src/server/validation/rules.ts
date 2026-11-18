@@ -31,6 +31,9 @@ export const SETTINGS_KEYS = [
   "chat_roots",
   "schedule_grace_hours",
   "monitor_allow_link_local",
+  "auto_kill_ghosts",
+  "coordinator_model",
+  "coordinator_rotate_tokens",
 ] as const;
 export const LEARNING_KEYS = [
   "auto_record_memory",

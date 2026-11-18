@@ -478,8 +478,8 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
-  test("rule 7: paused and stopped runs are never acted on", async () => {
-    for (const patch of [{ paused: true }, { stopped: true }]) {
+  test("rule 7: paused, stopped and covered runs are never acted on", async () => {
+    for (const patch of [{ paused: true }, { stopped: true }, { status: "covered", covered_by: "r2" }]) {
       const f = fixture({ alive: false, health: health([{ id: "a", health: "stalled", idle_min: 99 }]) });
       f.home.write("jobs/j1/pid", "999999\n");
       f.set([{ id: "a", status: "running", job_id: "j1" }, { id: "b", status: "running" }], { auto_dispatch: true, ...patch });

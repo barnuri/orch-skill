@@ -10,6 +10,7 @@
   },
   "settings": {
     "default_profile": "claude-default",
+    "auto_kill_ghosts": false,
     "retention_days": 7,
     "budget_threshold": 85,
     "max_parallel": 4,

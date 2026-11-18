@@ -8,7 +8,7 @@ import { ErrorDto, OkDto } from "../../../shared/dto/common";
 import type { ApiContext } from "../pipeline";
 import { call } from "./support";
 
-@Controller({ path: "/api", tags: ["loops and monitors"] })
+@Controller({ path: "/api", tags: ["loops"] })
 export class ActiveController {
   private readonly list: RouteHandler;
   private readonly stop: RouteHandler;

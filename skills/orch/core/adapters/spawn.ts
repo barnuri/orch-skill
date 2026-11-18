@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readdirSync, symlinkSync, lstatSync, unlinkSync,
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { orchHome, paths } from "../state/home.ts";
+import { confirmMiss, selfCheckReason } from "../ghosts.ts";
 import { trashPath } from "../state/trash.ts";
 import {
   hasHarnessDisabled,
@@ -437,7 +438,20 @@ export async function cmdJobRun(args: string[]): Promise<number> {
       process.exit(code);
     });
   }
+  // Self-check: the job dir and its state (exit_code absent) every 5 s. A confirmed miss is a ghost: exit 0.
+  let checking = false;
+  const timer = setInterval(async () => {
+    if (checking) return;
+    checking = true;
+    const miss = await confirmMiss(() => selfCheckReason("job", orchHome(), jobDir, process.pid), (s) => new Promise((r) => setTimeout(r, s * 1000)));
+    checking = false;
+    if (miss !== null) {
+      process.stderr.write(`ghost: ${miss}\n`);
+      process.exit(0);
+    }
+  }, 5000);
   const rc = await targetDispatch({ kind: kind as Target["kind"], name, prompt, rest }, await loadEnv(orchHome()));
+  clearInterval(timer);
   write(rc);
   return rc;
 }

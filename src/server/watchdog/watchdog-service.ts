@@ -9,6 +9,7 @@ import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
 import { countPendingAsks } from "../runs/coordinator-state";
 import { RunEngine, type Starter } from "../runs/auto-dispatch";
+import { judgeAll, scanRunners } from "../../../skills/orch/core/ghosts.ts";
 
 /**
  * The one watchdog: every deterministic babysitting step for orch runs, in one place. It owns the
@@ -783,7 +784,23 @@ export class WatchdogService {
       last_actions: [...this.actions].reverse(),
       runs: Object.fromEntries(this.counters),
       flags: this.liveFlags(),
+      ghosts: this.ghostCount(),
     };
+  }
+
+  // Ghost runners, from one process scan per 30 s. A scan failure reports 0 rather than failing the route.
+  private ghostCache: { at: number; count: number } | null = null;
+  private ghostCount(): number {
+    const nowMs = this.now().getTime();
+    if (this.ghostCache && nowMs - this.ghostCache.at < 30_000) return this.ghostCache.count;
+    let count = 0;
+    try {
+      count = judgeAll(scanRunners()).filter((j) => j.ghost).length;
+    } catch {
+      count = 0;
+    }
+    this.ghostCache = { at: nowMs, count };
+    return count;
   }
 }
 

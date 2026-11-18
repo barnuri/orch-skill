@@ -41,4 +41,6 @@ export interface WatchdogStatus {
   last_actions: WatchdogAction[];
   runs: Record<string, WatchdogCounters>;
   flags: WatchdogFlag[];
+  /** Runner processes judged GHOST (orch loop, watch or job with no live home or record). Cached 30 s. */
+  ghosts: number;
 }

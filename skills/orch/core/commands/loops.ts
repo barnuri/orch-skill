@@ -4,6 +4,10 @@
 import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
+import { confirmMiss, effectiveDeadline, judgeAll, killGhosts, rejudgeOne, scanRunners, selfCheckReason, stillSameCommand, UNAMBIGUOUS, type Judgement, type RunnerProc } from "../ghosts.ts";
+import { settingFrom } from "../state/settings.ts";
+import { loadProfilesDoc } from "../state/settings.ts";
+import { tmpdir } from "node:os";
 import { nowIso, epochOf } from "../state/clock.ts";
 import { acquireLock } from "../state/lock.ts";
 import { loadRun, saveRun } from "../state/store.ts";
@@ -74,7 +78,8 @@ function stopGroup(pid: unknown): boolean {
 // ---- run bookkeeping (every loop is also an orch run) ------------------------------------------
 
 async function loopRunOpen(id: string, label: string): Promise<void> {
-  await dispatchSh(["run", "start", `↻ loop · ${label}`, "--id", id]);
+  // A loop run is bookkeeping, not agent work: no done-gate node.
+  await dispatchSh(["run", "start", `↻ loop · ${label}`, "--id", id], { env: { ...process.env, ORCH_NO_DONE_GATE: "1" } });
 }
 
 async function loopRunTickStart(id: string, iter: number): Promise<void> {
@@ -107,7 +112,8 @@ async function loopRunTickEnd(id: string, iter: number, rc: number, log: string)
 async function loopRunClose(id: string, status: string): Promise<void> {
   if (!existsSync(paths.runState(home(), id))) return;
   if (status === "cancelled") await dispatchSh(["__run-cancel", id]);
-  else await dispatchSh(["run", "finish", id, "--status", status]);
+  // Loop ticks write no handoff.md, so the verify gate does not apply to a loop run.
+  else await dispatchSh(["run", "finish", id, "--status", status, "--force", "--reason", "loop ended"]);
 }
 
 async function reopenRun(id: string): Promise<void> {
@@ -252,7 +258,8 @@ async function loopRun(args: string[]): Promise<number> {
   const dir = join(loopsHome(), id);
   const spec = readJsonSync(join(dir, "spec.json"));
   const stateFile = join(dir, "state.json");
-  const { kind, name, interval, max, until: untilCmd, t0, deadline } = spec;
+  const { kind, name, interval, max, until: untilCmd, t0, deadline: specDeadline } = spec;
+  const deadline = effectiveDeadline(specDeadline, t0, home(), tmpdir());
   const sessionMode = spec.session_mode as string;
   const sessionId = spec.session as string;
   const whenIdle = spec.when_idle === true;
@@ -272,7 +279,12 @@ async function loopRun(args: string[]): Promise<number> {
       await loopRunClose(id, "done");
       return 0;
     }
-    if (nextTick > now) await sleep((nextTick - now) * 1000);
+    if (nextTick > now) await sleep((Math.min(nextTick, deadline) - now) * 1000);
+    const miss = await confirmMiss(() => selfCheckReason("loop", home(), stateFile, process.pid), (s) => sleep(s * 1000));
+    if (miss !== null) {
+      err(`ghost: ${miss}\n`);
+      return 0;
+    }
     if (readJsonOr(stateFile, { status: "" }).status !== "running") return 0;
 
     if (whenIdle) {
@@ -441,8 +453,59 @@ export async function loopsRecover(): Promise<number> {
     if (await watchRespawn(id)) recovered++;
   }
   if (recovered) err(`recovered ${recovered} loop(s)/watch(es)\n`);
+  await ghostsSync();
   return 0;
 }
+
+// ---- ghosts -----------------------------------------------------------------------------------------
+
+// `sync` and the watchdog: report the ghost count, kill the unambiguous ones when settings.auto_kill_ghosts is on.
+export async function ghostsSync(): Promise<{ ghosts: number; killed: number }> {
+  const procs = scanRunners();
+  const judged = judgeAll(procs);
+  const ghosts = judged.filter((j) => j.ghost);
+  if (!ghosts.length) return { ghosts: 0, killed: 0 };
+  const auto = settingFrom(await loadProfilesDoc(home()), "auto_kill_ghosts", "false") === "true";
+  let killed = 0;
+  if (auto) {
+    const sure = ghosts.filter((j) => UNAMBIGUOUS.includes(j.reason!));
+    killed = await killGhostsNow(sure, procs);
+  }
+  err(`${ghosts.length} ghost runner(s)${auto ? `, killed ${killed}` : ""}\n`);
+  return { ghosts: ghosts.length, killed };
+}
+
+function killGhostsNow(judged: Judgement[], procs: RunnerProc[]): Promise<number> {
+  return killGhosts(judged, procs, {
+    kill: (pid, sig) => { try { process.kill(pid, sig); } catch {} },
+    alive: (pid) => pidAlive(pid),
+    sleep,
+    still: (pid) => stillSameCommand(pid),
+    rejudge: rejudgeOne,
+  }, (s) => err(s));
+}
+
+// `orch ghosts [--json] [--kill]`: lists runner processes with a GHOST verdict and reason. --kill sends
+// SIGTERM, waits 5 s, then SIGKILL, for ghosts only.
+async function ghostsCommand(args: string[]): Promise<number> {
+  const asJson = args.includes("--json");
+  const kill = args.includes("--kill");
+  const procs = scanRunners();
+  const judged = judgeAll(procs);
+  if (kill) {
+    const ghosts = judged.filter((j) => j.ghost);
+    const n = await killGhostsNow(ghosts, procs);
+    if (!asJson) out(`killed ${n} ghost runner(s)\n`);
+  }
+  const rows = judged.filter((j) => j.kind !== "serve" || j.ghost);
+  if (asJson) { out(JSON.stringify(rows) + "\n"); return 0; }
+  if (!rows.length) { out("no runner processes\n"); return 0; }
+  for (const j of rows) {
+    out(`${j.ghost ? "GHOST" : "ok   "}\t${j.pid}\t${j.kind}\t${j.id}\t${j.reason ?? "-"}\t${j.home ?? "no HARNESS_ORCH_HOME"}\n`);
+  }
+  return 0;
+}
+
 
 // `loop prune <cutoff-epoch> <dry 0|1>`: recoverably removes ended loops and watches older than the cutoff.
 async function loopsPrune(args: string[]): Promise<number> {
@@ -693,6 +756,7 @@ async function watchStream(id: string, cmd: string, match: string, ignore: strin
   let pending: Promise<Awaited<ReturnType<typeof reader.read>>> | null = null;
   outer: for (;;) {
     if (nowEpoch() >= deadline) { ended = "max-runtime"; break; }
+    if (await watchMissed(id)) { ended = "ghost"; break; }
     pending ??= reader.read();
     const r = await Promise.race([pending, sleep(WATCH_READ_TICK_MS).then(() => null)]);
     if (r === null) continue;
@@ -726,6 +790,7 @@ async function watchScheduled(id: string, cmd: string, match: string, ignore: st
   for (;;) {
     if (readJsonOr(join(watchesHome(), id, "state.json"), { status: "" }).status !== "running") return "";
     if (nowEpoch() >= deadline) return "max-runtime";
+    if (await watchMissed(id)) return "ghost";
     const r = await runLimited(WATCH_CMD_TIMEOUT_SECS, ["sh", "-c", cmd]);
     const outText = r.out.slice(0, WATCH_MAX_BYTES);
     let text = "";
@@ -742,8 +807,16 @@ async function watchScheduled(id: string, cmd: string, match: string, ignore: st
       last = text;
       if (untilRe && reTest(untilRe, text)) return "until";
     }
-    await sleep(interval * 1000);
+    await sleep(Math.max(0, Math.min(interval, deadline - nowEpoch())) * 1000);
   }
+}
+
+// Self-check of a watch runner: its own state.json only. Returns true when the runner must exit as a ghost.
+async function watchMissed(id: string): Promise<boolean> {
+  const miss = await confirmMiss(() => selfCheckReason("watch", watchesHome(), join(watchesHome(), id, "state.json"), process.pid), (s) => sleep(s * 1000));
+  if (miss === null) return false;
+  err(`ghost: ${miss}\n`);
+  return true;
 }
 
 function watchOnExit(id: string, why: string): void {
@@ -755,6 +828,7 @@ function watchOnExit(id: string, why: string): void {
 async function watchRun(args: string[]): Promise<number> {
   const id = args[0] ?? "";
   const spec = readJsonSync(join(watchesHome(), id, "spec.json"));
+  spec.deadline = effectiveDeadline(spec.deadline, spec.started ? epochOf(spec.started) ?? nowEpoch() : nowEpoch(), home(), tmpdir());
   let busy = false;
   const onSignal = (sig: string, code: number) => () => {
     if (busy) return;
@@ -773,6 +847,7 @@ async function watchRun(args: string[]): Promise<number> {
   const ended = spec.interval > 0
     ? await watchScheduled(id, spec.cmd, spec.match, spec.ignore, spec.until, spec.interval, spec.deadline)
     : await watchStream(id, spec.cmd, spec.match, spec.ignore, spec.until, spec.deadline);
+  if (ended === "ghost") return 0;
   watchEnd(id, "done", ended || "source ended");
   return 0;
 }
@@ -908,10 +983,12 @@ function active(args: string[]): number {
       events: s.events ?? null, last_event: s.last_event ?? null, cmd: p.cmd ?? null, deadline: p.deadline ?? null,
     });
   }
+  const ghostIds = new Set(judgeAll(scanRunners()).filter((j) => j.ghost).map((j) => j.id));
+  for (const r of rows) r.ghost = ghostIds.has(r.id);
   if (asJson) { out(JSON.stringify(rows) + "\n"); return 0; }
   if (!rows.length) { out("no active loops or watches\n"); return 0; }
   for (const r of rows) {
-    const flag = r.status === "running" ? "" : ` [${r.status}]`;
+    const flag = r.ghost ? " [ghost]" : r.status === "running" ? "" : ` [${r.status}]`;
     if (r.kind === "loop") {
       const t = new Date(r.next * 1000).toISOString().slice(11, 19);
       out(`loop ${r.name} · ${r.id} · iter ${r.iteration}${r.max > 0 ? `/${r.max}` : ""} · next ${t} UTC · last exit ${r.last_exit ?? "-"}${flag}\n`);
@@ -946,4 +1023,5 @@ export const loopCommands = {
   "watch __run": watchRun,
   watch: usage(WATCH_USAGE),
   active,
+  ghosts: ghostsCommand,
 };

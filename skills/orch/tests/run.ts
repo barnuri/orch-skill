@@ -15,6 +15,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } from
 import { join, resolve, basename, dirname } from "node:path";
 import { tmpdir, cpus, loadavg } from "node:os";
 import { templateHome } from "./helpers/template.ts";
+import { leakedTestRunners, reapUnder } from "./lib/reap.ts";
 
 const TESTS_DIR = import.meta.dir;
 const REPO = resolve(TESTS_DIR, "../../..");
@@ -171,6 +172,13 @@ if (results.length) {
 }
 console.log(`\n${totalPass} passed, ${totalFail} failed (${mode} tier, ${results.length} files, ${Math.round((Date.now() - t0) / 1000)}s wall)`);
 for (const id of skipped) status[id] = "not_run";
+// Leak guard: a runner (loop, watch, job-run, serve) still alive in a test home after the suite is a leak.
+const leaked = leakedTestRunners();
+if (leaked.length) {
+  for (const h of new Set(leaked.map((p) => p.home))) reapUnder(h);
+  bad = true;
+  console.log(`LEAK: ${leaked.length} test runner(s) alive after the suite (reaped):\n` + leaked.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
+}
 if (skipped.length) {
   writeFileSync(PROGRESS + ".tmp", JSON.stringify({ mode, files: status }, null, 1));
   renameSync(PROGRESS + ".tmp", PROGRESS);

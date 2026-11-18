@@ -216,6 +216,15 @@ function chatSettingsIssues(settings: Record<string, unknown>): Issue[] {
   if ("monitor_allow_link_local" in settings && typeof settings["monitor_allow_link_local"] !== "boolean") {
     issues.push({ path: "settings.monitor_allow_link_local", reason: MUST_BE_BOOLEAN });
   }
+  if ("auto_kill_ghosts" in settings && typeof settings["auto_kill_ghosts"] !== "boolean") {
+    issues.push({ path: "settings.auto_kill_ghosts", reason: MUST_BE_BOOLEAN });
+  }
+  if ("coordinator_model" in settings && (typeof settings["coordinator_model"] !== "string" || settings["coordinator_model"] === "")) {
+    issues.push({ path: "settings.coordinator_model", reason: "must be a non-empty string" });
+  }
+  if ("coordinator_rotate_tokens" in settings && !isIntegerInRange(settings["coordinator_rotate_tokens"], 1, Number.MAX_SAFE_INTEGER)) {
+    issues.push({ path: "settings.coordinator_rotate_tokens", reason: "must be an integer >= 1" });
+  }
   if ("chat_roots" in settings) {
     const roots = settings["chat_roots"];
     if (!Array.isArray(roots)) {

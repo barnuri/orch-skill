@@ -75,7 +75,8 @@ async function viaShell(home: string): Promise<unknown[]> {
   });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
-  return JSON.parse(text) as unknown[];
+  // `ghost` is the process-scan verdict of the CLI; the file reader does not judge processes.
+  return (JSON.parse(text) as Record<string, unknown>[]).map(({ ghost: _ghost, ...rest }) => rest);
 }
 
 const byId = (items: readonly { id: string }[]): unknown[] => [...items].sort((a, b) => a.id.localeCompare(b.id));

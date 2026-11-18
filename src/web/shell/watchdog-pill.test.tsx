@@ -17,7 +17,7 @@ afterAll(() => {
 const RETRY: WatchdogAction = { at: "2026-11-16T10:00:00Z", run: "r1", node: "a", rule: "infra-retry", action: "node retry", detail: "exit=unknown", rc: 0 };
 
 function status(patch: Partial<WatchdogStatus> = {}): WatchdogStatus {
-  return { generated_at: "", state: "on", started_at: "", last_actions: [], runs: {}, flags: [], ...patch };
+  return { generated_at: "", state: "on", started_at: "", last_actions: [], runs: {}, flags: [], ghosts: 0, ...patch };
 }
 
 function flag(rule: WatchdogFlag["rule"]): WatchdogFlag {
@@ -42,6 +42,13 @@ describe("WatchdogPill", () => {
     expect(pill?.textContent).toContain("node retry r1/a");
     expect(pill?.getAttribute("title") ?? "").toContain("exit=unknown");
     expect(pill?.getAttribute("title") ?? "").toContain("r1/a stalled: idle 20 min");
+  });
+
+  test("ghost runners turn the pill amber and show the count", () => {
+    expect(watchdogPillState(status({ ghosts: 2 }))).toBe("stalled");
+    const { container } = render(<WatchdogPill status={status({ ghosts: 2 })} />);
+    expect(container.querySelector("#watchdog-pill")?.textContent).toContain("2 ghost runners");
+    expect(container.querySelector("#watchdog-pill")?.getAttribute("title") ?? "").toContain("2 ghost runners");
   });
 
   test("off says off; hidden before the first answer", () => {

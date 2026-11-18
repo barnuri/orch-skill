@@ -23,6 +23,12 @@ export interface ProfilesSettings {
   /** Per harness: where its profiles may be used. Missing means both. */
   harness_usage?: Record<string, Array<"chat" | "runs">>;
   herdr?: boolean;
+  /** Model of coordinator sessions orch starts. */
+  coordinator_model?: string;
+  /** Tokens after which a coordinator session rotates. Default 200000. */
+  coordinator_rotate_tokens?: number;
+  /** `sync` and the watchdog kill unambiguous ghost jobs. Default false. */
+  auto_kill_ghosts?: boolean;
   /** Folders a chat may run in (absolute, or `~/…`). Default `["~/sandbox/private"]`. */
   chat_roots?: string[];
   /** Hours a missed chat schedule may still run late. Default 6; 0 to 72. */
