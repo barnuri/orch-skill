@@ -25,7 +25,7 @@ export function CoordinatorBlock({ runId, state }: { runId: string; state: Coord
   const pending = state.pending_asks === 1 ? "1 pending node question" : `${state.pending_asks} pending node questions`;
   return (
     <div className={`coordinator-block ${state.reachable ? "coordinator-ok" : "coordinator-unreachable"}`} data-reachable={state.reachable}>
-      <span className="chip">coordinator {state.pane_id}</span>
+      <span className="chip">coordinator {state.transport === "hc" ? "hc " : ""}{state.pane_id}</span>
       {state.reachable ? (
         <span className="muted">reachable</span>
       ) : (

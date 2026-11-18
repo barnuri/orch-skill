@@ -518,6 +518,36 @@ async function coordCli(sock: string, args: string[]): Promise<CliOut> {
   }
 }
 
+// ---- hc transport: coordinator = hc terminal (pane_id = address, socket_path = "hc") ----
+const HC_SOCK = "hc";
+const HC_LABEL = "orch.coordinator";
+const isHc = (c: any): boolean => c?.transport === "hc" || c?.socket_path === HC_SOCK;
+
+async function hcCli(args: string[]): Promise<CliOut> {
+  try {
+    const p = Bun.spawn(["hc", ...args], { env: { ...process.env }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const t = setTimeout(() => p.kill("SIGKILL"), (parseFloat(process.env.ORCH_HERDR_CALL_TIMEOUT || "8") || 8) * 1000);
+    const [stdout, stderr] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    const code = await p.exited;
+    clearTimeout(t);
+    return { ok: code === 0, stdout, stderr };
+  } catch (e) {
+    return { ok: false, stdout: "", stderr: String(e) };
+  }
+}
+
+// Live hc terminals, optionally only those with orch.coordinator=<sid>.
+async function hcList(sid?: string): Promise<any[]> {
+  const r = await hcCli(["ls", "--json", ...(sid ? ["--label", `${HC_LABEL}=${sid}`] : [])]);
+  return r.ok ? (jparse(r.stdout)?.terminals ?? []).filter((t: any) => t.state === undefined || t.state === "live") : [];
+}
+
+async function coordSend(c: any, line: string): Promise<CliOut> {
+  if (isHc(c)) return hcCli(["send", c.pane_id, line]); // hc send pastes the text and presses Enter
+  const a = await coordCli(c.socket_path, ["pane", "send-text", c.pane_id, line]);
+  return a.ok ? coordCli(c.socket_path, ["pane", "send-keys", c.pane_id, "Enter"]) : a;
+}
+
 function walk(v: any, fn: (o: any) => void): void {
   if (v && typeof v === "object") {
     if (!Array.isArray(v)) fn(v);
@@ -527,6 +557,24 @@ function walk(v: any, fn: (o: any) => void): void {
 
 function jparse(t: string): any {
   try { return JSON.parse(t); } catch { return null; }
+}
+
+// A coordinator session is alive when its announce activity file was written in the last COORD_ALIVE_SECS, or when a
+// pane on the coordinator socket still hosts it. Only a dead coordinator session may be replaced automatically.
+const COORD_ALIVE_SECS = 120;
+export async function coordSessionAlive(home: string, sid: string, sock: string): Promise<boolean> {
+  if (!sid) return false;
+  const fresh = await stat(join(home, "activity", `${sid}.json`)).then((st) => Date.now() - st.mtimeMs < COORD_ALIVE_SECS * 1000, () => false);
+  if (fresh) return true;
+  if (sock === HC_SOCK) return (await hcList(sid)).length > 0;
+  const r = await coordCli(sock, ["pane", "list"]);
+  return r.ok && coordSessionIds(r.stdout).includes(sid);
+}
+
+function coordSessionIds(json: string): string[] {
+  const ids: string[] = [];
+  walk(jparse(json), (o) => { const v = o.agent_session?.value; if (v) ids.push(String(v)); });
+  return ids;
 }
 
 export function coordSessionOf(json: string): string {
@@ -545,17 +593,27 @@ async function coordOf(home: string, run: string): Promise<any | null> {
   return (await loadRun(home, run))?.coordinator ?? null;
 }
 
+// herdr is the first choice when its pane env is present; otherwise the hc terminal of the caller (HC_TERMINAL_ID).
+const herdrEnvPresent = (): boolean => !!process.env.HERDR_PANE_ID && !!process.env.HERDR_SOCKET_PATH;
+
 export async function coordinatorRecord(home: string, run: string): Promise<number> {
-  const pane = process.env.HERDR_PANE_ID ?? "";
-  const sock = process.env.HERDR_SOCKET_PATH ?? "";
+  const hc = !herdrEnvPresent() && !!process.env.HC_TERMINAL_ID;
+  const pane = hc ? process.env.HC_TERMINAL_ID! : process.env.HERDR_PANE_ID ?? "";
+  const sock = hc ? HC_SOCK : process.env.HERDR_SOCKET_PATH ?? "";
   const ws = process.env.HERDR_WORKSPACE_ID ?? "";
   if (!pane || !sock) {
-    err("run set coordinator: HERDR_PANE_ID and HERDR_SOCKET_PATH must be set (run in the coordinator pane)\n");
+    err("run set coordinator: run in the coordinator terminal (HERDR_PANE_ID and HERDR_SOCKET_PATH, or HC_TERMINAL_ID, must be set)\n");
     return 2;
   }
-  const sid = coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout);
+  let sid: string;
+  if (hc) {
+    sid = process.env.ORCH_COORD_SESSION || process.env.OPENCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || `hc-${pane}`;
+    await hcCli(["label", pane, `${HC_LABEL}=${sid}`]);
+  } else {
+    sid = coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout);
+  }
   const rc = await mutateRun(home, run, (r, ctx) => {
-    r.coordinator = { pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true };
+    r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true };
     ctx.events.push({ at: ctx.now, kind: "note", node: null, from: null, to: null, note: `coordinator set: pane ${pane}`, by: ctx.by });
   });
   if (rc !== 0) return rc;
@@ -566,8 +624,11 @@ export async function coordinatorRecord(home: string, run: string): Promise<numb
 
 // Records the coordinator when the calling env has one; silent otherwise.
 export async function coordinatorAutoRecord(home: string, run: string): Promise<void> {
-  if (!process.env.HERDR_PANE_ID || !process.env.HERDR_SOCKET_PATH) return;
-  if (!(await loadRun(home, run))) return;
+  if (!herdrEnvPresent() && !process.env.HC_TERMINAL_ID) return;
+  const state = await loadRun(home, run);
+  if (!state) return;
+  const c = state.coordinator;
+  if (c?.session_id && (await coordSessionAlive(home, c.session_id, c.socket_path ?? (herdrEnvPresent() ? process.env.HERDR_SOCKET_PATH! : HC_SOCK)))) return;
   const w = process.stdout.write;
   process.stdout.write = (() => true) as any;
   try { await coordinatorRecord(home, run); } finally { process.stdout.write = w; }
@@ -576,18 +637,34 @@ export async function coordinatorAutoRecord(home: string, run: string): Promise<
 async function coordTouch(home: string, run: string): Promise<void> {
   const c = await coordOf(home, run);
   if (!c) return;
+  if (isHc(c)) {
+    if (!(await hcCli(["get", "--json", c.pane_id])).ok) return;
+    await mutateRun(home, run, (st, ctx) => { if (st.coordinator) st.coordinator.at = ctx.now; });
+    return;
+  }
   const r = await coordCli(c.socket_path, ["pane", "get", c.pane_id]);
   if (!r.ok) return;
   const sid = coordSessionOf(r.stdout);
+  // The pane's session replaces the recorded one only when the recorded session is dead (or it is the same session).
+  const replace = sid !== "" && (sid === c.session_id || !(await coordSessionAlive(home, c.session_id, c.socket_path)));
   await mutateRun(home, run, (st, ctx) => {
     if (!st.coordinator) return;
     st.coordinator.at = ctx.now;
-    if (sid) st.coordinator.session_id = sid;
+    if (replace) st.coordinator.session_id = sid;
   });
 }
 
 async function coordCandidates(home: string, c: any): Promise<any[]> {
   const rows: any[] = [];
+  if (isHc(c) || herdrEnvPresent() === false) {
+    const seen = new Set<string>();
+    for (const t of [...(await hcList(c.session_id || undefined)), ...(await hcList())]) {
+      if (!t.address || seen.has(t.address)) continue;
+      seen.add(t.address);
+      rows.push({ transport: "hc", socket_path: HC_SOCK, pane_id: t.address, workspace_id: "", cwd: t.cwd ?? "", session_id: t.labels?.[HC_LABEL] ?? "", agent: t.agent ?? "" });
+    }
+    if (isHc(c)) return rows;
+  }
   const nodePanes = new Set<string>();
   for (const j of await readdir(paths.jobs(home)).catch(() => [] as string[])) {
     const t = await Bun.file(join(paths.jobs(home), j, "herdr_pane")).text().catch(() => "");
@@ -606,7 +683,7 @@ async function coordCandidates(home: string, c: any): Promise<any[]> {
       const info = jparse(g.stdout);
       let agent = "";
       walk(info, (o) => { if (!agent && typeof o.agent === "string") agent = o.agent; });
-      rows.push({ socket_path: sock, pane_id: p.pane_id, workspace_id: p.workspace_id, cwd: p.cwd, session_id: coordSessionOf(g.stdout), agent });
+      rows.push({ transport: "herdr", socket_path: sock, pane_id: p.pane_id, workspace_id: p.workspace_id, cwd: p.cwd, session_id: coordSessionOf(g.stdout), agent });
     }
   }
   return rows;
@@ -618,12 +695,16 @@ async function coordRepoint(home: string, run: string, row: any, reason: string)
     from = st.coordinator?.pane_id ?? "none";
     const c = st.coordinator ?? {};
     st.coordinator = {
-      ...c, socket_path: row.socket_path, pane_id: row.pane_id, workspace_id: row.workspace_id,
+      ...c, transport: row.transport ?? "herdr", socket_path: row.socket_path, pane_id: row.pane_id, workspace_id: row.workspace_id,
       session_id: row.session_id === "" ? c.session_id : row.session_id, at: ctx.now, unreachable: null, candidates: null,
       backlog_pending: true, last_repoint: { at: ctx.now, from, to: row.pane_id, reason },
     };
   });
   if (rc !== 0) return rc;
+  if (row.transport === "hc") {
+    const sid = (await coordOf(home, run))?.session_id;
+    if (sid) await hcCli(["label", row.pane_id, `${HC_LABEL}=${sid}`]);
+  }
   await appendRunEvent(home, run, "message", "orch", "", "repointed", `coordinator repointed: ${from} -> ${row.pane_id} (${reason})`);
   return 0;
 }
@@ -644,6 +725,13 @@ async function coordTryRepoint(home: string, run: string): Promise<boolean> {
 }
 
 async function coordPaneStatus(c: any): Promise<string> {
+  if (isHc(c)) {
+    const h = await hcCli(["get", "--json", c.pane_id]);
+    if (!h.ok) return "gone";
+    const j = jparse(h.stdout);
+    if (!j || (j.state && j.state !== "live")) return "gone";
+    return j.status === "working" ? "working" : "idle";
+  }
   const r = await coordCli(c.socket_path, ["pane", "get", c.pane_id]);
   if (!r.ok) return "gone";
   return /agent_status"?[ :=]+"?working/.test(r.stdout + r.stderr) ? "working" : "idle";
@@ -651,6 +739,7 @@ async function coordPaneStatus(c: any): Promise<string> {
 
 // Quiet: the screen is readable, unchanged over ORCH_COORD_SETTLE_SECS and its last line has no typed text.
 async function coordPaneQuiet(c: any): Promise<boolean> {
+  if (isHc(c)) return true; // hc send itself waits for a person's unfinished draft
   const read = () => coordCli(c.socket_path, ["pane", "read", c.pane_id, "--source", "visible", "--lines", "15"]);
   const a = await read();
   if (!a.ok) return false;
@@ -680,9 +769,8 @@ async function coordFlushBacklog(home: string, run: string): Promise<void> {
     return;
   }
   if ((await coordPaneStatus(c)) !== "idle" || !(await coordPaneQuiet(c))) return;
-  const a = await coordCli(c.socket_path, ["pane", "send-text", c.pane_id, `${n} pending node questions`]);
-  const b = a.ok ? await coordCli(c.socket_path, ["pane", "send-keys", c.pane_id, "Enter"]) : a;
-  if (a.ok && b.ok) {
+  const b = await coordSend(c, `${n} pending node questions`);
+  if (b.ok) {
     await mutateRun(home, run, (s) => { if (s.coordinator) s.coordinator.backlog_pending = false; });
     await appendRunEvent(home, run, "message", "orch", "", "delivered", `backlog notice: ${n} pending node questions`);
   }
@@ -728,10 +816,9 @@ export async function coordDeliver(home: string, run: string, path: string): Pro
   const line = m.kind === "ask"
     ? `[orch ask #${m.id} from ${m.from}] ${text} | answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`
     : `[orch tell #${m.id} from ${m.from}] ${text}`;
-  const a = await coordCli(c.socket_path, ["pane", "send-text", c.pane_id, line]);
-  const b = a.ok ? await coordCli(c.socket_path, ["pane", "send-keys", c.pane_id, "Enter"]) : a;
-  if (a.ok && b.ok) {
-    await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = "herdr-coordinator"; x.last_error = null; });
+  const b = await coordSend(c, line);
+  if (b.ok) {
+    await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = isHc(c) ? "hc-coordinator" : "herdr-coordinator"; x.last_error = null; });
     await coordTouch(home, run);
     await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator`);
     return "delivered";

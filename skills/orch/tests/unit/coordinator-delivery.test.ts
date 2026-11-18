@@ -57,7 +57,7 @@ const setup = () => {
 
 test("run set coordinator and delivery to an idle pane", () => {
   const t = setup();
-  const noEnv = orch(t.home, { ...t.env, HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: undefined });
+  const noEnv = orch(t.home, { ...t.env, HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: undefined, HC_TERMINAL_ID: undefined });
   expect(noEnv("run", "set", "r1", "coordinator").rc).toBe(2);
   const oc = orch(t.home, { ...t.env, HERDR_PANE_ID: "p-coord", HERDR_SOCKET_PATH: t.sock, HERDR_WORKSPACE_ID: "ws-1", HERDR_ENV: "1" });
   t.get("p-coord", { agent_session: { value: "ses_abc" }, agent: "opencode" });

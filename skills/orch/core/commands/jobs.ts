@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { jobStatus, sleep } from "../state/proc.ts";
 import { budgetCheck, budgetVerdict, readCatalog } from "../adapters/routing.ts";
+import { hcJobTail } from "../adapters/herdr.ts";
 
 const out = (s: string) => void process.stdout.write(s);
 const err = (s: string) => void process.stderr.write(s);
@@ -55,15 +56,20 @@ export function statusCommand(args: string[]): number {
   return 0;
 }
 
-export function tailCommand(args: string[]): number {
+export async function tailCommand(args: string[]): Promise<number> {
   const id = args[0] ?? "";
   if (!id) return (err("usage: dispatch.ts tail <job-id> [-n N]\n"), 2);
   let n = 20;
   for (let i = 1; i < args.length; i++) if (args[i] === "-n") n = Number(args[++i] ?? 20) || 20;
   const dir = join(paths.jobs(orchHome()), id);
   const file = existsSync(join(dir, "log.plain")) ? join(dir, "log.plain") : join(dir, "log");
-  if (!existsSync(file)) return (err(`no log for job: ${id}\n`), 2);
-  const lines = readFileSync(file, "utf8").split("\n");
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (!text) {
+    const hc = await hcJobTail(dir, n);
+    if (hc.length) return (out(hc.join("\n") + "\n"), 0);
+    if (!existsSync(file)) return (err(`no log for job: ${id}\n`), 2);
+  }
+  const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
   const tail = lines.slice(-n).join("\n");
   if (tail) out(tail + "\n");

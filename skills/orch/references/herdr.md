@@ -55,5 +55,43 @@ Detached (`run_detached`) whenever herdr is not on `PATH`, `ensure` fails, the p
   Tests export `ORCH_HERDR=0` in `tests/helpers/index.ts` so no test starts a server by accident.
 - Not covered: schedule `command` runs (plain shell, no job dir) stay detached.
 
+## Fallback and switches
+Detached (`run_detached`) whenever herdr is not on `PATH`, `ensure` fails, the pane cap is reached or a call fails.
+- `ORCH_HERDR=0` (or `off`) disables; `ORCH_HERDR=1` forces on; otherwise `settings.herdr`
+  (`orch herdr on|off|auto`), and with neither set it is on exactly when the binary exists.
+- Other env: `ORCH_HERDR_CLOSE_AFTER`, `ORCH_HERDR_PANE_CAP`, `ORCH_HERDR_START_WAIT`, `ORCH_HERDR_CALL_TIMEOUT` (s).
+  Tests export `ORCH_HERDR=0` in `tests/helpers/index.ts` so no test starts a server by accident.
+- Not covered: schedule `command` runs (plain shell, no job dir) stay detached.
+
+## herdr-core (hc) terminals
+When `hc` is on `PATH`, `startJob` first runs the job as an hc terminal: `hc run --bg --json --cwd <cwd>`
+with labels `orch=1`, `run=<run>`, `node=<node>`, `job=<job dir name>`. The address goes to `<job>/hc_term`.
+The job still runs the same launcher (`herdr-launch.sh`), and the wrapper writes `log` and `exit_code`.
+- `hc ls --json --label orch=1` lists the orch terminals. `hc read <addr>` reads one's output.
+  Pane cap (`ORCH_HERDR_PANE_CAP`) applies to these terminals too.
+- `hcSweep` runs `hc rm <addr>` for a job that has ended (`exit_code` mtime older than the linger),
+  then trashes `hc_term`. A running job is never removed.
+- Switches: `ORCH_HC=0` turns the hc path off. `ORCH_HC=1` turns it on. `ORCH_HERDR=0` turns it off too.
+  With neither set, it follows `ORCH_HERDR` and `settings.herdr`. No `hc` on `PATH` means off.
+- Fallback: any hc failure (`hc run` error, no address, pane cap, `hc ls` error) falls through to the
+  herdr path above. No `hc_term` file is written then, and the job gets `herdr_pane` as usual.
+
 ## Cost (measured, real herdr 0.9.5)
 See the report of the restart-safety-herdr node: about 25 MB RSS and ~0% CPU idle for one workspace.
+
+## hc jobs in the Herdr desktop app
+
+`herdr-app` shows an hc terminal only when it carries `herdr.space=<space id>` (and `herdr.tab=<tab id>`).
+When the hc path starts a job and `herdr-app` is on PATH and `herdr-app status` answers, orch:
+
+- resolves the space named `settings.herdr_space` (profiles.json settings, default `orch`; `off` or empty disables)
+  with `herdr-app ls`, or creates it once with `herdr-app do space.new --name <name> --folder <cwd> --focus false`.
+  The id is cached per orch process for 60 s and re-resolved when it is gone.
+- creates one tab per run (`herdr-app do tab.new --name <run> --space <id> --focus false`), cached per run.
+  The tab also holds one default shell terminal that the app creates.
+- starts the job with `hc run --bg --name <run>-<node>-<job> --label herdr.space=<id> --label herdr.tab=<id>`.
+  The job dir gets an `hc_app` file.
+
+Any herdr-app failure writes one `orch: herdr-app: ...` line to the job `log` and the job runs as a hidden
+worker. Focus, layout and the user's tabs and spaces are never changed or closed. `hcSweep` removes a successful
+job's terminal as before and keeps a failed job's terminal (job has `hc_app`, exit code not 0) visible.

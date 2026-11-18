@@ -4,7 +4,7 @@
 // (titled "<node-id>", plus " #<attempt>" above 1) with one pane. A retry reuses the node's tab.
 // An ended job's tab is closed by sweep() once herdr_linger_sec has passed. Every herdr call is best
 // effort: when it fails the caller starts the job detached. Bun built-ins only.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { orchHome, paths } from "../state/home.ts";
@@ -315,17 +315,20 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 // The pane shell inherits the instance HOME, so the launcher restores the real HOME and the job's
 // env first. It carries only the orch env, PATH and a short allow-list, so no other secret lands on disk.
-function writeLauncher(file: string, jobDir: string, launcherTs: string, close: { tab: string; owner: string; inst: string; linger: number }): void {
+// `close` is null for an hc terminal: hc removes ended terminals itself (see hcSweep).
+function writeLauncher(file: string, jobDir: string, launcherTs: string, close: { tab: string; owner: string; inst: string; linger: number } | null): void {
   let s = "#!/bin/sh\n";
   s += `command -v bun >/dev/null 2>&1 || { echo "orch needs bun: install it from https://bun.sh" >&2; exit 127; }\n`;
   s += "unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID\n";
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && LAUNCH_ENV.test(k)) s += `export ${k}=${shq(v)}\n`;
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
   s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
-  s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  sleep ${close.linger}\n`;
-  s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
-  s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
-  s += ") >/dev/null 2>&1 </dev/null &\n";
+  if (close) {
+    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  sleep ${close.linger}\n`;
+    s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
+    s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
+    s += ") >/dev/null 2>&1 </dev/null &\n";
+  }
   s += `exec bun ${shq(launcherTs)} ${shq(jobDir)}\n`;
   writeFileSync(file, s);
   chmodSync(file, 0o700);
@@ -333,9 +336,188 @@ function writeLauncher(file: string, jobDir: string, launcherTs: string, close: 
 
 const launchTs = () => join(dirname(import.meta.dir), "commands", "herdr-launch.ts");
 
+// ---- herdr-core (hc) terminals ----
+// When `hc` is on PATH, jobs run as hc terminals (labels orch=1, run=<run>, node=<node>, job=<job dir name>).
+// ORCH_HC=0 turns this path off. Any hc failure falls back to the herdr path below.
+const HC_LABEL = "orch=1";
+const hcBinPresent = () => Bun.which("hc", { PATH: process.env.PATH ?? "" }) !== null;
+
+export async function hcEnabled(home: string): Promise<boolean> {
+  if (!hcBinPresent()) return false;
+  if (process.env.ORCH_HC === "0") return false;
+  const v = process.env.ORCH_HERDR ?? "";
+  if (["0", "false", "off"].includes(v)) return false;
+  if (["1", "true", "on"].includes(v) || process.env.ORCH_HC === "1") return true;
+  return (await settings(home)).herdr !== false;
+}
+
+async function hcCli(args: string[]): Promise<{ ok: boolean; stdout: string }> {
+  try {
+    const p = Bun.spawn(["hc", ...args], { env: { ...process.env } as Record<string, string>, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => p.kill("SIGKILL"), callTimeoutMs());
+    const stdout = await new Response(p.stdout).text();
+    const code = await p.exited;
+    clearTimeout(timer);
+    return { ok: code === 0, stdout };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+
+async function hcList(extra: string[] = []): Promise<any[] | null> {
+  const r = await hcCli(["ls", "--json", "--label", HC_LABEL, ...extra]);
+  if (!r.ok) return null;
+  try { return (JSON.parse(r.stdout).terminals ?? []) as any[]; } catch { return null; }
+}
+
+// ---- herdr-app (desktop app) placement of hc jobs ----
+// settings.herdr_space (default "orch"; "off" or empty disables) names the desktop-app space. The hc terminal
+// carries the labels herdr.space=<id> and herdr.tab=<id> (one tab per run), else herdr-app hides it.
+// Every failure here is logged to the job log and never fails or delays the job.
+const APP_SPACE_TTL_MS = 60_000;
+let appSpaceCache: { name: string; id: string; at: number } | null = null;
+const appTabCache = new Map<string, string>();
+export function resetAppCache(): void { appSpaceCache = null; appTabCache.clear(); }
+
+async function appCli(args: string[]): Promise<{ ok: boolean; stdout: string }> {
+  try {
+    const p = Bun.spawn(["herdr-app", ...args], { env: { ...process.env } as Record<string, string>, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => p.kill("SIGKILL"), callTimeoutMs());
+    const stdout = await new Response(p.stdout).text();
+    const code = await p.exited;
+    clearTimeout(timer);
+    return { ok: code === 0, stdout };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+
+async function appSpaces(): Promise<any[] | null> {
+  const r = await appCli(["ls"]);
+  if (!r.ok) return null;
+  try { return (JSON.parse(r.stdout).spaces ?? []) as any[]; } catch { return null; }
+}
+
+const idIn = (out: string, prefix: string): string => out.match(new RegExp(`"${prefix}[0-9a-f]+"`))?.[0].slice(1, -1) ?? "";
+
+async function appSpaceId(name: string, folder: string): Promise<string> {
+  const now = Date.now();
+  if (appSpaceCache && appSpaceCache.name === name && now - appSpaceCache.at < APP_SPACE_TTL_MS) {
+    const spaces = await appSpaces();
+    if (spaces?.some((x) => x.id === appSpaceCache!.id)) return appSpaceCache.id;
+    appSpaceCache = null;
+    appTabCache.clear();
+  }
+  const spaces = await appSpaces();
+  if (!spaces) throw new Error("herdr-app ls failed");
+  let id: string = spaces.find((x) => x.name === name)?.id ?? "";
+  if (!id) {
+    const r = await appCli(["do", "space.new", "--name", name, "--folder", folder, "--focus", "false"]);
+    id = r.ok ? idIn(r.stdout, "spa") : "";
+    if (!id) {
+      id = ((await appSpaces()) ?? []).find((x) => x.name === name)?.id ?? "";
+    }
+    if (!id) throw new Error(`herdr-app space.new ${name} failed`);
+  }
+  appSpaceCache = { name, id, at: now };
+  return id;
+}
+
+// Returns the labels and the terminal name for an hc run, or null (with a log line) when unavailable.
+async function appPlacement(home: string, jobDir: string, run: string, node: string): Promise<{ labels: string[]; name: string } | null> {
+  const log = (m: string) => { try { appendFileSync(join(jobDir, "log"), `orch: herdr-app: ${m}\n`); } catch { /* ignore */ } };
+  try {
+    const envSpace = process.env.ORCH_HERDR_SPACE; // test hook: "default" means use the setting
+    const raw = envSpace !== undefined && envSpace !== "default" ? envSpace : (await settings(home)).herdr_space;
+    const name = raw === undefined || raw === null ? "orch" : String(raw).trim();
+    if (!name || name.toLowerCase() === "off") return null;
+    if (Bun.which("herdr-app", { PATH: process.env.PATH ?? "" }) === null) return null;
+    if (!(await appCli(["status"])).ok) { log("not answering, job stays hidden"); return null; }
+    const space = await appSpaceId(name, process.cwd());
+    const key = `${space}:${run}`;
+    let tab = appTabCache.get(key) ?? "";
+    // Every dispatch is its own process, so the cache above is empty for each node: reuse the run's tab by name,
+    // else every node adds one more tab and the space fills with stale tabs that a later cleanup closes with live jobs in them.
+    if (!tab) {
+      const tabName = run.slice(-12);
+      tab = ((await appSpaces()) ?? []).find((x) => x.id === space)?.tabs?.find((t: any) => t.name === tabName)?.id ?? "";
+      if (tab) appTabCache.set(key, tab);
+    }
+    if (!tab) {
+      const r = await appCli(["do", "tab.new", "--name", run.slice(-12), "--space", space, "--focus", "false"]);
+      tab = r.ok ? idIn(r.stdout, "tb") : "";
+      if (!tab) throw new Error("tab.new failed");
+      appTabCache.set(key, tab);
+    }
+    return { labels: [`herdr.space=${space}`, `herdr.tab=${tab}`], name: `${run.slice(-9)} ${node}`.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase().slice(0, 25) + "-" + jobDir.split("/").pop()!.replace(/[^a-z0-9]/gi, "").toLowerCase().slice(-6) };
+  } catch (e) {
+    log(`${(e as Error).message}, job stays hidden`);
+    return null;
+  }
+}
+
+async function hcStartJob(home: string, jobDir: string, argv: string[]): Promise<boolean> {
+  await hcSweep(home).catch(() => undefined);
+  const live = await hcList();
+  if (!live) return false;
+  const cap = Number(process.env.ORCH_HERDR_PANE_CAP || PANE_CAP_DEFAULT);
+  if (live.length >= cap) return false;
+  const run = process.env.ORCH_RUN_ID || NO_RUN_LABEL;
+  const node = process.env.ORCH_NODE_ID || jobDir.split("/").pop()!;
+  const job = jobDir.split("/").pop()!;
+  writeFileSync(join(jobDir, "argv.json"), JSON.stringify(argv));
+  const launcher = join(jobDir, "herdr-launch.sh");
+  writeLauncher(launcher, jobDir, launchTs(), null);
+  const place = await appPlacement(home, jobDir, run, node);
+  const placeArgs = place ? ["--name", place.name, ...place.labels.flatMap((l) => ["--label", l])] : [];
+  const r = await hcCli(["run", "--bg", "--json", ...placeArgs, "--cwd", process.cwd(), "--label", HC_LABEL, "--label", `run=${run}`, "--label", `node=${node}`, "--label", `job=${job}`, "sh", launcher]);
+  let addr = "";
+  try { addr = JSON.parse(r.stdout).address ?? ""; } catch { /* no address */ }
+  if (!r.ok || !addr) return false;
+  writeFileSync(join(jobDir, "hc_term"), `${addr}\n`);
+  if (place) writeFileSync(join(jobDir, "hc_app"), `${place.labels.join(" ")}\n`);
+  return true;
+}
+
+// Tail of an hc job's terminal (`hc read <addr> --lines N`), for jobs whose log file is empty or missing.
+// Returns [] when the job has no hc_term, hc fails, or the terminal is gone.
+export async function hcJobTail(jobDir: string, n = 20): Promise<string[]> {
+  const addr = readTrim(join(jobDir, "hc_term"));
+  if (!addr || !hcBinPresent()) return [];
+  const r = await hcCli(["read", addr, "--lines", String(n * 5)]);
+  if (!r.ok) return [];
+  return r.stdout.replace(/\s+$/, "").split("\n").map((l) => l.replace(/\s+$/, "")).filter((l) => l.length > 0).slice(-n);
+}
+
+// Removes the hc terminals of ended jobs after the linger (exit_code mtime). Only jobs with an hc_term file.
+export async function hcSweep(home: string): Promise<number> {
+  if (!(await hcEnabled(home))) return 0;
+  const linger = await lingerSec(home);
+  const now = Date.now() / 1000;
+  let removed = 0;
+  let dirs: string[] = [];
+  try { dirs = readdirSync(paths.jobs(home)); } catch { return 0; }
+  for (const d of dirs) {
+    const dir = join(paths.jobs(home), d);
+    const addr = readTrim(join(dir, "hc_term"));
+    if (!addr || jobRunning(dir)) continue;
+    let ended = 0;
+    try { ended = statSync(join(dir, "exit_code")).mtimeMs / 1000; } catch { continue; }
+    if (now - ended < linger) continue;
+    // A failed job shown in the desktop app stays visible for the user.
+    if (existsSync(join(dir, "hc_app")) && readTrim(join(dir, "exit_code")) !== "0") continue;
+    const r = await hcCli(["rm", addr]);
+    if (r.ok) { removed++; await trashPath(home, join(dir, "hc_term")).catch(() => undefined); }
+  }
+  return removed;
+}
+
 // Runs the job in its own tab of the run's workspace. Returns false when nothing runs there
 // (disabled, herdr missing, unreachable, pane cap), so the caller falls back to a detached job.
 export async function startJob(home: string, jobDir: string, argv: string[]): Promise<boolean> {
+  if (await hcEnabled(home)) {
+    if (await hcStartJob(home, jobDir, argv)) return true;
+  }
   if (!(await herdrEnabled(home))) return false;
   if ((await herdrOrch(home, "ensure")) !== 0) return false;
   const inst = instHome(home);

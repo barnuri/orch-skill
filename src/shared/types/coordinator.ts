@@ -1,5 +1,6 @@
 // Coordinator state shown on the run page. Pure types: this file must stay free of Node and Bun imports.
 export interface CoordinatorCandidate {
+  transport?: "herdr" | "hc";
   socket_path: string;
   pane_id: string;
   workspace_id: string;
@@ -9,6 +10,7 @@ export interface CoordinatorCandidate {
 }
 
 export interface CoordinatorState {
+  transport?: "herdr" | "hc";
   pane_id: string;
   reachable: boolean;
   unreachable_since: string | null;

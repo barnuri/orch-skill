@@ -11,7 +11,7 @@ import { nowIso } from "../state/clock.ts";
 
 export const COORDINATOR_MODEL_DEFAULT = "llm-hub/copilot/claude-sonnet-5-5";
 export const COORDINATOR_ROTATE_TOKENS_DEFAULT = 200000;
-export const COORDINATOR_USAGE = "dispatch.ts coordinator start <run> [--handoff FILE] [--dry-run] | coordinator rotate <run> --tokens N [--summary TEXT] [--dry-run]";
+export const COORDINATOR_USAGE = "dispatch.ts coordinator start <run> [--handoff FILE] [--dry-run] | coordinator register <run> | coordinator rotate <run> --tokens N [--summary TEXT] [--dry-run]";
 
 type Doc = Parameters<typeof settingFrom>[0];
 

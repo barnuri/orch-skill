@@ -55,6 +55,15 @@ export async function runPause(args: string[]): Promise<number> {
   return rc;
 }
 
+// coordinator register <run>: record the calling terminal (herdr pane, else hc terminal) as the run's coordinator.
+export async function coordinatorRegister(args: string[]): Promise<number> {
+  const [run = ""] = args;
+  if (!run) return (err("usage: dispatch.ts coordinator register <run-id>\n"), 2);
+  const home = orchHome();
+  if (!(await requireRun(home, run))) return 2;
+  return coordinatorRecord(home, run);
+}
+
 export async function runSet(args: string[]): Promise<number> {
   const [run = "", key = "", value = ""] = args;
   if (!run || !key) return (err(`usage: ${RUN_SET_USAGE}\n  or: ${COORD_USAGE}\n`), 2);
