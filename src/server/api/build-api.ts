@@ -10,13 +10,16 @@ import { ChatQueueController } from "./controllers/chat-queue.controller";
 import { ChatsController } from "./controllers/chats.controller";
 import { ChatQuestionsController } from "./controllers/chat-questions.controller";
 import { ChatSettingsController } from "./controllers/chat-settings.controller";
+import { FeedbackController } from "./controllers/feedback.controller";
 import { ServerInfoController } from "./controllers/server-info.controller";
 import { ProjectsController } from "./controllers/projects.controller";
 import { DocumentsController, HarnessesController } from "./controllers/documents.controller";
 import { HealthController } from "./controllers/health.controller";
 import { RunHealthController } from "./controllers/run-health.controller";
+import { RunRequirementsController } from "./controllers/run-requirements.controller";
 import { RunsController } from "./controllers/runs.controller";
 import { SchedulesController } from "./controllers/schedules.controller";
+import { SkillsController } from "./controllers/skills.controller";
 import { SuggestionsController } from "./controllers/suggestions.controller";
 import { ArtifactsController } from "./controllers/artifacts.controller";
 import { BrowserProfilesController } from "./controllers/browser-profiles.controller";
@@ -25,9 +28,14 @@ import { PushController } from "./controllers/push.controller";
 import { VoiceController } from "./controllers/voice.controller";
 import { UsageController } from "./controllers/usage.controller";
 import { WatchdogController } from "./controllers/watchdog.controller";
+import { DOCS_HTML } from "./docs-page";
+import { DOCS_PATH, OPENAPI_PATH } from "./openapi-path";
+import { augmentDocument, registerDtoSchemas } from "./openapi-doc";
 import { type ApiEnv, guard, installFallbacks, validationHook } from "./pipeline";
 
-export const OPENAPI_PATH: string = "/api/openapi.json";
+registerDtoSchemas();
+
+export { OPENAPI_PATH };
 
 /**
  * Every `/api/*` route, declared by decorated controllers. A controller method only delegates to
@@ -47,11 +55,14 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new SchedulesController(ctx), options);
   registerController(api, new RunsController(ctx), options);
   registerController(api, new RunHealthController(ctx), options);
+  registerController(api, new RunRequirementsController(ctx), options);
   registerController(api, new WatchdogController(ctx), options);
   registerController(api, new DocumentsController(ctx), options);
   registerController(api, new HarnessesController(ctx), options);
   registerController(api, new UsageController(ctx), options);
   registerController(api, new SuggestionsController(ctx), options);
+  registerController(api, new SkillsController(), options);
+  registerController(api, new FeedbackController(ctx), options);
   registerController(api, new ProjectsController(ctx), options);
   registerController(api, new ChatsController(ctx), options);
   registerController(api, new ChatQuestionsController(ctx), options);
@@ -68,14 +79,22 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
 
   // The document describes the API's surface, so it asks for the same Host check and token as the API.
   api.use(OPENAPI_PATH, guard(ctx));
-  api.doc(OPENAPI_PATH, {
-    openapi: "3.0.0",
-    info: {
-      title: "orch dashboard API",
-      version: "1.0.0",
-      description: "The API behind the orch dashboard. Reads are cheap; writes go through `dispatch.ts`, the only writer of orch state.",
-    },
-  });
+  api.get(OPENAPI_PATH, (c) =>
+    c.json(
+      augmentDocument(
+        api.getOpenAPIDocument({
+          openapi: "3.0.0",
+          info: {
+            title: "orch dashboard API",
+            version: "1.0.0",
+            description: "The API behind the orch dashboard. Reads are cheap; writes go through `dispatch.ts`, the only writer of orch state.",
+          },
+        }) as unknown as Record<string, unknown>,
+      ),
+    ),
+  );
+  api.use(DOCS_PATH, guard(ctx));
+  api.get(DOCS_PATH, (c) => c.html(DOCS_HTML));
   installFallbacks(api, ctx);
   return api;
 }
