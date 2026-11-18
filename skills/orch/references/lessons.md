@@ -39,3 +39,19 @@ Each item: what happened, the cost, the rule now.
 - New: 24 a job whose pane starts 4-31 min late still runs after `stuck starting` and its retry (about 45 job-min duplicate); 25 a job that ends on a plain-text question is retried and asks again (19 of 39 jobs); 26 a run handed over to unorch stays open with stale nodes; 27 the lesson-12 guard (`liveness.test.ts`) flakes under load (2 of 4 runs).
 - **REPEATED**: 14, 15, 19, 20. Guards for 14, 15, 16 landed at 23:05 (core-gaps 08, 10, 11) after these events and pass.
 - Guard tests: 77 tests in 20 files run, 76 pass, 1 flaky (liveness). No guard test: 9, 10, 11, 17, 23. Guard tasks: agent-spec/learning/2026-11-17-*.md (4 files).
+
+## 2026-11-18 review
+
+- Runs: 20261117-160316-0d9c (done, 24 nodes, 27 min dep-to-start lag); 20261117-190137-8cad (running, 30 nodes, 163 min lag, `openapi-review` ready 22:14Z and still waiting at 05:01Z).
+- New: 28 a ready node with no `auto_dispatch` waited 6 h 47 min unflagged; 29 an errored node waited 43 min for its retry; 30 two sibling nodes asked the same question (m6, m7).
+- **REPEATED** (priority high): 15 duplicate starts: 2 nodes ran 3 times, 4 nodes ran twice.
+- Guard tests: visibility, liveness, health, core-gaps 08-11 pass 18 of 18. owner-bind (13) fails 1 of 4. No guard test: 9, 17, 23, 28-30.
+- Guard tasks: agent-spec/learning/2026-11-18-ready-node-idle.md, agent-spec/learning/2026-11-18-owner-bind-guard-fails.md. No code changed, no commit.
+
+## 2026-11-18 retro (run 20261117-190137-8cad)
+
+31. **The watcher ended after each event.** The coordinator re-armed it by hand every time. Rule: a watcher survives events and ends only on run end or stop.
+32. **Node 413 was built from screenshots.** Each cycle needed an image read and a guess. Rule: UI nodes read the DOM or API state first; cap image reads (4, under 400 KB each).
+33. **llm-hub restarted at 08:28 with no recorded cause.** Rule: every service restart writes who and why to the run log.
+34. **The installer and a restart collided.** Rule: installer and restart take one shared lock.
+35. **Parallel edits on one file broke the shared tree again** (precommit-smoke typecheck failed on `run-filters.ts:39` from other nodes' uncommitted work; extends 17). Rule: one writer per file per run; the second node waits or asks.

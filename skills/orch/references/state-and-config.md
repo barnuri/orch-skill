@@ -7,6 +7,7 @@ profiles.json          settings + named profiles (from templates/profiles.json o
 serve.json             dashboard bind address, port and auth policy (from templates/serve.json on first use)
 cli.json               global CLI command name and bin dir (written by install.ts; default name: orch)
 memory.json            learnings log — [] on first use
+feedback/<id>.json     feedback items (`orch feedback`)
 runs/<run-id>/state.json
 runs/<run-id>/prompts/<node-id>.md   stored task prompts written by `plan apply`
 runs/<run-id>/messages.jsonl         the run's mailbox (`msg send|read`)
@@ -96,6 +97,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.llm_hub` | `{mode: "smart-auto"\|"off", harness, role_tiers: {role: tier}}`, written by `hub setup`/`hub off`. With `smart-auto`, nodes default to `<harness>-smart-auto` and get their tier from their role |
 | `settings.retention_days` | auto-prune cutoff at `run start`; `0` disables |
 | `settings.budget_threshold` | `budget-check` trip point (%); env `HARNESS_ORCH_BUDGET_THRESHOLD` overrides |
+| `settings.auto_kill_ghosts` | `false` (default). `true` lets `sync` kill ghost runners whose home is missing, record is missing or home is a temp test home older than 30 min, after a three-look re-judge. `false` only reports them. See SKILL.md "Ghost loops and runners" |
 
 ### Local (llm-hub) profiles
 
@@ -161,6 +163,32 @@ newest first, 30 kept. `ref` is a job id for a prompt run and a run directory (h
 
 Pending suggestions expire to `expired` after `settings.learning.dismiss_ttl_days` (default 30).
 Mutate via `orch suggest scan|list|apply|dismiss` or `#/suggestions` in the dashboard.
+
+## feedback/<id>.json
+
+One file per item, written only by `dispatch.ts feedback …` and the `/api/feedback` routes
+(`src/shared/types/feedback.ts`, `skills/orch/core/feedback.ts`).
+
+```json
+{ "id": "fb-20261117-1", "text": "Dashboard run list is slow", "source": "cli", "kind": "bug",
+  "status": "working", "created": "ISO", "updated": "ISO", "work_run": "feedback-batch-20261117-191049Z",
+  "result": null, "chat_id": null, "run_id": null, "node_id": null }
+```
+
+- `id`: `fb-<yyyymmdd>-<n>`, `n` = 1 + the highest number used that day (UTC).
+- `kind`: `bug | idea | ux | other`. `source`: `chat | cli | ui`.
+- `status`: `new` (added) → `queued` (`feedback work` put it in a batch run) → `working` (the batch
+  run exists) → `done | wontfix` (set with `feedback update`). `work_run` and `result` are optional.
+- Commands: `feedback add "<text>" [--kind K] [--source S] [--chat ID] [--run ID] [--node ID]`,
+  `feedback list [--status S]`, `feedback show <id>`,
+  `feedback update <id> [--status S] [--result "<text>"] [--work-run R]`,
+  `feedback work [--ids a,b]`.
+- `feedback work` with no `new` item prints `no new feedback`. It writes one run titled
+  "feedback batch" with one node per item and a `validate` node after all items. It adds nodes
+  only and dispatches nothing: the coordinator runs `run advance <run> --until-done`.
+- Known gap: a `node add` that fails midway leaves the batch run on disk with partial nodes.
+- The `/api/feedback` routes run `feedback work` through the CLI with `HARNESS_ORCH_HOME` set to the
+  server home.
 
 ## runs/<run-id>/state.json
 
@@ -326,7 +354,7 @@ Schema changes are numbered migrations recorded in `schema_migrations` and run a
 
 API: `GET /api/chat-options`, `/api/projects*`, `/api/chats*`, `/api/attachments/{id}`. The request and
 response schemas are the zod classes in `src/shared/dto/chats.ts` and the OpenAPI document at
-`/api/openapi.json`. `GET /api/chats/{id}/events` is Server-Sent Events; event ids are
+`/api/openapi.json` (interactive page: `/api/docs`; committed copy: `docs/openapi.json`, refresh with `bun run openapi`). `GET /api/chats/{id}/events` is Server-Sent Events; event ids are
 `<message id>.<text length>`, and `Last-Event-ID` replays what was missed from the database.
 
 ## Serve API
@@ -400,7 +428,14 @@ dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]
 dispatch.ts run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]
 dispatch.ts msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"
 dispatch.ts msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
-dispatch.ts run finish <run-id> [--status done|error]
+dispatch.ts run finish <run-id> [--status done|error] [--force --reason T]   # refused while run verify fails; the reason is stored as run.force_finish_reason
+dispatch.ts run verify <run-id>                                    # the final gate: numbered failures, exit 0 only when clean
+dispatch.ts req add <run-id> "<user ask>" [--id R1] [--node n1,n2]  # ledger: <run>/requirements.json (written only by req *)
+dispatch.ts req link <run-id> <req-id> --node n
+dispatch.ts req evidence <run-id> <req-id> --note "<text>" [--file path] [--test "bun test ..."]
+dispatch.ts req status <run-id> <req-id> handled|partly|not|superseded|waived [--reason T]   # waived needs --reason
+dispatch.ts req list <run-id> [--json]
+dispatch.ts req check <run-id>                                     # exit 1 unless every requirement is handled, superseded or waived
 dispatch.ts run list
 
 dispatch.ts serve [--host H] [--port P] | serve --stop
@@ -409,6 +444,10 @@ dispatch.ts serve recover [--start|--no-start]
 dispatch.ts serve config show | serve config get <key> | serve config set [--host H] [--port P] [--require-token|--no-require-token] [--allow-remote|--no-allow-remote]
 dispatch.ts ui [--stop]
 dispatch.ts sync [--no-serve]
+dispatch.ts feedback add "<text>" [--kind bug|idea|ux|other] [--source chat|cli|ui] [--chat <id>] [--run <id>] [--node <id>]
+dispatch.ts feedback list [--status new|queued|working|done|wontfix] | show <id>
+dispatch.ts feedback update <id> [--status <s>] [--result "<text>"] [--work-run <run-id>]
+dispatch.ts feedback work [--ids fb-a,fb-b]
 dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 ```
 
@@ -432,3 +471,12 @@ became runs-only keeps working and shows an amber warning. `profile sanity` adds
 ### Push state (`<home>/push/`)
 
 `vapid.json` (0600): the VAPID key pair, generated once with WebCrypto (ES256); only the public key is served (`/api/push/key`). `subscriptions.json` (0600): one record per device (endpoint, keys, label, user agent, app, categories, quiet hours, last success and error). Written only by the server. A 404 or 410 from a push service removes the record. Sending is hand-written (RFC 8291 aes128gcm, RFC 8292 VAPID, tested against the RFC vector) and goes only to the endpoint of the subscription; endpoints must be https (http only on loopback). Push works only on the HTTPS listener or localhost (see the HTTPS section above).
+
+## Requirements ledger and done gate
+
+`<run>/requirements.json`: `{requirements:[{id,text,status,reason,nodes[],evidence[{note,file,test,at}],created,updated}]}`.
+Status starts `not`. `run start` adds the node `done-gate` (role `validation`, `after_all`, so it runs last; a node
+added after it ran resets it to `waiting`). Its prompt runs `run verify` and writes the result as its handoff.
+`ORCH_NO_DONE_GATE=1` starts a run without it (the test helpers set it). `run verify` fails on: a node not done or skipped,
+a done node with an empty handoff or marked `unverified`, a `validation` node that is not done, an open requirement,
+a node with `needs_user` or `hold`, an unanswered ask in `inbox/orch`. `run finish` and `run advance` refuse while it fails.

@@ -22,7 +22,9 @@ const out = mkdtempSync(join(tmpDir(), "orch-precommit-build-"));
 const [r, t, syn] = await Promise.all([
   sh([process.execPath, DISPATCH, "run", "status", "precommit-smoke-none"], { HARNESS_ORCH_HOME: home }),
   sh([process.execPath, join(REPO_DIR, "scripts/typecheck.ts")]),
-  Promise.all(changed.map(async (f) => ({ f, ...(await sh([process.execPath, "build", f, "--no-bundle", "--outdir", out])) }))),
+  // One output folder per changed file: files that share a basename (the web and snapshot twins,
+  // two feedback.ts) would otherwise overwrite each other's build output and fail the smoke.
+  Promise.all(changed.map(async (f, i) => ({ f, ...(await sh([process.execPath, "build", f, "--no-bundle", "--outdir", join(out, String(i))])) }))),
 ]);
 if (r.code === 0) console.log("dispatch run status: ok");
 else if (r.code === 2 && r.text.includes("unknown run")) {

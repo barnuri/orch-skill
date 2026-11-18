@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Short coordinator wrapper for dispatch.ts. Replaces the pasted
-// `unset HARNESS_ORCH_HOME; o(){ timeout 150 bash .../dispatch.sh "$@"; }; N=$(cat /tmp/orch-run-id)` preamble.
+// `unset HARNESS_ORCH_HOME; o(){ timeout 150 bun .../dispatch.ts "$@"; }; N=$(cat /tmp/orch-run-id)` preamble.
 // Usage:
 //   bun scripts/o.ts <dispatch args...>           an "@run" argument becomes the current run id
 //   bun scripts/o.ts set <status> <node>...       node update @run <node> <status> for each node

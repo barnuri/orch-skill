@@ -57,7 +57,7 @@ function withMonitor(h: Handler): Handler {
 // Verbs of `herdr <verb>`: kept here so building the table does not load the herdr adapter (a test checks it matches).
 export const HERDR_VERB_KEYS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "job-gone-note", "serve-boot", "cli"];
 // `loop` and `schedule` handler keys, as exported by their modules (a test checks they match).
-export const LOOP_KEYS = ["loop start", "loop list", "loop stop", "loop resume", "loop tail", "loop recover", "loop prune", "loop __run", "loop", "watch start", "watch wait", "watch events", "watch list", "watch stop", "watch status-of", "watch __run", "watch", "active"];
+export const LOOP_KEYS = ["loop start", "loop list", "loop stop", "loop resume", "loop tail", "loop recover", "loop prune", "loop __run", "loop", "watch start", "watch wait", "watch events", "watch list", "watch stop", "watch status-of", "watch __run", "watch", "active", "ghosts"];
 export const SCHEDULE_KEYS = ["schedule add", "schedule edit", "schedule list", "schedule show", "schedule enable", "schedule disable", "schedule remove", "schedule run", "schedule log", "schedule tick", "schedule next", "schedule record", "schedule pause", "schedule __runcmd", "schedule"];
 
 export const COMMANDS: Record<string, Handler> = {
@@ -68,6 +68,13 @@ export const COMMANDS: Record<string, Handler> = {
   "node dispatch": L(dispatchCmds, (m) => m.nodeDispatch),
   "node retry": L(dispatchCmds, (m) => m.nodeRetry),
   "run finish": L(dispatchCmds, (m) => m.runFinish),
+  "run verify": L(() => import("./commands/verify.ts"), (m) => m.runVerify),
+  "req add": L(() => import("./commands/req.ts"), (m) => m.reqAdd),
+  "req link": L(() => import("./commands/req.ts"), (m) => m.reqLink),
+  "req evidence": L(() => import("./commands/req.ts"), (m) => m.reqEvidence),
+  "req status": L(() => import("./commands/req.ts"), (m) => m.reqStatus),
+  "req list": L(() => import("./commands/req.ts"), (m) => m.reqList),
+  "req check": L(() => import("./commands/req.ts"), (m) => m.reqCheck),
   "plan apply": L(() => import("./commands/plan.ts"), (m) => m.planApply),
   "msg send": L(() => import("./commands/msg.ts"), (m) => m.msgSend),
   "msg read": L(() => import("./commands/msg.ts"), (m) => m.msgRead),
@@ -81,6 +88,7 @@ export const COMMANDS: Record<string, Handler> = {
   "run rule": L(inbox, (m) => m.cmdRunRule),
   "run repoint": L(inbox, (m) => m.cmdRunRepoint),
   "coordinator start": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorStart),
+  "coordinator register": L(() => import("./commands/pause.ts"), (m) => m.coordinatorRegister),
   "coordinator rotate": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorRotate),
   "run pause": L(pause, (m) => m.runPause),
   "run resume": L(pause, (m) => m.runResume),
@@ -91,10 +99,15 @@ export const COMMANDS: Record<string, Handler> = {
   "node add": L(node, (m) => m.nodeAdd),
   "node update": L(node, (m) => m.nodeUpdate),
   "node report": L(node, (m) => m.nodeReport),
+  "node result": L(node, (m) => m.nodeResult),
+  "node show": L(node, (m) => m.nodeShow),
   "node batch": L(() => import("./commands/node-batch.ts"), (m) => m.nodeBatch),
   "node started": L(timing, (m) => m.nodeStarted),
+  "stats context": L(() => import("./commands/stats.ts"), (m) => m.statsContext),
   "run backfill-timing": L(timing, (m) => m.runBackfillTiming),
   "run wait": L(() => import("./commands/wait.ts"), (m) => m.runWait),
+  "run cover": L(() => import("./commands/cover.ts"), (m) => m.runCover),
+  "run uncover": L(() => import("./commands/cover.ts"), (m) => m.runUncover),
   "run carry": withMonitor(L(() => import("./commands/carry.ts"), (m) => m.runCarry)),
   use: L(() => import("./commands/use.ts"), (m) => m.useCommand),
   "run status": L(() => import("./commands/run.ts"), (m) => m.runStatusCommand),
@@ -144,9 +157,11 @@ export const COMMANDS: Record<string, Handler> = {
   ...Object.fromEntries(LOOP_KEYS.map((k): [string, Handler] => [k, L(loops, (m) => (m.loopCommands as Record<string, Handler>)[k]!)])),
   ...Object.fromEntries(SCHEDULE_KEYS.map((k): [string, Handler] => [k, L(schedules, (m) => (m.scheduleCommands as Record<string, Handler>)[k]!)])),
   announce: L(() => import("./commands/announce.ts"), (m) => m.announce),
+  // `feedback <verb>`: the module takes the verb as its first argument.
+  ...Object.fromEntries(["add", "list", "show", "update", "work"].map((v): [string, Handler] => [`feedback ${v}`, L(() => import("./commands/feedback.ts"), (m) => (a) => m.feedbackCommand([v, ...a]))])),
 };
 
-const ONE_WORD = new Set(["__run-cancel", "prune", "init", "serve", "ui", "artifact", "suggest", "demo", "sync", "use"]);
+const ONE_WORD = new Set(["__run-cancel", "prune", "init", "serve", "ui", "artifact", "suggest", "demo", "sync", "use", "ghosts"]);
 // Commands the dashboard server answers on its socket (same core function, in its process).
 const SOCKET_KEYS = new Set(["suggest", "serve status", "serve config"]);
 

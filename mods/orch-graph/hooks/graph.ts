@@ -183,7 +183,7 @@ export const newestFirst = (names: string[]): string[] => [...names].sort().reve
 // The orch skill loading, or a command that starts or advances a run, opens the pane.
 export const isOrchSkill = (skill: string): boolean => /(^|:)orch$/.test(skill)
 export const isOrchCommand = (command: string): boolean =>
-  /dispatch\.sh\b|(^|[\s;&|])orch\s+(run|start|plan|node)\b/.test(command)
+  /dispatch\.(sh|ts)\b|(^|[\s;&|])orch\s+(run|start|plan|node)\b/.test(command)
 
 // A Link may only point at https or http://localhost, so a loopback or wildcard bind host is
 // spelled `localhost`. The server lets any loopback peer in without a token.

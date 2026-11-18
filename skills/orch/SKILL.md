@@ -7,7 +7,7 @@ description: >
   background; watch them on a live dashboard. Use when asked to offload, farm out, split up, or
   route work to other agents/models, or to run something "on cursor" / "on the local model" /
   "with the hub profile". Triggers: "orchestrate this", "dispatch to", "run this on cursor",
-  "offload to local llm", "use the cheap profile".
+  "offload to local llm", "use the cheap profile", "feedback", "orch should", "this is wrong in orch".
 allowed-tools: Bash(bash *), Monitor, TaskOutput, Read, AskUserQuestion
 ---
 
@@ -72,6 +72,8 @@ warning; `--prefer-local` or medium with `LLM_HUB_URL` set → `local-llm`; othe
 `claude-native`.
 `orch budget-check` is callable alone (exit 0 safe / 1 avoid); a missing, stale or
 non-subscription snapshot always counts as safe.
+
+`settings.herdr_space` (default `orch`; `off` or empty disables) names the Herdr desktop-app space where hc jobs show, one tab per run, through the labels `herdr.space=<id>` and `herdr.tab=<id>` (see references/herdr.md).
 
 Harnesses listed in `settings.disabled_harnesses` are off: `profile pick` never returns their
 profiles and the dashboard hides them. The template disables none and makes `claude-default`
@@ -276,6 +278,8 @@ run prints the old path). The old run marks moved nodes `skipped` (`moved to run
 as `done`, unless `--keep-open`. `--title` sets the new title (default `<old title> (continued)`).
 The new run records `continued_from`, the old run records `continued_to`. Prints the new run id.
 
+**Cover a run** with `orch run cover <old-run> --by <new-run> [--note T] [--map oldNode=newNode]` when its unfinished work was copied into another run. The old run gets status `covered` (not `error`, never auto-dispatched, kept by `run finish`). `orch run uncover <run-id>` undoes it.
+
 **Stop a run** with `orch run stop <run-id>`, or the dashboard's **Stop run** button. Running
 jobs get `SIGTERM`, running nodes become errors with the message `cancelled`, waiting nodes are
 skipped, and the run status becomes `cancelled`. Automatic retries skip a cancelled run. Use it
@@ -320,7 +324,7 @@ Record every decision with `orch msg send` too: panes close after exit, the mail
 
 Nodes hand work to each other through the filesystem; the orchestrator moves **paths**, never
 content. Each node owns `orch node out <run-id> <node-id>` — a directory created at dispatch and
-exported to it as `$ORCH_NODE_OUT`.
+exported to it as `$ORCH_NODE_OUT`. Every dispatch also exports `$ORCH_NODE_GOAL` (the node's task text) and `$ORCH_NODE_GOAL_FILE` (the same text in `goal.md` in the out dir). A prompt that only says "see node goal" gets a `## Your task` section with the goal appended.
 
 ```bash
 orch node dispatch <run-id> impl "Implement the parser. Write your handoff into \$ORCH_NODE_OUT."
@@ -350,6 +354,19 @@ orch suggest list --pending                 # review before applying profile/met
 Add one memory row per profile actually used, honest about the outcome — this is what Step 1
 reads next time. Check `#/suggestions` for profile/model description and routing hints.
 
+## Requirements and the done gate
+
+A run cannot end on a false done. The ledger `<run>/requirements.json` holds every user ask, and `run verify` checks it.
+
+1. The moment a user message arrives, record each ask: `dispatch.ts req add <run> "<ask>" [--id R1] [--node n1,n2]`.
+2. Link nodes that serve it: `req link <run> <id> --node n`.
+3. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> handled|partly|not|superseded|waived [--reason T]`. `waived` needs a reason from the user.
+4. After each user message, run `req check <run>`. It exits non-zero while any requirement is not handled, superseded or waived.
+5. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure.
+6. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
+
+`run start` adds the last node `done-gate` (role validation, after every other node). The scheduler dispatches it last and it writes the verify result as its handoff.
+
 ## Keep the graph true
 
 The dashboard shows what the graph says, not what is happening. Keep it honest:
@@ -360,7 +377,7 @@ The dashboard shows what the graph says, not what is happening. Keep it honest:
 - Pass the real session id in `--owner ses_xxx`. If you cannot, `node bind-owners` (run by `run sync`) finds the session; a node it cannot bind shows `unbound` with the reason, and one with no owner for 2 min shows `unowned`.
 - Start every agent with `orch node brief <run> <node>` and paste the output into its prompt: it tells the agent to ping, report, and end with `done` (verified) or `error`. `node verify-owners` (also run by `run status`, `run sync` and the dashboard) closes a node whose owner finished or vanished; such a node is `done` but unreviewed. Hook adapters: `references/harness-adapters.md`.
 - orch announces running work to Herdr and the status line automatically. A background daemon (`orch announce --daemon`) keeps both fresh every 20 s: no `run sync` watch is needed for freshness (details in `references/status-bridge.md`).
-- After dispatching work, start `run wait <run>` as a background command. When it ends, report in one line and start it again. Reporting then does not depend on being asked. `run status <run>` is the one-liner for a progress update. Before any node status goes to the user, run `run status <run> --fresh`: its `fresh` line is read from `state.json` in that step, never from an earlier check. A node marked done with no non-empty `handoff.md` in its output dir prints `done without handoff` and is marked `unverified`.
+- After dispatching work, start `run wait <run>` as a background command. When it ends, report in one line and start it again. Reporting then does not depend on being asked. `run status <run>` is the one-liner for a progress update. Before any node status goes to the user, run `run status <run> --fresh`: its `fresh` line is read from `state.json` in that step, never from an earlier check. Every node records a one-line result right after its handoff (`node result <run> <node> --verdict full|partial|blocked --summary "..." --follow-up "..."`; inside a node the run and node come from its env). On a `run wait` transition, read the result on the line first (`[full] summary`, or `[partial] summary | follow_up: ...`; `node show <run> <node>` prints it in full). Open `handoff.md` only when the verdict is partial or blocked, the line has a follow_up, or the verdict is `unknown` (the node finished with no result, with a warning). `run verify` and the done-gate list partial or blocked nodes unless the follow_up is `none`; the dashboard shows the verdict chip. A node marked done with no non-empty `handoff.md` in its output dir prints `done without handoff` and is marked `unverified`.
 
 Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 
@@ -552,6 +569,30 @@ If a background **service** is installed (`scripts/service.ts status`), a down l
 `scripts/service.ts restart` instead of `orch ui` — `ui` and the service must not race for the
 port.
 
+## Feedback
+
+When the user gives feedback about orch, its chat or its code (or says "feedback", "orch should",
+"this is wrong in orch"), the coordinator records it:
+
+1. Pick `--kind`: `bug` (wrong behaviour), `idea` (new feature), `ux` (usability), `other`.
+2. Run `orch feedback add "<text>" --kind <kind> --source <chat|cli|ui>` (add `--chat <id>`,
+   `--run <id>`, `--node <id>` when known). Confirm the printed id (`fb-<yyyymmdd>-<n>`) to the user.
+3. Offer `orch feedback work`. It queues every `new` item into one run `feedback-batch-<stamp>`:
+   one node per item plus a `validate` node after all items. The command only adds nodes; it does
+   not dispatch them. The coordinator then runs `orch run advance <run> --until-done`.
+   `--ids fb-a,fb-b` queues only those items.
+4. Close each item with `orch feedback update <id> --status done|wontfix --result "<text>"`.
+
+Ways in:
+
+- Skill CLI: `orch feedback add|list|show|update|work` (above).
+- Chat: `/feedback <text>` in an orch chat (registered in `src/shared/slash-commands.ts`). The
+  coordinator records it with `--source chat --chat <id>`.
+- Dashboard: no feedback page exists yet. The server exposes the same store at `/api/feedback`
+  (`GET`, `POST`, `PATCH /{id}`, `POST /work`); a page on top of it is not built.
+
+Storage, fields and statuses: [state-and-config.md](references/state-and-config.md) (section `feedback/<id>.json`).
+
 ## Dashboard
 
 `orch ui` brings up a Bun server on `0.0.0.0:6724` and opens it. One server serves every session
@@ -573,6 +614,18 @@ prints a plain `http://127.0.0.1:<port>/` and the page never asks for anything. 
 any other address still needs the bearer token, which is what the hostname URL carries and what
 `~/.harness-orch/serve.token` holds (minted 0600 on first start). Trash that file and restart to
 rotate it. `ORCH_REQUIRE_TOKEN=1` demands the token from loopback too.
+
+**API docs.** `GET /api/openapi.json` is the OpenAPI 3.0 document, generated from the controllers'
+zod schemas (tags, params, bodies, responses, `bearerAuth` scheme, shared DTOs in
+`components.schemas`). `GET /api/docs` renders it as a dependency-free page that loads nothing from
+the internet. Both sit behind the same Host and token check as every `/api` route, so a browser
+needs a loopback peer; from elsewhere use `curl -H "Authorization: Bearer $(cat ~/.harness-orch/serve.token)"`.
+A committed copy is `docs/openapi.json` in the repo: refresh it with `bun run openapi`
+(`bun scripts/gen-openapi.ts`); `src/server/api/openapi.test.ts` fails when it drifts.
+
+### Context size per node
+
+An opencode node's `session_stats` also holds `peak_context` (largest single step: input + cache read + cache write, in tokens), `steps` (assistant messages) and `avg_context`. They come from the per-message tokens in the opencode database, refresh while the node runs and stay after it ends; `node verify-owners <run>` backfills old nodes whose session is still in the database. Nodes on other harnesses, or whose session is gone, have none. When several nodes share one session, they all show the session's peak. `orch stats context [--json] [--run <id>]` prints per model: nodes, median/p90/max peak, counts over 100k/150k/200k, and the cost share of nodes over 200k. The node card shows a `ctx 120k` chip, in the warning colour over 200k. This only measures: orch sets no cap and does no compaction.
 
 ## Publishing a run as an artifact
 
@@ -670,6 +723,29 @@ removes ended loops and watches past the retention window.
 
 Without a background shell or a Monitor tool (opencode, pi), the same commands work as written.
 Call `watch wait` once per turn instead of a Monitor.
+
+## Ghost loops and runners
+
+A runner is an orch process: `loop __run`, `watch __run`, `job-run`, or `serve`. A ghost is a runner whose home
+(`HARNESS_ORCH_HOME`) or record (`loops/<id>/state.json`, `watches/<id>/state.json`, or the job dir) no longer says
+it should run. Ghosts keep ticking and cost CPU and disk scans (Microsoft Defender scanned about 200k files per runner).
+
+- `orch ghosts [--json] [--kill]` lists runners with a verdict and reason: `home-missing`, `record-missing`,
+  `record-not-running`, `pid-mismatch`, `run-finished`, `temp-test-home` (home under the temp dir matching
+  `orch-t-`, `wdpill-` or `orch-test`, older than 30 min). A runner that records `running` with its own pid and a
+  state file touched within 5 min is never a ghost. `--kill` sends SIGTERM, waits 5 s, then SIGKILL, for ghosts only.
+- Each runner checks its own record every tick: home, record, status `running`, pid. Three misses (retries after 1 s,
+  4 s, 16 s) make it log `ghost: <reason>` and exit 0. A missing record means stop: the runner never rescans for it.
+  A temp home is capped at 15 min of runtime; every runner stops at its `--max-runtime`.
+- `orch sync` and the dashboard watchdog report `N ghost runners`. Killing is opt-in: `settings.auto_kill_ghosts`
+  defaults to `false` (also in the template `profiles.json`). When `true`, sync kills only `home-missing`,
+  `record-missing` and `temp-test-home`. Anything uncertain is never killed: a process of another uid is skipped,
+  a runner whose `HARNESS_ORCH_HOME` cannot be read or parsed is unknown, a job whose dir cannot be resolved is not
+  judged. Every kill (auto and `--kill`) re-judges first: the same reason must hold after 2 s (temp home) or after
+  2 s and 6 s (any other home, three looks in all). A changed reason or a live record cancels it. A job with
+  `exit_code` whose process still runs is killed only by an explicit `orch ghosts --kill`. Job liveness comes from
+  the job dir `pid` file.
+  `orch active` marks ghosts `[ghost]`.
 
 ## Schedules
 
