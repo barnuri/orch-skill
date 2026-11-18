@@ -15,6 +15,11 @@ export interface RunSummary {
   tokens?: number | null;
   /** Running nodes with no activity for `settings.stale_minutes`. Omitted when none. */
   stale?: number;
+  /** Set on a covered run: the run that took over its unfinished work, with the carried node ids. */
+  covered_by?: string;
+  covered_note?: string;
+  covered_nodes?: string[];
+  covered_map?: Record<string, string>;
   /** ISO time of the newest node activity. Omitted when no node has a time. */
   updated?: string;
 }

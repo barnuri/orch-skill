@@ -50,5 +50,5 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(
 }
 
 export function chip(status: string): HTMLSpanElement {
-  return el("span", { class: `chip ${status}`, text: status });
+  return el("span", { class: `chip ${status}`, text: status === "covered" ? "Covered" : status });
 }

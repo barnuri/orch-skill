@@ -93,7 +93,7 @@ function renderRunRow(run: RunSummary): HTMLElement {
       el("div", { class: "id mono", text: run.run_id }),
       runTotalsLine(run, total),
     ]),
-    chip(run.status),
+    el("div", { class: "run-status-cell" }, [chip(run.status), ...(run.covered_by ? [el("span", { class: "covered-link", text: `→ run ${run.covered_by}` })] : [])]),
     statusBar(run.counts, total),
     countsText(run.counts, total),
     el("div", { class: "when muted", title: run.finished ?? run.started }, whenChildren),
@@ -132,7 +132,7 @@ function filterBar(state: AppState): HTMLElement {
       segmented(
         "Status",
         filters.status,
-        [{ value: ALL_STATUSES, label: "All" }, ...RUN_STATUSES.map((status) => ({ value: status, label: status }))],
+        [{ value: ALL_STATUSES, label: "All" }, ...RUN_STATUSES.map((status) => ({ value: status, label: status === "covered" ? "Covered" : status }))],
         (next) => apply({ ...filters, status: next as typeof filters.status }),
       ),
     ),

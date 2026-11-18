@@ -1,5 +1,6 @@
 import { ZodDto, ZodField, ZodObject } from "@barnuri/zod-decorators";
 import { z } from "zod";
+import { RUN_STATUSES } from "../types/run-status";
 
 @ZodObject({ description: "Which run." })
 export class RunIdParamsDto extends ZodDto {
@@ -33,7 +34,7 @@ export class RunsEnvelopeDto extends ZodDto {
   @ZodField(z.string(), { description: "When this list was built, ISO 8601 UTC." })
   generated_at!: string;
 
-  @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Run summaries: id, title, status, node counts, times." })
+  @ZodField(z.array(z.record(z.string(), z.unknown())), { description: `Run summaries: id, title, status (${RUN_STATUSES.join(", ")}), node counts, times. A covered run (its unfinished work was copied into another run) also has covered_by (run id), covered_note, covered_nodes (carried node ids) and covered_map (oldNode to newNode).` })
   runs!: Record<string, unknown>[];
 }
 
@@ -42,7 +43,7 @@ export class RunEnvelopeDto extends ZodDto {
   @ZodField(z.string(), { description: "When this was built, ISO 8601 UTC." })
   generated_at!: string;
 
-  @ZodField(z.record(z.string(), z.unknown()), { description: "The run's state.json, see references/state-and-config.md." })
+  @ZodField(z.record(z.string(), z.unknown()), { description: `The run's state.json, see references/state-and-config.md. status is one of ${RUN_STATUSES.join(", ")}; covered adds covered_by, covered_at, covered_note, covered_nodes, covered_map.` })
   run!: Record<string, unknown>;
 }
 

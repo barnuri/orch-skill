@@ -203,7 +203,7 @@ describe("readRun", () => {
     const read = readRun(paths, state.run_id);
     expect(read.kind).toBe("ok");
     if (read.kind === "ok") {
-      const stripped = { ...read.run, nodes: read.run.nodes.map(({ timing: _timing, ...rest }) => rest) };
+      const stripped = { ...read.run, nodes: read.run.nodes.map(({ timing: _timing, handoff_present: _hp, ...rest }) => rest) };
       expect(stripped).toEqual(state);
       expect(read.run.nodes[0]?.timing?.phase).toBe("ended");
     }

@@ -92,6 +92,24 @@ describe("node panel placeholders", () => {
     expect(screen.queryByText("role · tier")).toBeNull();
   });
 
+  test("the panel shows the owner id short and whether a done node left a handoff", () => {
+    const owner = "ses_abcdef1234567890";
+    const { unmount } = render(<NodePanel run={runOf([node({ status: "done", owner_id: owner, handoff_present: false })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect((screen.getByText("owner id").nextElementSibling as HTMLElement).textContent).toBe("ses_abcdef12...");
+    const missing = screen.getByText("handoff").nextElementSibling as HTMLElement;
+    expect(missing.textContent).toBe("done without handoff");
+    expect(missing.className).toContain("missing");
+    unmount();
+    render(<NodePanel run={runOf([node({ status: "done", handoff_present: true })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect((screen.getByText("handoff").nextElementSibling as HTMLElement).textContent).toBe("handoff present");
+    expect((screen.getByText("owner id").nextElementSibling as HTMLElement).textContent).toBe("—");
+  });
+
+  test("a run without the handoff field hides the handoff row", () => {
+    render(<NodePanel run={runOf([node({ status: "done" })])} selectedId="n1" maxAttempts={5} flash={0} />);
+    expect(screen.queryByText("handoff")).toBeNull();
+  });
+
   test("a waiting node's panel says why it waits, in the card's priority", () => {
     const why = (): { text: string; title: string | null } => {
       const dd = screen.getByText("why").nextElementSibling as HTMLElement;

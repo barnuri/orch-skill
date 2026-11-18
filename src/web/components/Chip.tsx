@@ -10,7 +10,7 @@ interface ChipProps {
 export function Chip({ status, children, title }: ChipProps) {
   return (
     <span className={`chip ${status}`} title={title}>
-      {children ?? status}
+      {children ?? (status === "covered" ? "Covered" : status)}
     </span>
   );
 }

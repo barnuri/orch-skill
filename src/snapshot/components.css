@@ -66,6 +66,7 @@ dialog .btn.danger[disabled]:hover { background: transparent; border-color: var(
 .chip.error, .chip.failure, .chip.failed { --c: var(--status-error); --bg-c: var(--status-error-bg); --bd-c: var(--status-error-bd); }
 .chip.partial, .chip.lost, .chip.stale, .chip.unowned { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
 .chip.waiting { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+.chip.covered { --c: var(--status-covered); --bg-c: var(--status-covered-bg); --bd-c: var(--status-covered-bd); }
 .chip.cancelled, .chip.skipped { --c: var(--status-skipped); --bg-c: var(--status-skipped-bg); --bd-c: var(--status-skipped-bd); }
 
 /* Kind tag: short uppercase name pill with a stable hue. */
@@ -259,3 +260,6 @@ dialog.confirm .actions { display: flex; gap: var(--s2); justify-content: flex-e
 @keyframes spin { to { transform: rotate(360deg); } }
 .icon-btn.is-spinning svg { animation: spin .8s linear infinite; }
 .icon-btn[disabled] { cursor: progress; }
+
+.run-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
+.covered-link { color: var(--status-covered); font-size: var(--fs-meta); }

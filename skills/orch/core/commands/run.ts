@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { loadRun } from "../state/store.ts";
 import { paths, orchHome } from "../state/home.ts";
 import { activityRows, staleMinutes, staleNodes, isoToEpoch } from "../state/timing.ts";
+import { resultText } from "../runs/node.ts";
 import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
 
 // CLI handler: writes stdout/stderr and returns the exit code.
@@ -104,10 +105,14 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     run_id: alt(run.run_id, null),
     title: alt(run.title, null),
     status: alt(run.status, null),
+    force_finish_reason: alt((run as any).force_finish_reason, null),
+    covered_by: alt((run as any).covered_by, null),
+    covered_nodes: alt((run as any).covered_nodes, null),
     done: (run.nodes ?? []).filter((n: any) => n.status === "done").length,
     total: (run.nodes ?? []).length,
     running,
     ready: (run.nodes ?? []).filter((n: any) => n.status === "waiting" && nodeReady(run, n)).map((n: any) => n.id),
+    results: (run.nodes ?? []).filter((n: any) => n.result).map((n: any) => ({ id: n.id, verdict: n.result.verdict, summary: n.result.summary ?? "", follow_up: n.result.follow_up ?? "" })),
     errors: (run.nodes ?? []).filter((n: any) => n.status === "error").map((n: any) => ({ id: n.id, error: alt(n.error, null) })),
     link: `http://127.0.0.1:${await servePort(home)}/#/run/${runId}`,
     owner_events: ownerReportLines(await ownersVerifyRun(home, runId, false)),
@@ -123,6 +128,8 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
   const lines: string[] = [];
   if (fresh) lines.push(freshLine);
   lines.push(`${String(summary.title)} [${String(summary.status)}] ${summary.done}/${summary.total} done`);
+  if (summary.covered_by !== null) lines.push(`covered by ${String(summary.covered_by)}: ${(summary.covered_nodes ?? []).length} node(s) carried${(run as any).covered_note ? ` (${String((run as any).covered_note)})` : ""}`);
+  if (summary.force_finish_reason !== null) lines.push(`forced finish: ${String(summary.force_finish_reason)}`);
   for (const r of running) {
     let line = `running ${r.id}: ${ageStr(r.age_s)} in, last activity ${ageStr(r.last_activity_s)} ago`;
     if (r.progress !== null) line += `, ${r.progress}`;
@@ -131,6 +138,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     if (r.owner === null) line += " [UNOWNED: nothing is recorded as doing the work]";
     lines.push(line);
   }
+  for (const n of (run.nodes ?? []).filter((x: any) => x.result)) lines.push(`result ${n.id}: ${resultText(n, 200)}`);
   if (summary.ready.length > 0) lines.push("ready: " + summary.ready.join(","));
   for (const e of summary.errors) lines.push(`error ${e.id}: ${String(alt(e.error, "unknown"))}`);
   lines.push(...summary.owner_events, summary.link);

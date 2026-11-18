@@ -65,7 +65,37 @@ function RunTotals({ run, total }: { run: RunSummary; total: number }) {
   );
 }
 
-export function RunRow({ run, health = null }: { run: RunSummary; health?: RunHealth | null }) {
+/** The chip target of a covered run: a span, because the row itself is already a link. */
+function CoveredLink({ run, titles }: { run: RunSummary; titles?: ReadonlyMap<string, string> }) {
+  if (run.covered_by === undefined) {
+    return null;
+  }
+  const target = run.covered_by;
+  return (
+    <span
+      className="covered-link"
+      role="link"
+      tabIndex={0}
+      data-href={`#/run/${encodeURIComponent(target)}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.hash = `#/run/${encodeURIComponent(target)}`;
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          window.location.hash = `#/run/${encodeURIComponent(target)}`;
+        }
+      }}
+    >
+      {`→ run ${titles?.get(target) ?? target}`}
+    </span>
+  );
+}
+
+export function RunRow({ run, health = null, titles }: { run: RunSummary; health?: RunHealth | null; titles?: ReadonlyMap<string, string> }) {
   const total = totalOf(run.counts);
   const extra = run as RunSummary & { stale?: unknown; updated?: unknown };
   const staleCount = typeof extra.stale === "number" ? extra.stale : 0;
@@ -79,7 +109,10 @@ export function RunRow({ run, health = null }: { run: RunSummary; health?: RunHe
         <RunTotals run={run} total={total} />
         <RunHealthSummary health={health} />
       </div>
-      <Chip status={run.status} />
+      <div className="run-status-cell">
+        <Chip status={run.status} />
+        <CoveredLink run={run} titles={titles} />
+      </div>
       <StatusBar counts={run.counts} total={total} />
       <div className="counts">
         <b>{`${run.counts.done}/${total}`}</b>
@@ -157,7 +190,7 @@ export function FilterBar({ filters, onChange }: { filters: RunFilters; onChange
         <Segmented
           label="Status"
           value={filters.status}
-          options={[{ value: ALL_STATUSES, label: "All" }, ...RUN_STATUSES.map((status) => ({ value: status, label: status }))]}
+          options={[{ value: ALL_STATUSES, label: "All" }, ...RUN_STATUSES.map((status) => ({ value: status, label: status === "covered" ? "Covered" : status }))]}
           onChange={(next) => {
             onChange({ ...filters, status: next as RunFilters["status"] });
           }}
@@ -197,6 +230,7 @@ export function RunsPage() {
   const all = sortedRuns(loaded ?? []);
   const runs = all.filter((run) => matchesRunFilters(run, filters, Date.now()));
   const hidden = all.length - runs.length;
+  const titles = new Map(all.map((run) => [run.run_id, run.title || run.run_id] as const));
   const healthByRun = useRunsHealth(all.filter((run) => run.status === "running").map((run) => run.run_id));
   const head = <PageHead title="Runs" subtitle={all.length > 0 ? subtitle(runs, hidden) : "Nothing has been dispatched yet."} />;
   if (loaded === null) {
@@ -245,7 +279,7 @@ export function RunsPage() {
           ) : (
             <div className="runs" role="list">
               {runs.map((run) => (
-                <RunRow key={run.run_id} run={run} health={healthByRun.get(run.run_id) ?? null} />
+                <RunRow key={run.run_id} run={run} health={healthByRun.get(run.run_id) ?? null} titles={titles} />
               ))}
             </div>
           )}

@@ -37,6 +37,8 @@
   --status-stale: light-dark(#7f5000, #f5b545);
   /* starting: dispatched, no real activity yet. Teal, apart from running blue and stale amber. */
   --status-starting: light-dark(#0b6470, #4fd1de);
+  /* covered: work carried into another run. Purple info tone, never red or green. */
+  --status-covered: var(--pu);
   --pu: light-dark(#7b3fb0, #c792ea);
 
   --mark-claude: light-dark(#a85434, #d97757);
@@ -111,6 +113,8 @@
   --status-waiting-bd: color-mix(in srgb, var(--status-waiting) var(--ring), transparent);
   --status-skipped-bg: color-mix(in srgb, var(--status-skipped) var(--tint), transparent);
   --status-skipped-bd: color-mix(in srgb, var(--status-skipped) var(--ring), transparent);
+  --status-covered-bg: color-mix(in srgb, var(--status-covered) var(--tint), transparent);
+  --status-covered-bd: color-mix(in srgb, var(--status-covered) var(--ring), transparent);
   --status-stale-bg: color-mix(in srgb, var(--status-stale) var(--tint), transparent);
   --status-stale-bd: color-mix(in srgb, var(--status-stale) var(--ring), transparent);
   --status-starting-bg: color-mix(in srgb, var(--status-starting) var(--tint), transparent);
