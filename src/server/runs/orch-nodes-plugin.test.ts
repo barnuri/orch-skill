@@ -207,7 +207,7 @@ describe("orch-nodes opencode plugin", () => {
       usage.count("ses_a", "skill", { name: "cr" });
       usage.flush("ses_a");
       const state = JSON.parse(home.read(`runs/${run}/state.json`));
-      expect(state.nodes[0].usage).toMatchObject({ tool: { bash: 1, skill: 1 }, skill: { cr: 1 } });
+      expect(state.nodes.find((n: { id: string }) => n.id !== "done-gate").usage).toMatchObject({ tool: { bash: 1, skill: 1 }, skill: { cr: 1 } });
     } finally {
       home.dispose();
     }

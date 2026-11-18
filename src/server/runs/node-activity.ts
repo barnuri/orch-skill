@@ -51,18 +51,35 @@ function isoMs(value: unknown): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
+function outDirOf(paths: OrchPaths, run: RunState, node: RunState["nodes"][number]): string {
+  const outDir = (node as { out_dir?: unknown }).out_dir;
+  return typeof outDir === "string" && outDir !== "" ? outDir : join(paths.runs, run.run_id, "out", node.id);
+}
+
+/** True when the node's out dir holds a non-empty handoff.md. */
+function handoffPresent(dir: string): boolean {
+  try {
+    return statSync(join(dir, "handoff.md")).size > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Newest of: node `updated`, `started`, its out dir files, its job log. Sets `last_activity` and
- * `stale` on every running node, in place. Other nodes are left untouched.
+ * `stale` on every running node, in place. Sets `handoff_present` on every node. Other fields are left untouched.
  */
 export function annotateActivity(paths: OrchPaths, run: RunState, nowMs: number = Date.now()): void {
   const limit = staleMinutes(paths) * MS_PER_MINUTE;
   for (const node of run.nodes) {
-    if (node?.status !== "running") {
+    if (node === undefined || node === null) {
       continue;
     }
-    const outDir = (node as { out_dir?: unknown }).out_dir;
-    const dir = typeof outDir === "string" && outDir !== "" ? outDir : join(paths.runs, run.run_id, "out", node.id);
+    const dir = outDirOf(paths, run, node);
+    node.handoff_present = handoffPresent(dir);
+    if (node.status !== "running") {
+      continue;
+    }
     const candidates = [
       isoMs(node.updated),
       isoMs(node.started),

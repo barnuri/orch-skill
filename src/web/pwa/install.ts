@@ -57,8 +57,13 @@ export function useInstall(): InstallState {
       const e = deferred;
       if (e === null) return;
       await e.prompt();
-      await e.userChoice;
+      const choice = await e.userChoice;
       deferred = null;
+      // Cancel in the browser's own install dialog counts as "no": do not offer it again.
+      if (choice.outcome === "dismissed") {
+        remember(dismissKey(app), "1");
+        setDismissed(true);
+      }
       notify();
     },
     dismiss: () => {

@@ -100,3 +100,21 @@ test("a pass never overlaps itself", async () => {
   await Promise.all([tick(), tick(), tick()]);
   expect(calls).toBe(1);
 });
+
+test("a node reports a handoff only when its out dir holds a non-empty handoff.md", () => {
+  const outDir = join(paths.runs, "r1", "out", "h");
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, "handoff.md"), "# done\n");
+  const emptyDir = join(paths.runs, "r1", "out", "e");
+  mkdirSync(emptyDir, { recursive: true });
+  writeFileSync(join(emptyDir, "handoff.md"), "");
+  const r = run({ id: "h", status: "done", started: old, updated: old, job_id: null });
+  const r2 = run({ id: "e", status: "done", started: old, updated: old, job_id: null });
+  const r3 = run({ id: "x", status: "done", started: old, updated: old, job_id: null });
+  annotateActivity(paths, r);
+  annotateActivity(paths, r2);
+  annotateActivity(paths, r3);
+  expect(r.nodes[0]?.handoff_present).toBe(true);
+  expect(r2.nodes[0]?.handoff_present).toBe(false);
+  expect(r3.nodes[0]?.handoff_present).toBe(false);
+});

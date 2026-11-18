@@ -98,4 +98,18 @@ describe("install prompt", () => {
     expect(localStorage.getItem(dismissKey("dashboard"))).toBe("1");
     expect(screen.queryByText(/as an app/)).toBeNull();
   });
+
+  test("cancelling the browser's own install dialog is remembered and the bar stays gone", async () => {
+    localStorage.removeItem(dismissKey("dashboard"));
+    render(wrap(<PwaChrome />));
+    const ev = new Event("beforeinstallprompt", { cancelable: true }) as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+    ev.prompt = async () => {};
+    ev.userChoice = Promise.resolve({ outcome: "dismissed" });
+    window.dispatchEvent(ev);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(localStorage.getItem(dismissKey("dashboard"))).toBe("1"));
+    window.dispatchEvent(Object.assign(new Event("beforeinstallprompt", { cancelable: true }), { prompt: async () => {}, userChoice: Promise.resolve({ outcome: "dismissed" }) }));
+    expect(screen.queryByText(/as an app/)).toBeNull();
+  });
 });
