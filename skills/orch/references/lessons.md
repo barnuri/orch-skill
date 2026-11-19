@@ -43,7 +43,7 @@ Each item: what happened, the cost, the rule now.
 ## 2026-11-18 review
 
 - Runs: 20261117-160316-0d9c (done, 24 nodes, 27 min dep-to-start lag); 20261117-190137-8cad (running, 30 nodes, 163 min lag, `openapi-review` ready 22:14Z and still waiting at 05:01Z).
-- New: 28 a ready node with no `auto_dispatch` waited 6 h 47 min unflagged; 29 an errored node waited 43 min for its retry; 30 two sibling nodes asked the same question (m6, m7).
+- New: 28 **REPEATED** (priority high, seen again 2026-11-18 07:26-10:33Z) a ready node with no `auto_dispatch` waited 6 h 47 min unflagged; 29 **REPEATED** (priority high, seen again 2026-11-18 06:19-08:12Z) an errored node waited 43 min for its retry; 30 two sibling nodes asked the same question (m6, m7).
 - **REPEATED** (priority high): 15 duplicate starts: 2 nodes ran 3 times, 4 nodes ran twice.
 - Guard tests: visibility, liveness, health, core-gaps 08-11 pass 18 of 18. owner-bind (13) fails 1 of 4. No guard test: 9, 17, 23, 28-30.
 - Guard tasks: agent-spec/learning/2026-11-18-ready-node-idle.md, agent-spec/learning/2026-11-18-owner-bind-guard-fails.md. No code changed, no commit.
@@ -55,3 +55,11 @@ Each item: what happened, the cost, the rule now.
 33. **llm-hub restarted at 08:28 with no recorded cause.** Rule: every service restart writes who and why to the run log.
 34. **The installer and a restart collided.** Rule: installer and restart take one shared lock.
 35. **Parallel edits on one file broke the shared tree again** (precommit-smoke typecheck failed on `run-filters.ts:39` from other nodes' uncommitted work; extends 17). Rule: one writer per file per run; the second node waits or asks.
+
+## 2026-11-19 review
+
+- Runs: 20261117-190137-8cad 05:01-09:08Z (27 nodes, 26 jobs, covered, forced with 34 partials); 20261118-090759-3e65 (done, 85 min, 14 nodes, 16 jobs, forced with 9 partials). Ready-to-start lag 186 min (gap2-retro 95, done-gate 42 never ran, gap-browser-plan 40, folders-orch 10); error idle 116 min (openapi-review 113). No concurrent duplicate jobs, no repeated asks, no missing handoff.
+- New: 36 a bulk close of ~35 stale herdr-app tabs killed 3 jobs (exit 129, 4 min lost, 11 min diagnosis node), guard landed (`herdr.test.ts` "run tab already in the app"); 37 `run finish --force` skipped a never-run done-gate (42 min); 38 results recorded 38-61 min after done, plus a `backfill-results` node; 39 node CSS edits broke theme tests `--changed` never ran (`regress-fix2`, 28 min); 40 `tests/run.ts` tallies 0/0 on coloured bun output.
+- **REPEATED** (priority high): 28 ready node idle (186 min, guard still not built), 29 error idle (113 min). The lesson-13 guard `owner-bind.test.ts` fails 1 of 4 again (2nd review).
+- Guard tests: 13 files, 66 of 67 pass (owner-bind fails). No guard test: 9, 10, 11, 17, 23, 28-30, 37-40.
+- Guard tasks: agent-spec/learning/2026-11-19-force-finish-skips-gate.md, agent-spec/learning/2026-11-19-late-result-and-css-regress.md; 2026-11-18-ready-node-idle.md raised to priority high. No code changed, no commit.

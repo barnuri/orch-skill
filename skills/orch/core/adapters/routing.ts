@@ -69,6 +69,20 @@ export function modelIdAllowed(cat: Catalog, profile: string, modelId: string): 
   return !!spec && modelAllowed(modelId, spec.slug, allowed);
 }
 
+// node_model_override: the model id a node's explicit --model forces on its profile, or "" when the
+// profile model applies. A Smart Auto selector stays with the hub (""). A concrete model must be on the
+// profile's harness and in allowed_models; otherwise the error text says why.
+export function nodeModelOverride(cat: Catalog, profile: string, ref: string): { modelId: string; error: string } {
+  if (ref === "" || /(^|\/)smart-auto(-|$)/.test(ref)) return { modelId: "", error: "" };
+  const prof = cat.profiles?.[profile];
+  if (!prof) return { modelId: "", error: "" };
+  const byId = cat.models?.[ref];
+  const hit = byId && hasHarness(byId, prof.harness) ? ref : Object.entries(cat.models ?? {}).find(([, m]) => m.slug === ref && hasHarness(m, prof.harness))?.[0];
+  if (!hit) return { modelId: "", error: `model ${ref} is not served by profile ${profile} (harness ${prof.harness}); use a profile on a harness that serves it, or change --model` };
+  if (!modelIdAllowed(cat, profile, hit)) return { modelId: "", error: `model ${hit} is not in allowed_models of profile ${profile}` };
+  return { modelId: hit, error: "" };
+}
+
 // @tsv escaping: backslash, tab, newline and carriage return.
 const tsv = (v: unknown) => String(v ?? "").replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 

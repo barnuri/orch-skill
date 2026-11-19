@@ -5,6 +5,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnNode } from "../adapters/spawn.ts";
 import { hubNodeExpect } from "../adapters/hub.ts";
+import { nodeModelOverride } from "../adapters/routing.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun, type RunState } from "../state/store.ts";
 import { nowIso } from "../state/clock.ts";
@@ -193,6 +194,12 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
     ORCH_NODE_TIER: tier,
     ORCH_NODE_ACCEPTANCE: String(node.acceptance ?? ""),
   };
+  if (isProfile) {
+    // An explicit node model overrides the profile model. ORCH_MODEL_ID is the per-job seam loadProfile reads.
+    const ov = nodeModelOverride((await loadProfilesDoc(home)) as any, targetName, String(node.model ?? ""));
+    if (ov.error) throw new OpError(`node dispatch: ${nodeId}: ${ov.error}`);
+    if (ov.modelId) env.ORCH_MODEL_ID = ov.modelId;
+  }
   await hubNodeExpect(runId, nodeId, tier, String(node.role ?? ""), `${runId}/${nodeId}/${attempt}`).catch(() => 0);
   let jobId: string;
   try {
