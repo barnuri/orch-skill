@@ -23,7 +23,7 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   const t = setup();
   const { d } = t;
   d("init");
-  const job = d.env({ ORCH_HERDR_CLOSE_AFTER: "6", ORCH_TEST_MARKER: "m1" }, "start", "claude", "pane probe").out.trim();
+  const job = d.env({ ORCH_HERDR_CLOSE_AFTER: "2", ORCH_TEST_MARKER: "m1" }, "start", "claude", "pane probe").out.trim();
   t.waitJob(job);
   const jd = join(t.home, "jobs", job);
   expect(d("status", job).out.trim()).toBe("done exit=0");
