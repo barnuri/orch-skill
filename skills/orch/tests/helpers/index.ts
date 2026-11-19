@@ -26,7 +26,7 @@ export function trashSync(p: string): void {
   if (!existsSync(p)) return;
   // Stop the runners of this home before it is moved, or they keep ticking with no record. A home without
   // runner dirs has none; skipping the process scan there keeps each trash call fast (ps takes about 0.4 s).
-  if (["loops", "watches", "jobs", "health", "serve", "serve.json"].some((d) => existsSync(join(p, d)))) reapUnder(p);
+  if (["loops", "watches", "jobs", "health", "serve", "serve.json", "schedules"].some((d) => existsSync(join(p, d)))) reapUnder(p);
   try {
     mkdirSync(TRASH_ROOT, { recursive: true });
     renameSync(p, join(TRASH_ROOT, `${++trashN}-${basename(p)}`));

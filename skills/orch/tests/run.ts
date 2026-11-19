@@ -116,11 +116,14 @@ if (budget > 0) console.error(`budget: ${budget}s (+${GRACE}s grace), progress: 
 interface Res { id: string; rc: number; secs: number; why: "ok" | "timeout" | "budget"; out: string; pass: number; fail: number; trace: string }
 const results: Res[] = [];
 const skipped: string[] = [];
+let leaks = 0;
 
 async function runOne(f: string): Promise<void> {
   const id = idOf(f), start = Date.now();
+  // One tag per file: a runner that outlives its file is a leak of that file, reported and reaped under its id.
+  const fileTag = `${RUN_TAG}-${id.replace("/", "-")}`;
   const traceFile = traceOn ? join(tmp, `orch-trace-${process.pid}-${id.replace("/", "-")}.tsv`) : "";
-  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate, ORCH_TEST_RUN_TAG: RUN_TAG, ...(traceOn ? { ORCH_TEST_TRACE: traceFile } : {}) }, stdout: "pipe", stderr: "pipe", detached: true } as any);
+  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate, ORCH_TEST_RUN_TAG: fileTag, ...(traceOn ? { ORCH_TEST_TRACE: traceFile } : {}) }, stdout: "pipe", stderr: "pipe", detached: true } as any);
   let why: Res["why"] = "ok";
   const killer = setInterval(() => {
     const now = Date.now();
@@ -131,6 +134,14 @@ async function runOne(f: string): Promise<void> {
   const rc = await proc.exited;
   clearInterval(killer);
   try { process.kill(-proc.pid, "SIGTERM"); } catch {}
+  let left = leakedTestRunners(fileTag);
+  // A runner that was told to stop needs a moment to exit; report only what is still alive after 3 s.
+  for (let i = 0; i < 30 && left.length; i++) { Bun.sleepSync(100); left = leakedTestRunners(fileTag); }
+  if (left.length) {
+    for (const h of new Set(left.map((p) => p.home))) reapTagged(h, fileTag);
+    leaks++;
+    console.log(`=== ${id} LEAK: ${left.length} runner(s) alive after the file (reaped):\n` + left.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
+  }
   const out = o + e;
   const pass = Number(out.match(/^\s*(\d+) pass/m)?.[1] ?? 0), fail = Number(out.match(/^\s*(\d+) fail/m)?.[1] ?? 0);
   if (why === "budget") { skipped.push(id); return; }
@@ -175,13 +186,6 @@ if (results.length) {
 }
 console.log(`\n${totalPass} passed, ${totalFail} failed (${mode} tier, ${results.length} files, ${Math.round((Date.now() - t0) / 1000)}s wall)`);
 for (const id of skipped) status[id] = "not_run";
-// Leak guard: a runner (loop, watch, job-run, serve) still alive in a test home after the suite is a leak.
-const leaked = leakedTestRunners(RUN_TAG);
-if (leaked.length) {
-  for (const h of new Set(leaked.map((p) => p.home))) reapTagged(h, RUN_TAG);
-  bad = true;
-  console.log(`LEAK: ${leaked.length} test runner(s) alive after the suite (reaped):\n` + leaked.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
-}
 if (skipped.length) {
   writeFileSync(PROGRESS + ".tmp", JSON.stringify({ mode, files: status }, null, 1));
   renameSync(PROGRESS + ".tmp", PROGRESS);
@@ -191,4 +195,4 @@ if (skipped.length) {
   process.exit(75);
 }
 if ((budget > 0 || resume) && existsSync(PROGRESS)) Bun.spawnSync(["trash", PROGRESS]);
-process.exit(bad || totalFail > 0 ? 1 : 0);
+process.exit(bad || leaks > 0 || totalFail > 0 ? 1 : 0);

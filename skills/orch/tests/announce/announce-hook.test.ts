@@ -1,12 +1,17 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync, statSync, readdirSync, readFileSync } from "node:fs";
 import { orch, seedHome, tempDir, fakeBin, readJson, readText, runCmd, DISPATCH, ORCH_DIR, cleanEnv, waitUntil, pidAlive, autoCleanup } from "../helpers";
+import { reapUnder } from "../lib/reap.ts";
 autoCleanup();
 
 // The announcer is driven through its dispatch subcommand (`dispatch.sh announce`) with a fake herdr.
+// The tests drop ORCH_NO_ANNOUNCE, so an announcer daemon can start in each home: reap them all at the end.
+const announceHomes: string[] = [];
+afterAll(() => { for (const h of announceHomes) reapUnder(h); });
 const mk = (herdrTail = "exit 0", agent = "opencode") => {
   const T = tempDir(), H = join(T, "home"), O = join(T, "orch");
+  announceHomes.push(O);
   mkdirSync(H, { recursive: true }); mkdirSync(O, { recursive: true });
   const calls = join(T, "calls"); writeFileSync(calls, "");
   const fake = fakeBin({ herdr: `printf "%s\\n" "$*" >> "${calls}"\nif [ "$1 $2" = "pane current" ]; then echo '{"result":{"pane":{"agent":"${agent}"}}}'; fi\n${herdrTail}` });

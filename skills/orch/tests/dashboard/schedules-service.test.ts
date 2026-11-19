@@ -52,7 +52,7 @@ test("schedules", async () => {
   expect(sch("tick").all).toContain(`fired: ${cmdId}`);
   expect(readJson(dueFile).next_at).toBeGreaterThan(Date.now() / 1000);
   expect(sch("tick").all).not.toMatch(/fired:/);
-  const slow = sch("add", "--name", "slow", "--cron", "* * * * *", "--command", "sleep 60", "--timeout", "5m").out.trim();
+  const slow = sch("add", "--name", "slow", "--cron", "* * * * *", "--command", "sleep 60", "--timeout", "5s").out.trim();
   sch("run", slow);
   editJson(join(home, "schedules", slow, "schedule.json"), (s) => { s.next_at = 1; });
   expect(sch("tick").all).toMatch(new RegExp(`skipped \\(still running\\): ${slow}`));
