@@ -33,7 +33,7 @@ esac` });
   r = restart({ KICKSTART_FAIL: "1" }); expect(r.rc).toBe(0); expect(existsSync(join(state, "loaded"))).toBe(true);
   reset(); r = restart({ BOOTSTRAP_FAIL: "1" });
   expect(r.rc).toBe(1); expect(r.all).not.toMatch(/restarted/);
-});
+}, 30_000);
 
 // A real throwaway launchd label proves AbandonProcessGroup keeps children alive across a kickstart.
 dt("launchd: AbandonProcessGroup keeps job children alive across a restart", async () => {

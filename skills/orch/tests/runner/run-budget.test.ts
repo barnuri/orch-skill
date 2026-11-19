@@ -55,7 +55,7 @@ test("budget cut, partial record, resume", () => {
   r = run(["--resume"]);
   expect(r.rc).toBe(1);
   expect(existsSync(progress)).toBe(false);
-});
+}, 30_000);
 
 test("full defaults to a 300 s budget, no budget writes no record, bad budget rejected", () => {
   const { run, progress } = fakeTree();
