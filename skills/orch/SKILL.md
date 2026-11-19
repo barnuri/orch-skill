@@ -519,8 +519,22 @@ Nodes never talk to the user. They ask with `node ask`, and the question arrives
 
 ## Asking the user
 
-Follow the global ask-tool rule (`shared.md`). For orch: a prose question stalls every parallel node,
-so start every node that does not depend on the answer first, then ask with the question tool.
+Every question to the user goes through the session's question tool (`AskUserQuestion` in Claude
+Code, the `question` tool in opencode). This is the default, not an option: a question written as plain
+text ends the turn and stalls every parallel node until the user happens to reply.
+
+- Ask the moment a decision is needed, not at the end. Start every node that does not depend on the
+  answer first, so work continues while the user answers.
+- Group related decisions in one call. Put the recommended option first and label it
+  "(Recommended)". Give each option a one-line consequence.
+- Plain text is the fallback only where the harness has no question tool, and then it ends with one
+  concrete question.
+- A question is any ask for an opinion, a choice, a go-ahead or a missing detail, even one you can
+  work around. A "Q1, Q2" list, a "needs you" line or "say yes and I will" at the end of a report
+  all count: each goes through the question tool, in the turn you first need it.
+- Before you send a final message, read its last paragraph. If it asks the user to choose, confirm
+  or reply, call the question tool and remove it from the text.
+- Never end a turn with a question in prose, and never wait on an answer while ready nodes sit idle.
 
 ## Offline mode (dashboard down)
 
