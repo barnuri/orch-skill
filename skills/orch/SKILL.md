@@ -377,7 +377,7 @@ The dashboard shows what the graph says, not what is happening. Keep it honest:
 - Pass the real session id in `--owner ses_xxx`. If you cannot, `node bind-owners` (run by `run sync`) finds the session; a node it cannot bind shows `unbound` with the reason, and one with no owner for 2 min shows `unowned`.
 - Start every agent with `orch node brief <run> <node>` and paste the output into its prompt: it tells the agent to ping, report, and end with `done` (verified) or `error`. `node verify-owners` (also run by `run status`, `run sync` and the dashboard) closes a node whose owner finished or vanished; such a node is `done` but unreviewed. Hook adapters: `references/harness-adapters.md`.
 - orch announces running work to Herdr and the status line automatically. A background daemon (`orch announce --daemon`) keeps both fresh every 20 s: no `run sync` watch is needed for freshness (details in `references/status-bridge.md`).
-- After dispatching work, start `run wait <run>` as a background command. When it ends, report in one line and start it again. Reporting then does not depend on being asked. `run status <run>` is the one-liner for a progress update. Before any node status goes to the user, run `run status <run> --fresh`: its `fresh` line is read from `state.json` in that step, never from an earlier check. Every node records a one-line result right after its handoff (`node result <run> <node> --verdict full|partial|blocked --summary "..." --follow-up "..."`; inside a node the run and node come from its env). On a `run wait` transition, read the result on the line first (`[full] summary`, or `[partial] summary | follow_up: ...`; `node show <run> <node>` prints it in full). Open `handoff.md` only when the verdict is partial or blocked, the line has a follow_up, or the verdict is `unknown` (the node finished with no result, with a warning). `run verify` and the done-gate list partial or blocked nodes unless the follow_up is `none`; the dashboard shows the verdict chip. A node marked done with no non-empty `handoff.md` in its output dir prints `done without handoff` and is marked `unverified`.
+- After dispatching work, start `run wait <run>` as a background command. When it ends, act on every event, restart the wait, then end the turn with the status line only. Write no "Next action" or "when X reports, I ..." line: the background wait already covers it. Reporting then does not depend on being asked. `run status <run>` is the one-liner for a progress update. Before any node status goes to the user, run `run status <run> --fresh`: its `fresh` line is read from `state.json` in that step, never from an earlier check. Every node records a one-line result right after its handoff (`node result <run> <node> --verdict full|partial|blocked --summary "..." --follow-up "..."`; inside a node the run and node come from its env). On a `run wait` transition, read the result on the line first (`[full] summary`, or `[partial] summary | follow_up: ...`; `node show <run> <node>` prints it in full). Open `handoff.md` only when the verdict is partial or blocked, the line has a follow_up, or the verdict is `unknown` (the node finished with no result, with a warning). `run verify` and the done-gate list partial or blocked nodes unless the follow_up is `none`; the dashboard shows the verdict chip. A node marked done with no non-empty `handoff.md` in its output dir prints `done without handoff` and is marked `unverified`.
 
 Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 
@@ -416,8 +416,7 @@ Speed rules for the coordinator:
 - Run the other deterministic work (commits, restarts, status reads, file checks) as plain commands in
   the coordinator, not through an agent. Use `dispatch.ts` subcommands for state changes.
 - Start every node whose dependencies are done at once. Never wait on a node that does not block the next one.
-- Read `state.json` fresh before reporting a status. Keep `run wait --follow` running so a finished node is
-  acted on within a minute, not at the next user prompt.
+- Read `state.json` fresh before reporting a status.
 - Check a node's output files before you accept `done`.
 - Tests of this skill (`bun skills/orch/tests/run.ts`), run by the node that made the edit: after an edit run `run.ts --changed` (fast
   tier plus the tests of the changed files). Before a commit run the fast tier (`run.ts`, under 30 s).
@@ -469,6 +468,8 @@ Pick the form by what this session can do:
 
 After each wake, handle every event (start ready nodes, respawn dead or stalled ones, ask about needs-user), then restart the wait. Stop when it reports `run ended`.
 
+Block in the foreground when the next event is a short wait you own: a service restart, or one test file under 2 minutes. Use `service.ts status` or `run wait <run> --timeout 120`. End the turn only while node work runs.
+
 ## Work like ultracode
 
 Treat every substantive task as a graph, the way Claude Code's ultracode does: plan, fan out, cross-check, watch.
@@ -518,22 +519,8 @@ Nodes never talk to the user. They ask with `node ask`, and the question arrives
 
 ## Asking the user
 
-Every question to the user goes through the session's question tool (`AskUserQuestion` in Claude
-Code, the `question` tool in opencode). This is the default, not an option: a question written as plain
-text ends the turn and stalls every parallel node until the user happens to reply.
-
-- Ask the moment a decision is needed, not at the end. Start every node that does not depend on the
-  answer first, so work continues while the user answers.
-- Group related decisions in one call. Put the recommended option first and label it
-  "(Recommended)". Give each option a one-line consequence.
-- Plain text is the fallback only where the harness has no question tool, and then it ends with one
-  concrete question.
-- A question is any ask for an opinion, a choice, a go-ahead or a missing detail, even one you can
-  work around. A "Q1, Q2" list, a "needs you" line or "say yes and I will" at the end of a report
-  all count: each goes through the question tool, in the turn you first need it.
-- Before you send a final message, read its last paragraph. If it asks the user to choose, confirm
-  or reply, call the question tool and remove it from the text.
-- Never end a turn with a question in prose, and never wait on an answer while ready nodes sit idle.
+Follow the global ask-tool rule (`shared.md`). For orch: a prose question stalls every parallel node,
+so start every node that does not depend on the answer first, then ask with the question tool.
 
 ## Offline mode (dashboard down)
 

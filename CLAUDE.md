@@ -86,8 +86,7 @@ written by `owners.sh` (`owner_registry_write`), filled by `dispatch.ts node bin
 after pulling. Design and audit: `design-system/RESTART_SAFETY.md`. Status of its parts: the dedicated
 herdr instance runner (`lib/adapters/herdr.sh`: own HOME, `server.pid`, `jobs/<id>/herdr_pane` and `herdr_sock`)
 is on disk; chat turn files (`chats/sessions/turn-files.ts`, boot re-attach in `chats/service.ts`,
-`interrupted:` rows) are on disk. Both were uncommitted and still in progress when this was written:
-check `git status` and the design doc before relying on them.
+`interrupted:` rows) are on disk.
 
 **Sourcing is side-effect free.** `dispatch.ts` defines functions when sourced and only runs
 `main` when executed directly (`BASH_SOURCE[0] == $0`). Backgrounded `start` jobs depend on this:
