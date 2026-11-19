@@ -47,7 +47,11 @@ const DROP = [
   "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", "OPENCODE_DISABLE_EXTERNAL_SKILLS", "OPENCODE_SESSION_ID", "OPENCODE_TERMINAL",
   "HARNESS_ORCH_HOME", "ORCH_DISPATCH", "LLM_HUB_URL", "LLM_HUB_V1_URL", "LLM_HUB_KEY",
   "HERDR_ENV", "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "HERDR_BIN_PATH", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID",
+  "HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE",
 ];
+// The live terminal identity leaves this process too, so a test that spawns with { ...process.env } can never
+// record the real herdr pane or hc terminal as a coordinator and type its asks into the live session.
+for (const k of DROP) if (k.startsWith("HERDR_") || k.startsWith("HC_")) delete process.env[k];
 export function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string, string> {
   const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_TRASH_MOVE: "1", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
   for (const k of DROP) delete env[k];
