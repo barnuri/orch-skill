@@ -4,11 +4,12 @@
 import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-export interface HomeProc { pid: number; home: string }
+export interface HomeProc { pid: number; home: string; tag?: string }
 
 const ENV_RE = /HARNESS_ORCH_HOME=(\S+)/;
+const TAG_RE = /ORCH_TEST_RUN_TAG=(\S+)/;
 
-// Every live process that has HARNESS_ORCH_HOME in its environment, with the home it names.
+// Every live process that has HARNESS_ORCH_HOME in its environment, with the home it names and its test-run tag.
 export function listHomeProcs(): HomeProc[] {
   const out: HomeProc[] = [];
   if (process.platform === "linux") {
@@ -16,8 +17,10 @@ export function listHomeProcs(): HomeProc[] {
       if (!/^\d+$/.test(d)) continue;
       let env = "";
       try { env = readFileSync(`/proc/${d}/environ`, "utf8"); } catch { continue; }
-      const m = env.split("\0").find((kv) => kv.startsWith("HARNESS_ORCH_HOME="));
-      if (m) out.push({ pid: Number(d), home: m.slice("HARNESS_ORCH_HOME=".length) });
+      const kv = env.split("\0");
+      const m = kv.find((x) => x.startsWith("HARNESS_ORCH_HOME="));
+      const t = kv.find((x) => x.startsWith("ORCH_TEST_RUN_TAG="));
+      if (m) out.push({ pid: Number(d), home: m.slice("HARNESS_ORCH_HOME=".length), tag: t?.slice("ORCH_TEST_RUN_TAG=".length) });
     }
     return out;
   }
@@ -25,7 +28,7 @@ export function listHomeProcs(): HomeProc[] {
   for (const line of ps.stdout.toString().split("\n")) {
     const pid = Number(line.trim().split(/\s+/, 1)[0]);
     const m = line.match(ENV_RE);
-    if (pid && m) out.push({ pid, home: m[1]! });
+    if (pid && m) out.push({ pid, home: m[1]!, tag: line.match(TAG_RE)?.[1] });
   }
   return out;
 }
@@ -57,10 +60,22 @@ export function reapUnder(home: string): number[] {
 }
 
 // Runners whose home is under the temp dir and looks like a test home. Used by the run.ts guard.
+// With a tag, only the processes started by that test run count: a nested or parallel run.ts must not
+// kill the runners of files another run is still executing.
 export const TEST_HOME_RE = /orch-t-|wdpill-|orch-test/;
-export function leakedTestRunners(): HomeProc[] {
+export function leakedTestRunners(tag?: string): HomeProc[] {
   const roots = [tmpdir(), "/tmp", "/private/tmp"].map((r) => r.replace(/\/+$/, ""));
   const real = roots.map((r) => { try { return realpathSync(r); } catch { return r; } });
   const all = [...roots, ...real];
-  return listHomeProcs().filter((p) => p.pid !== process.pid && all.some((r) => p.home.startsWith(r + "/")) && TEST_HOME_RE.test(p.home));
+  return listHomeProcs().filter((p) => p.pid !== process.pid && all.some((r) => p.home.startsWith(r + "/")) && TEST_HOME_RE.test(p.home) && (tag === undefined || p.tag === tag));
+}
+
+// Stops the processes of `home` that carry `tag`, the same way reapUnder does.
+export function reapTagged(home: string, tag: string): number[] {
+  const pids = [...new Set(listHomeProcs().filter((p) => p.pid !== process.pid && p.tag === tag && sameHome(p.home, home)).map((p) => p.pid))];
+  for (const pid of pids) { try { process.kill(pid, "SIGTERM"); } catch {} }
+  const until = Date.now() + 3000;
+  while (Date.now() < until && pids.some(alive)) Bun.sleepSync(100);
+  for (const pid of pids) if (alive(pid)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+  return pids;
 }

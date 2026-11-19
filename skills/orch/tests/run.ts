@@ -15,12 +15,15 @@ import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } from
 import { join, resolve, basename, dirname } from "node:path";
 import { tmpdir, cpus, loadavg } from "node:os";
 import { templateHome } from "./helpers/template.ts";
-import { leakedTestRunners, reapUnder } from "./lib/reap.ts";
+import { leakedTestRunners, reapTagged } from "./lib/reap.ts";
 
 const TESTS_DIR = import.meta.dir;
 const REPO = resolve(TESTS_DIR, "../../..");
 const tmp = (process.env.TMPDIR || tmpdir()).replace(/\/+$/, "");
 const PROGRESS = process.env.ORCH_TEST_PROGRESS || `${tmp}/orch-test-progress.json`;
+// Every run tags the runners its files start. The leak guard reaps only its own tag, so a concurrent run's
+// guard cannot SIGTERM a test that is still running (that killed runs/inbox's ask waiter with 143).
+const RUN_TAG = `${process.pid}-${Date.now()}`;
 const TIMINGS = process.env.ORCH_TEST_TIMINGS || `${tmp}/orch-ts-test-timings.json`;
 const GRACE = Number(process.env.ORCH_TEST_BUDGET_GRACE ?? 20);
 
@@ -117,7 +120,7 @@ const skipped: string[] = [];
 async function runOne(f: string): Promise<void> {
   const id = idOf(f), start = Date.now();
   const traceFile = traceOn ? join(tmp, `orch-trace-${process.pid}-${id.replace("/", "-")}.tsv`) : "";
-  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate, ...(traceOn ? { ORCH_TEST_TRACE: traceFile } : {}) }, stdout: "pipe", stderr: "pipe", detached: true } as any);
+  const proc = Bun.spawn(["bun", "test", "--timeout", String(cap * 1000), f], { env: { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_TEST_HOME_TEMPLATE: homeTemplate, ORCH_TEST_RUN_TAG: RUN_TAG, ...(traceOn ? { ORCH_TEST_TRACE: traceFile } : {}) }, stdout: "pipe", stderr: "pipe", detached: true } as any);
   let why: Res["why"] = "ok";
   const killer = setInterval(() => {
     const now = Date.now();
@@ -173,9 +176,9 @@ if (results.length) {
 console.log(`\n${totalPass} passed, ${totalFail} failed (${mode} tier, ${results.length} files, ${Math.round((Date.now() - t0) / 1000)}s wall)`);
 for (const id of skipped) status[id] = "not_run";
 // Leak guard: a runner (loop, watch, job-run, serve) still alive in a test home after the suite is a leak.
-const leaked = leakedTestRunners();
+const leaked = leakedTestRunners(RUN_TAG);
 if (leaked.length) {
-  for (const h of new Set(leaked.map((p) => p.home))) reapUnder(h);
+  for (const h of new Set(leaked.map((p) => p.home))) reapTagged(h, RUN_TAG);
   bad = true;
   console.log(`LEAK: ${leaked.length} test runner(s) alive after the suite (reaped):\n` + leaked.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
 }
