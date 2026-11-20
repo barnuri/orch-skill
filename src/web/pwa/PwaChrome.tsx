@@ -4,7 +4,7 @@ import { Button } from "../components/Button";
 import { NotificationsSection } from "./NotificationsSection";
 import { APP_NAME, appOfPath, recall, remember } from "./app";
 import { pushSupport } from "./push-client";
-import { useInstall } from "./install";
+import { dismissKey, useInstall } from "./install";
 import { usePresence } from "./presence";
 import { registerWorker, useNotificationNavigation, useWorkerUpdate } from "./register";
 import { consumeShare } from "./share";
@@ -22,10 +22,14 @@ function UpdateToast() {
   );
 }
 
-/** A quiet, dismissable offer; the answer is remembered per app. The same install lives in Settings. */
+/** A quiet offer shown once per device and app: the first showing counts as the answer. Install stays in Settings and the chat sidebar. */
 function InstallPrompt() {
   const install = useInstall();
-  if (install.installed || install.dismissed || !(install.canPrompt || install.iosHint)) return null;
+  const visible = !(install.installed || install.dismissed || !(install.canPrompt || install.iosHint));
+  useEffect(() => {
+    if (visible) remember(dismissKey(install.app), "1");
+  }, [visible, install.app]);
+  if (!visible) return null;
   const name = APP_NAME[install.app];
   return (
     <div className="pwa-bar pwa-install" role="note">

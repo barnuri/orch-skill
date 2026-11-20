@@ -7,6 +7,7 @@ import { PUSH_CATEGORIES, PUSH_CATEGORY_LABELS, type PushCategory, type QuietHou
 import { APP_NAME } from "./app";
 import { useInstall } from "./install";
 import { type Device, currentSubscription, disablePush, enablePush, listDevices, minutesToTime, patchDevice, pushSupport, removeDevice, subscriptionId, testDevice, timeToMinutes } from "./push-client";
+import { registerWorker } from "./register";
 
 function SecureNote() {
   const info = useQuery({ queryKey: ["server-info"], staleTime: 60_000, queryFn: async () => { const r = await api.getServerInfo(); return r.kind === "ok" ? r.body : null; } });
@@ -26,16 +27,27 @@ function SecureNote() {
   );
 }
 
+/** Why the browser offers no install here, and the one step that fixes it. */
+function installBlockedHint(swOk: boolean | null): string {
+  if (!window.isSecureContext) return "Blocked: the browser installs apps only over https. Open the secure link below.";
+  if (swOk === false) return "Blocked: this device does not trust the server's certificate. Trust it once at /trust, then reload.";
+  return "Use the browser menu (⋮): Install app or Add to Home screen.";
+}
+
 function InstallRow() {
   const i = useInstall();
   const name = APP_NAME[i.app];
+  const [swOk, setSwOk] = useState<boolean | null>(null);
+  useEffect(() => void registerWorker().then((r) => setSwOk(r !== null)), []);
+  const blocked = !i.installed && !i.canPrompt && !i.iosHint && (!window.isSecureContext || swOk === false);
   return (
     <div className="pwa-row">
       <div>
         <strong>Install {name}</strong>
         <p className="pwa-hint">
-          {i.installed ? "Installed: this window is the app." : i.canPrompt ? "Opens in its own window, with its own icon." : i.iosHint ? "Tap Share, then Add to Home Screen." : "Use the browser menu: Install app. Needs https or localhost."}
+          {i.installed ? "Installed: this window is the app." : i.canPrompt ? "Opens in its own window, with its own icon." : i.iosHint ? "Tap Share, then Add to Home Screen." : installBlockedHint(swOk)}
         </p>
+        {blocked && window.isSecureContext ? <p className="pwa-hint"><a href="/trust">Open /trust</a></p> : null}
       </div>
       {i.canPrompt ? <Button variant="primary" onClick={() => void i.install()}>Install</Button> : null}
     </div>

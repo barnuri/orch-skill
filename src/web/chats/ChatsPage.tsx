@@ -9,6 +9,7 @@ import { chatIsWaiting } from "../lib/chat-waiting";
 import { useRoute } from "../router/use-route";
 import { ChatView } from "./ChatView";
 import { ProjectView } from "./ProjectView";
+import { OPEN_NOTIFICATIONS_EVENT } from "../pwa/PwaChrome";
 import { Sidebar } from "./Sidebar";
 import { SIDE_PANEL_ID, SideFloat, SideHead, SideRail, useSidebarMode } from "./SidebarChrome";
 import { StartPage } from "./StartPage";
@@ -124,6 +125,9 @@ export function ChatsPage({ chatId, projectId }: Props) {
               <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(chatOnlyUrl(location.origin, chatId, null)).then(() => { toast("ok", "link copied"); })}>Copy link</button>
             </div>
           )}
+          <div className="side-chat-only">
+            <button type="button" className="btn" onClick={() => { close(); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }}>Install app and notifications</button>
+          </div>
         </div>
       </aside>
       {side.wide && side.mode === "hidden" ? <SideFloat onChange={side.change} /> : null}

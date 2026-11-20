@@ -79,6 +79,12 @@ describe("notifications section", () => {
     expect(screen.getByText("Install Orch")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
+
+  test("on http the install row says the browser installs apps only over https", () => {
+    Object.defineProperty(window, "isSecureContext", { value: false, configurable: true });
+    render(wrap(<NotificationsSection />));
+    expect(screen.getByText(/installs apps only over https/)).toBeTruthy();
+  });
 });
 
 describe("install prompt", () => {
@@ -109,6 +115,18 @@ describe("install prompt", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
     await waitFor(() => expect(localStorage.getItem(dismissKey("dashboard"))).toBe("1"));
+    window.dispatchEvent(Object.assign(new Event("beforeinstallprompt", { cancelable: true }), { prompt: async () => {}, userChoice: Promise.resolve({ outcome: "dismissed" }) }));
+    expect(screen.queryByText(/as an app/)).toBeNull();
+  });
+
+  test("the bar shows once per device: a reload after it was seen does not show it again", async () => {
+    localStorage.removeItem(dismissKey("dashboard"));
+    const first = render(wrap(<PwaChrome />));
+    window.dispatchEvent(Object.assign(new Event("beforeinstallprompt", { cancelable: true }), { prompt: async () => {}, userChoice: Promise.resolve({ outcome: "dismissed" }) }));
+    await waitFor(() => expect(screen.getByText("Install Orch as an app.")).toBeTruthy());
+    expect(localStorage.getItem(dismissKey("dashboard"))).toBe("1");
+    first.unmount();
+    render(wrap(<PwaChrome />));
     window.dispatchEvent(Object.assign(new Event("beforeinstallprompt", { cancelable: true }), { prompt: async () => {}, userChoice: Promise.resolve({ outcome: "dismissed" }) }));
     expect(screen.queryByText(/as an app/)).toBeNull();
   });
