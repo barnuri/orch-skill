@@ -484,12 +484,13 @@ button.folder-chip:focus-visible { outline: 2px solid var(--focus); outline-offs
   .ws-seg, .ws-tab, .ws-sheet .btn { min-height: 44px; }
 }
 .chat-head-ws { flex: none; }
-.subfolder-field { display: grid; gap: var(--s1); min-width: 0; }
-.subfolder-row { display: flex; gap: var(--s2); align-items: center; min-width: 0; }
-.subfolder-input { flex: 1; min-width: 0; }
-.subfolder-path { color: var(--tx3); font-size: var(--fs-meta); overflow-wrap: anywhere; text-align: start; }
-.subfolder-error { color: var(--status-error); font-size: var(--fs-meta); }
-.subfolder-error:empty { display: none; }
+.group-sub { margin-inline-start: var(--s3); padding-inline-start: var(--s2); border-inline-start: 1px solid var(--border); }
+.group-sub .group-head { text-transform: none; letter-spacing: 0; }
+.subproject-list { display: grid; gap: var(--s1); margin: 0 0 var(--s3); padding: 0; list-style: none; }
+.subproject-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.subproject-form { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0 0 var(--s3); }
+.subproject-form .input { flex: 1; min-width: 12ch; }
+.project-parent { color: var(--tx3); font-size: var(--fs-meta); }
 @media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
-  .subfolder-input, .subfolder-clear { min-height: 44px; }
+  .subproject-form .input, .subproject-form .btn { min-height: 44px; }
 }

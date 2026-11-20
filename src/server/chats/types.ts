@@ -3,6 +3,8 @@ export type MessageStatus = "pending" | "streaming" | "done" | "error" | "stoppe
 
 export interface ProjectRow {
   id: string; name: string; path: string | null; description: string; created_at: string; archived_at: string | null;
+  /** The parent project of a sub project; null for a top-level project. Sub projects are one level deep. */
+  parent_id: string | null;
 }
 
 export interface ChatRow {

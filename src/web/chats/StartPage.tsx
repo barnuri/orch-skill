@@ -14,8 +14,8 @@ import type { SettingsBadge } from "./ChatSettings";
 import { Composer } from "./Composer";
 import type { Uploader } from "./Composer";
 import { FolderChip, FolderPicker } from "./FolderPicker";
-import { SubfolderField } from "./SubfolderField";
 import { Pickers } from "./Pickers";
+import { projectOptions as projectChoices } from "../lib/project-tree";
 import { chatKeys, refreshChats, useChatOptions, useProjects } from "./queries";
 import { takeStartSeed } from "./start-seed";
 import { useDraftScopes } from "./use-draft-scopes";
@@ -70,8 +70,6 @@ export function StartPage({ projectId, folder: urlFolder, onOpenDrawer }: { proj
   const [effort, setEffort] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(urlFolder);
   const [pickingFolder, setPickingFolder] = useState(false);
-  const [subfolder, setSubfolder] = useState<string | null>(null);
-  useEffect(() => { setSubfolder(null); }, [projectId]);
   const [composerKey, setComposerKey] = useState(0);
   const [starters, setStarters] = useState<string[]>(() => readStarters());
   const [editing, setEditing] = useState(false);
@@ -91,7 +89,7 @@ export function StartPage({ projectId, folder: urlFolder, onOpenDrawer }: { proj
   }, [composerKey]);
 
   const project = (projects.data ?? []).find((p) => p.id === projectId) ?? null;
-  const effectiveFolder = folder ?? (project?.path == null ? null : subfolder === null ? project.path : `${project.path}/${subfolder}`);
+  const effectiveFolder = folder ?? project?.path ?? null;
   const resolved = options.data === undefined ? null : resolvePickers(options.data, picked);
   const sel = resolved?.selection ?? null;
   const levels = options.data === undefined || sel === null ? [] : options.data.harnesses.find((h) => h.id === sel.harness)?.efforts ?? [];
@@ -118,7 +116,7 @@ export function StartPage({ projectId, folder: urlFolder, onOpenDrawer }: { proj
     }
     let chat = created.current;
     if (chat === null) {
-      const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model, cwd: folder, subfolder: folder === null ? subfolder : null, effort: activeEffort });
+      const res = await chatsApi.createChat({ project_id: projectId, harness: sel.harness, profile: sel.profile, model_id: sel.model, cwd: folder, effort: activeEffort });
       if (res.kind !== "ok") {
         return describeFailure(res, "could not create the chat");
       }
@@ -153,7 +151,7 @@ export function StartPage({ projectId, folder: urlFolder, onOpenDrawer }: { proj
     setComposerKey((k) => k + 1);
   };
 
-  const projectOptions = [{ value: NO_PROJECT, label: "No project" }, ...(projects.data ?? []).map((p) => ({ value: p.id, label: p.name }))];
+  const projectOptions = [{ value: NO_PROJECT, label: "No project" }, ...projectChoices(projects.data ?? [])];
   const hour = new Date().getHours();
 
   return (
@@ -203,11 +201,8 @@ export function StartPage({ projectId, folder: urlFolder, onOpenDrawer }: { proj
               }}
             />
           </div>
-          <FolderChip path={effectiveFolder} inherited={folder === null && project?.path != null} subfolder={folder === null ? subfolder : null} onClick={() => { setPickingFolder(true); }} />
+          <FolderChip path={effectiveFolder} inherited={folder === null && project?.path != null} onClick={() => { setPickingFolder(true); }} />
         </div>
-        {project?.path != null && folder === null ? (
-          <SubfolderField projectPath={project.path} value={subfolder} onSave={async (next) => { setSubfolder(next); return null; }} />
-        ) : null}
         {pickingFolder ? (
           <FolderPicker
             title="Folder for this chat"

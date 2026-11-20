@@ -84,6 +84,9 @@ export class ProjectDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "When it was archived. Null while active. Projects are never deleted." })
   archived_at!: string | null;
+
+  @ZodField(z.string().nullable(), { description: "The parent project of a sub project; null for a top-level project. Sub projects are one level deep." })
+  parent_id!: string | null;
 }
 
 @ZodObject({ description: "A page of projects, newest first." })
@@ -100,11 +103,14 @@ export class ProjectInputDto extends ZodDto {
   @ZodField(z.string().trim().min(1).max(200), { description: "Display name." })
   name!: string;
 
-  @ZodField(z.string().max(1000).nullable().optional(), { description: "Absolute directory the chats run in. Must exist." })
+  @ZodField(z.string().max(1000).nullable().optional(), { description: "Absolute directory the chats run in. Must exist. For a sub project, omit it to use `<parent path>/<name>` (created when missing)." })
   path?: string | null;
 
   @ZodField(z.string().max(5000).optional(), { description: "Free text." })
   description?: string;
+
+  @ZodField(z.string().max(100).nullable().optional(), { description: "Makes this a sub project of that top-level, active project. 404 when it does not exist; 400 when it is archived or is itself a sub project." })
+  parent_id?: string | null;
 }
 
 @ZodObject({ description: "Fields of a project to change. Omitted fields stay as they are." })

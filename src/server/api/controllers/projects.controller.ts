@@ -53,16 +53,17 @@ export class ProjectsController {
 
   @Post("/projects", {
     summary: "Create a project",
-    description: "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there.",
+    description: "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there. `parent_id` makes it a sub project (one level deep) shown under its parent; without `path` a sub project runs in `<parent path>/<name>`, created when missing.",
   })
   @Body(ProjectInputDto.schema)
   @ResponseSchema(ProjectDto.schema, { status: 201, description: "Created." })
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Invalid project." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such parent project." })
   create(c: ApiContext): Response {
     try {
-      const body = valid<{ name: string; path?: string | null; description?: string }>(c, "json");
+      const body = valid<{ name: string; path?: string | null; description?: string; parent_id?: string | null }>(c, "json");
       checkPath(body.path);
-      return jsonResponse(201, this.service.store.createProject(body));
+      return jsonResponse(201, this.service.createProject(body));
     } catch (err) {
       return failure(err);
     }

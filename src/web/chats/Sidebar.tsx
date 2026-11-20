@@ -5,6 +5,7 @@ import { Toggle } from "../components/Toggle";
 import { useToast } from "../components/Toast";
 import { visibleChats } from "../lib/chat-logic";
 import type { Chat, ChatOptions, Project } from "../lib/chat-types";
+import { projectTree } from "../lib/project-tree";
 import { refreshChats, refreshProjects, useChatSearch, useChats, useProjects } from "./queries";
 import { useSingleFlight } from "../lib/use-single-flight";
 import { ChatListRow, chatMeta } from "./ChatListRow";
@@ -61,12 +62,12 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
     for (const chat of visibleChats(chats.chats, activeChatId, archived)) {
       byProject.set(chat.project_id, [...(byProject.get(chat.project_id) ?? []), chat]);
     }
-    const out: { project: Project | null; chats: Chat[] }[] = (projects.data ?? []).map((project) => ({ project, chats: byProject.get(project.id) ?? [] }));
-    out.push({ project: null, chats: byProject.get(null) ?? [] });
+    const out: { project: Project | null; chats: Chat[]; depth: 0 | 1 }[] = projectTree(projects.data ?? []).map(({ project, depth }) => ({ project, depth, chats: byProject.get(project.id) ?? [] }));
+    out.push({ project: null, depth: 0, chats: byProject.get(null) ?? [] });
     const known = new Set((projects.data ?? []).map((p) => p.id));
     for (const [pid, list] of byProject) {
       if (pid !== null && !known.has(pid)) {
-        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x" }, chats: list });
+        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x", parent_id: null }, depth: 0, chats: list });
       }
     }
     return out;
@@ -150,7 +151,7 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
           </ul>
         ) : (
           groups.map((group) => (
-            <section key={group.project?.id ?? "none"} className="group">
+            <section key={group.project?.id ?? "none"} className={group.depth === 1 ? "group group-sub" : "group"} data-testid={group.depth === 1 ? "sub-project-group" : undefined}>
               <h3 className="group-head">
                 {group.project === null ? (
                   <span>No project</span>

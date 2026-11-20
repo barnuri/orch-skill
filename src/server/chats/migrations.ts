@@ -110,4 +110,8 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE messages ADD COLUMN selected_effort TEXT;
   ALTER TABLE messages ADD COLUMN selected_model TEXT;
   `,
+  `
+  ALTER TABLE projects ADD COLUMN parent_id TEXT REFERENCES projects(id);
+  CREATE INDEX projects_parent ON projects(parent_id);
+  `,
 ];

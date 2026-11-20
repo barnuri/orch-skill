@@ -29,7 +29,7 @@ import { AutomationButton, AutomationHost } from "./AutomationSheet";
 import { useAutomation } from "./automation-context";
 import { TodoPanel } from "./Todos";
 import { FolderChip, FolderPicker } from "./FolderPicker";
-import { SubfolderField } from "./SubfolderField";
+import { projectOptions as projectChoices } from "../lib/project-tree";
 import { Pickers, pickerSummary, sessionNote } from "./Pickers";
 import { refreshChats, useChat, useChatOptions, useProjects } from "./queries";
 import { repairSelection } from "./repair-selection";
@@ -85,7 +85,7 @@ export function Header({ chat, options, modelUsed, expected = false, lastReply, 
     void refreshChats(client);
     return res.kind === "ok" ? null : describeFailure(res, "could not set the folder");
   };
-  const projectOptions = [{ value: NO_PROJECT, label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))];
+  const projectOptions = [{ value: NO_PROJECT, label: "No project" }, ...projectChoices(projects)];
   return (
     <div className="chat-head">
       <button type="button" className="icon-btn drawer-btn" aria-label="Projects and chats" onClick={onOpenDrawer}>
@@ -149,13 +149,6 @@ export function Header({ chat, options, modelUsed, expected = false, lastReply, 
 
 function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat; options: ChatOptions; running: boolean; modelUsed: string | null; lastFailed: boolean }) {
   const toast = useToast();
-  const client = useQueryClient();
-  const projectPath = useProjects(false).data?.find((p) => p.id === chat.project_id)?.path ?? null;
-  const saveSubfolder = async (next: string | null): Promise<string | null> => {
-    const res = await chatsApi.setChatSubfolder(chat.id, next);
-    void refreshChats(client);
-    return res.kind === "ok" ? null : describeFailure(res, "could not set the subfolder");
-  };
   const [sel, setSel] = useState<Selection>({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
   useEffect(() => {
     setSel({ harness: chat.harness, profile: chat.profile, model: chat.model_id });
@@ -200,7 +193,6 @@ function Config({ chat, options, running, modelUsed, lastFailed }: { chat: Chat;
   return (
     <ChatSettings summary={pickerSummary({ ...chat, effort: effort as Chat["effort"] }, options, modelUsed, running)} badge={badge}>
       <Pickers options={options} selection={sel} locked={running} modelUsed={modelUsed} expected={running} onChange={(n) => void change(n)} effort={{ value: effort, onChange: (e) => void change(sel, e) }} />
-      {projectPath === null ? null : <SubfolderField projectPath={projectPath} value={chat.subfolder ?? null} onSave={saveSubfolder} />}
     </ChatSettings>
   );
 }
