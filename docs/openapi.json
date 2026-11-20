@@ -2051,6 +2051,11 @@
             "type": "string",
             "nullable": true,
             "description": "When it was archived. Null while active. Projects are never deleted."
+          },
+          "parent_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "The parent project of a sub project; null for a top-level project. Sub projects are one level deep."
           }
         },
         "required": [
@@ -2059,7 +2064,8 @@
           "path",
           "description",
           "created_at",
-          "archived_at"
+          "archived_at",
+          "parent_id"
         ],
         "description": "A project groups chats and gives them a working directory."
       },
@@ -2076,12 +2082,18 @@
             "type": "string",
             "nullable": true,
             "maxLength": 1000,
-            "description": "Absolute directory the chats run in. Must exist."
+            "description": "Absolute directory the chats run in. Must exist. For a sub project, omit it to use `<parent path>/<name>` (created when missing)."
           },
           "description": {
             "type": "string",
             "maxLength": 5000,
             "description": "Free text."
+          },
+          "parent_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "description": "Makes this a sub project of that top-level, active project. 404 when it does not exist; 400 when it is archived or is itself a sub project."
           }
         },
         "required": [
@@ -2143,6 +2155,11 @@
                 "type": "string",
                 "nullable": true,
                 "description": "When it was archived. Null while active. Projects are never deleted."
+              },
+              "parent_id": {
+                "type": "string",
+                "nullable": true,
+                "description": "The parent project of a sub project; null for a top-level project. Sub projects are one level deep."
               }
             },
             "required": [
@@ -2151,7 +2168,8 @@
               "path",
               "description",
               "created_at",
-              "archived_at"
+              "archived_at",
+              "parent_id"
             ],
             "description": "The project after the change."
           }
@@ -8496,7 +8514,7 @@
       },
       "post": {
         "summary": "Create a project",
-        "description": "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there.",
+        "description": "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there. `parent_id` makes it a sub project (one level deep) shown under its parent; without `path` a sub project runs in `<parent path>/<name>`, created when missing.",
         "tags": [
           "projects"
         ],
@@ -8532,6 +8550,16 @@
           },
           "401": {
             "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such parent project.",
             "content": {
               "application/json": {
                 "schema": {

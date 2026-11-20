@@ -51,17 +51,6 @@ export function useFolders(root: string) {
   return useQuery({ queryKey: chatKeys.folders(root), queryFn: async () => unwrap(await chatsApi.folders(root === "" ? undefined : root)), staleTime: 10_000 });
 }
 
-/** Existing child folders of a project folder, two levels deep, relative to it: the suggestions of the Subfolder field. */
-export function useSubfolderSuggestions(projectPath: string | null) {
-  return useQuery({
-    queryKey: ["chat-folders", projectPath ?? "", 2] as const,
-    enabled: projectPath !== null,
-    queryFn: async () => unwrap(await chatsApi.folders(projectPath ?? undefined, 2)),
-    staleTime: 10_000,
-    select: (list) => list.items.map((i) => i.name),
-  });
-}
-
 export function useChat(id: string) {
   return useQuery<Chat>({ queryKey: chatKeys.chat(id), queryFn: async () => unwrap(await chatsApi.chat(id)), refetchInterval: REFRESH_MS });
 }
