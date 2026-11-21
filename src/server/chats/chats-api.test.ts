@@ -93,6 +93,18 @@ describe("projects and chats", () => {
     expect((await srv.api("/api/projects/prj-nope")).status).toBe(404);
   });
 
+  test("a sub project belongs to a top-level project, one level deep", async () => {
+    const srv = server();
+    const parent = (await (await json(srv, "/api/projects", { name: "Home", path: srv.home.path })).json()) as { id: string };
+    const child = await json(srv, "/api/projects", { name: "Media", parent_id: parent.id });
+    expect(child.status).toBe(201);
+    const childId = ((await child.json()) as { id: string; parent_id: string }).id;
+    expect(((await (await srv.api(`/api/projects/${childId}`)).json()) as { parent_id: string }).parent_id).toBe(parent.id);
+    expect((await json(srv, "/api/projects", { name: "Deeper", parent_id: childId })).status).toBe(400);
+    expect((await json(srv, "/api/projects", { name: "Orphan", parent_id: "prj-nope" })).status).toBe(404);
+    expect((await (await json(srv, "/api/projects", { name: "Top" })).json()).parent_id).toBeNull();
+  });
+
   test("creating a chat is never blocked by the harness; the send is, with an alternative named; an unknown project is 404", async () => {
     const srv = server();
     for (const body of [

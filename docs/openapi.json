@@ -2051,6 +2051,11 @@
             "type": "string",
             "nullable": true,
             "description": "When it was archived. Null while active. Projects are never deleted."
+          },
+          "parent_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Parent project id when this is a sub project; null for a top-level project."
           }
         },
         "required": [
@@ -2059,7 +2064,8 @@
           "path",
           "description",
           "created_at",
-          "archived_at"
+          "archived_at",
+          "parent_id"
         ],
         "description": "A project groups chats and gives them a working directory."
       },
@@ -2082,6 +2088,12 @@
             "type": "string",
             "maxLength": 5000,
             "description": "Free text."
+          },
+          "parent_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "description": "Parent project id to make this a sub project. Null or omitted: a top-level project. A sub project cannot have sub projects."
           }
         },
         "required": [
@@ -2143,6 +2155,11 @@
                 "type": "string",
                 "nullable": true,
                 "description": "When it was archived. Null while active. Projects are never deleted."
+              },
+              "parent_id": {
+                "type": "string",
+                "nullable": true,
+                "description": "Parent project id when this is a sub project; null for a top-level project."
               }
             },
             "required": [
@@ -2151,7 +2168,8 @@
               "path",
               "description",
               "created_at",
-              "archived_at"
+              "archived_at",
+              "parent_id"
             ],
             "description": "The project after the change."
           }

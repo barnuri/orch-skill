@@ -60,9 +60,9 @@ export class ProjectsController {
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Invalid project." })
   create(c: ApiContext): Response {
     try {
-      const body = valid<{ name: string; path?: string | null; description?: string }>(c, "json");
+      const body = valid<{ name: string; path?: string | null; description?: string; parent_id?: string | null }>(c, "json");
       checkPath(body.path);
-      return jsonResponse(201, this.service.store.createProject(body));
+      return jsonResponse(201, this.service.store.createProject({ ...body, parent_id: this.service.parentFor(body.parent_id) }));
     } catch (err) {
       return failure(err);
     }

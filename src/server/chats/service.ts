@@ -308,6 +308,21 @@ export class ChatService {
 
   // ---- lookups ----
 
+  /** A sub project belongs to a top-level project. Throws 400 when the parent is missing, archived or itself a sub project. */
+  parentFor(parentId: string | null | undefined): string | null {
+    if (parentId === null || parentId === undefined) {
+      return null;
+    }
+    const parent = this.project(parentId);
+    if (parent.parent_id !== null) {
+      throw new HttpError(400, "parent_id: a sub project cannot hold sub projects");
+    }
+    if (parent.archived_at !== null) {
+      throw new HttpError(400, "parent_id: the parent project is archived");
+    }
+    return parent.id;
+  }
+
   project(id: string): ProjectRow {
     const row = this.store.getProject(id);
     if (row === null) {

@@ -84,6 +84,9 @@ export class ProjectDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "When it was archived. Null while active. Projects are never deleted." })
   archived_at!: string | null;
+
+  @ZodField(z.string().nullable(), { description: "Parent project id when this is a sub project; null for a top-level project." })
+  parent_id!: string | null;
 }
 
 @ZodObject({ description: "A page of projects, newest first." })
@@ -105,6 +108,9 @@ export class ProjectInputDto extends ZodDto {
 
   @ZodField(z.string().max(5000).optional(), { description: "Free text." })
   description?: string;
+
+  @ZodField(z.string().max(100).nullable().optional(), { description: "Parent project id to make this a sub project. Null or omitted: a top-level project. A sub project cannot have sub projects." })
+  parent_id?: string | null;
 }
 
 @ZodObject({ description: "Fields of a project to change. Omitted fields stay as they are." })

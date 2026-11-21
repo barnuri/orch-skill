@@ -55,18 +55,29 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
+  const [parentId, setParentId] = useState("");
 
   const groups = useMemo(() => {
     const byProject = new Map<string | null, Chat[]>();
     for (const chat of visibleChats(chats.chats, activeChatId, archived)) {
       byProject.set(chat.project_id, [...(byProject.get(chat.project_id) ?? []), chat]);
     }
-    const out: { project: Project | null; chats: Chat[] }[] = (projects.data ?? []).map((project) => ({ project, chats: byProject.get(project.id) ?? [] }));
-    out.push({ project: null, chats: byProject.get(null) ?? [] });
-    const known = new Set((projects.data ?? []).map((p) => p.id));
+    const all = projects.data ?? [];
+    const known = new Set(all.map((p) => p.id));
+    // A sub project sits under its parent. A sub project whose parent is not listed (archived, filtered) shows at top level.
+    const nested = (parent: Project): Project[] => all.filter((p) => p.parent_id === parent.id);
+    const top = all.filter((p) => p.parent_id === null || !known.has(p.parent_id));
+    const out: { project: Project | null; chats: Chat[]; sub: boolean }[] = [];
+    for (const project of top) {
+      out.push({ project, chats: byProject.get(project.id) ?? [], sub: false });
+      for (const child of nested(project)) {
+        out.push({ project: child, chats: byProject.get(child.id) ?? [], sub: true });
+      }
+    }
+    out.push({ project: null, chats: byProject.get(null) ?? [], sub: false });
     for (const [pid, list] of byProject) {
       if (pid !== null && !known.has(pid)) {
-        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x" }, chats: list });
+        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x", parent_id: null }, chats: list, sub: false });
       }
     }
     return out;
@@ -81,7 +92,7 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
   };
 
   const [addProject, creatingProject] = useSingleFlight(async (): Promise<void> => {
-    const res = await chatsApi.createProject({ name: name.trim(), path: path.trim() === "" ? null : path.trim() });
+    const res = await chatsApi.createProject({ name: name.trim(), path: path.trim() === "" ? null : path.trim(), parent_id: parentId === "" ? null : parentId });
     if (res.kind !== "ok") {
       toast("error", describeFailure(res, "could not create the project"));
       return;
@@ -89,6 +100,7 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
     setAdding(false);
     setName("");
     setPath("");
+    setParentId("");
     void refreshProjects();
     onNavigate();
     location.hash = `#/projects/${encodeURIComponent(res.body.id)}`;
@@ -123,6 +135,12 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
         >
           <input className="input" aria-label="Project name" placeholder="Project name" value={name} onChange={(e) => { setName(e.target.value); }} required autoFocus />
           <input className="input" aria-label="Directory" placeholder="Directory (optional, absolute path)" value={path} onChange={(e) => { setPath(e.target.value); }} />
+          <select className="input" aria-label="Sub project of" value={parentId} onChange={(e) => { setParentId(e.target.value); }}>
+            <option value="">Top-level project</option>
+            {(projects.data ?? []).filter((p) => p.parent_id === null && p.archived_at === null).map((p) => (
+              <option key={p.id} value={p.id}>Sub project of {p.name}</option>
+            ))}
+          </select>
           <button type="submit" className="btn primary" disabled={name.trim() === "" || creatingProject}>
             Create project
           </button>
@@ -150,13 +168,13 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
           </ul>
         ) : (
           groups.map((group) => (
-            <section key={group.project?.id ?? "none"} className="group">
+            <section key={group.project?.id ?? "none"} className="group" data-sub={group.sub || undefined}>
               <h3 className="group-head">
                 {group.project === null ? (
                   <span>No project</span>
                 ) : (
                   <a href={`#/projects/${encodeURIComponent(group.project.id)}`} aria-current={group.project.id === activeProjectId ? "page" : undefined} onClick={onNavigate}>
-                    {group.project.name}
+                    {group.sub ? "↳ " : ""}{group.project.name}
                   </a>
                 )}
                 <span className="group-tools">

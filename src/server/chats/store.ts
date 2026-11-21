@@ -63,13 +63,13 @@ export class ChatStore {
 
   // ---- projects ----
 
-  createProject(input: { name: string; path?: string | null; description?: string }): ProjectRow {
+  createProject(input: { name: string; path?: string | null; description?: string; parent_id?: string | null }): ProjectRow {
     const row: ProjectRow = {
       id: newId("prj"), name: input.name, path: input.path ?? null, description: input.description ?? "",
-      created_at: now(), archived_at: null,
+      created_at: now(), archived_at: null, parent_id: input.parent_id ?? null,
     };
-    this.db.query("INSERT INTO projects (id, name, path, description, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(row.id, row.name, row.path, row.description, row.created_at);
+    this.db.query("INSERT INTO projects (id, name, path, description, created_at, parent_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(row.id, row.name, row.path, row.description, row.created_at, row.parent_id);
     return row;
   }
 

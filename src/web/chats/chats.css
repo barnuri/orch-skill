@@ -23,6 +23,7 @@ body.drawer-open { overflow: hidden; }
 .side-scroll { overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; display: grid; align-content: start; gap: var(--s3); }
 .group-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 var(--s1); font-size: var(--fs-micro); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--tx2); }
 .group-head a { color: var(--tx1); }
+.group[data-sub] { padding-inline-start: var(--s2); }
 .group-head a[aria-current="page"] { color: var(--acct); }
 .group-count { font: 500 var(--fs-micro) var(--font-mono); color: var(--tx3); }
 .thread {
@@ -83,11 +84,15 @@ body.drawer-open { overflow: hidden; }
 .picker-btn:disabled { opacity: .7; cursor: not-allowed; }
 .picker-note { font-size: var(--fs-micro); color: var(--tx3); }
 .picker-list { max-height: 280px; overflow-y: auto; min-width: 100%; width: max-content; max-width: min(420px, 90vw); }
+.picker-items { margin: 0; padding: 0; list-style: none; }
+.picker-search { display: block; width: 100%; margin: 0 0 4px; position: sticky; top: 0; z-index: 1; }
+.picker-empty { display: flex; align-items: center; min-height: 32px; padding: 0 var(--s3); font-size: var(--fs-meta); color: var(--tx3); }
 .picker-opt { display: grid; gap: 1px; min-height: 36px; align-content: center; }
 .picker-opt[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .picker-opt-id { font: 500 var(--fs-micro) var(--font-mono); color: var(--tx3); }
 .picker-opt-desc { font-size: var(--fs-meta); color: var(--tx2); white-space: normal; }
 .picker-opt-why { font-size: var(--fs-micro); color: var(--wa); }
+.picker-opt-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pickers-meta { grid-column: 1 / -1; margin: 0; font-size: var(--fs-meta); color: var(--tx2); }
 .pickers-meta code { font-family: var(--font-mono); color: var(--tx); }
 .picker-problem { color: var(--status-error); }
@@ -289,6 +294,12 @@ body.drawer-open { overflow: hidden; }
 .pickers-meta .picker-problem { display: inline-block; margin-top: var(--s1); padding: 2px var(--s2); border: 1px solid var(--status-error-bd); border-radius: var(--r-md); background: var(--status-error-bg); font-weight: 600; }
 .pickers-meta .picker-problem { display: block; width: fit-content; }
 .composer .picker-list { top: auto; bottom: calc(100% + var(--s1)); }
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+  .picker-list, .composer .picker-list { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 60; width: 100%; min-width: 0; max-width: none; max-height: 70dvh; border-radius: var(--r-md) var(--r-md) 0 0; padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); }
+  .picker-search { font-size: 16px; min-height: 44px; }
+  .picker-opt { min-height: 44px; }
+  .picker-opt-main { font-size: var(--fs-ctl); }
+}
 
 /* ---- Voice: dictation and hands-free conversation ---- */
 .composer-mic, .composer-voice { min-height: 44px; min-width: 44px; flex: none; }
