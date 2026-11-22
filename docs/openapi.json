@@ -474,6 +474,11 @@
             "type": "string",
             "description": "Display name."
           },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "What the schedule is for. Null or absent when none."
+          },
           "cron": {
             "type": "string",
             "description": "Five-field cron expression or an @alias, in the machine's local time."
@@ -718,6 +723,11 @@
             "maxLength": 300,
             "description": "Display name."
           },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "What the schedule is for. Optional."
+          },
           "cron": {
             "type": "string",
             "minLength": 1,
@@ -792,6 +802,11 @@
             "minLength": 1,
             "maxLength": 300,
             "description": "Display name."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "What the schedule is for. Empty clears it."
           },
           "cron": {
             "type": "string",
@@ -2055,7 +2070,7 @@
           "parent_id": {
             "type": "string",
             "nullable": true,
-            "description": "Parent project id when this is a sub project; null for a top-level project."
+            "description": "The parent project of a sub project; null for a top-level project. Sub projects are one level deep."
           }
         },
         "required": [
@@ -2082,7 +2097,7 @@
             "type": "string",
             "nullable": true,
             "maxLength": 1000,
-            "description": "Absolute directory the chats run in. Must exist."
+            "description": "Absolute directory the chats run in. Must exist. For a sub project, omit it to use `<parent path>/<name>` (created when missing)."
           },
           "description": {
             "type": "string",
@@ -2093,7 +2108,7 @@
             "type": "string",
             "nullable": true,
             "maxLength": 100,
-            "description": "Parent project id to make this a sub project. Null or omitted: a top-level project. A sub project cannot have sub projects."
+            "description": "Makes this a sub project of that top-level, active project. 404 when it does not exist; 400 when it is archived or is itself a sub project."
           }
         },
         "required": [
@@ -2159,7 +2174,7 @@
               "parent_id": {
                 "type": "string",
                 "nullable": true,
-                "description": "Parent project id when this is a sub project; null for a top-level project."
+                "description": "The parent project of a sub project; null for a top-level project. Sub projects are one level deep."
               }
             },
             "required": [
@@ -8514,7 +8529,7 @@
       },
       "post": {
         "summary": "Create a project",
-        "description": "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there.",
+        "description": "A project groups chats. `path`, when given, must be an existing absolute directory; chats of the project run there. `parent_id` makes it a sub project (one level deep) shown under its parent; without `path` a sub project runs in `<parent path>/<name>`, created when missing.",
         "tags": [
           "projects"
         ],
@@ -8550,6 +8565,16 @@
           },
           "401": {
             "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such parent project.",
             "content": {
               "application/json": {
                 "schema": {

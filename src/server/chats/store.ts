@@ -73,6 +73,27 @@ export class ChatStore {
     return row;
   }
 
+  /** The sub projects of a project, archived ones included, oldest first. */
+  subProjects(parentId: string): ProjectRow[] {
+    return this.db.query("SELECT * FROM projects WHERE parent_id = ? ORDER BY id").all(parentId) as ProjectRow[];
+  }
+
+  /** Moves a chat to another project and clears its subfolder in one statement. Not activity, so `updated_at` stays. */
+  moveChatClearingSubfolder(id: string, projectId: string): ChatRow | null {
+    this.db.query("UPDATE chats SET project_id = ?, subfolder = NULL WHERE id = ?").run(projectId, id);
+    return this.getChat(id);
+  }
+
+  /** Every active chat that still has a subfolder, oldest first. */
+  chatsWithSubfolder(): ChatRow[] {
+    return this.db.query("SELECT * FROM chats WHERE subfolder IS NOT NULL AND archived_at IS NULL ORDER BY created_at, id").all() as ChatRow[];
+  }
+
+  /** Runs `fn` in one transaction. */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   getProject(id: string): ProjectRow | null {
     return (this.db.query("SELECT * FROM projects WHERE id = ?").get(id) as ProjectRow | null) ?? null;
   }

@@ -76,7 +76,7 @@ describe("schedules", () => {
   test("an edit draft is prefilled from the schedule and sends clears explicitly", () => {
     const draft = draftOf(schedule({ kind: "command", command: "ls", workdir: "/tmp", timeout: 300, name: "n", cron: "* * * * *" }));
     expect(draft).toMatchObject({ kind: "command", command: "ls", workdir: "/tmp", timeout: "5m", name: "n" });
-    expect(scheduleEditPayload({ ...draft, workdir: " ", timeout: "" })).toEqual({ name: "n", cron: "* * * * *", kind: "command", command: "ls", workdir: "", timeout: "0" });
+    expect(scheduleEditPayload({ ...draft, workdir: " ", timeout: "" })).toEqual({ name: "n", description: "", cron: "* * * * *", kind: "command", command: "ls", workdir: "", timeout: "0" });
     expect([timeoutText(0), timeoutText(7200), timeoutText(90)]).toEqual(["", "2h", "90s"]);
     expect(Object.keys(draftErrors({ ...emptyScheduleDraft(), kind: "command", timeout: "soon" })).sort()).toEqual(["command", "name", "timeout"]);
   });

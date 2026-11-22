@@ -19,6 +19,7 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
   const [name, setName] = useState("");
   const [picking, setPicking] = useState(false);
   const [description, setDescription] = useState("");
+  const [subName, setSubName] = useState("");
   useEffect(() => {
     if (project !== undefined) {
       setName(project.name);
@@ -32,6 +33,20 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
     return <div className="chat-empty"><p className="muted">{active.isLoading ? "Loading…" : "Project not found."}</p></div>;
   }
   const mine = chats.chats.filter((c) => c.project_id === projectId);
+  const all = [...(active.data ?? []), ...(archivedList.data ?? [])];
+  const parent = project.parent_id == null ? undefined : all.find((p) => p.id === project.parent_id);
+  const subs = (archivedList.data ?? active.data ?? []).filter((p) => p.parent_id === projectId).sort((a, b) => a.id.localeCompare(b.id));
+  const canHaveSubs = project.parent_id == null && project.archived_at === null;
+  const addSub = async (): Promise<void> => {
+    const res = await chatsApi.createProject({ name: subName.trim(), parent_id: projectId });
+    if (res.kind !== "ok") {
+      toast("error", describeFailure(res, "could not create the sub project"));
+      return;
+    }
+    setSubName("");
+    void refreshProjects();
+    location.hash = `#/projects/${encodeURIComponent(res.body.id)}`;
+  };
   const save = async (): Promise<void> => {
     const res = await chatsApi.updateProject(projectId, { name: name.trim(), description });
     toast(res.kind === "ok" ? "ok" : "error", res.kind === "ok" ? "Project saved" : describeFailure(res, "could not save"));
@@ -59,6 +74,11 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
         <h1 className="project-title">{project.name}</h1>
         {project.archived_at !== null ? <span className="tag">archived</span> : null}
       </div>
+      {parent === undefined ? null : (
+        <p className="project-parent" data-testid="project-parent">
+          Sub project of <a href={`#/projects/${encodeURIComponent(parent.id)}`}>{parent.name}</a>
+        </p>
+      )}
       <form className="project-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label className="field-group"><span className="field-label">Name</span><input value={name} onChange={(e) => { setName(e.target.value); }} required /></label>
         <div className="field-group">
@@ -76,6 +96,28 @@ export function ProjectView({ projectId, onOpenDrawer }: { projectId: string; on
         </div>
       </form>
       {picking ? <FolderPicker title="Folder for this project" current={project.path} onPick={pickFolder} onClose={() => { setPicking(false); }} /> : null}
+      {project.parent_id == null ? (
+        <>
+          <h2 className="section-title">Sub projects</h2>
+          {subs.length === 0 ? null : (
+            <ul className="subproject-list" data-testid="subproject-list">
+              {subs.map((s) => (
+                <li key={s.id}>
+                  <a href={`#/projects/${encodeURIComponent(s.id)}`}>{s.name}</a>
+                  {s.archived_at === null ? null : <span className="tag">archived</span>}
+                  <FolderChip path={s.path} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {canHaveSubs ? (
+            <form className="subproject-form" onSubmit={(e) => { e.preventDefault(); void addSub(); }}>
+              <input className="input" aria-label="Sub project name" placeholder={project.path === null ? "Sub project name" : "Sub project name (its folder inside the project folder)"} value={subName} onChange={(e) => { setSubName(e.target.value); }} />
+              <button type="submit" className="btn" disabled={subName.trim() === ""}>New sub project</button>
+            </form>
+          ) : null}
+        </>
+      ) : null}
       <h2 className="section-title">Chats</h2>
       {mine.length === 0 ? (
         <EmptyState title="No chats in this project yet">Start one with New chat here.</EmptyState>

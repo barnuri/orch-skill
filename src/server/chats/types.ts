@@ -3,7 +3,7 @@ export type MessageStatus = "pending" | "streaming" | "done" | "error" | "stoppe
 
 export interface ProjectRow {
   id: string; name: string; path: string | null; description: string; created_at: string; archived_at: string | null;
-  /** Set for a sub project: the project it belongs to. Null for a top-level project. One level deep only. */
+  /** The parent project of a sub project; null for a top-level project. Sub projects are one level deep. */
   parent_id: string | null;
 }
 

@@ -5,6 +5,7 @@ import { Toggle } from "../components/Toggle";
 import { useToast } from "../components/Toast";
 import { visibleChats } from "../lib/chat-logic";
 import type { Chat, ChatOptions, Project } from "../lib/chat-types";
+import { projectTree } from "../lib/project-tree";
 import { refreshChats, refreshProjects, useChatSearch, useChats, useProjects } from "./queries";
 import { useSingleFlight } from "../lib/use-single-flight";
 import { ChatListRow, chatMeta } from "./ChatListRow";
@@ -62,22 +63,12 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
     for (const chat of visibleChats(chats.chats, activeChatId, archived)) {
       byProject.set(chat.project_id, [...(byProject.get(chat.project_id) ?? []), chat]);
     }
-    const all = projects.data ?? [];
-    const known = new Set(all.map((p) => p.id));
-    // A sub project sits under its parent. A sub project whose parent is not listed (archived, filtered) shows at top level.
-    const nested = (parent: Project): Project[] => all.filter((p) => p.parent_id === parent.id);
-    const top = all.filter((p) => p.parent_id === null || !known.has(p.parent_id));
-    const out: { project: Project | null; chats: Chat[]; sub: boolean }[] = [];
-    for (const project of top) {
-      out.push({ project, chats: byProject.get(project.id) ?? [], sub: false });
-      for (const child of nested(project)) {
-        out.push({ project: child, chats: byProject.get(child.id) ?? [], sub: true });
-      }
-    }
-    out.push({ project: null, chats: byProject.get(null) ?? [], sub: false });
+    const out: { project: Project | null; chats: Chat[]; depth: 0 | 1 }[] = projectTree(projects.data ?? []).map(({ project, depth }) => ({ project, depth, chats: byProject.get(project.id) ?? [] }));
+    out.push({ project: null, depth: 0, chats: byProject.get(null) ?? [] });
+    const known = new Set((projects.data ?? []).map((p) => p.id));
     for (const [pid, list] of byProject) {
       if (pid !== null && !known.has(pid)) {
-        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x", parent_id: null }, chats: list, sub: false });
+        out.splice(out.length - 1, 0, { project: { id: pid, name: pid, path: null, description: "", created_at: "", archived_at: "x", parent_id: null }, depth: 0, chats: list });
       }
     }
     return out;
@@ -168,13 +159,13 @@ export function Sidebar({ activeChatId, activeProjectId, onNavigate }: SidebarPr
           </ul>
         ) : (
           groups.map((group) => (
-            <section key={group.project?.id ?? "none"} className="group" data-sub={group.sub || undefined}>
+            <section key={group.project?.id ?? "none"} className={group.depth === 1 ? "group group-sub" : "group"} data-testid={group.depth === 1 ? "sub-project-group" : undefined}>
               <h3 className="group-head">
                 {group.project === null ? (
                   <span>No project</span>
                 ) : (
                   <a href={`#/projects/${encodeURIComponent(group.project.id)}`} aria-current={group.project.id === activeProjectId ? "page" : undefined} onClick={onNavigate}>
-                    {group.sub ? "↳ " : ""}{group.project.name}
+                    {group.depth === 1 ? "↳ " : ""}{group.project.name}
                   </a>
                 )}
                 <span className="group-tools">

@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import type { ServerContext } from "../types/server-context";
 import { MAX_CONTENT_CHARS, MAX_TITLE_CHARS } from "./limits";
 import { ensureSubfolder, normaliseSubfolder, reasonOf, SubfolderError, subfolderProblem } from "./subfolder";
+import { parentProblem, subProjectFolder } from "./subprojects";
 import { chatRoots, FolderError, folderUsable, type FolderList, listFolders, validateFolder } from "./folders";
 import { alternativeHint, buildOptions, chatUsageRefusal, EFFORTS, type ChatOptions, resolveLaunch } from "./options";
 import { OpencodeSession } from "./sessions/opencode-session";
@@ -308,21 +309,6 @@ export class ChatService {
 
   // ---- lookups ----
 
-  /** A sub project belongs to a top-level project. Throws 400 when the parent is missing, archived or itself a sub project. */
-  parentFor(parentId: string | null | undefined): string | null {
-    if (parentId === null || parentId === undefined) {
-      return null;
-    }
-    const parent = this.project(parentId);
-    if (parent.parent_id !== null) {
-      throw new HttpError(400, "parent_id: a sub project cannot hold sub projects");
-    }
-    if (parent.archived_at !== null) {
-      throw new HttpError(400, "parent_id: the parent project is archived");
-    }
-    return parent.id;
-  }
-
   project(id: string): ProjectRow {
     const row = this.store.getProject(id);
     if (row === null) {
@@ -337,6 +323,31 @@ export class ChatService {
       throw new HttpError(404, "no such chat");
     }
     return row;
+  }
+
+  /**
+   * A new project. With `parent_id` it is a sub project of that project; without a `path` it then runs in `<parent path>/<name>`,
+   * created when missing (null when the parent has no folder). `path`, when given, is checked by the caller.
+   */
+  createProject(input: { name: string; path?: string | null; description?: string; parent_id?: string | null }): ProjectRow {
+    const parentId = input.parent_id ?? null;
+    if (parentId === null) {
+      return this.store.createProject(input);
+    }
+    const parent = this.project(parentId);
+    const problem = parentProblem(parent);
+    if (problem !== null) {
+      throw new HttpError(400, problem);
+    }
+    let path = input.path ?? null;
+    if (path === null || path === "") {
+      try {
+        path = subProjectFolder(parent, input.name);
+      } catch (err) {
+        throw err instanceof SubfolderError ? new HttpError(400, err.message) : err;
+      }
+    }
+    return this.store.createProject({ ...input, path, parent_id: parentId });
   }
 
   private checkProject(id: string | null | undefined): void {
