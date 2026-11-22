@@ -78,13 +78,23 @@ describe("run row", () => {
   });
 });
 
+describe("node session transcript", () => {
+  test("follow pauses above the bottom and resumes at the bottom", async () => {
+    const { isNearBottom, transcriptLines } = await import("./NodePanel");
+    expect(isNearBottom(1000, 940, 100)).toBe(true);
+    expect(isNearBottom(1000, 700, 100)).toBe(false);
+    const lines = Array.from({ length: 205 }, (_, index) => `line ${index + 1}`).join("\n");
+    expect(transcriptLines(lines)).toHaveLength(200);
+    expect(transcriptLines(lines)[0]).toBe("line 6");
+  });
+});
+
 describe("node panel placeholders", () => {
   test("every field is shown, missing ones muted with a reason", () => {
     const waiting = node({});
     render(<NodePanel run={runOf([waiting])} selectedId="n1" maxAttempts={5} flash={0} />);
     const row = (key: string) => screen.getByText(key).nextElementSibling as HTMLElement;
-    expect(row("model").textContent).toBe("model not reported");
-    expect(row("model").className).toContain("missing");
+    expect(screen.getByText("model not reported").className).toContain("missing");
     expect(row("duration").textContent).toBe("not started");
     expect(row("usage").textContent).toBe("no usage reported");
     expect(row("usage").getAttribute("title")).toContain("inline");
@@ -130,10 +140,11 @@ describe("node panel placeholders", () => {
     expect(screen.queryByText("why")).toBeNull();
   });
 
-  test("model precedence: hub actual beats the profile model", () => {
+  test("model precedence: hub actual beats the profile model without duplicating it", () => {
     const hub = { expected: { model: "p/exp-model" }, actual: { model: "p/act-model" }, outcome: null };
     render(<NodePanel run={runOf([node({ model: "profile-model", hub })])} selectedId="n1" maxAttempts={5} flash={0} />);
-    expect((screen.getByText("model").nextElementSibling as HTMLElement).textContent).toBe("act-model");
+    expect(screen.queryByText("model")).toBeNull();
+    expect(screen.getByText("act-model")).toBeTruthy();
   });
 
   test("a running node's duration ticks, a finished one stays put", async () => {

@@ -22,9 +22,7 @@ import { Ago } from "./RunActivity";
 import { useJobChat, useJobLog, useNodeActivity } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
-import { ModelIcon } from "./ModelIcon";
 import { NodeMessages } from "./NodeMessages";
-import { familyOf, iconModelOf } from "../lib/model-family";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
 const ATTEMPT_TAIL_LINES = 8;
@@ -162,7 +160,6 @@ function DetailList({ node, run, maxAttempts, waitingOn = [] }: { node: RunNode;
       <Row k="status" value={node.status} />
       {wait === null ? null : <Row k="why" value={wait.text} cls={`wait-reason wait-${wait.kind}`} title={wait.title} />}
       <ActivityRows node={node} />
-      <Row k="model" value={<><ModelIcon family={familyOf(iconModelOf(node))} />{modelMetric(node).text}</>} cls={`mono${modelMetric(node).present ? "" : " missing"}`} title={modelMetric(node).title} />
       {actualModelMetric(node).present ? <MetricRow k="actual" metric={actualModelMetric(node)} cls="mono" /> : null}
       <MetricRow k="duration" metric={duration} />
       <MetricRow k="usage" metric={usageMetric(node)} cls="mono" />
@@ -308,6 +305,65 @@ function resumeCommand(node: RunNode, session: string | null): string | null {
   return session === null || session === "" || node.adapter !== "claude" ? null : `claude --resume ${session}`;
 }
 
+const LOG_WINDOW_LINES = 200;
+
+export function transcriptLines(text: string): string[] {
+  const lines = text.replace(/\r/g, "").split("\n");
+  return lines.slice(-LOG_WINDOW_LINES);
+}
+
+export function isNearBottom(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
+  return scrollHeight - scrollTop - clientHeight < 24;
+}
+
+export function toolLine(text: string): boolean {
+  const trimmed = text.trim();
+  return /^(?:tool|function)[\s:_-]/i.test(trimmed) || /^\s*[⏺◆●]\s*(?:tool|function)/i.test(trimmed);
+}
+
+function JobTranscript({ text }: { text: string }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [following, setFollowing] = useState(true);
+  const lines = transcriptLines(text);
+  const atBottom = (element: HTMLDivElement): boolean => isNearBottom(element.scrollHeight, element.scrollTop, element.clientHeight);
+  useEffect(() => {
+    const element = list.current;
+    if (following && element !== null) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [text, following]);
+  const jumpToBottom = (): void => {
+    const element = list.current;
+    if (element !== null) {
+      element.scrollTop = element.scrollHeight;
+      setFollowing(true);
+    }
+  };
+  return (
+    <div className="job-transcript-wrap">
+      <div
+        className="job-transcript"
+        role="log"
+        aria-label="Recent job log"
+        ref={list}
+        onScroll={(event) => {
+          const nowAtBottom = atBottom(event.currentTarget);
+          if (following !== nowAtBottom) {
+            setFollowing(nowAtBottom);
+          }
+        }}
+      >
+        {lines.map((line, index) => (
+          <div key={`${index}-${line}`} className={toolLine(line) ? "job-message is-tool mono" : "job-message mono"}>
+            {line === "" ? " " : <AnsiLog text={line} />}
+          </div>
+        ))}
+      </div>
+      {following ? null : <button className="btn job-jump-bottom" type="button" onClick={jumpToBottom}>Jump to bottom</button>}
+    </div>
+  );
+}
+
 function ChatTurns({ turns, truncated }: { turns: readonly ChatTurn[]; truncated: boolean }) {
   const list = useRef<HTMLDivElement>(null);
   // The newest turn is on top: scroll home only when the turn count changed, so a reader who has
@@ -397,7 +453,7 @@ function NodeSession({ node }: { node: RunNode }) {
   } else if (jobId !== null && log.isPending) {
     body = <p className="hint">Reading the session…</p>;
   } else if (envelope !== null) {
-    body = <AiText className="ai-text node-output" text={stripAnsi(envelope.text)} plain={stripAnsi(envelope.text)} />;
+    body = <JobTranscript text={stripAnsi(envelope.text)} />;
   } else if (node.log_tail.length > 0) {
     body = <pre className="transcript node-output"><AnsiLog text={node.log_tail.join("\n")} /></pre>;
   } else {

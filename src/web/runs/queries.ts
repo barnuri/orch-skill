@@ -142,7 +142,9 @@ export function useJobLog(jobId: string | null) {
       }
       return result.body;
     },
-    staleTime: 30_000,
+    staleTime: 2000,
+    refetchInterval: POLL_MS,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
 }

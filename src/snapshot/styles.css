@@ -228,6 +228,16 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
 }
 .chat-truncated { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.job-transcript-wrap { position: relative; min-width: 0; }
+.job-transcript {
+  max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+  scrollbar-width: thin; scrollbar-color: var(--tx3) transparent;
+}
+.job-message { padding: 3px 12px; white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
+.job-message:last-child { border-bottom: 0; }
+.job-message.is-tool { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tx2); background: var(--panel); }
+.job-jump-bottom { position: sticky; bottom: 8px; float: right; margin: -44px 10px 8px 0; box-shadow: 0 2px 10px var(--shadow); }
 .chat-turn { padding: 10px 12px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
 .chat-turn:last-child { border-bottom: none; }
 /* The newest turn is first; a left edge marks it without moving anything. */
