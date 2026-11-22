@@ -48,8 +48,9 @@ async function keepGreen(home: string, runId: string, pass: string[]): Promise<v
   lastGreen = Date.now();
   const run = await loadRun(home, runId);
   if (!run) return;
-  for (const [id, node] of Object.entries(run.nodes ?? {})) {
-    const n = node as { status?: string; error?: string | null };
+  for (const node of (run.nodes ?? []) as Array<{ id: string; status?: string; error?: string | null }>) {
+    const id = node.id;
+    const n = node;
     if (n.status !== "error" || /cancel/i.test(n.error ?? "")) continue;
     const key = `${runId}/${id}`;
     if (Date.now() - (retriedAt[key] ?? 0) < RETRY_GAP_MS) continue;
