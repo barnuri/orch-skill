@@ -4,12 +4,43 @@
 import { loadRun } from "../state/store.ts";
 import { orchHome } from "../state/home.ts";
 import { BIN_ORCH } from "../state/proc.ts";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { findNode } from "../runs/node.ts";
 
 export const RUN_WATCH_USAGE = "dispatch.ts run watch <run-id> [--json] [--stall-min N]";
 const MAX_CRASHES = 5;
 // Keep the run green without the coordinator: retry errored nodes (within max_attempts) and nudge idle ones.
 const RETRY_GAP_MS = 60_000;
+const MAX_AUTO_ATTEMPTS = 5;
 const retriedAt: Record<string, number> = {};
+
+async function deliverMailbox(home: string, runId: string, pass: string[]): Promise<void> {
+  const mailbox = join(home, "runs", runId, "messages.jsonl");
+  const run = await loadRun(home, runId);
+  if (!run) return;
+  const cursorFile = join(home, "runs", runId, "mailbox-watch.cursor");
+  const cursor = Number((await readFile(cursorFile, "utf8").catch(() => "0")).trim()) || 0;
+  const lines = (await readFile(mailbox, "utf8").catch(() => "")).split("\n").filter((line) => line.trim());
+  for (let index = cursor; index < lines.length; index++) {
+    let message: { from?: string; to?: string; text?: string; ts?: string };
+    try {
+      message = JSON.parse(lines[index]!);
+    } catch {
+      continue;
+    }
+    const targets = message.to === "all" ? (run.nodes ?? []).map((node) => node.id) : [message.to ?? ""];
+    for (const nodeId of targets) {
+      if (!nodeId || nodeId === "orch") continue;
+      if (!findNode(run, nodeId)) continue;
+      const node = findNode(run, nodeId)!;
+      const outDir = node.out_dir ? String(node.out_dir) : join(home, "runs", runId, "out", nodeId);
+      await mkdir(outDir, { recursive: true });
+      await appendFile(join(outDir, "inbox.md"), `[${message.ts ?? ""} ${message.from ?? "orch"} -> ${nodeId}] ${message.text ?? ""}\n`);
+    }
+  }
+  await Bun.write(cursorFile, String(lines.length) + "\n");
+}
 
 let lastGreen = 0;
 async function keepGreen(home: string, runId: string, pass: string[]): Promise<void> {
@@ -23,7 +54,10 @@ async function keepGreen(home: string, runId: string, pass: string[]): Promise<v
     const key = `${runId}/${id}`;
     if (Date.now() - (retriedAt[key] ?? 0) < RETRY_GAP_MS) continue;
     retriedAt[key] = Date.now();
-    const p = Bun.spawn([process.execPath, BIN_ORCH, "node", "retry", runId, id], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const attempts = Array.isArray((node as { attempts?: unknown[] }).attempts) ? (node as { attempts: unknown[] }).attempts.length : 0;
+    // Attempts used up: replace the node with a fresh one (same goal, prompt, profile) and mark this one covered.
+    const verb = attempts >= MAX_AUTO_ATTEMPTS ? ["node", "replace", runId, id] : ["node", "retry", runId, id];
+    const p = Bun.spawn([process.execPath, BIN_ORCH, ...verb], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const out = await new Response(p.stdout).text();
     await p.exited;
     process.stdout.write(`auto-retry ${id}: ${out.trim().split("\n").pop() ?? ""}\n`);
@@ -48,6 +82,7 @@ export async function runWatch(args: string[]): Promise<number> {
 
   let crashes = 0;
   for (;;) {
+    await deliverMailbox(home, runId, pass);
     const before = await loadRun(home, runId);
     if (!before) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
     if (before.status !== "running") return 0;
@@ -59,6 +94,7 @@ export async function runWatch(args: string[]): Promise<number> {
     const after = await loadRun(home, runId);
     if (!after) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
     if (after.status !== "running") return 0;
+    await deliverMailbox(home, runId, pass);
     await keepGreen(home, runId, pass);
 
     // Exit 0 (events) and 3 (settled) restart at once: wait blocks on its own cursor until the next change.

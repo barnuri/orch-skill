@@ -31,6 +31,20 @@ test("run watch: a run that already ended exits 0 at once", () => {
   expect(o("run", "watch", R).rc).toBe(0);
 });
 
+test("run watch: mailbox message appears in target inbox on the next watch pass", async () => {
+  const home = seedHome();
+  const o = orch(home, base);
+  const R = o("run", "start", "mailbox watch", "--id", "mail-watch").out.trim();
+  o("node", "add", R, "target", "Target node");
+  o("msg", "send", R, "--to", "target", "--from", "orch", "deliver this");
+  const outFile = join(home, "mailbox-watch.out");
+  const w = Bun.spawn(["bun", DISPATCH, "run", "watch", R], { env: cleanEnv({ HARNESS_ORCH_HOME: home, ...base }), stdout: Bun.file(outFile), stderr: "pipe" });
+  await waitUntil(() => existsSync(join(home, "runs", R, "out", "target", "inbox.md")), 90);
+  o("run", "finish", R, "--status", "cancelled");
+  expect(await w.exited).toBe(0);
+  expect(readFileSync(join(home, "runs", R, "out", "target", "inbox.md"), "utf8")).toContain("deliver this");
+});
+
 test("run watch: unknown run exits 2", () => {
   const home = seedHome();
   expect(orch(home, base)("run", "watch", "nope-run").rc).toBe(2);
