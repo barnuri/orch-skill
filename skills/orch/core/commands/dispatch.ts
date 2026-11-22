@@ -295,7 +295,7 @@ export function appendNodeGoal(prompt: string, goal: string): string {
   return `${prompt.trim()}\n\n## Your task\n${goal}\n`;
 }
 
-export const EARLY_END_MESSAGE = "You ended early. Read your task and handoff notes, continue, and write handoff.md in $ORCH_NODE_OUT before you finish";
+export const EARLY_END_MESSAGE = "You ended early. Read your task and handoff notes, continue, and write handoff.md in $ORCH_NODE_OUT before you finish. Do not ask a question: decide and continue. Do not end your turn while a background command you started is still running: wait for it and read its result. Finish the task, then write the handoff and record the result.";
 export const MAX_EARLY_END_RESUMES = 2;
 
 function errorSummary(n: Record<string, any>): string {
