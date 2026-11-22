@@ -2,7 +2,7 @@
 // the user's live herdr: jobs run in panes of a second, headless herdr server under <home>/herdr/
 // with its own HOME, config.toml, socket, pidfile and log. One workspace per run, one tab per node
 // (titled "<node-id>", plus " #<attempt>" above 1) with one pane. A retry reuses the node's tab.
-// An ended job's tab is closed by sweep() once herdr_linger_sec has passed. Every herdr call is best
+// An ended job's tab closes as soon as the wrapper writes its result. Every herdr call is best
 // effort: when it fails the caller starts the job detached. Bun built-ins only.
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -300,6 +300,8 @@ const lingerSec = async (home: string): Promise<number> => {
   return /^\d+$/.test(v) ? Number(v) : LINGER_DEFAULT;
 };
 
+const stoppedExitCode = (exitCode: number): boolean => [129, 130, 143].includes(exitCode);
+
 const ownerFile = (home: string, tab: string) => join(herdrDir(home), "tabs", `${tab.replace(/[^A-Za-z0-9._-]/g, "_")}.job`);
 
 // Closes the job's tab now when this job still owns it (cancelled or duplicate jobs). Best effort.
@@ -321,10 +323,20 @@ function writeLauncher(file: string, jobDir: string, launcherTs: string, close: 
   s += `command -v bun >/dev/null 2>&1 || { echo "orch needs bun: install it from https://bun.sh" >&2; exit 127; }\n`;
   s += "unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID\n";
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && LAUNCH_ENV.test(k)) s += `export ${k}=${shq(v)}\n`;
+  // Per-job environment (for example a profile's provider config) written by the caller as env.json.
+  const jobEnv = join(jobDir, "env.json");
+  if (existsSync(jobEnv)) {
+    try {
+      for (const [k, v] of Object.entries(JSON.parse(readFileSync(jobEnv, "utf8")) as Record<string, unknown>)) {
+        if (/^[A-Z_][A-Z0-9_]*$/.test(k) && typeof v === "string") s += `export ${k}=${shq(v)}\n`;
+      }
+    } catch { /* a bad env.json is ignored: the job starts with the default environment */ }
+  }
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
   s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
   if (close) {
-    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  sleep ${close.linger}\n`;
+    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n  [ "$exit_code" = 0 ] || [ "$exit_code" = 129 ] || [ "$exit_code" = 130 ] || [ "$exit_code" = 143 ] || [ -z "$exit_code" ] || {\n`;
+    s += `    sleep ${close.linger}\n`;
     s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
     s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
     s += ") >/dev/null 2>&1 </dev/null &\n";
@@ -505,11 +517,37 @@ export async function hcJobTail(jobDir: string, n = 20): Promise<string[]> {
   return r.stdout.replace(/\s+$/, "").split("\n").map((l) => l.replace(/\s+$/, "")).filter((l) => l.length > 0).slice(-n);
 }
 
-// Removes the hc terminals of ended jobs after the linger (exit_code mtime). Only jobs with an hc_term file.
+export async function closeEndedJob(home: string, jobDir: string): Promise<void> {
+  const exitCode = readTrim(join(jobDir, "exit_code"));
+  if (!exitCode) return;
+
+  const hcAddr = readTrim(join(jobDir, "hc_term"));
+  if (hcAddr && (await hcEnabled(home))) {
+    await hcCli(["rm", hcAddr]);
+    await trashPath(home, join(jobDir, "hc_term")).catch(() => undefined);
+    return;
+  }
+
+  const tab = readTrim(join(jobDir, "herdr_tab"));
+  if (!tab) return;
+  const code = Number(exitCode);
+  if (code !== 0 && !stoppedExitCode(code)) {
+    const linger = await lingerSec(home);
+    if (linger > 0) {
+      const inst = readTrim(join(jobDir, "herdr_home"));
+      if (!inst) return;
+      Bun.spawn(["sh", "-c", `sleep ${linger}; env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(inst)} herdr tab close ${shq(tab)} >/dev/null 2>&1`], {
+        cwd: process.cwd(), env: { ...process.env }, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      });
+      return;
+    }
+  }
+  await closeJobTab(home, jobDir);
+}
+
+// Removes only hc terminals whose result write did not reach close-ended-job.
 export async function hcSweep(home: string): Promise<number> {
   if (!(await hcEnabled(home))) return 0;
-  const linger = await lingerSec(home);
-  const now = Date.now() / 1000;
   let removed = 0;
   let dirs: string[] = [];
   try { dirs = readdirSync(paths.jobs(home)); } catch { return 0; }
@@ -517,9 +555,7 @@ export async function hcSweep(home: string): Promise<number> {
     const dir = join(paths.jobs(home), d);
     const addr = readTrim(join(dir, "hc_term"));
     if (!addr || jobRunning(dir)) continue;
-    let ended = 0;
-    try { ended = statSync(join(dir, "exit_code")).mtimeMs / 1000; } catch { continue; }
-    if (now - ended < linger) continue;
+    if (!existsSync(join(dir, "exit_code"))) continue;
     // A failed job shown in the desktop app stays visible for the user.
     if (existsSync(join(dir, "hc_app")) && readTrim(join(dir, "exit_code")) !== "0") continue;
     const r = await hcCli(["rm", addr]);
@@ -595,13 +631,11 @@ function jobRunning(jobDir: string): boolean {
   return false;
 }
 
-// Closes the tabs of ended jobs after the linger (ended_at in the job dir, else exit_code mtime) and
-// the panes no job owns after 60 s. Only ever touches the orch instance. Returns how many tabs it closed.
+// Closes orphan panes after 60 s. Ended job tabs close when the result is written. Only ever touches the orch instance. Returns how many tabs it closed.
 export async function sweep(home: string): Promise<number> {
   if (!(await herdrEnabled(home)) || !(await serverRunning(home))) return 0;
   const pl = await cliJson(home, ["pane", "list"]);
   if (!pl) return 0;
-  const linger = await lingerSec(home);
   const jobsDir = paths.jobs(home);
   const byPane = new Map<string, string>();
   try {
@@ -629,13 +663,20 @@ export async function sweep(home: string): Promise<number> {
       continue;
     }
     if (jobRunning(job)) continue;
-    let ended = 0;
-    const iso = readTrim(join(job, "ended_at"));
-    if (iso) ended = Date.parse(iso) / 1000;
-    else {
-      try { ended = statSync(join(job, "exit_code")).mtimeMs / 1000; } catch { continue; }
+    if (!existsSync(join(job, "exit_code"))) continue;
+    const code = Number(readTrim(join(job, "exit_code")));
+    if (code !== 0 && !stoppedExitCode(code)) {
+      const linger = await lingerSec(home);
+      if (linger > 0) {
+        let ended = 0;
+        const iso = readTrim(join(job, "ended_at"));
+        if (iso) ended = Date.parse(iso) / 1000;
+        else {
+          try { ended = statSync(join(job, "exit_code")).mtimeMs / 1000; } catch { continue; }
+        }
+        if (now - ended < linger) continue;
+      }
     }
-    if (!(ended > 0) || now - ended < linger) continue;
     const tab = readTrim(join(job, "herdr_tab")) || p.tab_id;
     if (tab && readTrim(ownerFile(home, tab)) !== job) continue;
     const r = await herdrCli(home, tab ? ["tab", "close", tab] : ["pane", "close", id]);
@@ -696,6 +737,7 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
       return (await startJob(home, jobDir!, argv)) ? 0 : 1;
     }
     case "close-tab": await closeJobTab(home, args[0] ?? ""); return 0;
+    case "close-ended": await closeEndedJob(home, args[0] ?? ""); return 0;
     case "job-gone-note": process.stdout.write(jobGoneNote(args[0] ?? "") + "\n"); return 0;
     case "serve-boot":
       if (await herdrEnabled(home)) await herdrOrch(home, "ensure");
@@ -722,4 +764,4 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
   return 0;
 }
 
-export const HERDR_VERBS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "job-gone-note", "serve-boot", "cli"];
+export const HERDR_VERBS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "close-ended", "job-gone-note", "serve-boot", "cli"];

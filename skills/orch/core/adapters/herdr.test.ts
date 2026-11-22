@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildJobTerminalName, resetAppCache, hcJobTail, hcEnabled, hcSweep, herdrCommand, herdrEnabled, jobGoneNote, startJob, sweep } from "./herdr.ts";
+import { buildJobTerminalName, resetAppCache, closeEndedJob, hcJobTail, hcEnabled, hcSweep, herdrCommand, herdrEnabled, jobGoneNote, startJob, sweep } from "./herdr.ts";
 
 // A herdr stub: answers status/workspace/tab/pane calls from a call log, records every call.
 function setup() {
@@ -57,12 +57,15 @@ describe("herdr", () => {
     const s = setup();
     const job = join(s.home, "jobs", "j1");
     mkdirSync(job);
+    const runDir = join(s.home, "runs", "r1");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "state.json"), JSON.stringify({ title: "Fix API", nodes: [{ id: "n1", label: "implement" }] }));
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "n1", ORCH_HERDR_WEB_ENVS_DIR: join(s.root, "envs") }, async () => {
       expect(await startJob(s.home, job, ["true", "a"])).toBe(true);
     });
     const calls = readFileSync(s.log, "utf8");
     expect(calls).toContain("tab create --workspace w1");
-    expect(calls).toContain("--label r1-n1 --no-focus");
+    expect(calls).toContain("--label fix-api-close-hc-terminal-on-node-attempt-3 --no-focus");
     expect(readFileSync(join(job, "herdr_pane"), "utf8")).toBe("p1\n");
     expect(readFileSync(join(job, "herdr_tab"), "utf8")).toBe("t1\n");
     expect(existsSync(join(job, "herdr_sock"))).toBe(true);
@@ -73,16 +76,19 @@ describe("herdr", () => {
     const s = setup();
     const job = join(s.home, "jobs", "j2");
     mkdirSync(job);
+    const runDir = join(s.home, "runs", "r1");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "state.json"), JSON.stringify({ title: "Fix API", nodes: [{ id: "n1", label: "implement" }] }));
     writeFileSync(s.panes, JSON.stringify({ result: { panes: [{ pane_id: "p1", tab_id: "t1" }] } }));
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_RUN_ID: "r1", ORCH_NODE_ID: "n1", ORCH_NODE_ATTEMPT: "2", ORCH_HERDR_WEB_ENVS_DIR: join(s.root, "envs") }, async () => {
       expect(await startJob(s.home, job, ["true"])).toBe(true);
     });
     const calls = readFileSync(s.log, "utf8");
-    expect(calls).toContain("tab rename t1 r1-n1-attempt-2");
-    expect(calls).not.toContain("tab create");
+    expect(calls).toContain("tab create --workspace w1");
+    expect(calls).toContain("fix-api-close-hc-terminal-on-node-attempt-2");
   }, 30000);
 
-  test("sweep closes an ended job's tab after the linger and an orphan after 60 s, never a running one", async () => {
+  test("sweep closes an orphan after 60 s and never closes a running pane", async () => {
     const s = setup();
     const mk = (name: string, pane: string, tab: string, endedAgo: number | null) => {
       const d = join(s.home, "jobs", name);
@@ -96,18 +102,16 @@ describe("herdr", () => {
       mkdirSync(join(s.home, "herdr", "tabs"), { recursive: true });
       writeFileSync(join(s.home, "herdr", "tabs", `${tab}.job`), `${d}\n`);
     };
-    mk("old", "p1", "t1", 400);
-    mk("fresh", "p2", "t2", 10);
     mk("live", "p3", "t3", null);
     writeFileSync(s.panes, JSON.stringify({ result: { panes: [
-      { pane_id: "p1", tab_id: "t1" }, { pane_id: "p2", tab_id: "t2" }, { pane_id: "p3", tab_id: "t3" }, { pane_id: "px", tab_id: "tx" },
+      { pane_id: "p3", tab_id: "t3" }, { pane_id: "px", tab_id: "tx" },
     ] } }));
     writeFileSync(join(s.home, "herdr", "orphans.json"), JSON.stringify({ px: Date.now() / 1000 - 120 }));
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1" }, async () => {
-      expect(await sweep(s.home)).toBe(2);
+      expect(await sweep(s.home)).toBe(1);
     });
     const closes = readFileSync(s.log, "utf8").split("\n").filter((l) => l.startsWith("tab close"));
-    expect(closes.sort()).toEqual(["tab close t1", "tab close tx"]);
+    expect(closes.sort()).toEqual(["tab close tx"]);
   });
 
   test("an unknown verb prints usage and exits 2", async () => {
@@ -205,7 +209,56 @@ esac
     expect(readFileSync(s.log, "utf8")).toContain("tab create --workspace w1");
   }, 30000);
 
-  test("hcSweep removes an ended hc terminal after the linger and keeps a running one", async () => {
+  test("closeEndedJob closes successful and stopped terminals immediately and keeps logs", async () => {
+    const s = setup();
+    writeFileSync(join(s.bin, "hc"), `#!/bin/sh
+ echo "$*" >> "${join(s.root, "hc.log")}"
+ echo '{}'
+`);
+    chmodSync(join(s.bin, "hc"), 0o755);
+
+    const hcJob = join(s.home, "jobs", "hc-ended");
+    mkdirSync(hcJob);
+    writeFileSync(join(hcJob, "hc_term"), "t-ok\n");
+    writeFileSync(join(hcJob, "exit_code"), "0\n");
+    writeFileSync(join(hcJob, "log"), "job output\n");
+
+    await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HC: "1", ORCH_HERDR: "1" }, async () => {
+      await closeEndedJob(s.home, hcJob);
+    });
+    expect(readFileSync(join(s.root, "hc.log"), "utf8")).toContain("rm t-ok");
+    expect(existsSync(join(hcJob, "log"))).toBe(true);
+    expect(readFileSync(join(hcJob, "log"), "utf8")).toBe("job output\n");
+
+    const stoppedHerdrJob = join(s.home, "jobs", "herdr-stopped");
+    mkdirSync(stoppedHerdrJob);
+    writeFileSync(join(stoppedHerdrJob, "herdr_tab"), "t-stopped\n");
+    writeFileSync(join(stoppedHerdrJob, "exit_code"), "143\n");
+    writeFileSync(join(stoppedHerdrJob, "log"), "stopped output\n");
+    mkdirSync(join(s.home, "herdr", "tabs"), { recursive: true });
+    writeFileSync(join(s.home, "herdr", "tabs", "t-stopped.job"), `${stoppedHerdrJob}\n`);
+
+    await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_HERDR_CLOSE_AFTER: "30" }, async () => {
+      await closeEndedJob(s.home, stoppedHerdrJob);
+    });
+    expect(readFileSync(s.log, "utf8")).toContain("tab close t-stopped");
+    expect(existsSync(join(stoppedHerdrJob, "log"))).toBe(true);
+
+    const failedHerdrJob = join(s.home, "jobs", "herdr-failed");
+    mkdirSync(failedHerdrJob);
+    writeFileSync(join(failedHerdrJob, "herdr_tab"), "t-failed\n");
+    writeFileSync(join(failedHerdrJob, "herdr_home"), `${join(s.home, "herdr", "home")}\n`);
+    writeFileSync(join(failedHerdrJob, "exit_code"), "1\n");
+    writeFileSync(join(failedHerdrJob, "log"), "failed output\n");
+
+    await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "1", ORCH_HERDR_CLOSE_AFTER: "30" }, async () => {
+      await closeEndedJob(s.home, failedHerdrJob);
+    });
+    expect(readFileSync(s.log, "utf8")).not.toContain("tab close t-failed");
+    expect(existsSync(join(failedHerdrJob, "log"))).toBe(true);
+  });
+
+  test("hcSweep removes ended hc terminals and keeps a running one", async () => {
     const s = setup();
     writeFileSync(join(s.bin, "hc"), `#!/bin/sh
 echo "$*" >> "${join(s.root, "hc.log")}"
@@ -227,12 +280,12 @@ echo '{}'
     const running = mk("running", "t-live", null);
     mk("fresh", "t-fresh", 5);
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HC: "1", ORCH_HERDR: "1", ORCH_HERDR_CLOSE_AFTER: "60" }, async () => {
-      expect(await hcSweep(s.home)).toBe(1);
+      expect(await hcSweep(s.home)).toBe(2);
     });
     const hc = readFileSync(join(s.root, "hc.log"), "utf8");
     expect(hc).toContain("rm t-old");
     expect(hc).not.toContain("rm t-live");
-    expect(hc).not.toContain("rm t-fresh");
+    expect(hc).toContain("rm t-fresh");
     expect(existsSync(join(ended, "hc_term"))).toBe(false);
     expect(existsSync(join(running, "hc_term"))).toBe(true);
   });
