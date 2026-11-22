@@ -6,8 +6,8 @@ import { COORDINATOR_MODEL_DEFAULT, COORDINATOR_ROTATE_TOKENS_DEFAULT, coordinat
 autoCleanup();
 
 test("coordinator settings: defaults and overrides", () => {
-  expect(coordinatorSettingsFrom({})).toEqual({ model: "llm-hub/copilot/claude-sonnet-5-5", rotateTokens: 200000 });
-  expect(COORDINATOR_MODEL_DEFAULT).toBe("llm-hub/copilot/claude-sonnet-5-5");
+  expect(coordinatorSettingsFrom({})).toEqual({ model: "hub/copilot/mai-code-2-flash", rotateTokens: 200000 });
+  expect(COORDINATOR_MODEL_DEFAULT).toBe("hub/copilot/mai-code-2-flash");
   expect(COORDINATOR_ROTATE_TOKENS_DEFAULT).toBe(200000);
   expect(coordinatorSettingsFrom({ settings: { coordinator_model: "x/y", coordinator_rotate_tokens: 5000 } })).toEqual({ model: "x/y", rotateTokens: 5000 });
   expect(coordinatorSettingsFrom({ settings: { coordinator_rotate_tokens: "bad" } }).rotateTokens).toBe(200000);
@@ -20,7 +20,7 @@ test("coordinator prompt forbids tests and foreground subagents, argv pins the m
   expect(p).toMatch(/never start foreground subagents/);
   expect(p).toMatch(/Do not run tests/);
   expect(p).toMatch(/\/h\.md/);
-  expect(coordinatorArgv("m/x", "go")).toEqual(["opencode", "--model", "m/x", "--prompt", "go"]);
+  expect(coordinatorArgv("m/x", "go")).toEqual(["opencode", "run", "--model", "m/x", "go"]);
 });
 
 test("coordinator rotate: below threshold no-op, above writes a handoff and starts with the setting model", () => {
@@ -43,7 +43,7 @@ test("coordinator rotate: below threshold no-op, above writes a handoff and star
   expect(body).toMatch(/did X/);
   expect(body).toMatch(/- a: \w+ — Node A/);
   const argv = JSON.parse(hi.out.split("\n").find((l) => l.startsWith("["))!);
-  expect(argv.slice(0, 3)).toEqual(["opencode", "--model", "llm-hub/test-model"]);
+  expect(argv.slice(0, 4)).toEqual(["opencode", "run", "--model", "llm-hub/test-model"]);
   expect(argv[4]).toContain(join(dir, files[0]!));
 
   expect(o("coordinator", "rotate", R).rc).toBe(2);

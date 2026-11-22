@@ -335,8 +335,9 @@ function writeLauncher(file: string, jobDir: string, launcherTs: string, close: 
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
   s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
   if (close) {
-    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n  [ "$exit_code" = 0 ] || [ "$exit_code" = 129 ] || [ "$exit_code" = 130 ] || [ "$exit_code" = 143 ] || [ -z "$exit_code" ] || {\n`;
-    s += `    sleep ${close.linger}\n`;
+    // Success and stop signals close the tab at once; a failed job keeps its tab for the linger first.
+    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n`;
+    s += `  case "$exit_code" in 0|129|130|143|"") ;; *) sleep ${close.linger} ;; esac\n`;
     s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
     s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
     s += ") >/dev/null 2>&1 </dev/null &\n";

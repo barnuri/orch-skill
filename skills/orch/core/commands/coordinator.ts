@@ -9,7 +9,7 @@ import { loadProfilesDoc, settingFrom, settingUintFrom } from "../state/settings
 import { appendEvents, loadRun } from "../state/store.ts";
 import { nowIso } from "../state/clock.ts";
 
-export const COORDINATOR_MODEL_DEFAULT = "llm-hub/copilot/claude-sonnet-5-5";
+export const COORDINATOR_MODEL_DEFAULT = "hub/copilot/mai-code-2-flash";
 export const COORDINATOR_ROTATE_TOKENS_DEFAULT = 200000;
 export const COORDINATOR_USAGE = "dispatch.ts coordinator start <run> [--handoff FILE] [--dry-run] | coordinator register <run> | coordinator rotate <run> --tokens N [--summary TEXT] [--dry-run]";
 
@@ -31,13 +31,16 @@ export function coordinatorPrompt(run: string, handoff: string | null): string {
     `You are the orch coordinator for run ${run}. Load the orch skill first.`,
     "Dispatch every task as an orch node (dispatch.ts node add / node dispatch); never start foreground subagents.",
     "Do not run tests or typecheck yourself; child nodes run targeted tests and report results.",
+    "Profiles: implementation nodes use opencode-chip-exec (Haiku, mai models). Sonnet (opencode-sonnet-verify) is only for the final review node. Never change a node to another profile to get around a failure: replace the node with `node replace` (same goal and prompt) and keep the profile.",
+    "Failures: a node that errors is retried by the run watch; after its attempts run out, use `node replace`. Never mark a node done by hand.",
   ];
   if (handoff) lines.push(`Continue from the handoff of the previous coordinator: read ${handoff} first.`);
   return lines.join(" ");
 }
 
 export function coordinatorArgv(model: string, prompt: string): string[] {
-  return ["opencode", "--model", model, "--prompt", prompt];
+  // This opencode version takes --model and the message on `run`; the top-level command rejects both.
+  return ["opencode", "run", "--model", model, prompt];
 }
 
 function flag(args: string[], name: string): string | null {
@@ -56,6 +59,18 @@ async function launch(home: string, run: string, handoff: string | null, dry: bo
   mkdirSync(jobDir, { recursive: true });
   process.env.ORCH_RUN_ID = run;
   process.env.ORCH_NODE_ID = "coordinator";
+  // The coordinator needs the provider definition that the chip profile carries, or its model is unknown.
+  // The job's launcher exports whatever env.json holds, so the config reaches opencode.
+  const cfg = ((await loadProfilesDoc(home)) as any)?.profiles?.["opencode-chip-exec"]?.env?.OPENCODE_CONFIG_CONTENT;
+  if (typeof cfg === "string") {
+    // The provider config reads {env:LLM_HUB_V1_URL} and {env:LLM_HUB_KEY}: give the job both, as node jobs get them.
+    const base = (process.env.LLM_HUB_URL || "http://127.0.0.1:8888").replace(/\/+$/, "").replace(/\/v1$/, "");
+    writeFileSync(join(jobDir, "env.json"), JSON.stringify({
+      OPENCODE_CONFIG_CONTENT: cfg,
+      LLM_HUB_V1_URL: `${base}/v1`,
+      LLM_HUB_KEY: process.env.LLM_HUB_KEY || "local",
+    }));
+  }
   const { startJob } = await import("../adapters/herdr.ts");
   const started = await startJob(home, jobDir, argv).catch(() => false);
   await appendEvents(home, run, [{ at: nowIso(), kind: "note", node: null, from: null, to: null, note: `coordinator started: model ${model}${handoff ? `, handoff ${handoff}` : ""}`, by: "orch" }]).catch(() => undefined);
