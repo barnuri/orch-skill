@@ -428,6 +428,9 @@ export function setStatus(run: RunState, id: string, status: string, job: string
   if (ownerVal) n.owner = ownerVal;
   if (status === "waiting") {
     n.result = null;
+    n.handoff_reason = null;
+    n.result_reason = null;
+    n.unverified = null;
     for (const k of ["started", "finished", "error", "owner", "job_id", "owner_kind", "owner_id", "owner_state"]) n[k] = null;
   }
   if (status === "done" && ctx.by !== "owner-liveness") {
@@ -472,8 +475,12 @@ export function ensureResult(run: RunState, id: string, ctx: Ctx): void {
   const n = requireNode(run, id);
   if (isEngineNode(ctx.runId, n)) return;
   const r = n.result;
-  if (r && typeof r === "object" && typeof r.verdict === "string") return;
+  if (r && typeof r === "object" && typeof r.verdict === "string") {
+    n.result_reason = null;
+    return;
+  }
   n.result = { verdict: "unknown", summary: "", follow_up: "", at: ctx.now };
+  n.result_reason = "node result was not recorded";
   ctx.stderr.push(`done without a result: ${id} recorded verdict unknown. Record it: orch node result <run> ${id} --verdict full|partial|blocked --summary "..." --follow-up "..."`);
 }
 
@@ -521,6 +528,7 @@ export function applyResult(run: RunState, a: ResultArgs, ctx: Ctx): string {
   if (summary === "") fail("node result: --summary is required");
   const follow = oneLine(a.followUp) || (a.verdict === "full" ? "none" : "");
   n.result = { verdict: a.verdict, summary, follow_up: follow, at: ctx.now };
+  n.result_reason = null;
   n.updated = ctx.now;
   ev(ctx, "note", a.id, "", "", `result ${a.verdict}: ${summary}`);
   return `result ${a.id}`;
@@ -533,7 +541,16 @@ export function doneVerify(run: RunState, id: string, ctx: Ctx): void {
   const recorded = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : "";
   const handoff = join(recorded || paths.runOutDir(ctx.home, ctx.runId, id), "handoff.md");
   const why = handoffProblem(handoff, n);
-  if (why === "") return;
+  if (why === "") {
+    n.handoff_reason = null;
+    n.unverified = n.result_reason ? true : null;
+    return;
+  }
+  n.handoff_reason = why === "missing"
+    ? "handoff.md is missing"
+    : why === "empty"
+      ? "handoff.md is empty"
+      : "handoff is older than the latest attempt";
   ctx.stderr.push(`done without handoff: ${id} (${handoff} ${why === "stale" ? "is older than the latest attempt" : "missing or empty"}), marked unverified`);
   n.unverified = true;
   ev(ctx, "note", id, "", "", "done without handoff: marked unverified");

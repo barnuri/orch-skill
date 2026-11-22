@@ -13,6 +13,7 @@ const setup = () => {
 const finishNode = (home: string, o: ReturnType<typeof orch>, R: string, id: string, handoff = "did it\n") => {
   o("node", "update", R, id, "running", "--owner", "coordinator");
   if (handoff) writeFileSync(join(o("node", "out", R, id).out.trim(), "handoff.md"), handoff);
+  o("node", "result", R, id, "--verdict", "full", "--summary", "finished", "--follow-up", "none");
   o("node", "update", R, id, "done");
 };
 
@@ -62,7 +63,7 @@ test("run verify lists numbered failures and passes when clean; finish refuses u
   o("node", "update", R, "done-gate", "skipped", "--force", "--reason", "test skip");
   const v = o("run", "verify", R);
   expect(v.rc).toBe(1);
-  expect(v.out).toMatch(/^\d+\. \[a\] node a is done with a missing or empty handoff/m);
+  expect(v.out).toMatch(/^\d+\. \[a\] node a is unverified: handoff.md is missing/m);
   expect(v.out).toMatch(/^1\. /m);
   expect(v.out).toMatch(/\[v\] node v is error/);
   expect(v.out).toMatch(/\[v\] validation node v did not pass/);
@@ -103,7 +104,7 @@ test("whitespace handoff fails verify", () => {
   const { home, o, R } = setup();
   o("node", "add", R, "a", "A");
   finishNode(home, o, R, "a", " \n\t\n");
-  expect(verifyOut(o, R)).toMatch(/node a is done with a missing or empty handoff/);
+  expect(verifyOut(o, R)).toMatch(/node a is unverified: handoff.md is empty/);
 });
 
 test("stale handoff after a retry fails with the latest-attempt hint", () => {

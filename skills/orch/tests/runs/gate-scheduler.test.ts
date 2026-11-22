@@ -13,6 +13,7 @@ const setup = () => {
 const finishNode = (o: ReturnType<typeof orch>, R: string, id: string, handoff: string) => {
   o("node", "update", R, id, "running", "--owner", "coordinator");
   if (handoff) writeFileSync(join(o("node", "out", R, id).out.trim(), "handoff.md"), handoff);
+  o("node", "result", R, id, "--verdict", "full", "--summary", "finished", "--follow-up", "none");
   o("node", "update", R, id, "done");
 };
 
@@ -39,6 +40,6 @@ test("advance marks the done-gate error with the verify failures when a handoff 
   expect(nodeOf(home, R, "done-gate").status).toBe("error");
   const handoff = readFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "utf8");
   expect(handoff).toMatch(/verify FAILED: 1 failure/);
-  expect(handoff).toMatch(/node a is done with a missing or empty handoff.md/);
+  expect(handoff).toMatch(/node a is unverified: handoff.md is missing/);
   expect(runState(home, R).status).toBe("running");
 });
