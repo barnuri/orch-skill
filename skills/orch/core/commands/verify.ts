@@ -1,3 +1,4 @@
+import { loadLedger } from "./req.ts";
 // `run verify <run-id>`: the final gate. Prints a numbered failure list and exits 0 only when clean.
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,6 +27,11 @@ async function openAsks(home: string, runId: string): Promise<Failure[]> {
 
 export async function verifyRun(home: string, runId: string, run: RunState): Promise<Failure[]> {
   const fails: Failure[] = [];
+  // A run with no recorded requests proves nothing: the gate cannot pass it. Record the requests with `req add`.
+  const ledger = (await loadLedger(home, runId)).requirements ?? [];
+  if (ledger.length === 0 && run.nodes.some((n) => n.id !== GATE_ID)) {
+    fails.push({ nodes: [], msg: "no requests recorded for this run", hint: `dispatch.ts req add ${runId} "<each user request>" --node <nodes>` });
+  }
   // The gate node runs this check itself, so it is judged only once it is done.
   // A gate that is skipped is never judged away: it fails below unless it ran.
   const nodes = run.nodes.filter((n) => !(n.id === GATE_ID && n.status !== "done" && n.status !== "skipped"));

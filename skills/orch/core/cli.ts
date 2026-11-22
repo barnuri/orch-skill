@@ -110,6 +110,7 @@ export const COMMANDS: Record<string, Handler> = {
   "run watch": L(() => import("./commands/run-watch.ts"), (m) => m.runWatch),
   "run cover": L(() => import("./commands/cover.ts"), (m) => m.runCover),
   "run heal": L(() => import("./commands/heal.ts"), (m) => m.runHeal),
+  "suggest learn": L(() => import("./commands/learn.ts"), (m) => m.suggestLearn),
   "run uncover": L(() => import("./commands/cover.ts"), (m) => m.runUncover),
   "run carry": withMonitor(L(() => import("./commands/carry.ts"), (m) => m.runCarry)),
   "node replace": L(() => import("./commands/cover.ts"), (m) => m.nodeReplace),

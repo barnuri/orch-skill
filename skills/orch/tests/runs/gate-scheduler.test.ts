@@ -20,6 +20,8 @@ const finishNode = (o: ReturnType<typeof orch>, R: string, id: string, handoff: 
 test("advance runs the done-gate itself when every other node is done, with no profile", () => {
   const { home, o, R } = setup();
   o("node", "add", R, "a", "A");
+  o("req", "add", R, "do a", "--node", "a", "--id", "R1");
+  o("req", "status", R, "R1", "handled");
   finishNode(o, R, "a", "did it\n");
   const r = o("run", "advance", R);
   expect(r.out).toMatch(/gate run by scheduler: done-gate/);
@@ -34,6 +36,8 @@ test("advance runs the done-gate itself when every other node is done, with no p
 test("advance marks the done-gate error with the verify failures when a handoff is missing", () => {
   const { home, o, R } = setup();
   o("node", "add", R, "a", "A");
+  o("req", "add", R, "do a", "--node", "a", "--id", "R1");
+  o("req", "status", R, "R1", "handled");
   finishNode(o, R, "a", "");
   const r = o("run", "advance", R);
   expect(r.rc).toBe(1);

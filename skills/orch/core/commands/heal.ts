@@ -6,6 +6,7 @@ import { readdirSync, existsSync } from "node:fs";
 import { loadRun } from "../state/store.ts";
 import { paths } from "../state/home.ts";
 import { nodeSatisfied } from "./run.ts";
+import { loadLedger, REQ_OK } from "./req.ts";
 
 export const RUN_HEAL_USAGE = "dispatch.ts run heal [<run-id>]";
 
@@ -22,6 +23,10 @@ export async function healRun(home: string, runId: string): Promise<string> {
     const rc = await runFinish([runId]);
     return rc === 0 ? "finished" : "finish-refused";
   }
+  // Never close a run whose requests are not recorded and handled: a run with no ledger proves nothing.
+  const ledger = (await loadLedger(home, runId)).requirements ?? [];
+  if (ledger.length === 0) return "needs-requirements";
+  if (ledger.some((r) => !REQ_OK.includes(String(r.status)))) return "requirements-open";
   if (!work.every((n: any) => nodeSatisfied(run, n))) return "waiting-work";
   if (gate.status === "running") return "gate-running";
   const { nodeUpdate } = await import("./node.ts");
@@ -36,5 +41,8 @@ export async function runHeal(args: string[]): Promise<number> {
   const all = existsSync(paths.runs(home)) ? readdirSync(paths.runs(home)) : [];
   const ids = args[0] && !args[0].startsWith("--") ? [args[0]] : all;
   for (const id of ids) process.stdout.write(`${id}: ${await healRun(home, id)}\n`);
+  // Learn from the runs on every pass: refresh the orch-fix suggestions quietly.
+  const { suggestLearn } = await import("./learn.ts");
+  await suggestLearn(["--quiet"]);
   return 0;
 }
