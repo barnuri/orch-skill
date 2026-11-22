@@ -37,13 +37,28 @@ export async function verifyRun(home: string, runId: string, run: RunState): Pro
       else if (!why) fails.push({ nodes: [n.id], msg: `node ${n.id} was skipped with no recorded reason`, hint: `dispatch.ts node update ${runId} ${n.id} skipped --force --reason "<why>"` });
       continue;
     }
+    if (n.status === "covered") {
+      // A covered node is handled when the node that replaced it (covered_by) is done.
+      const ref = String((n as { covered_by?: string }).covered_by ?? "");
+      const target = ref.includes("/") ? ref.slice(ref.lastIndexOf("/") + 1) : ref;
+      if (target !== "" && nodes.some((x) => x.id === target && x.status === "done")) continue;
+    }
     fails.push({ nodes: [n.id], msg: `node ${n.id} is ${n.status}, not done or skipped${n.error ? ` (${String(n.error).slice(0, 120)})` : ""}`, hint: ["error", "stopped"].includes(n.status) ? `dispatch.ts node retry ${runId} ${n.id}, or dispatch.ts node update ${runId} ${n.id} skipped --force --reason "<why>"` : "wait for it, or dispatch.ts run advance " + runId });
   }
   for (const n of nodes.filter((x) => x.status === "done")) {
     const hp = handoffProblemOf(home, runId, n);
     if (hp === "stale") fails.push({ nodes: [n.id], msg: `node ${n.id} is done but its handoff is older than the latest attempt`, hint: `handoff is older than the latest attempt: rewrite $ORCH_NODE_OUT/handoff.md for ${n.id} (dispatch.ts node out ${runId} ${n.id} prints the folder)` });
-    else if (hp !== "") fails.push({ nodes: [n.id], msg: `node ${n.id} is done with a missing or empty handoff.md`, hint: `write $ORCH_NODE_OUT/handoff.md for ${n.id} (dispatch.ts node out ${runId} ${n.id} prints the folder)` });
-    else if (n.unverified === true) fails.push({ nodes: [n.id], msg: `node ${n.id} is unverified`, hint: `check the work, then re-run: dispatch.ts node update ${runId} ${n.id} done` });
+    else if (hp !== "") {
+      const handoffReason = hp === "empty" ? "handoff.md is empty" : "handoff.md is missing";
+      const resultReason = typeof n.result_reason === "string" ? n.result_reason : "";
+      const reason = [handoffReason, resultReason].filter(Boolean).join("; ");
+      fails.push({ nodes: [n.id], msg: `node ${n.id} is unverified: ${reason}`, hint: `check the work, write $ORCH_NODE_OUT/handoff.md, record the node result, then re-run: dispatch.ts node update ${runId} ${n.id} done` });
+    } else if (n.unverified === true) {
+      const handoffReason = typeof n.handoff_reason === "string" ? n.handoff_reason : "";
+      const resultReason = typeof n.result_reason === "string" ? n.result_reason : "";
+      const reason = [handoffReason, resultReason].filter(Boolean).join("; ");
+      fails.push({ nodes: [n.id], msg: `node ${n.id} is unverified${reason ? `: ${reason}` : ""}`, hint: `check the work, write $ORCH_NODE_OUT/handoff.md, record the node result, then re-run: dispatch.ts node update ${runId} ${n.id} done` });
+    }
   }
   for (const n of nodes.filter((x) => x.status === "done" && needsFollowUp(x))) {
     fails.push({ nodes: [n.id], msg: `node ${n.id} needs follow-up: ${resultText(n, 200)}`, hint: `read $ORCH_NODE_OUT/handoff.md of ${n.id}, handle the follow-up, then record: dispatch.ts node result ${runId} ${n.id} --verdict full --summary "<what was done>"` });

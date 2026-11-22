@@ -11,7 +11,7 @@ import { nodeReady } from "./run.ts";
 import { nodeDispatchStored, nodeOutDir } from "./dispatch.ts";
 import { planApply } from "./plan.ts";
 import { runFinish } from "./dispatch.ts";
-import { resolveRun, nodeUpdate } from "./node.ts";
+import { resolveRun, nodeUpdate, nodeResult } from "./node.ts";
 import { runSync as runSyncCmd } from "./runs.ts";
 import { GATE_ID, formatFailures, verifyRun } from "./verify.ts";
 
@@ -43,7 +43,12 @@ async function runGate(home: string, runId: string): Promise<number> {
   const dir = await nodeOutDir(home, runId, GATE_ID, run);
   await mkdir(dir, { recursive: true });
   await Bun.write(join(dir, "handoff.md"), text);
-  if (fails.length === 0) return nodeUpdate([runId, GATE_ID, "done"]);
+  if (fails.length === 0) {
+    // The gate records its own result, so verify sees a result for it.
+    const result = await nodeResult([runId, GATE_ID, "--verdict", "full", "--summary", "verification passed", "--follow-up", "none"]);
+    if (result !== 0) return result;
+    return nodeUpdate([runId, GATE_ID, "done"]);
+  }
   return nodeUpdate([runId, GATE_ID, "error", "--error", `${fails.length} verify failure(s): run verify ${runId}`]);
 }
 
