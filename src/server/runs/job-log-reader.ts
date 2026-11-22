@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OrchPaths } from "../types/orch-paths";
@@ -23,7 +23,9 @@ export function readJobLog(paths: OrchPaths, jobId: string): JobLogResult {
   if (!isRunId(jobId)) {
     return { kind: "invalid" };
   }
-  const file = join(paths.jobs, jobId, "log");
+  const jobDir = join(paths.jobs, jobId);
+  const plainFile = join(jobDir, "log.plain");
+  const file = existsSync(plainFile) ? plainFile : join(jobDir, "log");
   let bytes: number;
   try {
     bytes = statSync(file).size;

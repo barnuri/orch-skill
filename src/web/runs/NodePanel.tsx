@@ -318,7 +318,9 @@ export function isNearBottom(scrollHeight: number, scrollTop: number, clientHeig
 
 export function toolLine(text: string): boolean {
   const trimmed = text.trim();
-  return /^(?:tool|function)[\s:_-]/i.test(trimmed) || /^\s*[⏺◆●]\s*(?:tool|function)/i.test(trimmed);
+  return /^(?:tool|function)[\s:_-]/i.test(trimmed)
+    || /^\s*[⏺◆●]\s*(?:tool|function)/i.test(trimmed)
+    || /^\[[^\]]+\]\s+(?:Read|Write|Edit|Glob|Grep|Bash|Shell|Tool)/i.test(trimmed);
 }
 
 function JobTranscript({ text }: { text: string }) {

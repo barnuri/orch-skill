@@ -23,6 +23,18 @@ afterEach(() => {
 });
 
 describe("readJobLog", () => {
+  test("prefers the plain log and falls back to the ANSI log", () => {
+    const plain = "plain transcript";
+    const result = readJobLog(orchPaths(homeWithJob("j1", { log: "ansi transcript", "log.plain": plain })), "j1");
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.text).toBe(plain);
+    }
+
+    const fallback = readJobLog(orchPaths(homeWithJob("j2", { log: "ansi fallback" })), "j2");
+    expect(fallback.kind === "ok" && fallback.text).toBe("ansi fallback");
+  });
+
   test("returns the whole log, not a tail", () => {
     const lines = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
     const result = readJobLog(orchPaths(homeWithJob("j1", { log: lines })), "j1");
