@@ -47,7 +47,12 @@ export async function verifyRun(home: string, runId: string, run: RunState): Pro
   }
   for (const n of nodes.filter((x) => x.status === "done")) {
     const hp = handoffProblemOf(home, runId, n);
-    if (hp === "stale") fails.push({ nodes: [n.id], msg: `node ${n.id} is done but its handoff is older than the latest attempt`, hint: `handoff is older than the latest attempt: rewrite $ORCH_NODE_OUT/handoff.md for ${n.id} (dispatch.ts node out ${runId} ${n.id} prints the folder)` });
+    if (hp === "stale") {
+      const handoffReason = typeof n.handoff_reason === "string" ? n.handoff_reason : "handoff is older than the latest attempt";
+      const resultReason = typeof n.result_reason === "string" ? n.result_reason : "";
+      const reason = [handoffReason, resultReason].filter(Boolean).join("; ");
+      fails.push({ nodes: [n.id], msg: `node ${n.id} is unverified: ${reason}`, hint: `handoff is older than the latest attempt: rewrite $ORCH_NODE_OUT/handoff.md for ${n.id}, record the node result, then re-run: dispatch.ts node update ${runId} ${n.id} done` });
+    }
     else if (hp !== "") {
       const handoffReason = hp === "empty" ? "handoff.md is empty" : "handoff.md is missing";
       const resultReason = typeof n.result_reason === "string" ? n.result_reason : "";

@@ -10,7 +10,7 @@ import { paths } from "../state/home.ts";
 import { readJson, type RunState } from "../state/store.ts";
 import { ENGINE_ORIGINS, isEngineNode } from "../../../../src/shared/engine-node.ts";
 
-export const NODE_STATUSES = ["waiting", "running", "done", "error", "skipped", "stopped"];
+export const NODE_STATUSES = ["waiting", "running", "done", "error", "skipped", "stopped", "covered"];
 export const WORK_ROLES = ["planning", "investigation", "implementation", "validation", "conversation"];
 export const SMART_AUTO_TIERS = ["efficiency", "balance", "intelligence", "fast"];
 export const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -267,7 +267,7 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
   run.edges = [...(run.edges ?? []), ...kept.map((d) => [d, a.id])];
   // The done-gate stays last: a node added after it ran makes it wait again.
   const gate = findNode(run, "done-gate");
-  if (gate && gate.after_all && a.id !== "done-gate" && ["done", "error", "skipped"].includes(gate.status)) {
+  if (gate && gate.after_all && a.id !== "done-gate" && ["done", "error", "skipped", "covered"].includes(gate.status)) {
     Object.assign(gate, { status: "waiting", finished: null, error: null, unverified: null, next_retry_at: null, skip_reason: null, updated: ctx.now });
   } else if (gate && gate.after_all && a.id !== "done-gate" && gate.status === "running") {
     // The running gate verified a node list that no longer holds: it ends as an error, or waits again.
@@ -401,7 +401,7 @@ export function setStatus(run: RunState, id: string, status: string, job: string
       n.seg_open = true;
     } else if (status === "running" && n.started_at == null) {
       n.started_at = n.dispatched_at != null && eventAt < n.dispatched_at ? n.dispatched_at : eventAt;
-    } else if (["done", "error", "skipped", "stopped"].includes(status)) {
+    } else if (["done", "error", "skipped", "stopped", "covered"].includes(status)) {
       segClose(n, eventAt);
       n.finished_at = eventAt;
     } else if (status === "waiting") {
@@ -437,7 +437,7 @@ export function setStatus(run: RunState, id: string, status: string, job: string
     n.unverified = null;
     n.auto = null;
   }
-  if (status === "done" || status === "error" || status === "skipped") n.finished = eventAt;
+  if (status === "done" || status === "error" || status === "skipped" || status === "covered") n.finished = eventAt;
   if (status === "error") n.next_retry_at = retry;
   else if (["running", "waiting", "done", "skipped"].includes(status)) n.next_retry_at = null;
 
@@ -530,6 +530,9 @@ export function applyResult(run: RunState, a: ResultArgs, ctx: Ctx): string {
   n.result = { verdict: a.verdict, summary, follow_up: follow, at: ctx.now };
   n.result_reason = null;
   n.updated = ctx.now;
+  if (n.status === "done") {
+    doneVerify(run, a.id, ctx);
+  }
   ev(ctx, "note", a.id, "", "", `result ${a.verdict}: ${summary}`);
   return `result ${a.id}`;
 }

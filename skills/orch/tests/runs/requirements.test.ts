@@ -86,6 +86,7 @@ test("clean run verifies and finishes; open hold and open ask fail verify", () =
   o("req", "status", R, "R1", "handled");
   o("node", "update", R, "done-gate", "running", "--owner", "coordinator");
   writeFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "verified\n");
+  o("node", "result", R, "done-gate", "--verdict", "full", "--summary", "verification passed", "--follow-up", "none");
   o("node", "update", R, "done-gate", "done");
   o("node", "update", R, "a", "--hold", "wait for user");
   const h = o("run", "verify", R);
