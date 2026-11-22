@@ -1,5 +1,5 @@
 // `msg send` and `msg read`: the per-run mailbox runs/<id>/messages.jsonl. Ported from lib/runs/plan.sh.
-import { appendFile } from "node:fs/promises";
+import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { nowIso } from "../state/clock.ts";
 import { orchHome } from "../state/home.ts";
@@ -50,7 +50,17 @@ export async function msgSend(args: string[]): Promise<number> {
   }
   if (from === "all") return (errLine("msg send: --from cannot be all"), 2);
   if ([...text].length > MSG_MAX_BYTES) return (errLine(`msg send: text is over ${MSG_MAX_BYTES} characters — write it to a file and send the path`), 2);
-  await appendFile(messagesFile(home, runId), JSON.stringify({ ts: nowIso(), from, to, text }) + "\n");
+  const ts = nowIso();
+  await appendFile(messagesFile(home, runId), JSON.stringify({ ts, from, to, text }) + "\n");
+  const targets = to === "all" ? run.nodes.map((node) => node.id) : [to];
+  for (const nodeId of targets) {
+    if (nodeId === "orch") continue;
+    const node = findNode(run, nodeId);
+    if (!node) continue;
+    const outDir = typeof node.out_dir === "string" && node.out_dir ? node.out_dir : join(home, "runs", runId, "out", nodeId);
+    await mkdir(outDir, { recursive: true });
+    await appendFile(join(outDir, "inbox.md"), `[${ts} ${from} -> ${nodeId}] ${text}\n`);
+  }
   await herdrNotify(runId, from, to, text);
   process.stdout.write("sent\n");
   return 0;
