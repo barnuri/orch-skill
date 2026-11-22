@@ -28,6 +28,15 @@ async function resolveRunId(arg: string): Promise<string | null> {
 
 export const RUN_STATUS_USAGE = "usage: dispatch.ts run status <run-id> [--json] [--fresh]";
 
+// A node is satisfied (its work is handled) when it is done or skipped, or covered by a replacement that is done.
+export function nodeSatisfied(run: any, n: any): boolean {
+  if (n.status === "done" || n.status === "skipped") return true;
+  if (n.status !== "covered") return false;
+  const ref = String(n.covered_by ?? "");
+  const target = ref.includes("/") ? ref.slice(ref.lastIndexOf("/") + 1) : ref;
+  return (run.nodes ?? []).some((m: any) => m.id === target && m.status === "done");
+}
+
 // The `node_ready` rule (lib/core/config.sh NODE_READY_JQ_DEF).
 export function nodeReady(run: any, x: any): boolean {
   if (x.status !== "waiting") return false;
@@ -36,12 +45,12 @@ export function nodeReady(run: any, x: any): boolean {
   for (const [src, dst] of run.edges ?? []) {
     if (dst !== x.id) continue;
     const s = (run.nodes ?? []).find((n: any) => n.id === src);
-    if (s && s.status !== "done") return false;
+    if (s && !nodeSatisfied(run, s)) return false;
   }
   if (x.after_all ?? false) {
     for (const n of run.nodes ?? []) {
       if (n.id === x.id || (n.after_all ?? false)) continue;
-      if (n.status !== "done" && n.status !== "skipped") return false;
+      if (!nodeSatisfied(run, n)) return false;
     }
   }
   return true;
