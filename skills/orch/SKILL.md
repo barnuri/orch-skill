@@ -529,11 +529,20 @@ text ends the turn and stalls every parallel node until the user happens to repl
   "(Recommended)". Give each option a one-line consequence.
 - Plain text is the fallback only where the harness has no question tool, and then it ends with one
   concrete question.
-- A question is any ask for an opinion, a choice, a go-ahead or a missing detail, even one you can
-  work around. A "Q1, Q2" list, a "needs you" line or "say yes and I will" at the end of a report
-  all count: each goes through the question tool, in the turn you first need it.
-- Before you send a final message, read its last paragraph. If it asks the user to choose, confirm
-  or reply, call the question tool and remove it from the text.
+- The coordinator decides routine steps itself. Do not ask about them. Routine steps are: dispatch
+  a ready node, retry a failed node, stop a node that a newer node supersedes, restart the run watch,
+  pick a profile and model by the rules in this file, set `auto_dispatch` on a run the user approved,
+  pick the next node in dependency order, merge a base branch into a PR branch (never rebase), and
+  record evidence and results. Do them, then report what you did in one line.
+- Ask only when one of these holds: the step deletes or overwrites data or work; it publishes
+  outside the machine (push, PR creation, auto-merge, a message to people) and the user has not
+  already approved that kind of step for this run; the choice changes cost or risk materially and no
+  rule here settles it; or a secret or credential is missing. Anything else is decided, not asked.
+- Once the user approves a run or a plan, that approval covers its routine steps and its normal
+  publish steps (commit, push to the run's branch, PR, auto-merge) until the run finishes. Ask again
+  only for a change of scope.
+- A question that must be asked goes through the question tool, in the turn you first need it.
+  Never write "shall I dispatch", "say yes and I will", or a "needs you" line in prose.
 - Never end a turn with a question in prose, and never wait on an answer while ready nodes sit idle.
 
 ## Offline mode (dashboard down)
