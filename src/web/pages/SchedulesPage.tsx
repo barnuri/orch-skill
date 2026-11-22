@@ -163,6 +163,11 @@ function ScheduleRow({
             </span>
           ) : null}
         </div>
+        {schedule.description ? (
+          <p className="sched-desc" data-testid="sched-desc" title={schedule.description}>
+            {schedule.description}
+          </p>
+        ) : null}
         <div className="sched-what mono" title={what}>
           {what}
         </div>
@@ -199,6 +204,9 @@ function ScheduleRow({
         <Button aria-expanded={open} onClick={onToggleOpen}>
           {open ? "Hide runs" : `Runs (${schedule.runs.length})`}
         </Button>
+        <Button variant="danger" disabled={busy} aria-label={`Delete ${schedule.name}`} onClick={onRemove}>
+          Delete
+        </Button>
       </div>
       {open ? (
         <div className="sched-detail">
@@ -207,11 +215,6 @@ function ScheduleRow({
           {schedule.runs.map((run, index) => (
             <RunRow key={`${run.started_at}-${index}`} schedule={schedule} run={run} index={index} log={logs.get(`${schedule.id}:${run.started_at}`)} onLoadLog={onLoadLog} />
           ))}
-          <div className="sched-detail-foot">
-            <Button variant="danger" onClick={onRemove}>
-              Delete schedule
-            </Button>
-          </div>
         </div>
       ) : null}
     </article>
@@ -434,6 +437,9 @@ function ScheduleForm({
           </Labelled>
         </div>
         <CronField cron={draft.cron} error={fieldErrors.cron} onChange={(cron) => { set({ cron }); }} />
+        <Labelled label="Description (optional)">
+          <textarea rows={2} aria-label="Description" maxLength={1000} placeholder="What this schedule is for" value={draft.description ?? ""} onChange={(event) => { set({ description: event.target.value }); }} />
+        </Labelled>
         {draft.kind === "prompt" ? (
           <>
             <div className="sched-form-row sched-profile-row">

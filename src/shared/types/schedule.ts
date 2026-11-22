@@ -22,6 +22,8 @@ export interface ScheduleRun {
 export interface Schedule {
   id: string;
   name: string;
+  /** Optional note on what the schedule is for; null or absent when none. */
+  description?: string | null;
   cron: string;
   kind: ScheduleKind;
   enabled: boolean;
@@ -59,6 +61,8 @@ export interface SchedulesEnvelope {
 /** The body of POST /api/schedules. */
 export interface ScheduleInput {
   name: string;
+  /** Optional note on what the schedule is for. On edit, "" clears it. */
+  description?: string;
   cron: string;
   kind: ScheduleKind;
   prompt?: string;

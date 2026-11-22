@@ -94,6 +94,35 @@ function page() {
   );
 }
 
+describe("schedule description and delete", () => {
+  test("the row shows the description and the edit form sends a changed one", async () => {
+    const calls = serve([schedule({ description: "Pulls the repo each morning" })], () => json(200, { ok: true }));
+    page();
+    expect((await screen.findByTestId("sched-desc")).textContent).toBe("Pulls the repo each morning");
+    fireEvent.click(screen.getByRole("button", { name: "Edit nightly pull" }));
+    const desc = screen.getByLabelText("Description") as HTMLTextAreaElement;
+    expect(desc.value).toBe("Pulls the repo each morning");
+    fireEvent.change(desc, { target: { value: "  new text " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved nightly pull");
+    expect((calls.find((c) => c.method === "PUT")?.body as Record<string, unknown>)["description"]).toBe("new text");
+  });
+
+  test("Delete in the row asks first, then posts remove", async () => {
+    const calls = serve([schedule()], () => json(200, { ok: true }));
+    const base = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      (init?.method === "POST" && String(input).endsWith("/remove") ? (calls.push({ method: "POST", url: String(input), body: undefined }), Promise.resolve(json(200, { ok: true }))) : base(input, init))) as typeof fetch;
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete nightly pull" }));
+    expect(calls.some((c) => c.url.endsWith("/remove"))).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete schedule" }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/schedules/sch-20261115-100000-abcd/remove"))).toBe(true);
+    });
+  });
+});
+
 describe("schedule edit", () => {
   test("Edit opens the form prefilled, Save sends the change, toasts and refreshes the list", async () => {
     const calls = serve([schedule()], () => json(200, { ok: true }));
@@ -111,7 +140,7 @@ describe("schedule edit", () => {
     await screen.findByText("Saved renamed");
     const put = calls.find((c) => c.method === "PUT");
     expect(put?.url).toEndWith("/schedules/sch-20261115-100000-abcd");
-    expect(put?.body).toEqual({ name: "renamed", cron: "30 14 * * *", kind: "command", command: "git pull", workdir: "", timeout: "5m" });
+    expect(put?.body).toEqual({ name: "renamed", description: "", cron: "30 14 * * *", kind: "command", command: "git pull", workdir: "", timeout: "5m" });
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
     });

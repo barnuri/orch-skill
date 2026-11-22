@@ -118,6 +118,17 @@ describe.concurrent("/api/schedules", () => {
     expect((await srv.api("/api/schedules/x/runs/0/log")).status).toBe(400);
   });
 
+  test("a description is stored on create, changed on edit and cleared with an empty string", async () => {
+    const srv = server();
+    const { id } = await (await post(srv, "/api/schedules", { ...COMMAND, description: "says hi" })).json();
+    const first = async () => (await (await srv.api("/api/schedules")).json()).schedules[0];
+    expect((await first()).description).toBe("says hi");
+    expect((await put(srv, `/api/schedules/${id}`, { description: "says hi twice" })).status).toBe(200);
+    expect(await first()).toMatchObject({ description: "says hi twice", command: "echo hi" });
+    expect((await put(srv, `/api/schedules/${id}`, { description: "" })).status).toBe(200);
+    expect((await first()).description).toBeNull();
+  });
+
   test("an edit changes the given fields and keeps the rest", async () => {
     const srv = server();
     const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();

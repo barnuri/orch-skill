@@ -20,7 +20,7 @@ const CMD_TIMEOUT_DEFAULT = 3600;
 const NEXT_DAYS = 366;
 const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 export const SCHEDULE_USAGE =
-  'dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>" | record <id> --status ok|failed|skipped [--message-id M] [--duration-ms N] [--error E] [--advance] [--note T] [--at EPOCH]\n  chat target: add --chat <id> [--mode message|fresh] [--tz ZONE] [--once] --name N --cron C --prompt P; list --chat <id>';
+  'dispatch.ts schedule add --name N [--description D] --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--description D] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>" | record <id> --status ok|failed|skipped [--message-id M] [--duration-ms N] [--error E] [--advance] [--note T] [--at EPOCH]\n  chat target: add --chat <id> [--mode message|fresh] [--tz ZONE] [--once] --name N --cron C --prompt P; list --chat <id>';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -210,7 +210,7 @@ async function modelOk(profile: string, model: string): Promise<boolean> {
 }
 
 async function add(args: string[]): Promise<number> {
-  let name = "", cron = "", prompt = "", profile = "", model = "", command = "", workdir = "", timeout = "", chat = "", mode = "message", tz = "";
+  let name = "", cron = "", prompt = "", profile = "", model = "", command = "", workdir = "", timeout = "", chat = "", mode = "message", tz = "", description = "";
   let once = false;
   for (let i = 0; i < args.length; ) {
     const k = args[i]!;
@@ -221,6 +221,7 @@ async function add(args: string[]): Promise<number> {
       case "--mode": mode = v; break;
       case "--tz": tz = v; break;
       case "--name": name = v; break;
+      case "--description": description = v; break;
       case "--cron": cron = v; break;
       case "--prompt": prompt = v; break;
       case "--profile": profile = v; break;
@@ -282,7 +283,7 @@ async function add(args: string[]): Promise<number> {
   const id = `sch-${stampUtc()}-${hex4()}`;
   ensureDir(schedDir(id));
   const o = {
-    id, name, cron, kind, enabled: true, created_at: nowIso(),
+    id, name, description: description.trim() === "" ? null : description.trim(), cron, kind, enabled: true, created_at: nowIso(),
     prompt: kind === "prompt" ? prompt : null,
     profile: kind === "prompt" ? profile : null,
     model: kind === "prompt" && model ? model : null,
@@ -305,7 +306,7 @@ async function edit(args: string[]): Promise<number> {
   for (let i = 1; i < args.length; i += 2) {
     const k = args[i]!;
     if (i + 1 >= args.length) { err(`schedule edit: ${k} needs a value\n`); return 2; }
-    if (!["--name", "--cron", "--prompt", "--profile", "--model", "--command", "--workdir", "--timeout", "--tz", "--mode"].includes(k)) {
+    if (!["--name", "--description", "--cron", "--prompt", "--profile", "--model", "--command", "--workdir", "--timeout", "--tz", "--mode"].includes(k)) {
       err(`schedule edit: unknown argument: ${k}\n`);
       return 2;
     }
@@ -314,6 +315,11 @@ async function edit(args: string[]): Promise<number> {
   }
   if (has.size === 0) { err("schedule edit: nothing to change\n"); return 2; }
   const s = read(id);
+  if (has.size === 1 && has.has("description")) {
+    patch(id, (o) => { o.description = v.description!.trim() === "" ? null : v.description!.trim(); o.updated_at = nowIso(); });
+    out(`edited: ${id}\n`);
+    return 0;
+  }
   if (s.target?.kind === "chat") return editChat(id, s, v);
   if (has.has("tz") || has.has("mode")) { err("schedule edit: --tz and --mode belong to a chat schedule\n"); return 2; }
   const kind = s.kind as string;
@@ -368,6 +374,7 @@ async function edit(args: string[]): Promise<number> {
   }
   patch(id, (o) => {
     if (has.has("name")) o.name = v.name;
+    if (has.has("description")) o.description = v.description!.trim() === "" ? null : v.description!.trim();
     if (has.has("cron")) o.cron = v.cron;
     if (newKind === "prompt") {
       if (o.kind !== "prompt") { o.kind = "prompt"; o.command = null; o.workdir = null; o.timeout = 0; }
@@ -401,6 +408,7 @@ function editChat(id: string, s: any, v: Record<string, string>): number {
   if (second !== null && second - first < LIMITS.minScheduleSecs) { err(`schedule edit: a chat schedule must be at least ${LIMITS.minScheduleSecs / 60} minutes apart\n`); return 2; }
   patch(id, (o) => {
     if ("name" in v) o.name = v.name;
+    if ("description" in v) o.description = v.description!.trim() === "" ? null : v.description!.trim();
     if ("cron" in v) o.cron = v.cron;
     if ("prompt" in v) o.prompt = v.prompt;
     if ("mode" in v) o.target.mode = v.mode;

@@ -49,6 +49,9 @@ export class ScheduleDto extends ZodDto {
   @ZodField(z.string(), { description: "Display name." })
   name!: string;
 
+  @ZodField(z.string().nullable().optional(), { description: "What the schedule is for. Null or absent when none." })
+  description?: string | null;
+
   @ZodField(z.string(), { description: "Five-field cron expression or an @alias, in the machine's local time." })
   cron!: string;
 
@@ -118,6 +121,9 @@ export class ScheduleInputDto extends ZodDto {
   @ZodField(z.string().min(1).max(300), { description: "Display name." })
   name!: string;
 
+  @ZodField(z.string().max(1000).optional(), { description: "What the schedule is for. Optional." })
+  description?: string;
+
   @ZodField(z.string().min(1).max(300), { description: "Cron expression, e.g. `0 9 * * 1-5`. Check one with GET /api/schedules/preview." })
   cron!: string;
 
@@ -150,6 +156,9 @@ export class ScheduleInputDto extends ZodDto {
 export class ScheduleEditDto extends ZodDto {
   @ZodField(z.string().min(1).max(300).optional(), { description: "Display name." })
   name?: string;
+
+  @ZodField(z.string().max(1000).optional(), { description: "What the schedule is for. Empty clears it." })
+  description?: string;
 
   @ZodField(z.string().min(1).max(300).optional(), { description: "Cron expression. Check one with GET /api/schedules/preview." })
   cron?: string;

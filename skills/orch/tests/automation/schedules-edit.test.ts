@@ -19,6 +19,10 @@ test("schedule edit", () => {
   expect(r.rc).toBe(0); expect(r.all).toContain(`edited: ${cid}`);
   expect([s().name, s().created_at, s().runs.length, s().last_run_at]).toEqual(["renamed", created, 1, "2026-01-01T00:00:00Z"]);
   expect(s().updated_at).toMatch(/^20[0-9-]+T/);
+  expect(se("edit", cid, "--description", " what it does ").rc).toBe(0);
+  expect([s().description, s().name]).toEqual(["what it does", "renamed"]);
+  se("edit", cid, "--description", "");
+  expect(s().description).toBeNull();
   const oldNext = s().next_at;
   editJson(cfile, (x) => { x.next_at = 1000; });
   expect(se("edit", cid, "--name", "renamed-again", "--cron", "0 9 * * *").rc).toBe(0);

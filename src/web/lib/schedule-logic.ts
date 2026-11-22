@@ -61,6 +61,8 @@ export function soonestNext(list: readonly Schedule[]): number | null {
 
 export interface ScheduleDraft {
   name: string;
+  /** Optional note on what the schedule is for. */
+  description: string;
   kind: "prompt" | "command";
   cron: string;
   profile: string;
@@ -74,6 +76,7 @@ export interface ScheduleDraft {
 
 export const emptyScheduleDraft = (): ScheduleDraft => ({
   name: "",
+  description: "",
   kind: "prompt",
   cron: "0 9 * * 1-5",
   profile: "",
@@ -85,7 +88,8 @@ export const emptyScheduleDraft = (): ScheduleDraft => ({
 });
 
 export function schedulePayload(draft: ScheduleDraft): ScheduleInput {
-  const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
+  const description = (draft.description ?? "").trim();
+  const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind, ...(description === "" ? {} : { description }) } as const;
   if (draft.kind === "prompt") {
     const model = (draft.model ?? "").trim();
     return model === "" ? { ...base, prompt: draft.prompt, profile: draft.profile } : { ...base, prompt: draft.prompt, profile: draft.profile, model };
@@ -115,6 +119,7 @@ export function timeoutText(secs: number): string {
 export function draftOf(schedule: Schedule): ScheduleDraft {
   return {
     name: schedule.name,
+    description: schedule.description ?? "",
     kind: schedule.kind,
     cron: schedule.cron,
     profile: schedule.profile ?? "",
@@ -131,7 +136,7 @@ export function draftOf(schedule: Schedule): ScheduleDraft {
  * is cleared on the schedule too (an empty workdir and a 0 timeout mean "none").
  */
 export function scheduleEditPayload(draft: ScheduleDraft): ScheduleEdit {
-  const base = { name: draft.name.trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
+  const base = { name: draft.name.trim(), description: (draft.description ?? "").trim(), cron: draft.cron.trim(), kind: draft.kind } as const;
   if (draft.kind === "prompt") {
     const model = (draft.model ?? "").trim();
     return { ...base, prompt: draft.prompt, profile: draft.profile, model: model === "" ? null : model };

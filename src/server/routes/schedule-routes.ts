@@ -14,6 +14,7 @@ const RUN_INDEX: RegExp = /^\d{1,3}$/;
 const ACTIONS = ["run", "enable", "disable", "remove"] as const;
 const MAX_TEXT: number = 20000;
 const MAX_SHORT: number = 300;
+const MAX_DESCRIPTION: number = 1000;
 const DURATION: RegExp = /^\d+[smhd]?$/;
 
 interface Spawned {
@@ -73,6 +74,10 @@ function createArgs(body: Record<string, unknown>): string[] | string {
     return "name and cron are required";
   }
   const args = ["add", "--name", name, "--cron", cron];
+  const description = text(body["description"], MAX_DESCRIPTION);
+  if (description !== null && description.trim() !== "") {
+    args.push("--description", description.trim());
+  }
   if (body["kind"] === "prompt") {
     const prompt = text(body["prompt"], MAX_TEXT);
     const profile = text(body["profile"], MAX_SHORT);
@@ -125,6 +130,9 @@ function editArgs(id: string, body: ScheduleEdit): string[] | string {
   const args = ["edit", id];
   if (body.name !== undefined) {
     args.push("--name", body.name.trim());
+  }
+  if (body.description !== undefined) {
+    args.push("--description", body.description.trim());
   }
   if (body.cron !== undefined) {
     args.push("--cron", body.cron.trim());
