@@ -127,9 +127,11 @@ export function classify(r: RunState, runId: string, now: number, stall: number,
     run: runId, status: r.status, at: iso(now), max_parallel: maxp, running, slots,
     nodes: [...rn.map(({ _session, _due, ...x }) => x), ...wn], ready, changes,
     _nodes: Object.fromEntries(r.nodes.map((n) => [n.id, { status: n.status, health: hm[n.id] ?? null }])),
-    _nudge: rn.filter((n) => n.health === "stalled" && n._session !== null && now - (nudged[n.id] ?? 0) >= gap).map((n) => ({
+    _nudge: rn.filter((n) => (n.health === "stalled" || n.health === "no-report") && n._session !== null && now - (nudged[n.id] ?? 0) >= gap).map((n) => ({
       node: n.id, session: n._session,
-      text: `You stopped mid-task at ${hhmm(isoToEpoch(n.last_activity))}. Continue the task to completion and reply only with the final report.`,
+      text: n.health === "no-report"
+        ? "Your session is idle and the node has no result. Write handoff.md into $ORCH_NODE_OUT, then record the result with dispatch.ts node result."
+        : `You stopped mid-task at ${hhmm(isoToEpoch(n.last_activity))}. Continue the task to completion and reply only with the final report.`,
     })),
     _nudged: nudged,
     _due: dues.length ? Math.min(...dues) : null,

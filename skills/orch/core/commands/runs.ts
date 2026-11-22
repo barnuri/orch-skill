@@ -272,6 +272,13 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
       await mutateRun(home, runId, (r, ctx) => {
         setStatus(r, node, "done", "", "", "", "", ctx);
         doneVerify(r, node, ctx);
+        // The job exited 0 but left no handoff: it ended early. Make it an error so the retry runs it again
+        // and its dependents wait; never release it as done.
+        const x = findNode(r, node);
+        if (x?.unverified) {
+          x.unverified = false;
+          setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
+        }
       });
       await hubNodeSettle(runId, node, "done").catch(() => 0);
     } else if (st.startsWith("done")) {
