@@ -28,6 +28,7 @@ main:has(.run-page) { max-width: none; }
   border-radius: var(--r-lg); background: var(--panel); padding: var(--s4);
 }
 .run-page .run-layout .panel-grid { grid-template-columns: minmax(0, 1fr); }
+.run-page .run-layout.no-selection { grid-template-columns: minmax(0, 1fr); }
 .run-page .run-layout .inspector .node-panel-head { flex-wrap: wrap; }
 .inspector .panel-close {
   min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center;

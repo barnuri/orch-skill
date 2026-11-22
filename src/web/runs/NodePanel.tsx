@@ -563,7 +563,7 @@ function RetryNodeButton({ runId, node }: { runId: string; node: RunNode }) {
   );
 }
 
-/** Node details below the graph: the selected node's details, attempts and session, or a hint when none is selected. */
+/** Node details beside the graph: the selected node's details, attempts and session. Renders nothing when no node is selected. */
 export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { run: RunState; selectedId: string | null; maxAttempts: number; flash: number; onClose?: () => void }) {
   const node = run.nodes.find((candidate) => candidate.id === selectedId);
   const panel = useRef<HTMLElement>(null);
@@ -581,12 +581,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
     element.classList.add("just-selected");
   }, [flash]);
   if (node === undefined) {
-    return (
-      <aside className="panel node-panel inspector" id="node-panel" aria-live="polite" ref={panel}>
-        <h2>Node details</h2>
-        <p className="hint panel-empty">{run.nodes.length > 0 ? "Select a node in the graph to see its profile, job and log." : "This run has no nodes yet."}</p>
-      </aside>
-    );
+    return null;
   }
   return (
     <aside className="panel node-panel has-node inspector" id="node-panel" aria-live="polite" ref={panel}>

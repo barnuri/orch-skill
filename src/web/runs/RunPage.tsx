@@ -218,6 +218,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
     history.replaceState(history.state, "", `${location.pathname}${location.search}${hashWithView(location.hash, next)}`);
   };
   const [flash, setFlash] = useState(0);
+  const hasSelection = run.nodes.some((node) => node.id === selected);
   const events = useRunEvents(run.run_id);
   const health = useRunHealth(run.run_id, run.status === "running");
   const requirements = useRunRequirements(run.run_id);
@@ -272,7 +273,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           </div>
         ) : null}
       </div>
-      <div className="layout run-layout">
+      <div className={hasSelection ? "layout run-layout" : "layout run-layout no-selection"}>
         {runView === "table" ? (
           <RunTable
             run={run}
@@ -297,7 +298,9 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           match={match}
         />
         )}
-        <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
+        {hasSelection ? (
+          <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
+        ) : null}
       </div>
       <ActivityFeed events={events} />
     </div>
