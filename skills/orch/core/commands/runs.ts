@@ -2,7 +2,7 @@
 // (cmd_run_start, cmd_run_list, cmd_run_retry, cmd_run_sync + auto retry, run_cancel, cmd_prune, auto_prune).
 import { profileAllowedFor, usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { mkdir, readdir, stat } from "node:fs/promises";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
@@ -31,6 +31,29 @@ const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-disp
 const PRUNE_USAGE = "dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]";
 const LOG_TAIL_LINES = 20;
 const RETENTION_DEFAULT_DAYS = 7;
+const COMMIT_END_EXIT_CODES = new Set(["1", "129"]);
+
+function jobFile(jobDir: string, name: string): string {
+  try {
+    return readFileSync(join(jobDir, name), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function commitLogHandoff(jobDir: string): string {
+  const repo = jobFile(jobDir, "repo");
+  const startCommit = jobFile(jobDir, "start_commit");
+  if (repo === "" || startCommit === "") return "";
+  const head = Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
+  if (head.exitCode !== 0) return "";
+  const headCommit = head.stdout.toString().trim();
+  if (headCommit === "" || headCommit === startCommit) return "";
+  const log = Bun.spawnSync(["git", "-C", repo, "log", "--format=%h %s", `${startCommit}..${headCommit}`], { stdout: "pipe", stderr: "ignore" });
+  if (log.exitCode !== 0) return "";
+  const commits = log.stdout.toString().trim();
+  return commits === "" ? "" : `# Handoff from commit log\n\nThe job ended but left no handoff. These commits were added during the job:\n\n${commits}\n`;
+}
 
 const alt = (v: any, d: any) => (v === null || v === undefined || v === false ? d : v);
 const out = (s: string) => void process.stdout.write(s);
@@ -268,17 +291,39 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
         /* no log */
       }
       if (size > 0) await markStarted(home, runId, node, nowIso(new Date(Math.floor(statSync(log).mtimeMs / 1000) * 1000)), "job-log");
-    } else if (st === "done exit=0") {
+    } else if (st === "done exit=0" || COMMIT_END_EXIT_CODES.has(st.replace(/^done exit=/, ""))) {
+      const exitCode = st.replace(/^done exit=/, "");
+      const commitHandoff = exitCode === "0" ? "" : commitLogHandoff(jobDir);
+      if (commitHandoff !== "") {
+        const outDir = await Bun.file(join(jobDir, "node")).text().then((v) => {
+          const [runOut, nodeOut] = v.trim().split("/");
+          return paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
+        }).catch(() => paths.runOutDir(home, runId, node));
+        mkdirSync(outDir, { recursive: true });
+        const handoffFile = join(outDir, "handoff.md");
+        if (!existsSync(handoffFile)) writeFileSync(handoffFile, commitHandoff);
+      }
       await mutateRun(home, runId, (r, ctx) => {
-        setStatus(r, node, "done", "", "", "", "", ctx);
-        doneVerify(r, node, ctx);
-        // The job exited 0 but left no handoff: it ended early. Make it an error so the retry runs it again
-        // and its dependents wait; never release it as done.
-        const x = findNode(r, node);
-        if (x?.unverified) {
-          x.unverified = false;
+        if (exitCode !== "0" && commitHandoff === "") {
           setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
+          return;
         }
+        if (exitCode === "0" && commitHandoff === "") {
+          setStatus(r, node, "done", "", "", "", "", ctx);
+          doneVerify(r, node, ctx);
+          const x = findNode(r, node);
+          if (x?.unverified) {
+            x.unverified = false;
+            setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
+          }
+          return;
+        }
+        setStatus(r, node, "done", "", "", "", "", ctx);
+        if (commitHandoff !== "") {
+          const x = findNode(r, node);
+          if (x) x.result = { verdict: "full", summary: "Job added commits during the run.", follow_up: "none", at: ctx.now };
+        }
+        doneVerify(r, node, ctx);
       });
       await hubNodeSettle(runId, node, "done").catch(() => 0);
     } else if (st.startsWith("done")) {

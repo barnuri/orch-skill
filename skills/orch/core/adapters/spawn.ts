@@ -430,6 +430,7 @@ export async function cmdJobRun(args: string[]): Promise<number> {
   const write = (rc: number) => {
     try {
       writeAtomic(join(jobDir, "exit_code"), String(rc));
+      Bun.spawn(["bun", join(import.meta.dir, "..", "cli.ts"), "herdr", "close-ended", jobDir], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
     } catch {}
   };
   for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
@@ -491,6 +492,16 @@ export async function cmdStart(args: string[]): Promise<number> {
   mkdirSync(jobDir, { recursive: true });
   const w = (f: string, v: string) => writeFileSync(join(jobDir, f), v + "\n");
   w("adapter", adapter);
+  const repo = process.cwd();
+  const repoProbe = Bun.spawnSync(["git", "-C", repo, "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "ignore" });
+  if (repoProbe.exitCode === 0) {
+    const repoRoot = repoProbe.stdout.toString().trim();
+    const headProbe = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
+    if (headProbe.exitCode === 0) {
+      w("repo", repoRoot);
+      w("start_commit", headProbe.stdout.toString().trim());
+    }
+  }
   if (loaded) {
     w("profile", t.name);
     w("model", loaded.model);
