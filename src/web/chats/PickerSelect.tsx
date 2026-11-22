@@ -22,16 +22,32 @@ interface PickerSelectProps {
   testId: string;
 }
 
+/** A list this long or longer gets a search box in its popup. */
+const SEARCH_MIN_OPTIONS = 8;
+
+/** Every word of the query must appear in the option's label, value, id or description (case-insensitive). */
+function matchesQuery(option: PickerOption, query: string): boolean {
+  const terms = query.toLowerCase().split(/\s+/).filter((term) => term !== "");
+  const text = [option.label, option.value, option.detail ?? "", option.description ?? ""].join(" ").toLowerCase();
+  return terms.every((term) => text.includes(term));
+}
+
 /** The app's listbox with richer rows (id, description, disabled reason) for the chat pickers. */
 export function PickerSelect({ label, value, options, onChange, disabled, note, testId }: PickerSelectProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const found = options.findIndex((o) => o.value === value);
+  const shown = options.filter((o) => matchesQuery(o, query));
+  const shownFound = shown.findIndex((o) => o.value === value);
   const [active, setActive] = useState(Math.max(0, found));
   const root = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const searchable = options.length >= SEARCH_MIN_OPTIONS;
 
   useEffect(() => {
     if (!open) {
+      setQuery("");
       return;
     }
     const onDown = (event: Event): void => {
@@ -40,28 +56,38 @@ export function PickerSelect({ label, value, options, onChange, disabled, note, 
       }
     };
     document.addEventListener("pointerdown", onDown);
+    if (searchable && window.matchMedia("(pointer: fine)").matches) {
+      search.current?.focus();
+    }
     return () => {
       document.removeEventListener("pointerdown", onDown);
     };
-  }, [open]);
+  }, [open, searchable]);
 
   const choose = (index: number): void => {
-    const option = options[index];
+    const option = shown[index];
     if (option !== undefined && !option.disabledReason) {
       onChange(option.value);
       setOpen(false);
     }
   };
   const onKeyDown = (event: React.KeyboardEvent): void => {
+    const typing = event.target instanceof HTMLInputElement;
+    if (typing && (event.key === "Home" || event.key === "End")) {
+      return;
+    }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       if (!open) {
         setActive(Math.max(0, found));
         setOpen(true);
       } else {
-        setActive(nextActive(event.key, active, options.length));
+        setActive(nextActive(event.key, active, shown.length));
       }
-    } else if ((event.key === "Enter" || event.key === " ") && open) {
+    } else if (event.key === "Enter" && open) {
+      event.preventDefault();
+      choose(active);
+    } else if (event.key === " " && open && !typing) {
       event.preventDefault();
       choose(active);
     } else if (event.key === "Escape" && open) {
@@ -95,29 +121,49 @@ export function PickerSelect({ label, value, options, onChange, disabled, note, 
         </svg>
       </button>
       {disabled && note ? <span className="picker-note">{note}</span> : null}
-      <ul className="select-list picker-list" role="listbox" aria-label={label} hidden={!open}>
-        {options.map((option, index) => (
-          <li
-            key={option.value}
-            className="select-opt picker-opt"
-            role="option"
-            aria-selected={index === found}
-            aria-disabled={option.disabledReason ? true : undefined}
-            data-active={index === active}
-            onMouseMove={() => {
-              setActive(index);
+      <div className="select-list picker-list picker-pop" hidden={!open}>
+        {searchable ? (
+          <input
+            ref={search}
+            type="search"
+            className="picker-search"
+            placeholder={`Search ${label.toLowerCase()}`}
+            aria-label={`Search ${label.toLowerCase()}`}
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActive(0);
             }}
-            onClick={() => {
-              choose(index);
-            }}
-          >
-            <span className="picker-opt-main">{option.label}</span>
-            {option.detail ? <span className="picker-opt-id">{option.detail}</span> : null}
-            {option.description ? <span className="picker-opt-desc">{option.description}</span> : null}
-            {option.disabledReason ? <span className="picker-opt-why">{option.disabledReason}</span> : null}
-          </li>
-        ))}
-      </ul>
+            onKeyDown={onKeyDown}
+          />
+        ) : null}
+        <ul className="picker-items" role="listbox" aria-label={label}>
+          {shown.map((option, index) => (
+            <li
+              key={option.value}
+              className="select-opt picker-opt"
+              role="option"
+              aria-selected={index === shownFound}
+              aria-disabled={option.disabledReason ? true : undefined}
+              data-active={index === active}
+              onMouseMove={() => {
+                setActive(index);
+              }}
+              onClick={() => {
+                choose(index);
+              }}
+            >
+              <span className="picker-opt-main">{option.label}</span>
+              {option.detail ? <span className="picker-opt-id">{option.detail}</span> : null}
+              {option.description ? <span className="picker-opt-desc">{option.description}</span> : null}
+              {option.disabledReason ? <span className="picker-opt-why">{option.disabledReason}</span> : null}
+            </li>
+          ))}
+          {shown.length === 0 ? <li className="picker-empty" role="presentation">No match</li> : null}
+        </ul>
+      </div>
     </div>
   );
 }

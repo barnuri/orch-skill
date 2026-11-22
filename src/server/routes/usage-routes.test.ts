@@ -8,7 +8,7 @@ import type { TestServerHandle } from "../types/test-server-handle";
 const PROFILES = {
   settings: { default_profile: "p" },
   models: { m: { slug: "alpha", harnesses: ["claude"] } },
-  profiles: { p: { harness: "claude", model: "m" } },
+  profiles: { p: { harness: "claude", model: "m", usage: ["runs"] } },
 };
 const servers: TestServerHandle[] = [];
 afterEach(() => {
@@ -32,7 +32,7 @@ describe("PATCH usage", () => {
     expect(await r.json()).toMatchObject({ id: "p", usage: ["chat"] });
     expect(saved(srv).profiles.p.usage).toEqual(["chat"]);
     expect(((await (await patch(srv, "/api/profiles/p/usage", { usage: "both" })).json()) as any).usage).toEqual(["chat", "runs"]);
-    expect(saved(srv).profiles.p.usage).toBeUndefined();
+    expect(saved(srv).profiles.p.usage).toEqual(["chat", "runs"]);
   });
   test("a harness is limited to runs and recorded in settings.harness_usage", async () => {
     const srv = server();

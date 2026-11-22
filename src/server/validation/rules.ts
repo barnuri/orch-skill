@@ -114,12 +114,12 @@ export const SUGGESTION_STATUSES = ["pending", "applied", "dismissed", "expired"
 export const CONFIDENCE_VALUES = ["low", "medium", "high"] as const;
 
 export const MAX_PROFILES = 64;
-export const MAX_MODELS = 128;
+export const MAX_MODELS = 1024;
 export const MAX_MODEL_LEN = 128;
 export const MAX_FLAGS = 32;
 export const MAX_FLAG_LEN = 256;
 export const MAX_ENV = 32;
-export const MAX_ENV_VALUE_LEN = 1024;
+export const MAX_ENV_VALUE_LEN = 64 * 1024;
 export const MAX_AUTH = 32;
 export const MAX_MEMORY_ENTRIES = 10000;
 export const MAX_SUGGESTIONS = 500;

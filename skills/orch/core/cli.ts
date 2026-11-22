@@ -20,6 +20,7 @@ const timing = () => import("./commands/timing.ts");
 const owners = () => import("./commands/owners.ts");
 const profile = () => import("./commands/profile.ts");
 const config = () => import("./commands/config.ts");
+const hubModels = () => import("./commands/hub-models.ts");
 const dispatchCmds = () => import("./commands/dispatch.ts");
 const runs = () => import("./commands/runs.ts");
 const nodeOps = () => import("./commands/node-ops.ts");
@@ -121,6 +122,7 @@ export const COMMANDS: Record<string, Handler> = {
   "profile show": L(profile, (m) => m.profileShow),
   "profile pick": L(profile, (m) => m.profilePickCommand),
   "model list": L(profile, (m) => m.modelList),
+  "model sync-hub": L(hubModels, (m) => m.modelSyncHub),
   "profile sanity": L(config, (m) => m.profileSanity),
   "profile unset-env": L(config, (m) => m.profileUnsetEnv),
   "profile set-usage": L(config, (m) => m.profileSetUsage),

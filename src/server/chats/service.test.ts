@@ -21,8 +21,8 @@ const PROFILES = {
     "m-b": { slug: "beta", harnesses: ["claude"], behaves_as: "claude-haiku-4-5" },
   },
   profiles: {
-    main: { harness: "claude", model: "m-a", flags: ["--dangerously-skip-permissions"], env: { ANTHROPIC_MODEL: "${PROFILE_MODEL}" } },
-    cp: { harness: "copilot", model: "m-a" },
+    main: { harness: "claude", model: "m-a", usage: ["chat", "runs"], flags: ["--dangerously-skip-permissions"], env: { ANTHROPIC_MODEL: "${PROFILE_MODEL}" } },
+    cp: { harness: "copilot", model: "m-a", usage: ["chat", "runs"] },
   },
 };
 

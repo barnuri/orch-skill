@@ -11,7 +11,7 @@ function doc(patch: (d: Obj) => void): Obj {
   const d = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../skills/orch/templates/profiles.json"), "utf8")) as Obj;
   d.settings = { default_profile: "x" };
   d.models = { m: { slug: "sonnet", harnesses: ["claude"] } };
-  d.profiles = { x: { harness: "claude", model: "m" } };
+  d.profiles = { x: { harness: "claude", model: "m", usage: ["runs"] } };
   patch(d);
   return d;
 }
@@ -26,6 +26,9 @@ describe("usage validation", () => {
     expect(paths(doc((d) => { d.profiles.x.usage = "chat"; }))).toEqual(['profiles.x.usage: must be a non-empty array of "chat" and/or "runs"']);
     expect(paths(doc((d) => { d.profiles.x.usage = ["chat", "web"]; }))).toEqual(['profiles.x.usage[1]: must be "chat" or "runs"']);
     expect(paths(doc((d) => { d.profiles.x.usage = ["chat", "chat"]; }))).toEqual(["profiles.x.usage[1]: duplicate entry"]);
+  });
+  test("a profile without usage is rejected", () => {
+    expect(paths(doc((d) => { delete d.profiles.x.usage; }))).toEqual(['profiles.x.usage: required; use ["chat"], ["runs"] or ["chat","runs"]']);
   });
   test("defaults.usage follows the same rule", () => {
     expect(paths(doc((d) => { d.defaults = { usage: ["x"] }; }))).toEqual(['defaults.usage[0]: must be "chat" or "runs"']);

@@ -9,7 +9,7 @@ function issuesWith(settings: Record<string, unknown>): Issue[] {
   const doc = {
     settings: { default_profile: "x", ...settings },
     models: { m: { slug: "m", harnesses: ["claude"] } },
-    profiles: { x: { harness: "claude", model: "m" } },
+    profiles: { x: { harness: "claude", model: "m", usage: ["runs"] } },
   };
   return profilesIssues(doc, HARNESSES);
 }

@@ -639,6 +639,8 @@ function profileIssues(
   }
   if ("usage" in spec) {
     issues.push(...usageIssues(`${path}.usage`, spec["usage"]));
+  } else {
+    issues.push({ path: `${path}.usage`, reason: 'required; use ["chat"], ["runs"] or ["chat","runs"]' });
   }
   if ("priority" in spec && !isIntegerInRange(spec["priority"], MIN_PRIORITY, MAX_PRIORITY)) {
     issues.push({

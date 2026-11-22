@@ -311,6 +311,7 @@ export function profilesMigrate(home: string, env: NodeJS.ProcessEnv = process.e
   ];
   const todo = steps.filter(([m]) => !existsSync(marker(m)));
   for (const [, fn] of todo) fn(d);
+  for (const p of Object.values<any>(d.profiles)) if (!("usage" in p)) p.usage = ["runs"];
   profilesCommit(home, d);
   if (copilotSeed) touch(".copilot-profile-migrated");
   if (planSeed) touch(".copilot-planner-migrated");

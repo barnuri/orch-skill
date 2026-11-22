@@ -23,6 +23,7 @@ import { startTicker } from "./schedules/ticker";
 import { pushHubFor } from "./push/hub";
 import { startRunWatcher } from "./push/run-watcher";
 import { startWatchdog } from "./watchdog/watchdog-service";
+import { startHubModelSync } from "./models/hub-sync";
 
 export const MIN_BUN: string = ">=1.3.0";
 export const EXIT_OK: number = 0;
@@ -221,6 +222,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   startRunWatcher(args.home, (category, input) => void pushHubFor(args.home).notify(category, input).catch(() => {}));
   // A run paused with auto_resume (a PC restart) resumes by itself; never blocks or crashes boot.
   startBootResume(args.home);
+  // Refreshes the llm-hub model list in the catalog at every start. Background, never blocks boot.
+  startHubModelSync(args.home);
   // Resolves only on an unhandled fault; the signal handlers exit the process.
   await new Promise<never>(() => {});
   return EXIT_OK;

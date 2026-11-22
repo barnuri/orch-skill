@@ -23,7 +23,7 @@ function documentWithProfile(spec: Mutable): Mutable {
     "claude-sonnet": { slug: "sonnet", harnesses: ["claude"], description: "workhorse" },
     "local-qwen3.6-35b": { slug: "llama_swap/qwen3.6-35b", harnesses: ["claude"], description: "hub" },
   };
-  document["profiles"] = { x: { harness: "claude", model: "claude-sonnet", ...spec } };
+  document["profiles"] = { x: { harness: "claude", model: "claude-sonnet", usage: ["runs"], ...spec } };
   return document;
 }
 
@@ -169,7 +169,7 @@ describe("profilesIssues", () => {
 
   test("profile names must match PROFILE_NAME", () => {
     const document = loadTemplate();
-    (document["profiles"] as Mutable)[".bad"] = { harness: "claude" };
+    (document["profiles"] as Mutable)[".bad"] = { harness: "claude", usage: ["runs"] };
     expect(issuesFor(document)).toEqual([{ path: "profiles..bad", reason: "invalid name" }]);
   });
 
@@ -177,7 +177,7 @@ describe("profilesIssues", () => {
     const document = loadTemplate();
     const profiles: Mutable = {};
     for (let index = 0; index < 65; index += 1) {
-      profiles[`p${index}`] = { harness: "claude" };
+      profiles[`p${index}`] = { harness: "claude", usage: ["runs"] };
     }
     document["profiles"] = profiles;
     (document["settings"] as Mutable)["default_profile"] = "p0";
@@ -259,8 +259,8 @@ describe("profilesIssues", () => {
     expect(issuesFor(documentWithProfile({ env: { A: 1 } }))).toEqual([
       { path: "profiles.x.env.A", reason: "must be a string" },
     ]);
-    expect(issuesFor(documentWithProfile({ env: { A: "v".repeat(1025) } }))).toEqual([
-      { path: "profiles.x.env.A", reason: "at most 1024 characters" },
+    expect(issuesFor(documentWithProfile({ env: { A: "v".repeat(64 * 1024 + 1) } }))).toEqual([
+      { path: "profiles.x.env.A", reason: "at most 65536 characters" },
     ]);
     expect(issuesFor(documentWithProfile({ env: { A: "a\nb" } }))).toEqual([
       { path: "profiles.x.env.A", reason: "must not contain control characters" },
@@ -316,6 +316,7 @@ describe("profilesIssues", () => {
     const profiles = document["profiles"] as Mutable;
     profiles["hub"] = {
       harness: "claude",
+      usage: ["runs"],
       model: "local-qwen3.6-35b",
       allowed_models: ["llama_swap*"],
       flags: [],
@@ -340,6 +341,11 @@ describe("profilesIssues", () => {
     expect(issuesFor(document)).toEqual([
       { path: "profiles.x.model", reason: "not in allowed_models" },
     ]);
+  });
+
+  test("allowed_models * and an empty list both allow every model of the harness", () => {
+    expect(issuesFor(documentWithProfile({ allowed_models: ["*"] }))).toEqual([]);
+    expect(issuesFor(documentWithProfile({ allowed_models: [] }))).toEqual([]);
   });
 
   test("all issues are collected, not just the first", () => {

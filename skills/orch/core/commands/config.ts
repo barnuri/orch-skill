@@ -146,9 +146,7 @@ export async function profileSetUsage(args: string[]): Promise<number> {
   const doc: any = await Bun.file(paths.profiles(home)).json();
   const p = doc.profiles?.[name];
   if (!p) return err(`profile ${name}: unknown profile. Available: ${Object.keys(doc.profiles ?? {}).sort().join(", ")}\n`, 2);
-  const inheritsBoth = choiceFromUsage(profileUsage({ defaults: doc.defaults, profiles: { x: {} } }, "x")) === "both";
-  if (choice === "both" && inheritsBoth) delete p.usage;
-  else p.usage = usageFromChoice(choice as UsageChoice);
+  p.usage = usageFromChoice(choice as UsageChoice);
   profilesCommit(home, doc);
   return out(`profile ${name}: usage = ${choiceFromUsage(profileUsage(doc, name))}\n`);
 }

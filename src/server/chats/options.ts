@@ -16,6 +16,11 @@ interface ProfilesDoc {
 }
 
 export interface ModelOption { id: string; label: string; slug: string; description: string; default: boolean }
+
+/** The name a model shows as: its slug without the "hub/" routing prefix, the name llm-hub knows it by. */
+export function modelName(slug: string): string {
+  return slug.startsWith("hub/") ? slug.slice("hub/".length) : slug;
+}
 export interface ProfileOption { name: string; description: string; enabled: boolean; configured: boolean; problem: string | null; models: ModelOption[] }
 export interface HarnessOption { id: string; label: string; enabled: boolean; available: boolean; persistent: boolean; efforts: string[]; memory: "process" | "session" | "replay"; profiles: ProfileOption[] }
 /** `not_for_chat` maps a profile that is left out of the pickers (limited to orch runs) to the reason, so a chat that already uses it can warn. */
@@ -77,7 +82,7 @@ function modelsOf(doc: ProfilesDoc, profile: ProfileSpec): ModelOption[] {
     if (allowed.length > 0 && !allowed.some((entry) => matches(id, slug, entry))) {
       continue;
     }
-    out.push({ id, label: id, slug, description: spec.description ?? "", default: id === profile.model });
+    out.push({ id, label: modelName(slug), slug, description: spec.description ?? "", default: id === profile.model });
   }
   return out;
 }

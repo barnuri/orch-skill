@@ -28,7 +28,11 @@ afterEach(async () => {
 describe("every model chat-options offers is accepted on send", () => {
   test("all enabled profiles and models, through the real profile_load", async () => {
     const home = TempHome.create();
-    home.write("profiles.json", readFileSync(TEMPLATE, "utf8"));
+    home.write("profiles.json", (() => {
+      const doc = JSON.parse(readFileSync(TEMPLATE, "utf8"));
+      for (const spec of Object.values<any>(doc.profiles)) spec.usage = ["chat", "runs"];
+      return JSON.stringify(doc);
+    })());
     process.env.ORCH_CHAT_CLAUDE_BIN = FAKE_CLAUDE;
     process.env.ORCH_CHAT_DISPATCH = FAKE_LOAD;
     process.env.ORCH_CHAT_OPENCODE_DISPATCH = "1";

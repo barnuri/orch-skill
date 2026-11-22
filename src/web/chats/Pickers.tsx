@@ -50,7 +50,7 @@ export function Pickers({ options, selection, onChange, locked, modelUsed, expec
     sel.profile,
   );
   const modelOpts = withCurrent(
-    state.model.options.map((m) => ({ value: m.id, label: m.label, detail: m.id, description: m.description })),
+    state.model.options.map((m) => ({ value: m.id, label: m.label })),
     sel.model ?? "",
     modelLabel(options, sel),
   );

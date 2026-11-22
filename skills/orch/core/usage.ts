@@ -69,6 +69,8 @@ dispatch.ts harness set-usage <id> chat|runs|both
 dispatch.ts profile unset-env <name> <VAR>...
     -> drops the named env vars from one profile; the rest of profiles.json stays as written
 dispatch.ts model list [--profile P] [--harness H]
+dispatch.ts model sync-hub
+    -> adds the llm-hub chat models to the catalog and to the provider config of every profile with allowed_models "*"
 dispatch.ts harness list [--json]
     -> probes each adapter (CLI on PATH or env for local-llm); JSON includes enabled flag
        from settings.disabled_harnesses.

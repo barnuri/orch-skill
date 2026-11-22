@@ -23,7 +23,10 @@ export function isAllowedModelPattern(entry: string): boolean {
 const ALLOWED_MODEL_ENTRY = /^[A-Za-z0-9][A-Za-z0-9._/-]*(\*)?$/;
 
 export function isValidAllowedModelEntry(entry: string, maxLen: number): boolean {
-  if (entry.length === 0 || entry.length > maxLen || entry === "*") {
+  if (entry === "*") {
+    return true;
+  }
+  if (entry.length === 0 || entry.length > maxLen) {
     return false;
   }
   if (!ALLOWED_MODEL_ENTRY.test(entry)) {

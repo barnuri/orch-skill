@@ -5,6 +5,8 @@ import type { ProfileSpec } from "../../shared/types/profile-spec";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { COMPLEXITY_VALUES, COST_VALUES, QUALITY_VALUES, RISK_VALUES, SPEED_VALUES } from "../../shared/types/routing-enums";
 import { isAllowedModelPattern } from "../../shared/types/model-pattern";
+import { choiceFromUsage, usageFromChoice } from "../../shared/profile-usage";
+import type { UsageChoice } from "../../shared/profile-usage";
 import { Button } from "../components/Button";
 import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -34,13 +36,13 @@ const LINE_HINTS = {
   auth: "one auth key per line",
   tags: "one tag per line",
 } as const;
-const ALLOWED_MODELS_HINT = "restrict spawn models by catalog id or slug prefix (e.g. llama_swap*); empty = any model for the harness";
+const ALLOWED_MODELS_HINT = "restrict spawn models by catalog id or slug prefix (e.g. llama_swap*); * or empty = any model for the harness";
 
 type LineKey = "flags" | "auth" | "tags" | "strengths" | "avoid_for" | "example_tasks";
 type EnumKey = "cost" | "quality" | "speed" | "risk" | "min_complexity" | "max_complexity";
 
 const FIELD_NAMES = [
-  "harness", "description", "enabled", "model", "allowed_models", "cost", "quality", "speed", "risk", "min_complexity",
+  "harness", "description", "enabled", "usage", "model", "allowed_models", "cost", "quality", "speed", "risk", "min_complexity",
   "max_complexity", "priority", "fallback", "parallel_ok", "tags", "strengths", "avoid_for", "example_tasks", "flags", "env", "auth",
 ];
 
@@ -51,6 +53,14 @@ const ENUM_FIELDS: readonly { key: EnumKey; label: string; values: readonly stri
   { key: "risk", label: "Risk", values: RISK_VALUES },
   { key: "min_complexity", label: "Min complexity", values: COMPLEXITY_VALUES },
   { key: "max_complexity", label: "Max complexity", values: COMPLEXITY_VALUES },
+];
+
+/** Used for a profile that has no `usage` yet: the new-profile default and the value a save writes. */
+const USE_DEFAULT: UsageChoice = "runs";
+const USE_OPTIONS: SelectOption[] = [
+  { value: "runs", label: "Orch runs only" },
+  { value: "chat", label: "Chat only" },
+  { value: "both", label: "Chat and orch runs" },
 ];
 
 const unsetOr = (values: readonly string[]): SelectOption[] => [
@@ -175,13 +185,10 @@ export function ProfileForm({ doc, target, enums, editor }: { doc: ProfilesDocum
     event.preventDefault();
     const typed = isNew ? name.trim() : target;
     const parsed = envLinesToObject(lines.env, `${base}.env`);
-    const finalSpec: ProfileSpec = { ...spec, env: parsed.env };
+    const finalSpec: ProfileSpec = { ...spec, env: parsed.env, usage: spec.usage ?? usageFromChoice(USE_DEFAULT) };
     const issues: Issue[] = [...parsed.issues];
     if (isNew && typed !== "" && Object.hasOwn(doc.profiles, typed)) {
       issues.push({ path: `profiles.${typed}`, reason: DUPLICATE_NAME });
-    }
-    if (finalSpec.allowed_models !== undefined && finalSpec.allowed_models.length === 0) {
-      issues.push({ path: `${base}.allowed_models`, reason: "pick at least one model or allow any" });
     }
     setLocalIssues(issues);
     if (issues.length > 0) {
@@ -280,6 +287,19 @@ export function ProfileForm({ doc, target, enums, editor }: { doc: ProfilesDocum
           {harnessOff ? <span className="hint">{`The ${spec.harness} harness is disabled. Enable it on the Harnesses page first.`}</span> : null}
           <FieldErrors path={`${base}.enabled`} />
         </div>
+        <Field label="Use in" path={`${base}.usage`} hint="Required. Chat only keeps the profile off orch runs, nodes and schedules.">
+          {({ id, invalid }) => (
+            <Select
+              id={id}
+              invalid={invalid}
+              value={choiceFromUsage(spec.usage ?? usageFromChoice(USE_DEFAULT))}
+              options={USE_OPTIONS}
+              onChange={(choice) => {
+                update({ usage: usageFromChoice(choice as UsageChoice) });
+              }}
+            />
+          )}
+        </Field>
         <FormSection title="Model" />
         <Field label="Default model" path={`${base}.model`}>
           {({ id, invalid }) => (
