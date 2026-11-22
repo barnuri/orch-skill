@@ -187,6 +187,7 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
     ORCH_NODE_GOAL_FILE: join(outDir, "goal.md"),
     ORCH_RUN_ID: runId,
     ORCH_NODE_ID: nodeId,
+    ORCH_NODE_LABEL: String(node.label ?? nodeId),
     ORCH_DISPATCH: dispatchPath(),
     HARNESS_ORCH_HOME: home,
     ORCH_NODE_ATTEMPT: String(attempt),

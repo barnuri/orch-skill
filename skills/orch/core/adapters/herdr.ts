@@ -289,9 +289,9 @@ async function runWorkspace(home: string, label: string, cwd: string): Promise<{
   return ws ? { ws, rootTab: created?.result?.tab?.tab_id ?? "" } : null;
 }
 
-async function findNodeTab(home: string, ws: string, node: string): Promise<string> {
+async function findNodeTab(home: string, ws: string, title: string): Promise<string> {
   const list = await cliJson(home, ["tab", "list", "--workspace", ws]);
-  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/ #\d+$/, "") === node);
+  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/-attempt-\d+$/, "") === title);
   return t?.tab_id ?? "";
 }
 
@@ -424,6 +424,17 @@ async function appSpaceId(name: string, folder: string): Promise<string> {
 }
 
 // Returns the labels and the terminal name for an hc run, or null (with a log line) when unavailable.
+export function buildJobTerminalName(runTitle: string, nodeLabel: string, attempt = 1): string {
+  const sanitize = (value: string, maxLength: number): string => {
+    const cleaned = value.normalize("NFKC").replace(/[^a-z0-9_-]+/gi, "-").replace(/^[-_]+|[-_]+$/g, "").toLowerCase();
+    return cleaned.slice(0, maxLength).replace(/[-_]+$/g, "") || "job";
+  };
+  const runShort = sanitize(runTitle, 20);
+  const nodeShort = sanitize(nodeLabel, 25);
+  const base = `${runShort}-${nodeShort}`;
+  return attempt > 1 ? `${base}-attempt-${attempt}` : base;
+}
+
 async function appPlacement(home: string, jobDir: string, run: string, node: string): Promise<{ labels: string[]; name: string } | null> {
   const log = (m: string) => { try { appendFileSync(join(jobDir, "log"), `orch: herdr-app: ${m}\n`); } catch { /* ignore */ } };
   try {
@@ -449,7 +460,12 @@ async function appPlacement(home: string, jobDir: string, run: string, node: str
       if (!tab) throw new Error("tab.new failed");
       appTabCache.set(key, tab);
     }
-    return { labels: [`herdr.space=${space}`, `herdr.tab=${tab}`], name: `${run.slice(-9)} ${node}`.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase().slice(0, 25) + "-" + jobDir.split("/").pop()!.replace(/[^a-z0-9]/gi, "").toLowerCase().slice(-6) };
+    const state = await readJson<any>(paths.runState(home, run)).catch(() => null);
+    const runTitle = typeof state?.title === "string" ? state.title : run;
+    const nodeEntry = Array.isArray(state?.nodes) ? state.nodes.find((n: any) => n.id === node) : null;
+    const nodeLabel = process.env.ORCH_NODE_LABEL || (typeof nodeEntry?.label === "string" ? nodeEntry.label : node);
+    const attempt = Number(process.env.ORCH_NODE_ATTEMPT || 1);
+    return { labels: [`herdr.space=${space}`, `herdr.tab=${tab}`], name: buildJobTerminalName(runTitle, nodeLabel, attempt) };
   } catch (e) {
     log(`${(e as Error).message}, job stays hidden`);
     return null;
@@ -528,12 +544,17 @@ export async function startJob(home: string, jobDir: string, argv: string[]): Pr
   const cap = Number(process.env.ORCH_HERDR_PANE_CAP || PANE_CAP_DEFAULT);
   if ((panes.result?.panes ?? []).length >= cap) return false;
   const run = process.env.ORCH_RUN_ID || NO_RUN_LABEL;
-  const base = process.env.ORCH_NODE_ID || jobDir.split("/").pop()!;
+  const node = process.env.ORCH_NODE_ID || jobDir.split("/").pop()!;
   const attempt = Number(process.env.ORCH_NODE_ATTEMPT || 1);
-  const title = attempt > 1 ? `${base} #${attempt}` : base;
+  const state = await readJson<any>(paths.runState(home, run)).catch(() => null);
+  const runTitle = typeof state?.title === "string" ? state.title : run;
+  const nodeEntry = Array.isArray(state?.nodes) ? state.nodes.find((n: any) => n.id === node) : null;
+  const nodeLabel = process.env.ORCH_NODE_LABEL || (typeof nodeEntry?.label === "string" ? nodeEntry.label : node);
+  const title = buildJobTerminalName(runTitle, nodeLabel, attempt);
   const w = await runWorkspace(home, run, process.cwd());
   if (!w) return false;
-  let tabId = attempt > 1 ? await findNodeTab(home, w.ws, base) : "";
+  const baseTitle = buildJobTerminalName(runTitle, nodeLabel, 1);
+  let tabId = attempt > 1 ? await findNodeTab(home, w.ws, baseTitle) : "";
   let paneId = "";
   if (tabId) {
     if (!(await herdrCli(home, ["tab", "rename", tabId, title])).ok) return false;

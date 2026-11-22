@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetAppCache, hcJobTail, hcEnabled, hcSweep, herdrCommand, herdrEnabled, jobGoneNote, startJob, sweep } from "./herdr.ts";
+import { buildJobTerminalName, resetAppCache, hcJobTail, hcEnabled, hcSweep, herdrCommand, herdrEnabled, jobGoneNote, startJob, sweep } from "./herdr.ts";
 
 // A herdr stub: answers status/workspace/tab/pane calls from a call log, records every call.
 function setup() {
@@ -22,7 +22,7 @@ case "$1 $2" in
   "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t0"},"root_pane":{"pane_id":"p0"}}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
-  "tab list") echo '{"result":{"tabs":[{"tab_id":"t1","label":"[1] n1"}]}}' ;;
+  "tab list") echo '{"result":{"tabs":[{"tab_id":"t1","label":"[1] r1-n1"}]}}' ;;
   "pane list") cat "${panes}" ;;
   *) echo '{}' ;;
 esac
@@ -40,6 +40,11 @@ function withEnv<T>(overrides: Record<string, string>, fn: () => Promise<T>): Pr
 }
 
 describe("herdr", () => {
+  test("buildJobTerminalName uses a short sanitized run title and node label", () => {
+    expect(buildJobTerminalName("Fix the API parser", "Implement Unicode @ parser", 1)).toBe("fix-the-api-parser-implement-unicode-parser");
+    expect(buildJobTerminalName("A very long run title that should be shortened", "A node label that is deliberately much too long", 3)).toBe("a-very-long-run-titl-a-node-label-that-is-deli-attempt-3");
+  });
+
   test("ORCH_HERDR=0 disables it", async () => {
     const s = setup();
     await withEnv({ PATH: `${s.bin}:${process.env.PATH}`, ORCH_HERDR: "0" }, async () => {
@@ -57,7 +62,7 @@ describe("herdr", () => {
     });
     const calls = readFileSync(s.log, "utf8");
     expect(calls).toContain("tab create --workspace w1");
-    expect(calls).toContain("--label n1 --no-focus");
+    expect(calls).toContain("--label r1-n1 --no-focus");
     expect(readFileSync(join(job, "herdr_pane"), "utf8")).toBe("p1\n");
     expect(readFileSync(join(job, "herdr_tab"), "utf8")).toBe("t1\n");
     expect(existsSync(join(job, "herdr_sock"))).toBe(true);
@@ -73,7 +78,7 @@ describe("herdr", () => {
       expect(await startJob(s.home, job, ["true"])).toBe(true);
     });
     const calls = readFileSync(s.log, "utf8");
-    expect(calls).toContain("tab rename t1 n1 #2");
+    expect(calls).toContain("tab rename t1 r1-n1-attempt-2");
     expect(calls).not.toContain("tab create");
   }, 30000);
 
