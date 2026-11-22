@@ -22,7 +22,7 @@ const nodes = [{ id: "a", status: "running" }, { id: "b", status: "done" }];
 
 test("a session that is not the coordinator or an owner sees nothing, even while a run is running", () => {
   const home = homeWith({ nodes, coordinator: { session_id: "ses_other", pane_id: "w1:p1" } });
-  expect(scan(home, "", "ses_me", "w9:p9")).toEqual({ running: 0, done: 0, total: 0, loops: 0, watches: 0 });
+  expect(scan(home, "", "ses_me", "w9:p9")).toEqual({ running: 0, gates: 0, done: 0, total: 0, loops: 0, watches: 0 });
 });
 
 test("the coordinator session, the coordinator pane and a node owner are attributed", () => {

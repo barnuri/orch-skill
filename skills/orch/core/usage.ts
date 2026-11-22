@@ -2,6 +2,7 @@
 import { USAGE as NODE_USAGE } from "./runs/node.ts";
 import { NODE_DISPATCH_USAGE, NODE_RETRY_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE } from "./commands/dispatch.ts";
 import { RUN_WAIT_USAGE } from "./commands/wait.ts";
+import { RUN_WATCH_USAGE } from "./commands/run-watch.ts";
 import { RUN_HEALTH_USAGE } from "./commands/health.ts";
 import { RUN_STATUS_USAGE } from "./commands/run.ts";
 import { RUN_ADVANCE_USAGE } from "./commands/advance.ts";
@@ -19,7 +20,7 @@ const RUNS_SECTION = [
   "dispatch.ts run start \"<title>\" [--id ID] [--harness-session S]",
   RUN_CARRY_USAGE, NODE_USAGE.add, NODE_USAGE.update, NODE_USAGE.report, NODE_USAGE.batch,
   NODE_DISPATCH_USAGE, NODE_RETRY_USAGE, NODE_STARTED_USAGE, RUN_BACKFILL_TIMING_USAGE,
-  RUN_WAIT_USAGE, RUN_STATUS_USAGE.replace(/^usage: /, ""), RUN_HEALTH_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE, RUN_ADVANCE_USAGE,
+  RUN_WAIT_USAGE, RUN_WATCH_USAGE, RUN_STATUS_USAGE.replace(/^usage: /, ""), RUN_HEALTH_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE, RUN_ADVANCE_USAGE,
   PLAN_USAGE, PLAN_APPLY_USAGE, MSG_SEND_USAGE, MSG_READ_USAGE,
   NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE, NODE_SELECTIONS_USAGE,
   NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE,

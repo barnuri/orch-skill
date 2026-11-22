@@ -107,6 +107,7 @@ export const COMMANDS: Record<string, Handler> = {
   "stats context": L(() => import("./commands/stats.ts"), (m) => m.statsContext),
   "run backfill-timing": L(timing, (m) => m.runBackfillTiming),
   "run wait": L(() => import("./commands/wait.ts"), (m) => m.runWait),
+  "run watch": L(() => import("./commands/run-watch.ts"), (m) => m.runWatch),
   "run cover": L(() => import("./commands/cover.ts"), (m) => m.runCover),
   "run uncover": L(() => import("./commands/cover.ts"), (m) => m.runUncover),
   "run carry": withMonitor(L(() => import("./commands/carry.ts"), (m) => m.runCarry)),

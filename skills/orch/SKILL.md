@@ -462,7 +462,7 @@ Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run 
 `orch run wait <run>` blocks until the run needs you, then prints one line per event and exits 0: a node status change (`a running->done`), `ready: b,c`, `q needs-user: <reason>`, a node `stalled` (no session activity for `--stall-min`, default `settings.stall_minutes` or 15), `dead` (owner session gone), `no-report` (owner idle, node not reported), a dead health monitor (restarted for you), `run ended: <status>`. Exit 3 = nothing running or ready, 124 = `--timeout` passed with no change. A cursor in the run keeps what was already reported, so nothing between two waits is lost and nothing is reported twice. `--json` prints one object per event. Never write your own polling script for this.
 
 Pick the form by what this session can do:
-- **Background shell that tells you when a command ends** (opencode, Claude Code background Bash): run `orch run wait <run>` in the background. When it ends, act on the events, then start it again at once.
+- **Background shell that tells you when a command ends** (opencode, Claude Code background Bash): run `orch run watch <run>` in the background. It restarts `run wait` after each batch of events and exits 0 when the run ends. When it ends, act on the events, then start it again at once.
 - **A Monitor tool that streams a command's lines**: monitor `orch run wait <run> --follow` (it ends by itself when the run ends).
 - **Neither** (pi and similar): call `orch run wait <run> --timeout 600` once per turn.
 

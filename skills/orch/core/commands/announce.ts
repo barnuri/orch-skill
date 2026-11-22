@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { orchHome } from "../state/home.ts";
 import { pidAlive, psCommand, sleep, spawnOrch } from "../state/proc.ts";
+import { nodeReady } from "./run.ts";
 
 const LOG_CAP = 102400;
 
@@ -31,7 +32,7 @@ export function attributed(s: any, id: string, runId: string, sid: string, pane:
 }
 
 export function scan(home: string, runId: string, sid = "", pane = "") {
-  let running = 0, done = 0, total = 0, loops = 0, watches = 0;
+  let running = 0, gates = 0, done = 0, total = 0, loops = 0, watches = 0;
   const each = (kind: string) => {
     const root = join(home, kind);
     if (!existsSync(root)) return [] as any[];
@@ -49,14 +50,16 @@ export function scan(home: string, runId: string, sid = "", pane = "") {
     mine.add(id);
     const nodes: any[] = s.nodes ?? [];
     running += nodes.filter((n) => n.status === "running").length;
+    // A gate that is ready (every other node terminal) is work too: the run waits on it, so it is not idle.
+    gates += nodes.filter((n) => n.after_all === true && n.status === "waiting" && nodeReady(s, n)).length;
     done += nodes.filter((n) => n.status === "done").length;
     total += nodes.length;
   }
   // Loops and monitors count only when they belong to one of this session's runs and the run has work running.
-  const own = (s: any): boolean => mine.has(String(s.run_id ?? s.run ?? "")) && running > 0;
+  const own = (s: any): boolean => mine.has(String(s.run_id ?? s.run ?? "")) && running + gates > 0;
   for (const [, s] of each("loops")) if (s.status === "running" && (pidAlive(s.pid) || s.demo === true) && own(s)) loops++;
   for (const [, s] of each("watches")) if (s.status === "running" && pidAlive(s.pid) && own(s)) watches++;
-  return { running, done, total, loops, watches };
+  return { running, gates, done, total, loops, watches };
 }
 
 function writeAtomic(path: string, body: string): void {
@@ -88,13 +91,14 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
   let sid = env.ANNOUNCE_SID || agentSessionId();
   if (!sid || sid === "unknown") sid = `pid-${process.ppid}`;
   const pane = env.HERDR_PANE_ID ?? "";
-  const { running, done, total, loops, watches } = scan(home, o.runId, sid, pane);
-  const busy = running + loops + watches;
+  const { running, gates, done, total, loops, watches } = scan(home, o.runId, sid, pane);
+  const busy = running + gates + loops + watches;
   let summary = "";
   let active = false;
   if (!o.clear && busy > 0) {
     active = true;
     summary = `orch: ${running} running, ${done}/${total} done`;
+    if (gates > 0) summary += ` · ${gates} gate ready`;
     if (loops > 0) summary += ` · ${loops} loop${loops > 1 ? "s" : ""}`;
     if (watches > 0) summary += ` · ${watches} monitor${watches > 1 ? "s" : ""}`;
     summary = summary.slice(0, 120);
