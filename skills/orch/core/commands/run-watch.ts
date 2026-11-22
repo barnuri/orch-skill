@@ -7,6 +7,30 @@ import { BIN_ORCH } from "../state/proc.ts";
 
 export const RUN_WATCH_USAGE = "dispatch.ts run watch <run-id> [--json] [--stall-min N]";
 const MAX_CRASHES = 5;
+// Keep the run green without the coordinator: retry errored nodes (within max_attempts) and nudge idle ones.
+const RETRY_GAP_MS = 60_000;
+const retriedAt: Record<string, number> = {};
+
+let lastGreen = 0;
+async function keepGreen(home: string, runId: string, pass: string[]): Promise<void> {
+  if (Date.now() - lastGreen < 30_000) return;
+  lastGreen = Date.now();
+  const run = await loadRun(home, runId);
+  if (!run) return;
+  for (const [id, node] of Object.entries(run.nodes ?? {})) {
+    const n = node as { status?: string; error?: string | null };
+    if (n.status !== "error" || /cancel/i.test(n.error ?? "")) continue;
+    const key = `${runId}/${id}`;
+    if (Date.now() - (retriedAt[key] ?? 0) < RETRY_GAP_MS) continue;
+    retriedAt[key] = Date.now();
+    const p = Bun.spawn([process.execPath, BIN_ORCH, "node", "retry", runId, id], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const out = await new Response(p.stdout).text();
+    await p.exited;
+    process.stdout.write(`auto-retry ${id}: ${out.trim().split("\n").pop() ?? ""}\n`);
+  }
+  // Fire and forget: the nudge must never hold up the event loop.
+  Bun.spawn([process.execPath, BIN_ORCH, "run", "health", runId, "--nudge"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+}
 
 export async function runWatch(args: string[]): Promise<number> {
   const home = orchHome();
@@ -35,6 +59,7 @@ export async function runWatch(args: string[]): Promise<number> {
     const after = await loadRun(home, runId);
     if (!after) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
     if (after.status !== "running") return 0;
+    await keepGreen(home, runId, pass);
 
     // Exit 0 (events) and 3 (settled) restart at once: wait blocks on its own cursor until the next change.
     // Any other exit is a crash; give up after MAX_CRASHES in a row, with a pause between tries.
