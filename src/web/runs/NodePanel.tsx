@@ -455,7 +455,7 @@ function NodeSession({ node }: { node: RunNode }) {
   } else if (jobId !== null && log.isPending) {
     body = <p className="hint">Reading the session…</p>;
   } else if (envelope !== null) {
-    body = <JobTranscript text={stripAnsi(envelope.text)} />;
+    body = <JobTranscript text={envelope.text} />;
   } else if (node.log_tail.length > 0) {
     body = <pre className="transcript node-output"><AnsiLog text={node.log_tail.join("\n")} /></pre>;
   } else {
@@ -642,8 +642,9 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
     return null;
   }
   return (
-    <aside className="panel node-panel has-node inspector" id="node-panel" aria-live="polite" ref={panel}>
+    <aside className="node-terminal" id="node-panel" aria-live="polite" ref={panel}>
       <h2 className="node-panel-head">
+        <span className="node-terminal-prompt" aria-hidden="true">$ node</span>
         <span className="node-panel-title">{node.label || node.id}</span>
         <Chip status={node.status} />
         <FlagChips node={node} />
@@ -661,10 +662,17 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
           <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOnDeps(run, node.id)} />
           <Attempts node={node} />
           <Selections node={node} />
-          <NodeMessages key={node.id} runId={run.run_id} node={node} />
         </div>
         <NodeBody runId={run.run_id} node={node} />
       </div>
+      <NodeMessages key={node.id} runId={run.run_id} node={node} />
+      <footer className="node-statusline" aria-label="Node status line">
+        <span className={`node-statusline-state is-${node.status}`}>{node.status}</span>
+        <span>{node.profile ?? "no profile"}</span>
+        <span>{node.actual_model ?? node.model_id ?? node.model ?? "no model"}</span>
+        <span>attempt {(node.attempts?.length ?? 0) + 1}/{maxAttempts}</span>
+        <span>{node.owner_state ?? "owner unknown"}</span>
+      </footer>
     </aside>
   );
 }

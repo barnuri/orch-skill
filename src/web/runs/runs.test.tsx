@@ -275,9 +275,20 @@ describe("visibility", () => {
     expect(container.textContent).toContain("1 node is running but nothing has changed for 15 min.");
   });
 
+  test("the activities panel is collapsed by default and remembers the choice", () => {
+    localStorage.removeItem("orch.run.activities.open");
+    const { container } = render(<ActivityFeed events={[{ n: 1, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note: "x", by: null } as never]} />);
+    expect(container.querySelectorAll(".activity-row").length).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: /Activities/ }));
+    expect(localStorage.getItem("orch.run.activities.open")).toBe("1");
+    expect(container.querySelectorAll(".activity-row").length).toBe(1);
+    localStorage.removeItem("orch.run.activities.open");
+  });
+
   test("the activity feed is newest first and has an empty state", () => {
     const e = (n: number, note: string) => ({ n, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note, by: null });
     const { container, rerender } = render(<ActivityFeed events={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Activities/ }));
     expect(container.textContent).toContain("No activity recorded yet.");
     rerender(<ActivityFeed events={[e(1, "first"), e(2, "second")]} />);
     const rows = [...container.querySelectorAll(".activity-text")].map((x) => x.textContent);
@@ -288,6 +299,7 @@ describe("visibility", () => {
     const e = (n: number) => ({ n, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note: `item ${n}`, by: null });
     const events = Array.from({ length: 8 }, (_, i) => e(i + 1));
     const { container } = render(<ActivityFeed events={events} />);
+    fireEvent.click(screen.getByRole("button", { name: /Activities/ }));
     expect(container.querySelectorAll(".activity-row").length).toBe(5);
     fireEvent.click(screen.getByRole("button", { name: "Show more (3 more)" }));
     expect(container.querySelectorAll(".activity-row").length).toBe(8);

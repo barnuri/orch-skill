@@ -20,7 +20,7 @@
 /* ---- Graph + inspector ---- */
 main:has(.run-page) { max-width: none; }
 .run-page .run-layout {
-  max-width: none; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--s4); align-items: start;
+  max-width: none; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: start;
 }
 .run-page .run-layout .inspector {
   max-width: none; margin: 0; position: sticky; top: calc(var(--nav-h) + var(--s3));
@@ -177,3 +177,33 @@ main:has(.run-page) { max-width: none; }
 .covers-block h3 { margin: 0 0 var(--s2); color: var(--status-covered); font-size: var(--fs-ctl); }
 .covers-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
 .covers-nodes, .covers-map { font-size: var(--fs-meta); color: var(--tx2); }
+
+/* ---- Node terminal: the node panel sits below the graph or table and reads like a shell session ---- */
+.node-terminal {
+  margin: 0; width: 100%; box-sizing: border-box; border-radius: var(--r-lg);
+  background: var(--panel); border: 1px solid var(--s2); overflow: hidden;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--tx);
+}
+.node-terminal .node-panel-head { margin: 0; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--s2); font-size: 12.5px; font-weight: 600; }
+.node-terminal-prompt { color: var(--tx2); margin-right: var(--s2); }
+.node-terminal .panel-grid { grid-template-columns: minmax(0, 1fr); padding: var(--s4); }
+.node-statusline {
+  display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--s2); background: var(--s1); color: var(--tx2); font-size: var(--fs-meta);
+}
+.node-statusline-state { color: var(--tx); font-weight: 600; }
+.node-statusline-state.is-error { color: var(--status-error); }
+.node-statusline-state.is-waiting { color: var(--status-waiting); }
+.node-statusline-state.is-stale { color: var(--status-stale); }
+
+/* ---- Filters and activity share one row: activity sits at the right of the filters ---- */
+.run-page .run-filter-row {
+  display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-start; justify-content: space-between;
+}
+.run-page .run-filter-row > .run-activity {
+  margin-left: auto; flex: 0 1 380px; min-width: 260px; max-height: 240px; overflow: auto;
+}
+.run-page .run-filter-row > .run-filter { flex: 1 1 520px; min-width: 0; }
+
+.run-page .run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.run-page .run-filter-q { flex: 1 1 220px; min-width: 180px; }

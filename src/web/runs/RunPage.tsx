@@ -16,7 +16,7 @@ import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
 import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
 import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
-import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunRequirements, type LiveState } from "./queries";
+import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunRequirements, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
 import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
 import { CoordinatorBlock } from "./CoordinatorBlock";
@@ -31,6 +31,7 @@ import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } 
 import { CoveredByLink, CoversBlock } from "./RunCover";
 import { ActiveStrip } from "./ActiveStrip";
 import { useActive } from "../api/queries";
+import { RunWatchdog } from "./RunWatchdog";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -226,6 +227,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const requirements = useRunRequirements(run.run_id);
   const allRuns = useRuns().data?.runs ?? [];
   const engine = useActive().data?.items.filter((item) => item.id === run.run_id) ?? [];
+  const watchdog = useWatchdog();
   const toast = useToast();
   const lastSnapshot = useRef<RunSnapshot | null>(null);
   const nowMs = useNow(run.nodes.some((node) => node.status === "running"));
@@ -253,9 +255,13 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         </div>
         <RunMeta run={run} events={events} />
         <ActiveStrip items={engine} />
+        <RunWatchdog runId={run.run_id} status={watchdog} />
         <CoversBlock runId={run.run_id} runs={allRuns} />
         <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
-        <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
+        <div className="run-filter-row">
+          <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
+          <ActivityFeed events={events} />
+        </div>
         <CoordinatorBlock runId={run.run_id} state={run.coordinator_state} />
         <RunStateNotice run={run} />
         <FailureBanner run={run} />
@@ -277,7 +283,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           </div>
         ) : null}
       </div>
-      <div className={hasSelection ? "layout run-layout" : "layout run-layout no-selection"}>
+      <div className="layout run-layout">
         {runView === "table" ? (
           <RunTable
             run={run}
@@ -302,11 +308,10 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           match={match}
         />
         )}
-        {hasSelection ? (
-          <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
-        ) : null}
       </div>
-      <ActivityFeed events={events} />
+      {hasSelection ? (
+        <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
+      ) : null}
     </div>
   );
 }
