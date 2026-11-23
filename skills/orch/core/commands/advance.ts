@@ -43,6 +43,12 @@ async function runGate(home: string, runId: string): Promise<number> {
   const dir = await nodeOutDir(home, runId, GATE_ID, run);
   await mkdir(dir, { recursive: true });
   await Bun.write(join(dir, "handoff.md"), text);
+  const { findGaps } = await import("./gaps.ts");
+  const gaps = await findGaps(home, runId);
+  if (fails.length === 0 && gaps.length > 0) {
+    // Gaps are not done: the gate stays open and the heal creates the missing work.
+    return nodeUpdate([runId, GATE_ID, "error", "--error", `${gaps.length} gap(s): ${gaps.map((g) => g.kind + " " + g.id).join(", ")}`]);
+  }
   if (fails.length === 0) {
     // The gate records its own result, so verify sees a result for it.
     const result = await nodeResult([runId, GATE_ID, "--verdict", "full", "--summary", "verification passed", "--follow-up", "none"]);

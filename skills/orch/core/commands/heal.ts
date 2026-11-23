@@ -28,6 +28,13 @@ export async function healRun(home: string, runId: string): Promise<string> {
   if (ledger.length === 0) return "needs-requirements";
   if (ledger.some((r) => !REQ_OK.includes(String(r.status)))) return "requirements-open";
   if (!work.every((n: any) => nodeSatisfied(run, n))) return "waiting-work";
+  // Gaps: a request not handled, or a done node with no result. Create the missing work as new nodes instead of closing.
+  const { findGaps, createGapNodes } = await import("./gaps.ts");
+  const gaps = (await findGaps(home, runId)).filter((g) => g.kind !== "errored-node");
+  if (gaps.length) {
+    const made = await createGapNodes(home, runId, gaps);
+    return `gaps-created:${made.join(",") || "none-new"}`;
+  }
   if (gate.status === "running") return "gate-running";
   const { nodeUpdate } = await import("./node.ts");
   if (gate.status !== "waiting") await nodeUpdate([runId, GATE, "waiting", "--force"]);
