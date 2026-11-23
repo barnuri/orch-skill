@@ -123,6 +123,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     ready: (run.nodes ?? []).filter((n: any) => n.status === "waiting" && nodeReady(run, n)).map((n: any) => n.id),
     results: (run.nodes ?? []).filter((n: any) => n.result).map((n: any) => ({ id: n.id, verdict: n.result.verdict, summary: n.result.summary ?? "", follow_up: n.result.follow_up ?? "" })),
     errors: (run.nodes ?? []).filter((n: any) => n.status === "error").map((n: any) => ({ id: n.id, error: alt(n.error, null) })),
+    questions: (run.nodes ?? []).filter((n: any) => ((n.needs_user ?? "") as string) !== "").map((n: any) => ({ id: n.id, question: String(n.needs_user) })),
     link: `http://127.0.0.1:${await servePort(home)}/#/run/${runId}`,
     owner_events: ownerReportLines(await ownersVerifyRun(home, runId, false)),
   };
@@ -150,6 +151,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
   for (const n of (run.nodes ?? []).filter((x: any) => x.result)) lines.push(`result ${n.id}: ${resultText(n, 200)}`);
   if (summary.ready.length > 0) lines.push("ready: " + summary.ready.join(","));
   for (const e of summary.errors) lines.push(`error ${e.id}: ${String(alt(e.error, "unknown"))}`);
+  for (const q of summary.questions) lines.push(`question ${q.id}: ${q.question}`);
   lines.push(...summary.owner_events, summary.link);
   return { code: 0, out: lines.join("\n") + "\n", err: "" };
 }
