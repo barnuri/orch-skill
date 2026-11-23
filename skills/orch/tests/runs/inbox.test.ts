@@ -77,3 +77,20 @@ test("coordinator session id falls back to the shell's opencode session when the
   expect(coordinatorSessionId("", { ORCH_COORD_SESSION: "ses_env", OPENCODE_SESSION_ID: "ses_x" } as NodeJS.ProcessEnv)).toBe("ses_env");
   expect(coordinatorSessionId("", {} as NodeJS.ProcessEnv)).toBe("");
 });
+
+test("coordinator session id reads AGENT_SESSION and every harness session var, in order", () => {
+  const pick = (env: Record<string, string>, pane = "") => coordinatorSessionId(pane, env as NodeJS.ProcessEnv);
+  expect(pick({ AGENT_SESSION: "gen" })).toBe("gen");
+  expect(pick({ CLAUDE_CODE_SESSION_ID: "c1" })).toBe("c1");
+  expect(pick({ PI_SESSION_FILE: "/x/y/2026_abc.jsonl" })).toBe("2026_abc");
+  expect(pick({ CURSOR_CONVERSATION_ID: "cur" })).toBe("cur");
+  expect(pick({ CODEX_THREAD_ID: "cx" })).toBe("cx");
+  expect(pick({ COPILOT_AGENT_SESSION_ID: "cp" })).toBe("cp");
+  expect(pick({ GEMINI_SESSION_ID: "gm" })).toBe("gm");
+  expect(pick({ GROK_SESSION_ID: "gk" })).toBe("gk");
+  expect(pick({ DEEPSEEK_SESSION_ID: "ds" })).toBe("ds");
+  expect(pick({ AMP_SESSION_ID: "amp" })).toBe("amp");
+  expect(pick({ AGENT_SESSION: "gen", CLAUDE_CODE_SESSION_ID: "c1" })).toBe("gen");
+  expect(pick({ CLAUDE_CODE_SESSION_ID: "c1" }, "pane-sid")).toBe("pane-sid");
+  expect(pick({})).toBe("");
+});

@@ -583,11 +583,42 @@ export function coordSessionOf(json: string): string {
   return sid;
 }
 
+// Session id env vars of every harness the agent-env hook knows (hooks/agent-env.sh), in priority order.
+// AGENT_SESSION is the generic name the hook exports; the rest are the harnesses' own names.
+const SESSION_ENV_VARS = [
+  "AGENT_SESSION",
+  "AGENT_SESSION_ID",
+  "CLAUDE_CODE_SESSION_ID",
+  "OPENCODE_SESSION_ID",
+  "PI_SESSION_ID",
+  "CURSOR_CONVERSATION_ID",
+  "CODEX_THREAD_ID",
+  "CODEX_SESSION_ID",
+  "CODEX_CONVERSATION_ID",
+  "COPILOT_AGENT_SESSION_ID",
+  "GEMINI_SESSION_ID",
+  "GROK_SESSION_ID",
+  "DSH_SESSION_ID",
+  "DEEPSEEK_SESSION_ID",
+  "AIDER_SESSION",
+  "AMP_CURRENT_THREAD_ID",
+  "AMP_SESSION_ID",
+  "GOOSE_SESSION_ID",
+] as const;
+
 // The coordinator's session id: ORCH_COORD_SESSION, else the pane's agent session, else the session the
-// coordinator shell runs in (opencode and Claude Code export it). Herdr reports no agent session for an
-// opencode pane, so without the last fallback the run is saved with an empty session id.
+// coordinator shell runs in. Herdr reports no agent session for some panes (opencode), so without the env
+// fallback the run is saved with an empty session id. Pi keeps its id in a session file: its basename.
 export function coordinatorSessionId(paneSession: string, env: NodeJS.ProcessEnv): string {
-  return env.ORCH_COORD_SESSION || paneSession || env.OPENCODE_SESSION_ID || env.CLAUDE_CODE_SESSION_ID || "";
+  if (env.ORCH_COORD_SESSION) return env.ORCH_COORD_SESSION;
+  if (paneSession) return paneSession;
+  for (const name of SESSION_ENV_VARS) {
+    const value = env[name];
+    if (value) return value;
+  }
+  const piFile = env.PI_SESSION_FILE;
+  if (piFile) return piFile.split("/").pop()!.replace(/\.jsonl$/, "");
+  return "";
 }
 
 function coordinatorHarness(): string {
