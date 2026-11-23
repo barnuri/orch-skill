@@ -10,7 +10,7 @@ import { Chip } from "../components/Chip";
 import { useToast } from "../components/Toast";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
-import { ansiSegments, stripAnsi } from "../lib/ansi";
+import { ansiSegments } from "../lib/ansi";
 import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
 import { AFTER_THE_FACT, UNOWNED_TITLE, handoffText, lastActivity, nodeFlags, ownerChip, ownerIdShort, ownerText, resultChip } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
