@@ -68,3 +68,12 @@ test("node tell/inbox/ask/answer, rules, broadcast, prompt injection", async () 
   expect(o("run", "messages", "msg-1").all).toMatch(/\[ask\]/);
   expect(o("run", "messages", "msg-1", "--json").out).toMatch(/^\[/);
 }, 240000);
+
+import { coordinatorSessionId } from "../../core/commands/inbox.ts";
+
+test("coordinator session id falls back to the shell's opencode session when the pane has none", () => {
+  expect(coordinatorSessionId("", { OPENCODE_SESSION_ID: "ses_x" } as NodeJS.ProcessEnv)).toBe("ses_x");
+  expect(coordinatorSessionId("ses_pane", { OPENCODE_SESSION_ID: "ses_x" } as NodeJS.ProcessEnv)).toBe("ses_pane");
+  expect(coordinatorSessionId("", { ORCH_COORD_SESSION: "ses_env", OPENCODE_SESSION_ID: "ses_x" } as NodeJS.ProcessEnv)).toBe("ses_env");
+  expect(coordinatorSessionId("", {} as NodeJS.ProcessEnv)).toBe("");
+});

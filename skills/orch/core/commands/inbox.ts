@@ -583,6 +583,13 @@ export function coordSessionOf(json: string): string {
   return sid;
 }
 
+// The coordinator's session id: ORCH_COORD_SESSION, else the pane's agent session, else the session the
+// coordinator shell runs in (opencode and Claude Code export it). Herdr reports no agent session for an
+// opencode pane, so without the last fallback the run is saved with an empty session id.
+export function coordinatorSessionId(paneSession: string, env: NodeJS.ProcessEnv): string {
+  return env.ORCH_COORD_SESSION || paneSession || env.OPENCODE_SESSION_ID || env.CLAUDE_CODE_SESSION_ID || "";
+}
+
 function coordinatorHarness(): string {
   if (process.env.CLAUDE_CODE_ENTRYPOINT) return "claude";
   if (process.env.OPENCODE || process.env.OPENCODE_CONFIG) return "opencode";
@@ -610,7 +617,7 @@ export async function coordinatorRecord(home: string, run: string): Promise<numb
     sid = process.env.ORCH_COORD_SESSION || process.env.OPENCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || `hc-${pane}`;
     await hcCli(["label", pane, `${HC_LABEL}=${sid}`]);
   } else {
-    sid = coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout);
+    sid = coordinatorSessionId(coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout), process.env);
   }
   const rc = await mutateRun(home, run, (r, ctx) => {
     r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true };
