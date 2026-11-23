@@ -888,6 +888,13 @@
               }
             },
             "description": "Run summaries: id, title, status (running, done, error, cancelled, covered), node counts, times. A covered run (its unfinished work was copied into another run) also has covered_by (run id), covered_note, covered_nodes (carried node ids) and covered_map (oldNode to newNode)."
+          },
+          "cache": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass."
           }
         },
         "required": [
@@ -909,6 +916,13 @@
               "nullable": true
             },
             "description": "The run's state.json, see references/state-and-config.md. status is one of running, done, error, cancelled, covered; covered adds covered_by, covered_at, covered_note, covered_nodes, covered_map."
+          },
+          "cache": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass."
           }
         },
         "required": [
@@ -995,6 +1009,19 @@
         ],
         "description": "A run's messages, oldest first."
       },
+      "MaxParallelInputDto": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "description": "Per-run cap, -1 for unlimited."
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "description": "The run's own parallel cap: 1-30 nodes, or -1 for no per-run limit (the global cap still applies)."
+      },
       "RepointInputDto": {
         "type": "object",
         "properties": {
@@ -1015,7 +1042,7 @@
           "socket_path",
           "pane_id"
         ],
-        "description": "The coordinator pane the user picked from the candidates."
+        "description": "The orchestrator pane the user picked from the candidates."
       },
       "NodeMessageInputDto": {
         "type": "object",
@@ -1230,7 +1257,7 @@
               },
               "max_parallel": {
                 "type": "number",
-                "description": "settings.max_parallel."
+                "description": "Effective cap: min(global, per-run). -1 when unlimited."
               },
               "running": {
                 "type": "number",
@@ -1238,7 +1265,8 @@
               },
               "slots": {
                 "type": "number",
-                "description": "Free slots: max_parallel minus running."
+                "nullable": true,
+                "description": "Free slots: cap minus running. null when unlimited."
               },
               "nodes": {
                 "type": "array",
@@ -1273,6 +1301,13 @@
               "changes"
             ],
             "description": "The check, null until one has succeeded."
+          },
+          "cache": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass."
           }
         },
         "required": [
@@ -1304,7 +1339,7 @@
               "needs-user",
               "held"
             ],
-            "description": "`stalled`: no activity for the stale limit; `unowned`: no owner recorded; `dead`: the owner is gone; `no-report`: the owner ended without reporting; `needs-user`: a waiting node blocked on the user; `held`: a waiting node the coordinator holds back (`node update --hold`)."
+            "description": "`stalled`: no activity for the stale limit; `unowned`: no owner recorded; `dead`: the owner is gone; `no-report`: the owner ended without reporting; `needs-user`: a waiting node blocked on the user; `held`: a waiting node the orchestrator holds back (`node update --hold`)."
           },
           "owner_id": {
             "type": "string",
@@ -1519,8 +1554,10 @@
               "stalled",
               "unverified",
               "infra-retry",
+              "cli-source",
               "starting",
-              "finish"
+              "finish",
+              "coordinator"
             ],
             "description": "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done."
           },
@@ -1564,6 +1601,10 @@
             "type": "number",
             "description": "Done nodes re-queued for a missing handoff."
           },
+          "cli_source": {
+            "type": "number",
+            "description": "CLI and source errors routed to the orchestrator."
+          },
           "retried": {
             "type": "number",
             "description": "Automatic retries."
@@ -1581,6 +1622,7 @@
           "lost",
           "stalled",
           "unverified",
+          "cli_source",
           "retried",
           "flagged",
           "finished"
@@ -1605,8 +1647,10 @@
               "stalled",
               "unverified",
               "infra-retry",
+              "cli-source",
               "starting",
-              "finish"
+              "finish",
+              "coordinator"
             ],
             "description": "The rule that flagged it."
           },
@@ -6528,10 +6572,82 @@
         }
       }
     },
+    "/api/runs/{id}/max-parallel": {
+      "post": {
+        "summary": "Set a run's parallel cap",
+        "description": "Runs `dispatch.ts run set <id> max_parallel <value>`: the run's own cap, 1-30, or -1 for no per-run limit. The effective cap is min(global cap, per-run cap); -1 is still bounded by the global cap.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaxParallelInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Value out of range, or no such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{id}/repoint": {
       "post": {
-        "summary": "Choose the coordinator",
-        "description": "Runs `run repoint <id> <socket> <pane>`: points an unreachable coordinator at one of its listed candidates; the pending asks are delivered on the next sweep.",
+        "summary": "Choose the orchestrator",
+        "description": "Runs `run repoint <id> <socket> <pane>`: points an unreachable orchestrator at one of its listed candidates; the pending asks are delivered on the next sweep.",
         "tags": [
           "runs"
         ],
@@ -7168,6 +7284,908 @@
               }
             }
           },
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/quality": {
+      "get": {
+        "summary": "A run's quality reports",
+        "description": "The quality reports written by `dispatch.ts node quality append`: per node and stage, the model requested and actually run, the verdict, score, confidence, findings with severity, category, evidence, file and line, the reviewer model, timestamps and the raw source artifact path. Read only. An empty list when the run has none. Answers 404 for an unknown run.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The reports.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generated_at": {
+                      "type": "string",
+                      "description": "When the answer was built, ISO 8601 UTC."
+                    },
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Report id within its run, e.g. q1."
+                          },
+                          "run_id": {
+                            "type": "string",
+                            "description": "Run the report belongs to."
+                          },
+                          "node_id": {
+                            "type": "string",
+                            "description": "Node the report belongs to."
+                          },
+                          "stage": {
+                            "type": "string",
+                            "enum": [
+                              "implementation",
+                              "review",
+                              "final-review"
+                            ],
+                            "description": "Stage role of the node."
+                          },
+                          "skill_id": {
+                            "type": "string",
+                            "description": "Id of the skill that produced the report."
+                          },
+                          "model": {
+                            "type": "object",
+                            "properties": {
+                              "requested": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "actual": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "requested",
+                              "actual"
+                            ],
+                            "description": "Model requested and model that actually ran."
+                          },
+                          "reviewer_model": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Model that reviewed the work, or null."
+                          },
+                          "verdict": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "integer",
+                                "nullable": true,
+                                "minimum": 0,
+                                "maximum": 100
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "score"
+                            ],
+                            "description": "Verdict value and score 0-100, or null."
+                          },
+                          "confidence": {
+                            "type": "integer",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Report-level confidence 0-100, or null."
+                          },
+                          "findings": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Finding id within its report, e.g. F1."
+                                },
+                                "severity": {
+                                  "type": "string",
+                                  "enum": [
+                                    "critical",
+                                    "high",
+                                    "medium",
+                                    "low",
+                                    "info"
+                                  ],
+                                  "description": "How bad the finding is."
+                                },
+                                "category": {
+                                  "type": "string",
+                                  "description": "Free-form category set by the adapter, e.g. review."
+                                },
+                                "title": {
+                                  "type": "string",
+                                  "description": "One-line statement of the finding."
+                                },
+                                "evidence": {
+                                  "type": "string",
+                                  "description": "Raw evidence text (quote, command output or excerpt)."
+                                },
+                                "file": {
+                                  "type": "string",
+                                  "nullable": true,
+                                  "description": "File the finding is about, or null."
+                                },
+                                "line": {
+                                  "type": "integer",
+                                  "nullable": true,
+                                  "description": "Line in the file, or null."
+                                },
+                                "confidence": {
+                                  "type": "integer",
+                                  "nullable": true,
+                                  "minimum": 0,
+                                  "maximum": 100,
+                                  "description": "Confidence 0-100, or null when the source gives none."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "severity",
+                                "category",
+                                "title",
+                                "evidence",
+                                "file",
+                                "line",
+                                "confidence"
+                              ],
+                              "description": "One finding of a quality report."
+                            },
+                            "description": "Findings in source order."
+                          },
+                          "timestamps": {
+                            "type": "object",
+                            "properties": {
+                              "created_at": {
+                                "type": "string"
+                              },
+                              "started_at": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "finished_at": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "created_at",
+                              "started_at",
+                              "finished_at"
+                            ],
+                            "description": "Timestamps, ISO 8601 UTC."
+                          },
+                          "source_artifact": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Raw source artifact path kept as evidence."
+                          },
+                          "adapter": {
+                            "type": "string",
+                            "description": "Adapter that mapped the source artifact."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "run_id",
+                          "node_id",
+                          "stage",
+                          "skill_id",
+                          "model",
+                          "reviewer_model",
+                          "verdict",
+                          "confidence",
+                          "findings",
+                          "timestamps",
+                          "source_artifact",
+                          "adapter"
+                        ],
+                        "description": "One quality report: a stage's verdict, score and findings for a node and model."
+                      },
+                      "description": "Every quality report of the run."
+                    }
+                  },
+                  "required": [
+                    "generated_at",
+                    "reports"
+                  ],
+                  "description": "A run's quality reports, in the order they were appended."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/projection": {
+      "get": {
+        "summary": "A run's canonical projection",
+        "description": "The one computed state of a run, from its state.json, requirements.json, the nodes' handoff.md files and the watchdog flags: effective status, node and requirement counts, open requirements, partials, handoff gaps, blocked, covered and skipped nodes, ready nodes, next actions, owner diagnostics and supervisor flags. `run status --json` prints the same object under `projection`. Answers 404 for an unknown run.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The projection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string",
+                      "description": "Run id."
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "Effective status: `stopped` or `paused` when set, else the run status."
+                    },
+                    "raw_status": {
+                      "type": "string",
+                      "description": "The run's own status in state.json."
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "nodes": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "number"
+                          }
+                        },
+                        "requirements": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "required": [
+                        "nodes",
+                        "requirements"
+                      ],
+                      "description": "Node counts by state and requirement counts by bucket."
+                    },
+                    "nodes": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      },
+                      "description": "Every node with its state, blocked_by, hold, needs_user, handoff, result and unverified."
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      },
+                      "description": "Every requirement with bucket, ok, blocked, linked nodes and evidence."
+                    },
+                    "open_requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Ids of open requirements."
+                    },
+                    "partials": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Ids of partial requirements."
+                    },
+                    "handoff_gaps": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      },
+                      "description": "Done nodes with no handoff.md."
+                    },
+                    "ready": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Waiting nodes whose dependencies are met, ready to start. Empty while the run is paused or stopped."
+                    },
+                    "blocked": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Nodes blocked by a dependency, a hold or a question."
+                    },
+                    "covered": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Nodes covered by a replacement."
+                    },
+                    "skipped": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Nodes skipped."
+                    },
+                    "run_gate": {
+                      "type": "string",
+                      "nullable": true,
+                      "enum": [
+                        "paused",
+                        "stopped",
+                        null
+                      ],
+                      "description": "The run gate that stops every start, or null."
+                    },
+                    "next_actions": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      },
+                      "description": "What to do next, in priority order."
+                    },
+                    "owners": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      },
+                      "description": "Running nodes with their owner state and diagnosis."
+                    },
+                    "supervisor": {
+                      "type": "object",
+                      "properties": {
+                        "flags": {
+                          "type": "array",
+                          "items": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "flags"
+                      ],
+                      "description": "Watchdog flags that still stand for this run."
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "status",
+                    "raw_status",
+                    "counts",
+                    "nodes",
+                    "requirements",
+                    "open_requirements",
+                    "partials",
+                    "handoff_gaps",
+                    "ready",
+                    "blocked",
+                    "covered",
+                    "skipped",
+                    "run_gate",
+                    "next_actions",
+                    "owners",
+                    "supervisor"
+                  ],
+                  "description": "A run's canonical projection: effective status, counts, requirements, readiness, next actions, owners and supervisor flags."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/overview": {
+      "get": {
+        "summary": "A run's overview",
+        "description": "The overview of one run, built by `dispatch.ts run overview <run> --json` (the same data as `<run>/overview.html`): repos, commits, pull requests, models, skills, nodes and handoff evidence. Takes a few seconds when gh checks pull requests. Answers 404 for an unknown run and 502 when dispatch fails.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The overview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string",
+                      "description": "Run id."
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Run title."
+                    },
+                    "description": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Run description, null when none was set."
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "Run status."
+                    },
+                    "started": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Start time, ISO 8601 UTC."
+                    },
+                    "finished": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Finish time, ISO 8601 UTC; null while the run is live."
+                    },
+                    "generated_at": {
+                      "type": "string",
+                      "description": "When the overview was built, ISO 8601 UTC."
+                    },
+                    "node_count": {
+                      "type": "integer",
+                      "description": "Number of nodes in the run."
+                    },
+                    "repos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "repo": {
+                            "type": "string"
+                          },
+                          "nodes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "commits": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "repo",
+                          "nodes",
+                          "commits"
+                        ]
+                      },
+                      "description": "Repos the nodes worked in, with the nodes per repo and the commits since their start."
+                    },
+                    "commits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "repo": {
+                            "type": "string"
+                          },
+                          "sha": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "repo",
+                          "sha",
+                          "subject"
+                        ]
+                      },
+                      "description": "Commits per repo, first 20 per repo."
+                    },
+                    "pull_requests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "repo": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "repo",
+                          "url"
+                        ]
+                      },
+                      "description": "Pull requests that contain a commit of the run (GitHub repos)."
+                    },
+                    "pull_requests_unavailable": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Repos whose pull requests could not be checked (gh unavailable)."
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "nodes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "nodes"
+                        ]
+                      },
+                      "description": "Models used, with the node count per model."
+                    },
+                    "skills": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "nodes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "nodes"
+                        ]
+                      },
+                      "description": "Skills read by the nodes, with the node count per skill."
+                    },
+                    "nodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "profile": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "repo": {
+                            "type": "string"
+                          },
+                          "skills": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "status",
+                          "profile",
+                          "model",
+                          "repo",
+                          "skills"
+                        ]
+                      },
+                      "description": "One entry per node."
+                    },
+                    "handoffs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "empty",
+                              "missing"
+                            ]
+                          },
+                          "bytes": {
+                            "type": "integer"
+                          },
+                          "file": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "status",
+                          "state",
+                          "bytes",
+                          "file"
+                        ]
+                      },
+                      "description": "The handoff.md of each node: yes (non-empty), empty or missing."
+                    }
+                  },
+                  "required": [
+                    "run_id",
+                    "title",
+                    "description",
+                    "status",
+                    "started",
+                    "finished",
+                    "generated_at",
+                    "node_count",
+                    "repos",
+                    "commits",
+                    "pull_requests",
+                    "pull_requests_unavailable",
+                    "models",
+                    "skills",
+                    "nodes",
+                    "handoffs"
+                  ],
+                  "description": "The run overview: repos, commits, pull requests, models, skills, nodes and handoff evidence of one run."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "dispatch.ts did not return the overview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/overview.html": {
+      "get": {
+        "summary": "A run's overview page",
+        "description": "The page `<run>/overview.html`. Regenerated when it is missing or older than the run state, otherwise served as is. Answers 404 for an unknown run.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
           "400": {
             "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
             "content": {

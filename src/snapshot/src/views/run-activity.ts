@@ -47,7 +47,7 @@ export function staleBanner(run: RunState, nowMs: number = Date.now()): HTMLElem
   const names = stale.map((n) => n.label || n.id).join(", ");
   return el("div", { class: "notice warn run-stale-banner", role: "status" }, [
     el("b", { text: `${stale.length} ${noun} running but nothing has changed for ${mins} min. ` }),
-    el("span", { text: `The coordinator may have stopped updating. ${names}` }),
+    el("span", { text: `The orchestrator may have stopped updating. ${names}` }),
   ]);
 }
 

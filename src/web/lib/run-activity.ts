@@ -52,7 +52,7 @@ export function staleSummary(run: RunState, nowMs: number): StaleSummary | null 
   const names = stale.map((n) => n.label || n.id).join(", ");
   return {
     headline: `${stale.length} ${noun} running but nothing has changed for ${mins} min. `,
-    detail: `The coordinator may have stopped updating. ${names}`,
+    detail: `The orchestrator may have stopped updating. ${names}`,
   };
 }
 

@@ -10,7 +10,7 @@ export class NodeHealthDto extends ZodDto {
   status!: string;
 
   @ZodField(z.enum(["ok", "stalled", "unowned", "dead", "no-report", "needs-user", "held"]), {
-    description: "`stalled`: no activity for the stale limit; `unowned`: no owner recorded; `dead`: the owner is gone; `no-report`: the owner ended without reporting; `needs-user`: a waiting node blocked on the user; `held`: a waiting node the coordinator holds back (`node update --hold`).",
+    description: "`stalled`: no activity for the stale limit; `unowned`: no owner recorded; `dead`: the owner is gone; `no-report`: the owner ended without reporting; `needs-user`: a waiting node blocked on the user; `held`: a waiting node the orchestrator holds back (`node update --hold`).",
   })
   health!: "ok" | "stalled" | "unowned" | "dead" | "no-report" | "needs-user" | "held";
 
@@ -35,14 +35,14 @@ export class RunHealthDto extends ZodDto {
   @ZodField(z.string(), { description: "When the check ran, ISO 8601 UTC." })
   at!: string;
 
-  @ZodField(z.number(), { description: "settings.max_parallel." })
+  @ZodField(z.number(), { description: "Effective cap: min(global, per-run). -1 when unlimited." })
   max_parallel!: number;
 
   @ZodField(z.number(), { description: "Nodes running now." })
   running!: number;
 
-  @ZodField(z.number(), { description: "Free slots: max_parallel minus running." })
-  slots!: number;
+  @ZodField(z.number().nullable(), { description: "Free slots: cap minus running. null when unlimited." })
+  slots!: number | null;
 
   @ZodField([NodeHealthDto], { description: "Every node with its verdict." })
   nodes!: NodeHealthDto[];
@@ -66,6 +66,9 @@ export class RunHealthEnvelopeDto extends ZodDto {
 
   @ZodField(RunHealthDto.schema.nullable(), { description: "The check, null until one has succeeded." })
   health!: RunHealthDto | null;
+
+  @ZodField(z.record(z.string(), z.unknown()).optional(), { description: "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass." })
+  cache?: Record<string, unknown>;
 }
 
 @ZodObject({ description: "The orch skill's own herdr instance and its herdr web env (`dispatch.ts herdr health --json`)." })

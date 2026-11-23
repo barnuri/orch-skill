@@ -34,3 +34,4 @@ skills/orch/templates/profiles.local.json
 # Personal, per-machine notes of the orch-perf skill (numbers, paths): never committed
 .claude/skills/orch-perf/learnings.md
 .claude/skills/orch-perf/local.md
+**/agent-spec

@@ -86,9 +86,9 @@ describe("modelMetric", () => {
     expect(modelMetric(node({ model: "sonnet" })).text).toBe("sonnet");
   });
 
-  test("a model from node report is credited to the coordinator", () => {
+  test("a model from node report is credited to the orchestrator", () => {
     const metric = modelMetric(node({ model: "claude-opus-5-5", report: report({ model: "claude-opus-5-5" }) }));
-    expect(metric.title).toContain("coordinator");
+    expect(metric.title).toContain("orchestrator");
   });
 });
 
@@ -113,7 +113,7 @@ describe("usageMetric", () => {
     const inline = usageMetric(node());
     expect(inline.text).toBe(NO_USAGE_TEXT);
     expect(inline.present).toBe(false);
-    expect(inline.title).toContain("ran inline in the coordinator session");
+    expect(inline.title).toContain("ran inline in the orchestrator session");
     expect(usageMetric(node({ job_id: "j1", cost: cost(0) })).title).toContain("job j1");
   });
 });

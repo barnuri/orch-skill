@@ -336,6 +336,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.running .metric.dur { fill: var(--status-running); }
 .node .mark { rx: 2; }
 .node.waiting .mark { fill: var(--status-waiting); }
+.node.blocked-user .mark { fill: var(--status-stale); }
 .node.running .mark { fill: var(--status-running); animation: pulse 1.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 .node.done .mark { fill: var(--status-done); }
 .node.error .mark { fill: var(--status-error); }
@@ -737,18 +738,18 @@ h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.015em; margin:
 .node .context-chip.over text { fill: var(--status-waiting); }
 .node .needs-you-chip text { fill: var(--status-waiting); font: 600 10px var(--font-sans, sans-serif); }
 .node .result-chip text { font: 600 10px var(--font-sans, sans-serif); }
-.node .result-chip.result-full rect { fill: var(--status-done-bg); stroke: var(--status-done-bd); }
-.node .result-chip.result-full text { fill: var(--status-done); }
-.node .result-chip.result-partial rect { fill: var(--status-stale-bg); stroke: var(--status-stale-bd); }
-.node .result-chip.result-partial text { fill: var(--status-stale); }
-.node .result-chip.result-blocked rect { fill: var(--status-stale-bg); stroke: var(--status-stale-bd); }
-.node .result-chip.result-blocked text { fill: var(--status-stale); }
+.node .result-chip.result-full rect { fill: var(--status-full-bg); stroke: var(--status-full-bd); }
+.node .result-chip.result-full text { fill: var(--status-full); }
+.node .result-chip.result-partial rect { fill: var(--status-partial-bg); stroke: var(--status-partial-bd); }
+.node .result-chip.result-partial text { fill: var(--status-partial); }
+.node .result-chip.result-blocked rect { fill: var(--status-blocked-bg); stroke: var(--status-blocked-bd); }
+.node .result-chip.result-blocked text { fill: var(--status-blocked); }
 .node .result-chip.result-unknown rect { fill: none; stroke: var(--border); }
 .node .result-chip.result-unknown text { fill: var(--tx2); }
 .result-pill { display: inline-block; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); font-weight: 600; font-size: 11px; }
-.result-pill.result-full { color: var(--status-done); border-color: var(--status-done-bd); background: var(--status-done-bg); }
-.result-pill.result-partial { color: var(--status-stale); border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
-.result-pill.result-blocked { color: var(--status-stale); border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
+.result-pill.result-full { color: var(--status-full); border-color: var(--status-full-bd); background: var(--status-full-bg); }
+.result-pill.result-partial { color: var(--status-partial); border-color: var(--status-partial-bd); background: var(--status-partial-bg); }
+.result-pill.result-blocked { color: var(--status-blocked); border-color: var(--status-blocked-bd); background: var(--status-blocked-bg); }
 .result-pill.result-unknown { color: var(--tx2); }
 .run-stale-banner { margin-top: 8px; }
 .run-activity { margin-top: 16px; }

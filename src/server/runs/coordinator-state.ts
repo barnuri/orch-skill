@@ -14,7 +14,16 @@ function readJson(path: string): Record<string, unknown> | null {
   }
 }
 
-/** Asks to the coordinator (inbox/orch) that have no delivered_at yet. */
+/**
+ * An open orchestrator question: a kind=ask with no answer yet whose node did not time out (a late ask is
+ * activity only). kind=tell messages (watchdog, nodes) never count.
+ */
+export function isOpenOrchestratorQuestion(msg: Record<string, unknown>): boolean {
+  const answered = typeof msg.answer === "string" ? msg.answer !== "" : msg.answer !== null && msg.answer !== undefined;
+  return msg.kind === "ask" && !answered && (msg.answered_at ?? null) === null && msg.answered_late_expected !== true;
+}
+
+/** Open orchestrator questions of a run (inbox/orch). */
 export function countPendingAsks(runsDir: string, runId: string): number {
   const dir = join(runsDir, runId, "inbox", "orch");
   if (!existsSync(dir)) {
@@ -26,16 +35,16 @@ export function countPendingAsks(runsDir: string, runId: string): number {
       continue;
     }
     const msg = readJson(join(dir, name));
-    if (msg !== null && msg.kind === "ask" && (msg.delivered_at ?? null) === null) {
+    if (msg !== null && isOpenOrchestratorQuestion(msg)) {
       n += 1;
     }
   }
   return n;
 }
 
-/** The coordinator block of a run for the API and run page; null when the run has no coordinator. */
-export function coordinatorState(runsDir: string, run: Record<string, unknown>): CoordinatorState | null {
-  const coord = run.coordinator;
+/** The orchestrator block of a run for the API and run page; null when the run has no orchestrator. */
+export function orchestratorState(runsDir: string, run: Record<string, unknown>): CoordinatorState | null {
+  const coord = run.orchestrator ?? run.coordinator;
   if (typeof coord !== "object" || coord === null) {
     return null;
   }
@@ -53,3 +62,5 @@ export function coordinatorState(runsDir: string, run: Record<string, unknown>):
     candidates: Array.isArray(c.candidates) ? (c.candidates as CoordinatorCandidate[]) : [],
   };
 }
+
+export const coordinatorState = orchestratorState;

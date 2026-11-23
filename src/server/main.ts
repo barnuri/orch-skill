@@ -12,12 +12,10 @@ import { SERVE_USAGE, parseServeArgs, urlsFor } from "./cli";
 import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
 import { ensureToken } from "./files/token-file";
-import { startHealthWatcher } from "./health/health-watcher";
 import { startHerdrWatcher } from "./health/herdr-watcher";
 import { digestToken } from "./http/auth";
 import { orchPaths } from "./files/paths";
 import { startBootResume } from "./runs/boot-resume";
-import { startReconciler } from "./runs/run-reconciler";
 import { pauseRunsOnShutdown } from "./runs/shutdown-pause";
 import { startTicker } from "./schedules/ticker";
 import { pushHubFor } from "./push/hub";
@@ -212,8 +210,6 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
   }
   startTicker(args.home);
-  startReconciler(args.home, orchPaths(args.home));
-  startHealthWatcher(args.home);
   startHerdrWatcher(args.home);
   // Event-driven watchdog: owns the auto-dispatch engine (ready nodes, done/error pushes) and the
   // lost, stalled, unverified, infra-retry and finish rules.

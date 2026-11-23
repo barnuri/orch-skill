@@ -1,5 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
-import type { Dirent } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { NODE_STATUSES } from "../../shared/types/node-status";
@@ -85,6 +84,9 @@ function countNodes(run: RunState): Record<NodeStatus, number> {
     done: 0,
     error: 0,
     skipped: 0,
+    "blocked-user": 0,
+    covered: 0,
+    stopped: 0,
   };
   for (const node of run.nodes) {
     const status: unknown = node?.status;
@@ -108,8 +110,8 @@ function newestActivity(run: RunState): string | null {
   return best === null ? null : new Date(best).toISOString();
 }
 
-function summarize(paths: OrchPaths, run: RunState): RunSummary {
-  annotateActivity(paths, run);
+function summarize(paths: OrchPaths, run: RunState, fresh = false): RunSummary {
+  annotateActivity(paths, run, Date.now(), fresh);
   const usage = runUsage(run.nodes);
   const stale = run.nodes.filter((node) => node?.status === "running" && node.stale === true).length;
   const updated = newestActivity(run);
@@ -145,14 +147,80 @@ function compareStrings(a: string, b: string): number {
   return 0;
 }
 
-function readRunEntries(runsDir: string): Dirent[] {
-  try {
-    return readdirSync(runsDir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissingFileError(err)) {
-      return [];
+function runFileSignature(runDir: string): string {
+  return [join(runDir, "state.json"), join(runDir, "events.jsonl")].map((file) => {
+    try {
+      return `${statSync(file).mtimeMs}`;
+    } catch {
+      // The run or file may disappear during a scan.
+      return "missing";
     }
-    throw err;
+  }).join(":");
+}
+
+/** The run ids under `runsDir`, memoised (see `runDirNames`): for other scanners that poll the folder. */
+export function listRunIds(runsDir: string): string[] {
+  return runDirNames(runsDir);
+}
+
+/**
+ * Run ids of `runsDir`. The directory is listed again only when its own mtime changed (a run was added
+ * or removed) or the last listing is older than NAMES_MAX_AGE_MS; a `readdir` spikes to 100+ ms on macOS.
+ */
+const NAMES_MAX_AGE_MS = 30_000;
+const namesMemo = new Map<string, { mtime: number; at: number; names: string[] }>();
+
+function runDirNames(runsDir: string): string[] {
+  const now = Date.now();
+  let mtime: number;
+  try {
+    mtime = statSync(runsDir).mtimeMs;
+  } catch {
+    return [];
+  }
+  const memo = namesMemo.get(runsDir);
+  if (memo !== undefined && memo.mtime === mtime && now - memo.at < NAMES_MAX_AGE_MS) {
+    return memo.names;
+  }
+  let names: string[];
+  try {
+    names = readdirSync(runsDir).filter(isRunId).sort();
+  } catch {
+    names = [];
+  }
+  namesMemo.set(runsDir, { mtime, at: now, names });
+  return names;
+}
+
+/** Run id -> state.json and events.jsonl mtimes, one stat pair per run. */
+function scanRunSignatures(runsDir: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const name of runDirNames(runsDir)) {
+    out.set(name, runFileSignature(join(runsDir, name)));
+  }
+  return out;
+}
+
+
+/** True when the run has a state.json on disk. Cheap: one stat, no parse. */
+export function runExists(paths: OrchPaths, id: string): boolean {
+  if (!isRunId(id)) {
+    return false;
+  }
+  try {
+    statSync(join(paths.runs, id, STATE_FILE));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True for a real directory (a symlink is not, as with `Dirent.isDirectory`). */
+function isRunDirectory(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -161,28 +229,106 @@ function readRunEntries(runsDir: string): Dirent[] {
  * valid run id, not a real directory (symlinks included — `isDirectory()` is false for them), or
  * have no state.json yet are skipped quietly; an unusable state.json is skipped with a stderr line.
  */
-export function listRuns(paths: OrchPaths): RunSummary[] {
-  const entries = readRunEntries(paths.runs).sort((a, b) => compareStrings(a.name, b.name));
+export interface RunListResult {
+  runs: RunSummary[];
+  cache: { mode: "cache" | "bypass"; source: "hit" | "miss" | "fresh"; age_ms: number };
+}
+
+const listCache = new Map<string, { at: number; signature: string; runs: RunSummary[] }>();
+const LIST_CACHE_MS = 500;
+
+/**
+ * Last summary per run directory, keyed by its state.json and events.jsonl mtimes. A run that is not
+ * running and whose files did not change is reused without a parse; running runs are always recomputed,
+ * because their activity and stale flags depend on the clock and on the out dirs.
+ */
+const summaryMemo = new Map<string, { signature: string; running: boolean; summary: RunSummary; at: number }>();
+/** A running run's summary is reused for this long even when its files changed: events.jsonl changes several times a second. */
+const RUNNING_SUMMARY_MS = 1000;
+
+export function listRuns(paths: OrchPaths, bypass = false): RunSummary[] {
+  return listRunsCached(paths, bypass).runs;
+}
+
+export function listRunsCached(paths: OrchPaths, bypass = false): RunListResult {
+  const now = Date.now();
+  const cached = listCache.get(paths.runs);
+  // A list holding a running run changes on every events.jsonl write, so its signature is not a
+  // usable key: it is reused for the same short window the running summaries already use.
+  const hasRunning = cached?.runs.some((r) => r.status === "running") ?? false;
+  if (!bypass && cached !== undefined && hasRunning && now - cached.at < RUNNING_SUMMARY_MS) {
+    return { runs: cached.runs, cache: { mode: "cache", source: "hit", age_ms: now - cached.at } };
+  }
+  const signatures = scanRunSignatures(paths.runs);
+  const signature = [...signatures].map(([name, sig]) => `${name}:${sig}`).join("|");
+  if (!bypass && cached !== undefined && now - cached.at < LIST_CACHE_MS && cached.signature === signature) {
+    return { runs: cached.runs, cache: { mode: "cache", source: "hit", age_ms: now - cached.at } };
+  }
+  if (!bypass && cached !== undefined && !hasRunning && cached.signature === signature) {
+    // Nothing on disk changed and no run is active, so the list is exact: refresh its window and reuse it.
+    listCache.set(paths.runs, { ...cached, at: now });
+    return { runs: cached.runs, cache: { mode: "cache", source: "hit", age_ms: 0 } };
+  }
+
   const summaries: RunSummary[] = [];
-  for (const entry of entries) {
-    if (!isRunId(entry.name) || !entry.isDirectory()) {
+  for (const name of runDirNames(paths.runs)) {
+    if (!isRunId(name) || !isRunDirectory(join(paths.runs, name))) {
       continue;
     }
-    const loaded = loadState(join(paths.runs, entry.name));
+    const runDir = join(paths.runs, name);
+    const sig = signatures.get(name) ?? "";
+    const memo = summaryMemo.get(runDir);
+    const reusable = memo !== undefined && memo.signature === sig && !memo.running;
+    const recentRunning = memo !== undefined && memo.running && now - memo.at < RUNNING_SUMMARY_MS;
+    if (!bypass && memo !== undefined && (reusable || recentRunning)) {
+      summaries.push(memo.summary);
+      continue;
+    }
+    const loaded = loadState(runDir);
     if (loaded === null) {
+      summaryMemo.delete(runDir);
       continue;
     }
     if (!loaded.ok) {
-      console.error(`runs: skipping ${entry.name}: ${loaded.reason}`);
+      console.error(`runs: skipping ${name}: ${loaded.reason}`);
+      summaryMemo.delete(runDir);
       continue;
     }
-    summaries.push(summarize(paths, loaded.state));
+    const summary = summarize(paths, loaded.state, bypass);
+    summaryMemo.set(runDir, { signature: sig, running: loaded.state.status === "running", summary, at: now });
+    summaries.push(summary);
   }
   // Same as the old jq `sort_by(.started) | reverse`: a stable ascending sort, then reversed.
-  return summaries.sort((a, b) => compareStrings(a.started, b.started)).reverse();
+  const runs = summaries.sort((a, b) => compareStrings(a.started, b.started)).reverse();
+  listCache.set(paths.runs, { at: now, signature, runs });
+  return { runs, cache: { mode: bypass ? "bypass" : "cache", source: bypass ? "fresh" : (cached === undefined ? "miss" : "fresh"), age_ms: 0 } };
 }
 
-export function readRun(paths: OrchPaths, id: string): RunReadResult {
+const readCache = new Map<string, { at: number; signature: string; result: RunReadResult }>();
+const READ_CACHE_MS = 500;
+
+export interface ReadRunResultCache {
+  result: RunReadResult;
+  cache: { mode: "cache" | "bypass"; source: "hit" | "miss" | "fresh"; age_ms: number };
+}
+
+export function readRunCached(paths: OrchPaths, id: string, bypass = false): ReadRunResultCache {
+  const key = `${paths.runs}/${id}`;
+  const runDir = join(paths.runs, id);
+  const signature = [join(runDir, "state.json"), join(runDir, "events.jsonl")].map((file) => {
+    try { return `${statSync(file).mtimeMs}`; } catch { return "missing"; }
+  }).join(":");
+  const now = Date.now();
+  const cached = readCache.get(key);
+  if (!bypass && cached !== undefined && now - cached.at < READ_CACHE_MS && cached.signature === signature) {
+    return { result: cached.result, cache: { mode: "cache", source: "hit", age_ms: now - cached.at } };
+  }
+  const result = readRun(paths, id, bypass);
+  readCache.set(key, { at: now, signature, result });
+  return { result, cache: { mode: bypass ? "bypass" : "cache", source: bypass ? "fresh" : (cached === undefined ? "miss" : "fresh"), age_ms: 0 } };
+}
+
+export function readRun(paths: OrchPaths, id: string, fresh = false): RunReadResult {
   if (!isRunId(id)) {
     return { kind: "missing" };
   }
@@ -193,7 +339,7 @@ export function readRun(paths: OrchPaths, id: string): RunReadResult {
   if (!loaded.ok) {
     return { kind: "corrupt", reason: loaded.reason };
   }
-  annotateActivity(paths, loaded.state);
+  annotateActivity(paths, loaded.state, Date.now(), fresh);
   annotateTiming(loaded.state);
   return { kind: "ok", run: loaded.state };
 }

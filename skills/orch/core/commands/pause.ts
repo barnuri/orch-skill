@@ -14,8 +14,8 @@ import { healthMonitorAutostart } from "./health.ts";
 const RUN_PAUSE_USAGE = "dispatch.ts run pause <run-id>";
 const RUN_RESUME_USAGE = "dispatch.ts run resume <run-id> [--stopped]";
 const RUN_STOP_USAGE = "dispatch.ts run stop <run-id>";
-const RUN_SET_USAGE = "dispatch.ts run set <run-id> auto_dispatch true|false";
-const COORD_USAGE = "dispatch.ts run set <run-id> coordinator   (run in the coordinator pane: HERDR_PANE_ID, HERDR_SOCKET_PATH set)";
+const RUN_SET_USAGE = "dispatch.ts run set <run-id> (auto_dispatch true|false|max_parallel N|-1)";
+const COORD_USAGE = "dispatch.ts run set <run-id> orchestrator   (run in the orchestrator pane: HERDR_PANE_ID, HERDR_SOCKET_PATH set)\ndispatch.ts run set <run-id> coordinator   (alias)";
 const NODE_CANCEL_USAGE = "dispatch.ts node cancel <run-id> <node-id>";
 const STOP_GRACE = () => Number(process.env.RUN_STOP_GRACE ?? 5);
 
@@ -55,10 +55,13 @@ export async function runPause(args: string[]): Promise<number> {
   return rc;
 }
 
-// coordinator register <run>: record the calling terminal (herdr pane, else hc terminal) as the run's coordinator.
+// orchestrator register <run>: record the calling terminal (herdr pane, else hc terminal) as the run's coordinator.
 export async function coordinatorRegister(args: string[]): Promise<number> {
   const [run = ""] = args;
-  if (!run) return (err("usage: dispatch.ts coordinator register <run-id>\n"), 2);
+  if (!run) return (err("usage: dispatch.ts orchestrator register <run-id> [--session <opencode-session-id>]\n\ncoordinator register <run-id> is an alias.\n"), 2);
+  // --session states the coordinator's session when herdr does not know it: the status line matches on it.
+  const si = args.indexOf("--session");
+  if (si !== -1 && args[si + 1]) process.env.ORCH_COORD_SESSION = args[si + 1];
   const home = orchHome();
   if (!(await requireRun(home, run))) return 2;
   return coordinatorRecord(home, run);
@@ -68,18 +71,20 @@ export async function runSet(args: string[]): Promise<number> {
   const [run = "", key = "", value = ""] = args;
   if (!run || !key) return (err(`usage: ${RUN_SET_USAGE}\n  or: ${COORD_USAGE}\n`), 2);
   const home = orchHome();
-  if (key === "coordinator" && args.length === 2) {
+  if ((key === "orchestrator" || key === "coordinator") && args.length === 2) {
     if (!(await requireRun(home, run))) return 2;
     return coordinatorRecord(home, run);
   }
-  if (args.length !== 3 || key !== "auto_dispatch") return (err(`run set: unknown key ${key}\n  usage: ${RUN_SET_USAGE}\n`), 2);
-  if (value !== "true" && value !== "false") return (err("run set: auto_dispatch must be true or false\n"), 2);
+  if (args.length !== 3 || !["auto_dispatch", "max_parallel"].includes(key)) return (err(`run set: unknown key ${key}\n  usage: ${RUN_SET_USAGE}\n`), 2);
+  if (key === "auto_dispatch" && value !== "true" && value !== "false") return (err("run set: auto_dispatch must be true or false\n"), 2);
+  if (key === "max_parallel" && value !== "-1" && (!/^[0-9]+$/.test(value) || Number(value) < 1 || Number(value) > 30)) return (err("run set: max_parallel must be -1 or an integer 1-30\n"), 2);
   if (!(await requireRun(home, run))) return 2;
   const rc = await mutateRun(home, run, (r, ctx) => {
-    r.auto_dispatch = value === "true";
-    note(ctx, `auto_dispatch ${value}`);
+    if (key === "auto_dispatch") r.auto_dispatch = value === "true";
+    else r.max_parallel = Number(value);
+    note(ctx, `${key} ${value}`);
   });
-  if (rc === 0) out(`auto_dispatch: ${run} ${value}\n`);
+  if (rc === 0) out(`${key}: ${run} ${value}\n`);
   return rc;
 }
 

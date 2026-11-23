@@ -17,6 +17,9 @@ import { DocumentsController, HarnessesController } from "./controllers/document
 import { HealthController } from "./controllers/health.controller";
 import { RunHealthController } from "./controllers/run-health.controller";
 import { RunRequirementsController } from "./controllers/run-requirements.controller";
+import { RunQualityController } from "./controllers/run-quality.controller";
+import { RunProjectionController } from "./controllers/run-projection.controller";
+import { RunOverviewController } from "./controllers/run-overview.controller";
 import { RunsController } from "./controllers/runs.controller";
 import { SchedulesController } from "./controllers/schedules.controller";
 import { SkillsController } from "./controllers/skills.controller";
@@ -56,6 +59,9 @@ export function buildApi(ctx: ServerContext): OpenAPIHono<ApiEnv> {
   registerController(api, new RunsController(ctx), options);
   registerController(api, new RunHealthController(ctx), options);
   registerController(api, new RunRequirementsController(ctx), options);
+  registerController(api, new RunQualityController(ctx), options);
+  registerController(api, new RunProjectionController(ctx), options);
+  registerController(api, new RunOverviewController(ctx), options);
   registerController(api, new WatchdogController(ctx), options);
   registerController(api, new DocumentsController(ctx), options);
   registerController(api, new HarnessesController(ctx), options);

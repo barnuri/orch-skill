@@ -1,6 +1,6 @@
 // Plan conformance: a node that is tied to a plan task (node.plan = {file, task}) must only change the files
 // the plan gives that task (its files_touched). The changes are the commits its job added (start_commit .. HEAD of
-// the node's repo). A change outside the plan is a deviation: the coordinator updates the plan or asks the user.
+// the node's repo). A change outside the plan is a deviation: the orchestrator updates the plan or asks the user.
 import { existsSync, readFileSync } from "node:fs";
 import { loadRun } from "../state/store.ts";
 import { paths } from "../state/home.ts";

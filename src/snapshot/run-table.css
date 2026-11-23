@@ -20,8 +20,8 @@
 .rt-id { font-weight: 600; }
 .rt-model { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 .rt-verdict { padding: 0 6px; border-radius: 8px; font-size: 11px; border: 1px solid currentColor; }
-.rt-verdict.v-full { color: #2e7d32; }
-.rt-verdict.v-partial { color: #b26a00; }
-.rt-verdict.v-blocked { color: #8a5a00; border-style: dashed; }
-.rt-verdict.v-unknown { color: #666; }
+.rt-verdict.v-full { color: var(--status-full); }
+.rt-verdict.v-partial { color: var(--status-partial); }
+.rt-verdict.v-blocked { color: var(--status-blocked); border-style: dashed; }
+.rt-verdict.v-unknown { color: var(--tx2); }
 .run-main{min-width:0}

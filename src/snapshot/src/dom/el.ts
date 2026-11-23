@@ -1,5 +1,7 @@
 // The only DOM factory in the dashboard: attributes go through setAttribute, text through
 // textContent / Text nodes — nothing here (or anywhere) parses markup.
+import { paletteClass } from "../../../shared/status-palette";
+
 type ElChild = Node | string | null;
 
 // Kept as a literal type: that is what selects the typed createElementNS overload.
@@ -50,5 +52,5 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(
 }
 
 export function chip(status: string): HTMLSpanElement {
-  return el("span", { class: `chip ${status}`, text: status === "covered" ? "Covered" : status });
+  return el("span", { class: `chip ${status} ${paletteClass(status)}`.trim(), text: status === "covered" ? "Covered" : status });
 }

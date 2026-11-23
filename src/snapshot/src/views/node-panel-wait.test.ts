@@ -31,7 +31,7 @@ describe("snapshot node panel wait reason", () => {
     const all = node({ needs_user: "pick a name", hold: "until load < 4" });
     expect(why([all, node({ id: "a", status: "running" }), node({ id: "b" })], [["a", "n1"], ["b", "n1"]])).toEqual({ text: "waiting on a +1", title: "Waiting on: a, b" });
     expect(why([all])?.text).toBe("needs you: pick a name");
-    expect(why([node({ hold: "until load < 4" })])).toEqual({ text: "held: until load < 4", title: "Held by the coordinator: until load < 4" });
+    expect(why([node({ hold: "until load < 4" })])).toEqual({ text: "held: until load < 4", title: "Held by the orchestrator: until load < 4" });
     expect(why([node()])?.text).toBe("ready, not started");
     expect(why([node({ status: "running", hold: "x" })])).toBeNull();
   });

@@ -64,20 +64,21 @@ test("node dispatch with claude-native", async () => {
   let r = o("node", "dispatch", "disp-1", "a", "claude-native", "hello", "--flag", "value");
   expect(r.rc).toBe(0);
   o("wait", r.out.trim(), "--timeout", "60", "--interval", "0.1");
-  expect(o("run", "sync", "disp-1").all).toMatch(/^a.done$/m);
+  // No handoff from a claude-native job: the node is an error, not done.
+  expect(o("run", "sync", "disp-1").all).toMatch(/^a.error$/m);
   expect(node(0).adapter).toBe("claude-native");
   expect(node(0).log_tail[0]).toMatch(/no subprocess spawned/);
   expect(node(0).prompt).toBe("hello");
   expect(node(0).dispatch_args).toEqual(["--flag", "value"]);
   r = o("node", "dispatch", "disp-1", "a", "claude-native", "again");
-  expect(r.all).toMatch(/is done, not waiting/);
+  expect(r.all).toMatch(/is error, not waiting/);
   expect(r.rc).toBe(2);
   const { spawnEchoHub } = await import("../helpers/hub-proc.ts");
   const hub = await spawnEchoHub(600);
   const job = o.env({ LLM_HUB_URL: hub.url }, "node", "dispatch", "disp-1", "b", "ping").out.trim();
   expect(o("run", "sync", "disp-1").all).toMatch(/^b.running$/m);
   o("wait", job, "--timeout", "60", "--interval", "0.1");
-  expect(o("run", "sync", "disp-1").all).toMatch(/^b.done$/m);
+  expect(o("run", "sync", "disp-1").all).toMatch(/^b.error$/m);
   expect(node(1).profile).toBe("local-llm-fast");
   expect(node(1).model_id).toBe("local-ornith-1.5-9b");
   expect(node(1).model).toBe("llama_swap/ornith-1.5-9b");

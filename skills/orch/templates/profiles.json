@@ -1,7 +1,7 @@
 {
   "defaults": {
     "parallel_ok": true,
-    "max_parallel": 15,
+    "max_parallel": 30,
     "timeout_min": null,
     "retry": null,
     "stall_min": null,

@@ -81,4 +81,30 @@ describe("feedback page", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/feedback/work"))).toBe(true));
     await waitFor(() => expect(screen.getByText(/Started 1 item\(s\) in run feedback-batch-2/)).toBeTruthy());
   });
+
+  test("an empty list names the fix instead of an empty table", async () => {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/feedback")) {
+        return Promise.resolve(json(200, { items: [] }));
+      }
+      return Promise.resolve(json(200, { generated_at: "2026-11-17T11:00:00Z", runs: [] }));
+    }) as typeof fetch;
+    page();
+    await waitFor(() => expect(screen.getByText("No feedback yet")).toBeTruthy());
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  test("a failed load shows the error with a Retry action", async () => {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/feedback")) {
+        return Promise.resolve(json(500, { error: "store locked" }));
+      }
+      return Promise.resolve(json(200, { generated_at: "2026-11-17T11:00:00Z", runs: [] }));
+    }) as typeof fetch;
+    page();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
+    expect(screen.getByRole("alert").textContent).toContain("Feedback could not be loaded");
+  });
 });

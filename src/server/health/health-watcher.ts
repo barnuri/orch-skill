@@ -78,7 +78,7 @@ export function parseHealth(text: string | null): RunHealth | null {
       at: typeof value["at"] === "string" ? value["at"] : "",
       max_parallel: num(value["max_parallel"]),
       running: num(value["running"]),
-      slots: num(value["slots"]),
+      slots: value["slots"] === null ? null : num(value["slots"]),
       nodes: (value["nodes"] as unknown[]).filter(isObject).map((n) => ({
         id: String(n["id"] ?? ""),
         status: String(n["status"] ?? ""),
@@ -244,7 +244,7 @@ export class HealthWatcher {
           out[node.health] += 1;
         }
       }
-      if (health.slots > 0) {
+      if (health.slots === null || health.slots > 0) {
         out.ready += health.ready.length;
       }
       if (flagged) {
@@ -257,6 +257,11 @@ export class HealthWatcher {
   /** Read for the API: the cached result, or one pass when nothing is cached yet. */
   async read(runId: string): Promise<HealthEntry | null> {
     return this.latest(runId) ?? (await this.check(runId, true));
+  }
+
+  /** Read only cached health. API reads must never start a CLI process on the UI hot path. */
+  readCached(runId: string): HealthEntry | null {
+    return this.latest(runId);
   }
 }
 
@@ -419,13 +424,19 @@ export function startHealthWatcher(home: string): RunningHealthWatcher {
   };
   loop();
   let fsWatcher: FSWatcher | null = null;
+  const pending = new Map<string, ReturnType<typeof setTimeout>>();
   try {
     fsWatcher = watch(paths.runs, { recursive: true }, (_event, filename) => {
       const name = typeof filename === "string" ? filename : null;
       const m = name === null ? null : /^([^/\\]+)[/\\]events\.jsonl$/.exec(name);
-      if (m?.[1] !== undefined) {
-        void watcher.check(m[1], true);
-      }
+      if (m?.[1] === undefined) return;
+      const runId = m[1];
+      const prior = pending.get(runId);
+      if (prior !== undefined) clearTimeout(prior);
+      pending.set(runId, setTimeout(() => {
+        pending.delete(runId);
+        void watcher.check(runId, true);
+      }, 2000));
     });
   } catch {
     // No recursive watch on this platform: the periodic sweep still covers every run.
@@ -437,6 +448,7 @@ export function startHealthWatcher(home: string): RunningHealthWatcher {
         clearTimeout(timer);
       }
       fsWatcher?.close();
+      for (const timer of pending.values()) clearTimeout(timer);
     },
   };
 }

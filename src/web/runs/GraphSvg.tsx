@@ -1,12 +1,16 @@
+import { useState } from "react";
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
 import { isStarting } from "../../shared/node-timing";
 import type { TimedRun } from "../../shared/node-timing";
+import { api } from "../api/client";
+import { describeFailure } from "../api/result";
+import { refetchRun } from "./run-actions";
 import { markFor, MARKS } from "../lib/harness-marks";
 import { NODE_H, NODE_W, ORCH_NODE_H, ORCH_NODE_W, layoutDag } from "../lib/dag-layout";
 import type { DagLayout } from "../lib/dag-layout";
 import { truncate } from "../lib/format";
-import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, needsUserReason, nodeFlags, ownerChip, resultChip } from "../lib/node-flags";
+import { AFTER_THE_FACT, STALE_TITLE, UNOWNED_TITLE, healthClass, lastActivity, needsUserReason, nodeFlags, ownerChip, resultChip, resultLabel } from "../lib/node-flags";
 import { latestActivityLine } from "../lib/owner-activity";
 import { useCachedNodeActivity } from "./queries";
 import { modelPick } from "../lib/model-pick";
@@ -17,6 +21,7 @@ import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
 import { ModelIcon } from "./ModelIcon";
 import { useNow } from "./use-now";
+import { paletteClass } from "../../shared/status-palette";
 
 type Point = { x: number; y: number };
 
@@ -29,6 +34,7 @@ const DURATION_Y = 83;
 const USAGE_Y = 98;
 const ROLE_TIER_Y = 113;
 const HEALTH_Y = 129;
+const RETRY_W = 52;
 const META_LEFT_X = 14;
 const MODEL_ICON_GAP = 16;
 const MODEL_ICON_GAP_CHARS = 2;
@@ -72,12 +78,57 @@ function ResultChipView({ node }: { node: RunNode }) {
     return null;
   }
   return (
-    <g className={`result-chip result-${chip.verdict}`} transform={`translate(${META_RIGHT_X - 60} ${STATUS_Y - 11})`} data-result={chip.verdict}>
+    <g className={`result-chip result-${chip.verdict} ${paletteClass(chip.verdict)}`.trim()} transform={`translate(${META_RIGHT_X - 60} ${STATUS_Y - 11})`} data-result={chip.verdict} role="img" aria-label={resultLabel(chip.verdict)}>
       <title>{[chip.summary, chip.followUp !== "" && chip.followUp.toLowerCase() !== "none" ? `follow_up: ${chip.followUp}` : ""].filter((t) => t !== "").join("\n") || chip.verdict}</title>
       <rect width={60} height={15} rx={7.5} />
       <text x={30} y={11} textAnchor="middle">
         {chip.verdict}
       </text>
+    </g>
+  );
+}
+
+/** Inline Retry on an error node's card. A click here never selects the node (it stops at the button). */
+function GraphRetry({ node, runId }: { node: RunNode; runId: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
+  const [why, setWhy] = useState("");
+  if (node.status !== "error") {
+    return null;
+  }
+  const label = state === "busy" ? "…" : state === "failed" ? "failed" : "Retry";
+  return (
+    <g
+      className={`graph-retry${state === "busy" ? " is-busy" : ""}${state === "failed" ? " is-failed" : ""}`}
+      role="button"
+      aria-label={`Retry ${node.id}`}
+      aria-disabled={state === "busy"}
+      tabIndex={0}
+      transform={`translate(${NODE_W - RETRY_W - 8} ${HEALTH_Y - 14})`}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (state === "busy") {
+          return;
+        }
+        setState("busy");
+        void api.retryNode(runId, node.id).then((result) => {
+          if (result.kind === "ok") {
+            setState("idle");
+            void refetchRun(runId);
+          } else {
+            setWhy(describeFailure(result, "Retry failed"));
+            setState("failed");
+          }
+        });
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.stopPropagation();
+        }
+      }}
+    >
+      <title>{state === "failed" ? why : `Retry ${node.id}`}</title>
+      <rect width={RETRY_W} height={18} rx={4} className="graph-retry-box" />
+      <text x={RETRY_W / 2} y={13} textAnchor="middle">{label}</text>
     </g>
   );
 }
@@ -174,11 +225,11 @@ function edgeD(from: Point, fromW: number, fromH: number, to: Point): string {
 }
 
 function OrchNode({ run, pos }: { run: RunState; pos: Point }) {
-  const session = run.harness_session !== "" ? truncate(run.harness_session, 14) : "coordinator";
+  const session = run.harness_session !== "" ? truncate(run.harness_session, 14) : "orchestrator";
   const cx = ORCH_NODE_W / 2;
   const cy = ORCH_NODE_H / 2 - 6;
   return (
-    <g className={`graph-orch orch-root ${run.status}`} transform={`translate(${pos.x} ${pos.y})`} role="img" aria-label={`orch coordinator, run ${run.status}`}>
+    <g className={`graph-orch orch-root ${run.status}`} transform={`translate(${pos.x} ${pos.y})`} role="img" aria-label={`orch orchestrator, run ${run.status}`}>
       <rect className="orch-frame" width={ORCH_NODE_W} height={ORCH_NODE_H} rx={8} />
       <g className="orch-icon" transform={`translate(${cx} ${cy})`}>
         <circle className="hub" cx={0} cy={0} r={5} />
@@ -243,7 +294,7 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
   const autoTitle = pick?.isAuto === true ? `${pick.isExpected ? "expected " : ""}${[pick.model, pick.tier, pick.role, pick.reason].filter((part) => part !== null).join(" · ")}` : null;
   return (
     <g
-      className={`node task-node ${node.status}${isStarting(node) ? " is-starting" : ""}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}${nodeFlags(node).stale ? " is-stale" : ""}`}
+      className={`node task-node ${node.status} ${paletteClass(node.status)}${isStarting(node) ? " is-starting" : ""}${selected ? " selected" : ""}${profile !== null ? " has-profile" : ""}${nodeFlags(node).stale ? " is-stale" : ""}`}
       transform={`translate(${pos.x} ${pos.y})`}
       tabIndex={0}
       role="button"
@@ -281,6 +332,7 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
       <ContextChip node={node} />
       {roleTier.present ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
       <Health node={node} runId={runId} />
+      <GraphRetry node={node} runId={runId} />
       {isCyclic ? (
         <text className="cycle" x={NODE_W - 8} y={14} textAnchor="end">
           cycle

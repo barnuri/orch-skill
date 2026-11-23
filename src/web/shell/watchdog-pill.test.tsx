@@ -44,6 +44,13 @@ describe("WatchdogPill", () => {
     expect(pill?.getAttribute("title") ?? "").toContain("r1/a stalled: idle 20 min");
   });
 
+  test("the coordinator rule shows as orchestrator; the stored rule name is unchanged", () => {
+    const { container } = render(<WatchdogPill status={status({ flags: [flag("coordinator")] })} />);
+    const pill = container.querySelector("#watchdog-pill");
+    expect(pill?.getAttribute("title") ?? "").toContain("r1/a orchestrator: idle 20 min");
+    expect(pill?.getAttribute("title") ?? "").not.toContain("coordinator");
+  });
+
   test("ghost runners turn the pill amber and show the count", () => {
     expect(watchdogPillState(status({ ghosts: 2 }))).toBe("stalled");
     const { container } = render(<WatchdogPill status={status({ ghosts: 2 })} />);

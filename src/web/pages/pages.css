@@ -30,6 +30,12 @@
 
 /* ---- Schedules --------------------------------------------------------------------------- */
 .sched-ledger { border-radius: var(--r-lg); }
+.sched-bulk { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s3) 0; }
+.sched-bulk-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.sched-bulk-hint { font-size: var(--fs-ctl); }
+.sched-bulk-done p, .sched-bulk .notice p { margin: 0; }
+.sched-bulk-done { font-size: var(--fs-ctl); color: var(--status-done); }
+.sched-bulk-failed { margin: var(--s1) 0 0; padding-left: var(--s4); font-size: var(--fs-ctl); }
 .sched-row { padding: var(--s3) var(--s4); }
 .sched-row.is-ok { border-left-color: var(--status-done); }
 .sched-row.is-failing { border-left-color: var(--status-error); }

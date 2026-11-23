@@ -1,9 +1,10 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, watch, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { dispatchPath } from "../dispatch-path";
 import { BUILTIN_DEFAULTS, effectiveProfile, type ProfileDefaults } from "../../shared/profile-effective";
+import { blockersOf, type ProjectionNodeInput } from "../../../skills/orch/core/runs/projection";
 
 /**
  * Event-driven run engine. Watches each active run's folder (fs.watch, debounced) and, on every
@@ -16,7 +17,7 @@ import { BUILTIN_DEFAULTS, effectiveProfile, type ProfileDefaults } from "../../
 
 export const DEBOUNCE_MS: number = 200;
 export const SWEEP_MS: number = 30_000;
-export const DEFAULT_MAX_PARALLEL: number = 4;
+export const DEFAULT_MAX_PARALLEL: number = 30;
 const AGENT_RULES: string = resolve(import.meta.dir, "../../../skills/orch/references/agent-rules.md");
 
 interface NodeState {
@@ -27,6 +28,7 @@ interface NodeState {
   prompt?: string | null;
   profile?: string | null;
   attempts?: unknown[] | null;
+  needs_user?: string | null;
 }
 
 export interface RunState {
@@ -35,6 +37,7 @@ export interface RunState {
   paused?: boolean;
   stopped?: boolean;
   auto_dispatch?: boolean;
+  max_parallel?: number | null;
   default_profile?: string | null;
   profile?: string | null;
   nodes?: NodeState[];
@@ -92,10 +95,11 @@ export function notifyFile(home: string, runId: string): string {
   return join(engineDir(home, runId), "notify.log");
 }
 
-/** Run cap: defaults.max_parallel, then settings.max_parallel (old key), then serve.json, then 4. */
+/** Run cap: defaults.max_parallel, then settings.max_parallel (old key), then serve.json, then 30. */
 export function maxParallel(home: string): number {
   const cfg = readProfilesConfig(home);
   for (const v of [cfg.defaults?.max_parallel, cfg.settings?.max_parallel]) {
+    if (v === -1) return Number.POSITIVE_INFINITY;
     if (typeof v === "number" && Number.isInteger(v) && v >= 1) return v;
   }
   try {
@@ -112,12 +116,37 @@ interface ProfilesConfig {
   profiles?: Record<string, Record<string, unknown>>;
 }
 
-function readProfilesConfig(home: string): ProfilesConfig {
+/** A parsed JSON file, reused while its size and mtime are unchanged. */
+interface ParsedMemo<T> { sig: string; value: T }
+const profilesMemo = new Map<string, ParsedMemo<ProfilesConfig>>();
+const stateMemo = new Map<string, ParsedMemo<RunState | null>>();
+
+function fileSig(path: string): string | null {
   try {
-    return JSON.parse(readFileSync(join(home, "profiles.json"), "utf8")) as ProfilesConfig;
+    const st = statSync(path);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
+function readProfilesConfig(home: string): ProfilesConfig {
+  const path = join(home, "profiles.json");
+  const sig = fileSig(path);
+  const memo = profilesMemo.get(path);
+  if (sig !== null && memo !== undefined && memo.sig === sig) {
+    return memo.value;
+  }
+  let value: ProfilesConfig;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as ProfilesConfig;
   } catch {
     return {};
   }
+  if (sig !== null) {
+    profilesMemo.set(path, { sig, value });
+  }
+  return value;
 }
 
 /** Per-profile cap: the profile's effective max_parallel (node, profile, defaults, builtin). */
@@ -130,10 +159,27 @@ export function profileCapOf(cfg: ProfilesConfig): (profile: string) => number {
 }
 
 
+/**
+ * A run's state.json, parsed once per (size, mtime). The 30 s sweep reads every run, and most runs are
+ * finished and unchanged; re-parsing them on each sweep blocked the event loop for seconds.
+ */
 function readState(home: string, runId: string): RunState | null {
+  const path = join(home, "runs", runId, "state.json");
+  const sig = fileSig(path);
+  if (sig === null) {
+    stateMemo.delete(path);
+    return null;
+  }
+  const memo = stateMemo.get(path);
+  if (memo !== undefined && memo.sig === sig) {
+    return memo.value;
+  }
   try {
-    return JSON.parse(readFileSync(join(home, "runs", runId, "state.json"), "utf8")) as RunState;
+    const value = JSON.parse(readFileSync(path, "utf8")) as RunState;
+    stateMemo.set(path, { sig, value });
+    return value;
   } catch {
+    stateMemo.delete(path);
     return null;
   }
 }
@@ -184,7 +230,6 @@ export function decide(
     const reason = state.stopped === true ? "run stopped" : "run paused";
     return waiting.map((n) => ({ node: n.id, action: "skip", reason }));
   }
-  const statusOf = new Map(nodes.map((n) => [n.id, n.status ?? ""]));
   let running = nodes.filter((n) => n.status === "running").length;
   const runningOf = new Map<string, number>();
   for (const n of nodes.filter((n) => n.status === "running")) {
@@ -193,9 +238,15 @@ export function decide(
   }
   const out: Decision[] = [];
   for (const n of waiting) {
-    const blockers = (state.edges ?? []).filter(([, to]) => to === n.id).map(([from]) => from).filter((d) => statusOf.get(d) !== "done" || !isSettled(d));
+    // The readiness rule is the projection's (skills/orch/core/runs/projection.ts), shared with `run status`.
+    const blockers = blockersOf({ nodes: nodes as unknown as ProjectionNodeInput[], edges: state.edges }, n as unknown as ProjectionNodeInput, isSettled);
     if (blockers.length > 0) {
       out.push({ node: n.id, action: "skip", reason: `waiting on ${blockers.join(",")}` });
+      continue;
+    }
+    // A node with an open question for the user never starts without the user's answer.
+    if ((n.needs_user ?? "") !== "") {
+      out.push({ node: n.id, action: "skip", reason: "needs the user" });
       continue;
     }
     const profile = n.profile ?? state.default_profile ?? state.profile ?? null;
@@ -278,7 +329,10 @@ export class RunEngine {
       }
       return existsSync(join(this.home, "runs", runId, "out", id, "handoff.md"));
     };
-    for (const d of decide(state, maxParallel(this.home), settled, profileCapOf(readProfilesConfig(this.home)))) {
+    const globalCap = maxParallel(this.home);
+    const localCap = typeof state.max_parallel === "number" && (state.max_parallel === -1 || state.max_parallel >= 1) ? (state.max_parallel === -1 ? Number.POSITIVE_INFINITY : state.max_parallel) : globalCap;
+    const cap = Math.min(globalCap, localCap);
+    for (const d of decide(state, cap, settled, profileCapOf(readProfilesConfig(this.home)))) {
       const key = `${runId}/${d.node}`;
       if (d.action === "skip") {
         if (this.lastSkip.get(key) !== d.reason) {

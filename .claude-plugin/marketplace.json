@@ -15,6 +15,7 @@
       "strict": false,
       "skills": [
         "./skills/orch",
+        "./skills/orch-self-heal",
         "./skills/unorch"
       ]
     }

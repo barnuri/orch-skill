@@ -32,9 +32,15 @@
   --status-running: light-dark(#1555b8, #7ab0ff);
   --status-done: light-dark(#0b6540, #3fcf8e);
   --status-error: light-dark(#aa1f1f, #ff6f6f);
-  --status-waiting: light-dark(#555c68, #8b94a3);
-  --status-skipped: light-dark(#5b626d, #8a919d);
+  --status-waiting: light-dark(#4a6079, #9fb6d2);
+  --status-skipped: light-dark(#6b6e74, #a2a6ad);
   --status-stale: light-dark(#7f5000, #f5b545);
+  /* blocked-user: waiting on the user. Amber, same tone as stale, its own token for the chip. */
+  --status-blocked-user: var(--status-stale);
+  /* The shared palette (src/shared/status-palette.ts): full = done green, partial = amber, blocked = error red. */
+  --status-full: var(--status-done);
+  --status-partial: var(--status-stale);
+  --status-blocked: var(--status-error);
   /* starting: dispatched, no real activity yet. Teal, apart from running blue and stale amber. */
   --status-starting: light-dark(#0b6470, #4fd1de);
   /* covered: work carried into another run. Purple info tone, never red or green. */
@@ -115,8 +121,16 @@
   --status-skipped-bd: color-mix(in srgb, var(--status-skipped) var(--ring), transparent);
   --status-covered-bg: color-mix(in srgb, var(--status-covered) var(--tint), transparent);
   --status-covered-bd: color-mix(in srgb, var(--status-covered) var(--ring), transparent);
+  --status-full-bg: var(--status-done-bg);
+  --status-full-bd: var(--status-done-bd);
+  --status-partial-bg: var(--status-stale-bg);
+  --status-partial-bd: var(--status-stale-bd);
+  --status-blocked-bg: var(--status-error-bg);
+  --status-blocked-bd: var(--status-error-bd);
   --status-stale-bg: color-mix(in srgb, var(--status-stale) var(--tint), transparent);
   --status-stale-bd: color-mix(in srgb, var(--status-stale) var(--ring), transparent);
+  --status-blocked-user-bg: var(--status-stale-bg);
+  --status-blocked-user-bd: var(--status-stale-bd);
   --status-starting-bg: color-mix(in srgb, var(--status-starting) var(--tint), transparent);
   --status-starting-bd: color-mix(in srgb, var(--status-starting) var(--ring), transparent);
   --ok: var(--status-done); --wa: var(--status-stale); --er: var(--status-error); --mute: var(--status-waiting);

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { appendEvents, loadRun, type RunState } from "../state/store.ts";
 import { isoToEpoch } from "../state/timing.ts";
-import { loadProfilesDoc, settingFrom } from "../state/settings.ts";
+import { loadProfilesDoc, maxParallelCapFrom, runCapFrom, settingFrom, UNLIMITED_PARALLEL } from "../state/settings.ts";
 import { acquireLock } from "../state/lock.ts";
 import { BIN_ORCH, isUint, runLimited } from "../state/proc.ts";
 import { nowIso } from "../state/clock.ts";
@@ -51,13 +51,14 @@ async function stallMinutes(home: string): Promise<number> {
 type Snap = Record<string, any>;
 
 // The classification (HEALTH_JQ). prev is the last saved snapshot or {}.
-export function classify(r: RunState, runId: string, now: number, stall: number, gap: number, ix: Sess[], prev: Snap, maxp: number): Snap {
+export function classify(r: RunState, runId: string, now: number, stall: number, gap: number, ix: Sess[], prev: Snap, globalCap: number): Snap {
   const S = new Map(ix.map((s) => [s.id, s]));
   const pn: Record<string, any> = prev._nodes ?? {};
   const st = Object.fromEntries(r.nodes.map((n) => [n.id, n.status]));
   const runn = r.nodes.filter((n) => n.status === "running");
   const running = runn.length;
-  const slots = Math.max(0, maxp - running);
+  const cap = runCapFrom(globalCap, (r as { max_parallel?: number | null }).max_parallel);
+  const slots = Number.isFinite(cap) ? Math.max(0, cap - running) : null;
   const waiting = r.nodes.filter((n) => n.status === "waiting").map((n) => ({
     id: n.id, needs: nn(n.needs_user), hold: nn(n.hold), ready: nodeReady(r, n), gate: n.after_all ?? false,
     deps: (r.edges ?? []).filter((e: any) => e[1] === n.id).map((e: any) => e[0] as string),
@@ -124,10 +125,10 @@ export function classify(r: RunState, runId: string, now: number, stall: number,
     ...rn.filter((n) => n.health === "stalled" && n._session !== null && nudged[n.id] != null).map((n) => nudged[n.id]! + gap),
   ];
   return {
-    run: runId, status: r.status, at: iso(now), max_parallel: maxp, running, slots,
+    run: runId, status: r.status, at: iso(now), max_parallel: Number.isFinite(cap) ? cap : UNLIMITED_PARALLEL, running, slots,
     nodes: [...rn.map(({ _session, _due, ...x }) => x), ...wn], ready, changes,
     _nodes: Object.fromEntries(r.nodes.map((n) => [n.id, { status: n.status, health: hm[n.id] ?? null }])),
-    _nudge: rn.filter((n) => (n.health === "stalled" || n.health === "no-report") && n._session !== null && now - (nudged[n.id] ?? 0) >= gap).map((n) => ({
+    _nudge: rn.filter((n) => n.health === "stalled" && n._session !== null && now - (nudged[n.id] ?? 0) >= gap).map((n) => ({
       node: n.id, session: n._session,
       text: n.health === "no-report"
         ? "Your session is idle and the node has no result. Write handoff.md into $ORCH_NODE_OUT, then record the result with dispatch.ts node result."
@@ -147,8 +148,7 @@ export async function healthMap(home: string, runId: string, stallMin: number): 
 }
 
 async function maxParallel(home: string): Promise<number> {
-  const d: any = await loadProfilesDoc(home);
-  return d.defaults?.max_parallel || d.settings?.max_parallel || 15;
+  return maxParallelCapFrom(await loadProfilesDoc(home));
 }
 
 const healthDir = (home: string) => join(home, "health");
@@ -227,7 +227,9 @@ export async function healthPass(home: string, run: string, nudge: boolean): Pro
 }
 
 function renderText(l: Snap): string {
-  const o = [`run ${l.run} [${l.status}]: running ${l.running}/${l.max_parallel}, slots ${l.slots}`, `ready: ${l.ready.join(",")}`];
+  const cap = l.max_parallel === UNLIMITED_PARALLEL ? "unlimited" : l.max_parallel;
+  const free = l.slots === null ? "unlimited" : l.slots;
+  const o = [`run ${l.run} [${l.status}]: running ${l.running}/${cap}, slots ${free}`, `ready: ${l.ready.join(",")}`];
   for (const n of l.nodes) if (n.health !== "ok") o.push(`${n.health}: ${n.id}${n.owner_id ? ` (${n.owner_id})` : ""} — ${n.note}`);
   if (l.changes.length) o.push("changes: " + l.changes.map((c: any) => c.note).join("; "));
   if ((l.nudged ?? []).length > 0) o.push("nudged: " + l.nudged.join(","));

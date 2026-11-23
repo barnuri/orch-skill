@@ -68,16 +68,24 @@ export function NodeHealthStrip({ health, onSelect }: { health: RunHealth | null
 }
 
 export function readyText(health: RunHealth | null): string | null {
-  if (health === null || health.ready.length === 0 || health.slots <= 0) {
+  if (health === null || health.ready.length === 0 || (health.slots !== null && health.slots <= 0)) {
     return null;
   }
-  const n = health.ready.length;
-  return `${n} ${n === 1 ? "node" : "nodes"} ready to start: ${health.ready.join(", ")}`;
+  return readyNoticeText(health.ready);
 }
 
-/** Run-level notice: waiting nodes whose dependencies are done while a slot is free. */
-export function ReadyNotice({ health }: { health: RunHealth | null }) {
-  const text = readyText(health);
+/** The ready notice text for the projection's ready node ids. */
+export function readyNoticeText(ready: readonly string[]): string | null {
+  if (ready.length === 0) {
+    return null;
+  }
+  const n = ready.length;
+  return `${n} ${n === 1 ? "node" : "nodes"} ready to start: ${ready.join(", ")}`;
+}
+
+/** Run-level notice: the nodes the projection says are ready to start. */
+export function ReadyNotice({ ready }: { ready: readonly string[] }) {
+  const text = readyNoticeText(ready);
   if (text === null) {
     return null;
   }

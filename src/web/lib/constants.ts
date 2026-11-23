@@ -1,4 +1,4 @@
-export const POLL_MS = 2000;
+export const POLL_MS = 5000;
 export const FRESH_TICK_MS = 1000;
 export const STALE_MS = 15000;
 export const DEAD_MS = 60000;

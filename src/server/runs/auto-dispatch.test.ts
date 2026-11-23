@@ -99,6 +99,11 @@ describe("auto-dispatch", () => {
     expect(decide(state, 4, () => true)[0]?.action).toBe("start");
   });
 
+  test("a waiting node with an open question for the user is never started", () => {
+    const state = run({ nodes: [{ id: "a", status: "waiting", label: "A", profile: "p", needs_user: "Which region?" } as never, { id: "b", status: "blocked-user", label: "B", profile: "p", needs_user: "Ship?" } as never] });
+    expect(decide(state, 4)).toEqual([{ node: "a", action: "skip", reason: "needs the user" }]);
+  });
+
   test("a double event starts the node once", async () => {
     const home = homeWith(run({}));
     const engine = new RunEngine(home.path, { log: () => {} });
@@ -143,7 +148,7 @@ describe("auto-dispatch", () => {
     const engine = new RunEngine(home.path, { log: (l) => void logs.push(l) });
     engine.evaluate("r1");
     await settle(engine);
-    expect(calls(home)).toEqual(["r1 n1 p", "r1 n2 p"]);
+    expect(calls(home).sort()).toEqual(["r1 n1 p", "r1 n2 p"]);
     expect(logs).toContain("skip r1 n3: cap 3 reached");
     home.dispose();
   });
@@ -165,16 +170,18 @@ describe("auto-dispatch", () => {
     expect(out[1]).toMatchObject({ node: "n2", action: "start", profile: "q" });
   });
 
-  test("maxParallel reads defaults.max_parallel, then settings.max_parallel, then serve.json, then 4", () => {
+  test("maxParallel reads defaults.max_parallel, then settings.max_parallel, then serve.json, then 30", () => {
     const h = TempHome.create();
     h.write("profiles.json", "{}");
-    expect(maxParallel(h.path)).toBe(4);
+    expect(maxParallel(h.path)).toBe(30);
     h.write("serve.json", JSON.stringify({ auto_dispatch_max_parallel: 3 }));
     expect(maxParallel(h.path)).toBe(3);
     h.write("profiles.json", JSON.stringify({ settings: { max_parallel: 5 } }));
     expect(maxParallel(h.path)).toBe(5);
     h.write("profiles.json", JSON.stringify({ defaults: { max_parallel: 7 }, settings: { max_parallel: 5 } }));
     expect(maxParallel(h.path)).toBe(7);
+    h.write("profiles.json", JSON.stringify({ defaults: { max_parallel: -1 } }));
+    expect(maxParallel(h.path)).toBe(Number.POSITIVE_INFINITY);
     h.dispose();
   });
 
@@ -186,6 +193,57 @@ describe("auto-dispatch", () => {
     expect(cap("slow")).toBe(2);
     expect(cap("fast")).toBe(7);
     expect(cap("unknown")).toBe(7);
+  });
+
+  describe("effective run cap: min(global, per-run)", () => {
+    const ready = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `n${i}`, status: "waiting", profile: "p" }));
+    const capped = async (global: unknown, perRun: number | undefined, waiting: number): Promise<{ started: number; logs: string[] }> => {
+      const home = homeWith(run({ nodes: ready(waiting), edges: [], max_parallel: perRun } as Partial<RunState>));
+      home.write("profiles.json", JSON.stringify({ defaults: { max_parallel: global }, profiles: { p: { max_parallel: 30 } } }));
+      const logs: string[] = [];
+      const engine = new RunEngine(home.path, { log: (l) => void logs.push(l) });
+      engine.evaluate("r1");
+      await settle(engine);
+      const started = calls(home).length;
+      home.dispose();
+      return { started, logs };
+    };
+
+    test("the lower of global and per-run wins, both ways", async () => {
+      expect((await capped(4, 2, 6)).started).toBe(2);
+      expect((await capped(3, 10, 6)).started).toBe(3);
+      expect((await capped(4, undefined, 6)).started).toBe(4);
+    });
+
+    test("a per-run cap below the global cap is logged as the cap reached", async () => {
+      expect((await capped(4, 2, 6)).logs).toContain("skip r1 n2: cap 2 reached");
+    });
+
+    test("per-run -1 is unlimited for the run but still bounded by the global cap", async () => {
+      expect((await capped(3, -1, 6)).started).toBe(3);
+    });
+
+    test("global -1 with per-run -1 starts every ready node", async () => {
+      expect((await capped(-1, -1, 8)).started).toBe(8);
+    });
+
+    test("global -1 with a per-run number is bounded by the per-run number", async () => {
+      expect((await capped(-1, 5, 8)).started).toBe(5);
+    });
+
+    test("the cap is re-read on each evaluate: raising the per-run cap starts more nodes", async () => {
+      const home = homeWith(run({ nodes: ready(4), edges: [], max_parallel: 1 } as Partial<RunState>));
+      home.write("profiles.json", JSON.stringify({ defaults: { max_parallel: 30 }, profiles: { p: { max_parallel: 30 } } }));
+      const engine = new RunEngine(home.path, { log: () => {} });
+      engine.evaluate("r1");
+      await settle(engine);
+      expect(calls(home).length).toBe(1);
+      home.write("runs/r1/state.json", JSON.stringify(run({ nodes: ready(4), edges: [], max_parallel: 3 } as Partial<RunState>)));
+      engine.evaluate("r1");
+      await settle(engine);
+      expect(calls(home).length).toBe(3);
+      home.dispose();
+    });
   });
 
   test("the prompt is the stored prompt, else agent-rules plus the goal", () => {

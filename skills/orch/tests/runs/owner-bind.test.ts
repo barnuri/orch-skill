@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { orch, seedHome, runState, nodeOf, readJson, readText, editJson, fakeBin, tempDir, ndjson, autoCleanup, trashSync } from "../helpers";
 autoCleanup();
@@ -295,3 +295,46 @@ test("bind by job window", () => {
   o("node", "update", R, "a", "done");
   expect([nf(R, "a").owner_kind, nf(R, "a").owner_id]).toEqual(["session", "ses_jobAXXXXXXXXXXXXXXXXXXXXXXX"]);
 }, 240000);
+
+test("a job-owned running node gets its owner_state from the job process", async () => {
+  const { mkdirSync: mk, writeFileSync: wf } = await import("node:fs");
+  const { join: j } = await import("node:path");
+  const home = seedHome();
+  const o = orch(home, {});
+  const R = o("run", "start", "job owner").out.trim();
+  const job = "20260101000000-job-owner-test";
+  mk(j(home, "jobs", job), { recursive: true });
+  wf(j(home, "jobs", job, "pid"), String(process.pid) + "\n");
+  o("node", "add", R, "n1", "n1");
+  o("node", "update", R, "n1", "running", "--job", job, "--owner", job);
+  o("node", "verify-owners", R, "--json");
+  const n = nodeOf(home, R, "n1");
+  expect(n.owner_state).toBe("alive");
+});
+
+test("an unbound running node adds one feedback item per run, node and reason, not one per poll", () => {
+  const t = mk();
+  const R = t.o("run", "start", "feedback dedupe").out.trim();
+  t.o.in(L(...runningAgent("alpha", "Alpha"), ...runningAgent("beta", "Beta")), "node", "batch", R);
+  t.pend("ses_t1", "qqq", 4000); t.pend("ses_t2", "www", 4500);
+  const feedback = () => readdirSync(join(t.home, "feedback")).map((f) => readJson(join(t.home, "feedback", f)) as any)
+    .filter((f) => f.run_id === R);
+  for (let i = 0; i < 2; i++) t.o("node", "bind-owners", "--run", R);
+  const items = feedback();
+  expect(items.filter((f) => f.node_id === "alpha").length).toBe(1);
+  const alpha = items.find((f) => f.node_id === "alpha")!;
+  expect([alpha.source, alpha.status]).toEqual(["cli", "new"]);
+  expect(alpha.text).toMatch(new RegExp(`run ${R} node alpha: owner "agent \\(spawned\\)"`));
+  expect(alpha.text).toMatch(/ses_t1.*ses_t2|ses_t2.*ses_t1/);
+
+  // beta: owner text names no session either, so it is a second unbound node with its own feedback item.
+  for (let i = 0; i < 2; i++) t.o("node", "bind-owners", "--run", R);
+  expect(feedback().filter((f) => f.node_id === "beta").length).toBe(1);
+  expect(feedback().length).toBe(2);
+
+  // A closed item is not re-added while the node stays unbound.
+  editJson(join(t.home, "feedback", `${alpha.id}.json`), (f: any) => { f.status = "done"; });
+  t.o("node", "bind-owners", "--run", R);
+  expect(feedback().length).toBe(2);
+}, 240000);
+

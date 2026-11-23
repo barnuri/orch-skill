@@ -182,7 +182,7 @@ function migrateCopilotPlanner(d: Obj, seed: boolean): void {
     cd.flags = [...f, ...COPILOT_WORKER_FLAGS.filter((w) => !f.includes(w))];
     if (settingDangling(d, "default_profile")) d.settings.default_profile = "copilot-default";
   }
-  alt(d.settings, "max_parallel", 4);
+  alt(d.settings, "max_parallel", 30);
   alt(d.settings, "max_nodes", 12);
   alt(d.settings, "max_attempts", 5);
   alt(d.settings, "planner_profile", "copilot-planner");

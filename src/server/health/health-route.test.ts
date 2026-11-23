@@ -67,6 +67,9 @@ describe.concurrent("GET /api/runs/{id}/health", () => {
     expect(body.health?.run).toBe(RUN);
     expect(body.health?.nodes[0]?.health).toBe("dead");
     expect(body.health?.ready).toEqual(["b"]);
+    expect(body.cache?.mode).toBe("cache");
+    const bypass = await (await srv.api(`/api/runs/${RUN}/health?cache=skip`)).json();
+    expect(bypass.cache).toMatchObject({ mode: "bypass", source: "fresh", age_ms: 0 });
   });
 
   test("404 for an unknown run", async () => {

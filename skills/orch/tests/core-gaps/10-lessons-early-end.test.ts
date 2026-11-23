@@ -1,6 +1,6 @@
 import { test, expect, setDefaultTimeout } from "bun:test";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { runHome, setNode } from "./common";
 import { fakeBin, autoCleanup, events, waitUntil } from "../helpers";
 setDefaultTimeout(120000);
@@ -47,6 +47,31 @@ test("P7 early end: node retry --early-end resumes the claude session with the c
   expect(third.rc).toBe(2);
   expect(third.err).toMatch(/already resumed 2 times/);
   expect(t.node("e").status).toBe("done");
+});
+
+test("P7 early end continuation writes a real handoff and result", async () => {
+  const bin = fakeBin({ claude: `if [ -n "$ORCH_NODE_OUT" ] && [ -n "$ORCH_RESUME_SESSION" ]; then
+mkdir -p "$ORCH_NODE_OUT"
+printf '# Continuation handoff\n\nThe resumed job completed the task and wrote this handoff.\n' > "$ORCH_NODE_OUT/handoff.md"
+bun "$ORCH_DISPATCH" node result --verdict full --summary 'Resumed session completed with a real handoff' --follow-up none
+fi
+printf "%s\\n" "$@"` });
+  const t = runHome({ PATH: `${bin}:${process.env.PATH}` });
+  t.o("node", "add", "r1", "continuation", "CONTINUE AFTER EARLY EXIT");
+  const first = lastLine(t.o("node", "dispatch", "r1", "continuation", "claude", "TASK WITH HANDOFF").out);
+  await finish(t.home, first);
+  const session = t.node("continuation").session;
+  t.o("node", "update", "r1", "continuation", "done");
+
+  const retry = t.o("node", "retry", "r1", "continuation", "--early-end");
+  expect(retry.rc).toBe(0);
+  const resumed = lastLine(retry.out);
+  await finish(t.home, resumed);
+
+  const out = join(t.home, "runs", "r1", "out", "continuation");
+  const handoff = join(out, "handoff.md");
+  expect(readFileSync(handoff, "utf8")).toContain("Continuation handoff");
+  expect(t.node("continuation").session).toBe(session);
 });
 
 test("P7 early end on opencode resumes the bound ses_ session; without one it restarts with the original task", async () => {

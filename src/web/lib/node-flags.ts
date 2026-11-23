@@ -21,14 +21,14 @@ export function nodeFlags(node: RunNode): NodeFlags {
   };
 }
 
-/** "agent ses_…" / "job job-123" / "coordinator", or null when nothing is recorded. */
+/** "agent ses_…" / "job job-123" / "orchestrator", or null when nothing is recorded. The stored owner stays "coordinator". */
 export function ownerText(node: RunNode): string | null {
   const owner = node.owner ?? "";
   if (owner === "") {
     return null;
   }
   if (owner === "coordinator") {
-    return "coordinator";
+    return "orchestrator";
   }
   if (owner.startsWith("ses_")) {
     return `agent ${owner}`;
@@ -86,8 +86,11 @@ export function ownerChip(node: RunNode): OwnerChip | null {
   if (node.status === "running" && node.owner_state === "idle") {
     return { cls: "waiting", text: "owner idle", title: node.owner_note ?? "The owner session is idle; the node stays running until it is marked done" };
   }
-  if (node.status === "running" && node.owner_state === "unbound") {
-    return { cls: "waiting", text: "owner unbound", title: node.owner_reason ?? "No session was found for this owner" };
+  if (node.status === "running" && (node.owner_state === "unbound" || node.owner_state === "unknown")) {
+    return { cls: "waiting", text: exactOwner(node), title: node.owner_reason ?? "owner_reason not recorded" };
+  }
+  if (node.status === "running" && (node.owner ?? "") === "" && (node.job_id ?? "") === "" && node.owner_state == null) {
+    return { cls: "waiting", text: "no owner", title: "Nothing is recorded as doing the work" };
   }
   if (node.status !== "running" || (node.owner ?? "") === "" || node.owner === "coordinator") {
     return null;
@@ -95,10 +98,24 @@ export function ownerChip(node: RunNode): OwnerChip | null {
   if (node.owner_state === "alive") {
     return { cls: "running", text: "owner alive", title: "The owner is working" };
   }
-  if (node.owner_state === "unknown" || node.owner_state === undefined || node.owner_state === null) {
-    return { cls: "waiting", text: "owner unknown", title: "The owner could not be checked" };
+  if (node.owner_state == null) {
+    return { cls: "waiting", text: "owner not checked", title: "The owner has not been checked yet" };
   }
   return null;
+}
+
+/** The exact owner state and reason: `owner_state: <state>, owner_reason: <reason>`. The reason is omitted when none is recorded. */
+export function exactOwner(node: RunNode): string {
+  const reason = node.owner_reason ? `, owner_reason: ${node.owner_reason}` : "";
+  return `owner_state: ${String(node.owner_state)}${reason}`;
+}
+
+/** The exact owner state for the status line and the table: `owner_state: <state>`, or "no owner" when nothing is recorded. */
+export function ownerStateLabel(node: RunNode): string {
+  if (node.owner_state != null) {
+    return exactOwner(node);
+  }
+  return (node.owner ?? "") === "" && (node.job_id ?? "") === "" ? "no owner" : "owner not checked";
 }
 
 /**
@@ -139,6 +156,14 @@ export interface ResultChip {
   verdict: string;
   summary: string;
   followUp: string;
+}
+
+/**
+ * The accessible name of a result verdict chip. Colour maps the verdict (full green, partial amber,
+ * blocked red, unknown grey) in the CSS for every surface; the name and the visible word carry the same verdict.
+ */
+export function resultLabel(verdict: string): string {
+  return `Result: ${verdict}`;
 }
 
 /** The recorded node result for a done node (`node result`), or null. A done node without one is "unknown". */

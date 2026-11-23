@@ -12,7 +12,7 @@ import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { ansiSegments } from "../lib/ansi";
 import { fmtTime, fmtTokens, fmtUsd } from "../lib/format";
-import { AFTER_THE_FACT, UNOWNED_TITLE, handoffText, lastActivity, nodeFlags, ownerChip, ownerIdShort, ownerText, resultChip } from "../lib/node-flags";
+import { AFTER_THE_FACT, UNOWNED_TITLE, handoffText, lastActivity, nodeFlags, ownerChip, ownerIdShort, ownerStateLabel, ownerText, resultChip, resultLabel } from "../lib/node-flags";
 import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSessionActivity } from "../lib/owner-activity";
 import { modelPick, pickLabel } from "../lib/model-pick";
 import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, effortTitle, modelMetric, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
@@ -23,6 +23,7 @@ import { useJobChat, useJobLog, useNodeActivity } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
 import { NodeMessages } from "./NodeMessages";
+import { paletteClass } from "../../shared/status-palette";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
 const ATTEMPT_TAIL_LINES = 8;
@@ -30,8 +31,15 @@ const ATTEMPT_TAIL_LINES = 8;
 /** The chat renderer (Markdown, code blocks, sanitised) used for AI text; loaded on first use. */
 const ChatMarkdown = lazy(() => import("../chats/Markdown"));
 
-/** AI text in the chat renderer; the plain block shows until the renderer has loaded. */
+/** AI text in the chat renderer; ANSI text keeps terminal colours instead of Markdown escapes. */
 function AiText({ text, className, plain }: { text: string; className: string; plain: string }) {
+  if (text.includes("\u001b")) {
+    return (
+      <div className={className}>
+        <pre className="chat-text"><AnsiLog text={plain} /></pre>
+      </div>
+    );
+  }
   return (
     <div className={className}>
       <Suspense fallback={<pre className="chat-text">{plain}</pre>}>
@@ -103,7 +111,7 @@ function ReportRows({ node }: { node: RunNode }) {
     .join(" · ");
   return (
     <>
-      <Row k="reported" value={`by the coordinator (${report.reported_by}) at ${fmtTime(report.at)}`} />
+      <Row k="reported" value={`by the orchestrator (${report.reported_by}) at ${fmtTime(report.at)}`} />
       {report.usd === null ? null : <Row k="report cost" value={fmtUsd(report.usd)} />}
       {tokens === "" ? null : <Row k="report tokens" value={tokens} cls="mono" />}
       {report.note === null ? null : <Row k="note" value={report.note} />}
@@ -174,7 +182,7 @@ function DetailList({ node, run, maxAttempts, waitingOn = [] }: { node: RunNode;
           k="result"
           value={
             <>
-              <span className={`result-pill result-${result.verdict}`}>{result.verdict}</span>
+              <span className={`result-pill result-${result.verdict}`} role="img" aria-label={resultLabel(result.verdict)}>{result.verdict}</span>
               {result.summary === "" ? "" : ` ${result.summary}`}
               {result.followUp === "" || result.followUp.toLowerCase() === "none" ? "" : ` | follow_up: ${result.followUp}`}
             </>
@@ -592,7 +600,7 @@ function NodeBody({ runId, node }: { runId: string; node: RunNode }) {
   return <NodeSession key={node.job_id ?? ""} node={node} />;
 }
 
-function RetryNodeButton({ runId, node }: { runId: string; node: RunNode }) {
+export function RetryNodeButton({ runId, node }: { runId: string; node: RunNode }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   if (node.status !== "error") {
@@ -641,6 +649,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
   if (node === undefined) {
     return null;
   }
+  const verdict = resultChip(node);
   return (
     <aside className="node-terminal" id="node-panel" aria-live="polite" ref={panel}>
       <h2 className="node-panel-head">
@@ -667,11 +676,13 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
       </div>
       <NodeMessages key={node.id} runId={run.run_id} node={node} />
       <footer className="node-statusline" aria-label="Node status line">
-        <span className={`node-statusline-state is-${node.status}`}>{node.status}</span>
+        <span className={`node-statusline-state is-${node.status} ${paletteClass(node.status)}`.trim()}>{node.status}</span>
+        {verdict === null ? null : <span className={`node-statusline-result result-${verdict.verdict} ${paletteClass(verdict.verdict)}`.trim()} role="img" aria-label={resultLabel(verdict.verdict)}>{verdict.verdict}</span>}
         <span>{node.profile ?? "no profile"}</span>
         <span>{node.actual_model ?? node.model_id ?? node.model ?? "no model"}</span>
         <span>attempt {(node.attempts?.length ?? 0) + 1}/{maxAttempts}</span>
-        <span>{node.owner_state ?? "owner unknown"}</span>
+        <span title={node.owner_reason ?? undefined}>{ownerStateLabel(node)}</span>
+        <span className="node-statusline-usage mono" title={usageMetric(node).title}>{usageMetric(node).text}</span>
       </footer>
     </aside>
   );

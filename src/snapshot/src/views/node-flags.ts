@@ -27,7 +27,7 @@ export function ownerText(node: RunNode): string | null {
     return null;
   }
   if (owner === "coordinator") {
-    return "coordinator";
+    return "orchestrator";
   }
   if (owner.startsWith("ses_")) {
     return `agent ${owner}`;
@@ -71,16 +71,36 @@ export function ownerChip(node: RunNode): OwnerChip | null {
   if (node.status === "error" && node.owner_state === "gone") {
     return { cls: "error", text: "owner gone", title: "The owner no longer exists" };
   }
+  if (node.status === "running" && (node.owner_state === "unbound" || node.owner_state === "unknown")) {
+    return { cls: "waiting", text: exactOwner(node), title: node.owner_reason ?? "owner_reason not recorded" };
+  }
+  if (node.status === "running" && (node.owner ?? "") === "" && (node.job_id ?? "") === "" && node.owner_state == null) {
+    return { cls: "waiting", text: "no owner", title: "Nothing is recorded as doing the work" };
+  }
   if (node.status !== "running" || (node.owner ?? "") === "" || node.owner === "coordinator") {
     return null;
   }
   if (node.owner_state === "alive") {
     return { cls: "running", text: "owner alive", title: "The owner is working" };
   }
-  if (node.owner_state === "unknown" || node.owner_state === undefined || node.owner_state === null) {
-    return { cls: "waiting", text: "owner unknown", title: "The owner could not be checked" };
+  if (node.owner_state == null) {
+    return { cls: "waiting", text: "owner not checked", title: "The owner has not been checked yet" };
   }
   return null;
+}
+
+/** The exact owner state and reason: `owner_state: <state>, owner_reason: <reason>`. The reason is omitted when none is recorded. */
+export function exactOwner(node: RunNode): string {
+  const reason = node.owner_reason ? `, owner_reason: ${node.owner_reason}` : "";
+  return `owner_state: ${String(node.owner_state)}${reason}`;
+}
+
+/** The exact owner state for the status line and the table: `owner_state: <state>`, or "no owner" when nothing is recorded. */
+export function ownerStateLabel(node: RunNode): string {
+  if (node.owner_state != null) {
+    return exactOwner(node);
+  }
+  return (node.owner ?? "") === "" && (node.job_id ?? "") === "" ? "no owner" : "owner not checked";
 }
 
 /**

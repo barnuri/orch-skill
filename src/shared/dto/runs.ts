@@ -36,6 +36,9 @@ export class RunsEnvelopeDto extends ZodDto {
 
   @ZodField(z.array(z.record(z.string(), z.unknown())), { description: `Run summaries: id, title, status (${RUN_STATUSES.join(", ")}), node counts, times. A covered run (its unfinished work was copied into another run) also has covered_by (run id), covered_note, covered_nodes (carried node ids) and covered_map (oldNode to newNode).` })
   runs!: Record<string, unknown>[];
+
+  @ZodField(z.record(z.string(), z.unknown()).optional(), { description: "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass." })
+  cache?: Record<string, unknown>;
 }
 
 @ZodObject({ description: "One run with its plan and every node." })
@@ -45,6 +48,9 @@ export class RunEnvelopeDto extends ZodDto {
 
   @ZodField(z.record(z.string(), z.unknown()), { description: `The run's state.json, see references/state-and-config.md. status is one of ${RUN_STATUSES.join(", ")}; covered adds covered_by, covered_at, covered_note, covered_nodes, covered_map.` })
   run!: Record<string, unknown>;
+
+  @ZodField(z.record(z.string(), z.unknown()).optional(), { description: "Cache result: mode cache|bypass, source hit|miss|fresh, and age_ms. API reads use cache by default; pass ?cache=skip to bypass." })
+  cache?: Record<string, unknown>;
 }
 
 @ZodObject({ description: "Which events to return." })
@@ -149,7 +155,13 @@ export class NodeMessageInputDto extends ZodDto {
   ask?: string;
 }
 
-@ZodObject({ description: "The coordinator pane the user picked from the candidates." })
+@ZodObject({ description: "The run's own parallel cap: 1-30 nodes, or -1 for no per-run limit (the global cap still applies)." })
+export class MaxParallelInputDto extends ZodDto {
+  @ZodField(z.number().int().refine((v) => v === -1 || (v >= 1 && v <= 30), { message: "must be -1 or an integer 1-30" }), { description: "Per-run cap, -1 for unlimited." })
+  value!: number;
+}
+
+@ZodObject({ description: "The orchestrator pane the user picked from the candidates." })
 export class RepointInputDto extends ZodDto {
   @ZodField(z.string().min(1).max(500), { description: "Herdr socket path of the candidate." })
   socket_path!: string;

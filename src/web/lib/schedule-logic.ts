@@ -54,6 +54,13 @@ export function visibleSchedules(list: readonly Schedule[], filter: ScheduleFilt
   return list.filter((s) => matchesFilter(s, filter)).sort((a, b) => ATTENTION[healthOf(a)] - ATTENTION[healthOf(b)]);
 }
 
+export type BulkAction = "pause" | "resume";
+
+/** Pause all takes the enabled schedules, Resume all the disabled ones. */
+export function bulkTargets(list: readonly Schedule[], action: BulkAction): Schedule[] {
+  return list.filter((s) => (action === "pause" ? s.enabled : !s.enabled));
+}
+
 export function soonestNext(list: readonly Schedule[]): number | null {
   const upcoming = list.filter((s) => s.enabled).map((s) => s.next_at).filter((n): n is number => n !== null);
   return upcoming.length === 0 ? null : Math.min(...upcoming);

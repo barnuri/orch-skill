@@ -24,7 +24,7 @@ const RUNS: RunsEnvelope = {
       started: GENERATED_AT,
       finished: null,
       harness_session: "s1",
-      counts: { waiting: 0, running: 1, done: 0, error: 0, skipped: 0 },
+      counts: { waiting: 0, running: 1, done: 0, error: 0, skipped: 0, "blocked-user": 0, covered: 0, stopped: 0 },
     },
   ],
 };

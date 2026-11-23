@@ -1,0 +1,105 @@
+/* Feedback page: a dense dark-first ledger built only from the shared tokens (snapshot/tokens.css). */
+
+.feedback-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); min-width: 0; }
+.feedback-page .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.feedback-table th.sr-only { position: static; width: 40px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.feedback-composer {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s2) var(--s3); align-items: end;
+  padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel);
+}
+.feedback-composer-side { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-end; }
+.feedback-field { display: grid; gap: var(--s1); min-width: 0; }
+.feedback-label { font-size: var(--fs-micro); color: var(--tx2); font-weight: 600; }
+.feedback-input {
+  width: 100%; min-width: 0; min-height: var(--touch); box-sizing: border-box; resize: vertical;
+  font: inherit; font-size: var(--fs-ctl); line-height: var(--lh-body); color: var(--tx);
+  background: var(--inset); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s2) var(--s3);
+}
+.feedback-input::placeholder { color: var(--tx3); }
+.feedback-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.feedback-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s4); }
+.feedback-filter { min-width: 0; max-width: 100%; overflow-x: auto; }
+.feedback-filter .seg { flex-wrap: nowrap; }
+.feedback-count { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--tx2); font-variant-numeric: tabular-nums; }
+
+.feedback-error {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3); border: 1px solid var(--status-error-bd); border-radius: var(--r-md);
+  background: var(--status-error-bg); color: var(--tx); font-size: var(--fs-ctl);
+}
+.feedback-error strong { color: var(--status-error); font-weight: 600; }
+
+.feedback-loading { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--panel); font-size: var(--fs-ctl); color: var(--tx2); }
+
+.feedback-list { border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--panel); overflow: hidden; min-width: 0; }
+.feedback-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-ctl); }
+.feedback-table th {
+  text-align: start; font-size: var(--fs-micro); font-weight: 600; color: var(--tx2);
+  padding: var(--s2) var(--s3); background: var(--panel2); border-bottom: 1px solid var(--line);
+}
+.feedback-table th:nth-child(1) { width: 40px; }
+.feedback-table th:nth-child(2) { width: 112px; }
+.feedback-table th:nth-child(4) { width: 230px; }
+.feedback-table td { padding: var(--s1) var(--s3); border-top: 1px solid var(--line); vertical-align: top; min-width: 0; }
+.feedback-table tbody tr:first-child td { border-top: 0; }
+.feedback-table td:nth-child(1) { padding-inline: var(--s2) 0; }
+.feedback-table td:nth-child(2) { padding-top: 10px; }
+
+.feedback-row { position: relative; transition: background var(--t-fast); }
+.feedback-row:hover { background: var(--panel2); }
+.feedback-row > td:nth-child(2) { box-shadow: inset 3px 0 0 var(--fb-edge, transparent); }
+.feedback-row.status-new { --fb-edge: var(--acc); }
+.feedback-row.status-queued, .feedback-row.status-working { --fb-edge: var(--status-running); }
+.feedback-row.status-done { --fb-edge: var(--status-done); }
+.feedback-row.status-wontfix { --fb-edge: var(--status-skipped); }
+.feedback-row.status-done .feedback-text, .feedback-row.status-wontfix .feedback-text { color: var(--tx2); font-weight: 400; }
+
+/* Status tones: the shared palette has no feedback words, so the page maps them to the --status-* trios. */
+.feedback-page .chip.new { --c: var(--acct); --bg-c: var(--accs); --bd-c: var(--accb); }
+.feedback-page .chip.queued { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+.feedback-page .chip.working { --c: var(--status-running); --bg-c: var(--status-running-bg); --bd-c: var(--status-running-bd); }
+.feedback-page .chip.done { --c: var(--status-done); --bg-c: var(--status-done-bg); --bd-c: var(--status-done-bd); }
+.feedback-page .chip.wontfix { --c: var(--status-skipped); --bg-c: var(--status-skipped-bg); --bd-c: var(--status-skipped-bd); }
+.feedback-page .chip.unknown { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+
+.feedback-text { display: block; color: var(--tx); font-weight: 500; line-height: var(--lh-body); overflow-wrap: anywhere; }
+.feedback-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s2); margin-top: 3px; font-size: var(--fs-meta); color: var(--tx3); min-width: 0; }
+.feedback-meta > * + *::before { content: "·"; margin-inline-end: var(--s2); color: var(--tx3); }
+.feedback-meta > .feedback-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.feedback-run { display: inline-flex; align-items: center; gap: var(--s1); }
+.feedback-result { color: var(--tx1); overflow-wrap: anywhere; }
+
+.feedback-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s1); }
+.feedback-page .feedback-actions .btn, .feedback-page .feedback-composer .btn, .feedback-page .feedback-error .btn { min-height: var(--touch); }
+.feedback-page .text-link { overflow-wrap: anywhere; }
+
+@media (max-width: 599px) {
+  .feedback-page > * { max-width: 100%; box-sizing: border-box; }
+  .feedback-page .page-head { flex-wrap: wrap; }
+  .feedback-page .page-head .toolbar { flex-wrap: wrap; width: 100%; }
+  .feedback-page .page-head .toolbar .btn { flex: 1 1 auto; }
+  .feedback-composer { grid-template-columns: minmax(0, 1fr); }
+  .feedback-composer-side { justify-content: space-between; }
+  /* Phones: no column header. Each row stacks as a grid: select and status on line 1, text on line 2, actions on line 3. */
+  .feedback-table thead { display: none; }
+  .feedback-table, .feedback-table tbody { display: block; width: 100%; }
+  .feedback-table tr.feedback-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s1) var(--s2); padding: var(--s2) var(--s3); border-top: 1px solid var(--line); }
+  .feedback-table tbody tr:first-child { border-top: 0; }
+  .feedback-table td { display: block; border: 0; padding: 0; width: auto; min-width: 0; }
+  .feedback-table td:nth-child(1) { grid-column: 1; grid-row: 1; padding: 0; align-self: center; }
+  .feedback-table td:nth-child(2) { grid-column: 2; grid-row: 1; justify-self: start; padding: 0; }
+  .feedback-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; padding: 0; }
+  .feedback-table td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; padding: 0; }
+  .feedback-row > td:nth-child(2) { box-shadow: none; }
+  .feedback-row { box-shadow: inset 3px 0 0 var(--fb-edge, transparent); }
+  .feedback-actions { justify-content: flex-start; }
+  .feedback-page .feedback-actions .btn, .feedback-page .feedback-composer .btn, .feedback-page .feedback-error .btn { min-height: var(--touch-coarse); }
+}
+@media (pointer: coarse) {
+  .feedback-page .btn, .feedback-page .select-btn { min-height: var(--touch-coarse); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feedback-row { transition: none; }
+}

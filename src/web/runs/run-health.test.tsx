@@ -51,19 +51,13 @@ describe("HealthBadge", () => {
 });
 
 describe("ReadyNotice", () => {
-  test("names the ready nodes when a slot is free", () => {
-    render(<ReadyNotice health={health({ ready: ["a", "b"] })} />);
+  test("names the ready nodes the projection reports", () => {
+    render(<ReadyNotice ready={["a", "b"]} />);
     expect(screen.getByRole("status").textContent).toBe("2 nodes ready to start: a, b");
   });
 
-  test("hidden with no free slot or nothing ready", () => {
-    const { container } = render(
-      <>
-        <ReadyNotice health={health({ ready: ["a"], slots: 0 })} />
-        <ReadyNotice health={health({ ready: [] })} />
-        <ReadyNotice health={null} />
-      </>,
-    );
+  test("hidden when nothing is ready", () => {
+    const { container } = render(<ReadyNotice ready={[]} />);
     expect(container.textContent).toBe("");
   });
 });

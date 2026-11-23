@@ -9,6 +9,7 @@ import { MemoryPage } from "../pages/MemoryPage";
 import { ProfilesPage } from "../pages/ProfilesPage";
 import { SchedulesPage } from "../pages/SchedulesPage";
 import { FeedbackPage } from "../pages/FeedbackPage";
+import { HowPage } from "../pages/HowPage";
 import { SuggestionsPage } from "../pages/SuggestionsPage";
 import type { Route } from "../router/route";
 import { SECTION_HREF } from "../router/route";
@@ -44,6 +45,8 @@ function Page({ route }: { route: Route }): ReactNode {
       return <SuggestionsPage />;
     case "feedback":
       return <FeedbackPage />;
+    case "how":
+      return <HowPage />;
     case "list":
       return <RunsPage />;
     case "run":

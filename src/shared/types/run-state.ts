@@ -20,7 +20,11 @@ export interface RunState {
   force_finish_reason?: string | null;
   /** Set by `dispatch.ts run pause`: starts no node until `run resume`. */
   paused?: boolean;
-  /** Added by GET /api/runs/<id>: the coordinator's reachability and pending asks. */
+  /** Per-run local dispatch cap. -1 means unlimited, bounded by the global cap. */
+  max_parallel?: number | null;
+  /** Added by GET /api/runs/<id>: orchestrator reachability and pending user asks. */
+  orchestrator_state?: import("./coordinator").OrchestratorState | null;
+  /** Legacy alias. */
   coordinator_state?: import("./coordinator").CoordinatorState | null;
   /** Set by `run cover`: the run whose nodes took over this run's unfinished work. */
   covered_by?: string | null;

@@ -9,7 +9,7 @@ import { loadLedger, REQ_OK } from "./req.ts";
 import { mutateRun } from "./node.ts";
 import { planTasks } from "./conform.ts";
 
-export interface Gap { kind: "request" | "errored-node" | "no-result" | "deviation"; id: string; detail: string; scope?: boolean }
+export interface Gap { kind: "request" | "errored-node" | "no-result" | "deviation" | "handoff-missing"; id: string; detail: string; scope?: boolean }
 
 const BIN = join(import.meta.dir, "..", "..", "scripts", "dispatch.ts");
 
@@ -36,6 +36,7 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
     if (n.status === "error" && !(run.nodes ?? []).some((m: any) => m.status === "covered" && String(m.covered_by ?? "").endsWith(`/${n.id}`))) {
       gaps.push({ kind: "errored-node", id: n.id, detail: String(n.error ?? "error") });
     }
+    if (n.error === "ended early without handoff") gaps.push({ kind: "handoff-missing", id: n.id, detail: "agent output exists but handoff.md is missing" });
     if (n.status === "done" && (!n.result || n.result.verdict === "unknown")) gaps.push({ kind: "no-result", id: n.id, detail: "done without a result" });
     // The owner stopped and the node was marked done without an orchestrator review: review it before relying on it.
     else if (n.status === "done" && n.owner_state === "finished" && n.reviewed !== true) gaps.push({ kind: "no-result", id: n.id, detail: "done because its owner stopped, unreviewed" });
@@ -73,6 +74,8 @@ export async function createGapNodes(home: string, runId: string, gaps: Gap[]): 
       ? `Node ${g.id} changed files outside its plan task: ${g.detail}. Decide: if the change is needed, update the plan (the plan file and its files_touched) and record the decision; if not, revert the out-of-plan change. If the decision changes scope, say so in handoff.md: the orchestrator asks the user, not you. Then write handoff.md and record a result.`
       : g.kind === "request"
       ? `Handle this user request in full in this repository: "${g.detail}". Verify it with tests or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result.`
+      : g.kind === "handoff-missing"
+      ? `Recover node ${g.id}: inspect its final job transcript and result, write the missing $ORCH_NODE_OUT/handoff.md, then continue every verified gap as separate orch nodes. Record ${g.id} as partial when the original work is incomplete, and never claim a full result from chat text alone.`
       : `Node ${g.id} finished without a verified result. Check its work, fix anything missing, write handoff.md into $ORCH_NODE_OUT, then record a result for ${g.id} with dispatch.ts node result.`;
     const gapEnv = { ...process.env, HARNESS_ORCH_HOME: home };
     const add = Bun.spawn([process.execPath, BIN, "node", "add", runId, id, label, "--profile", "opencode-chip-exec", "--model", "hub-copilot-mai-code-2-flash", "--role", "implementation"], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: gapEnv });

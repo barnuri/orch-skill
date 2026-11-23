@@ -6,7 +6,7 @@
 // ended_at when the child ends. SIGTERM, SIGINT and SIGHUP go to the child.
 
 import { closeSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // CSI, OSC and two-byte escapes.
 const ANSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
@@ -100,6 +100,7 @@ export async function runLaunch(jobDir: string): Promise<number> {
   closeSync(plainFd);
   writeFileAtomic(join(jobDir, "exit_code"), String(code));
   writeFileSync(join(jobDir, "ended_at"), `${new Date().toISOString()}\n`);
+  Bun.spawn(["bun", join(dirname(import.meta.dir), "cli.ts"), "herdr", "close-ended", jobDir], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
   return code;
 }
 

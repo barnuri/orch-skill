@@ -1,7 +1,6 @@
-// Runs before first paint so a saved or system theme never flashes the wrong one.
+// Runs before first paint so a saved theme never flashes the wrong one. Dark is the default.
 (function () {
   var saved = null;
-  try { saved = localStorage.getItem("orch-theme"); } catch (e) { /* storage blocked: use the system theme */ }
-  var theme = saved === "light" || saved === "dark" ? saved : (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-  document.documentElement.setAttribute("data-theme", theme);
+  try { saved = localStorage.getItem("orch-theme"); } catch (e) { /* storage blocked: use the dark default */ }
+  document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
 })();

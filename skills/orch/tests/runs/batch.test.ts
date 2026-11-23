@@ -29,6 +29,7 @@ test("mixed batch applies like single commands", () => {
   const RV = o("run", "start", "verify fallback").out.trim();
   o.in(L({ op: "add", id: "v", goal: "V" }, { op: "add", id: "w", goal: "W" }, { op: "update", id: "v", status: "done" }), "node", "batch", RV);
   handoff(home, RV, "w");
+  o("node", "result", RV, "w", "--verdict", "full", "--summary", "ok", "--follow-up", "none");
   o.in(L({ op: "update", id: "w", status: "done" }), "node", "batch", RV);
   expect(nodeOf(home, RV, "v").unverified).toBe(true);
   expect(nodeOf(home, RV, "w").unverified ?? null).toBeNull();

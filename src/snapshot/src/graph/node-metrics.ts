@@ -86,20 +86,20 @@ export function modelMetric(node: RunNode, max: number = Number.POSITIVE_INFINIT
       ? "the hub expected this model before dispatch"
       : "the model that served the node, reported by the hub"
     : node.report?.model === pick.model
-      ? "reported by the coordinator"
+      ? "reported by the orchestrator"
       : "the model of the node's profile";
   return { text: pickLabel(pick), present: true, title: `${pick.model}: ${source}` };
 }
 
 function inlineReason(node: RunNode): string {
   return node.job_id === null
-    ? "ran inline in the coordinator session"
+    ? "ran inline in the orchestrator session"
     : `the harness reported no usage for job ${node.job_id}`;
 }
 
 export function usageMetric(node: RunNode): Metric {
   const usage = nodeUsage(node);
-  const origin = usage.source === "report" ? "reported by the coordinator" : "reported by the harness";
+  const origin = usage.source === "report" ? "reported by the orchestrator" : "reported by the harness";
   if (usage.usd !== null) {
     const tokens = usage.tokens === null ? "" : `, ${fmtTokens(usage.tokens)}`;
     return { text: fmtUsd(usage.usd), present: true, title: `${fmtUsd(usage.usd)}${tokens}: ${origin}` };
@@ -311,7 +311,7 @@ export function waitReason(node: RunNode, waitingOn: readonly string[], max: num
   }
   const hold = holdReason(node);
   if (hold !== null) {
-    return { kind: "held", text: fit(`held: ${hold}`), title: `Held by the coordinator: ${hold}` };
+    return { kind: "held", text: fit(`held: ${hold}`), title: `Held by the orchestrator: ${hold}` };
   }
-  return { kind: "ready", text: fit(READY_NOT_STARTED_TEXT), title: "Every dependency is done; the coordinator has not started it yet" };
+  return { kind: "ready", text: fit(READY_NOT_STARTED_TEXT), title: "Every dependency is done; the orchestrator has not started it yet" };
 }

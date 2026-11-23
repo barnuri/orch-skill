@@ -11,11 +11,13 @@ const { queryClient, dropEtags, invalidateSchedules } = await import("../api/que
 const { SchedulesPage } = await import("./SchedulesPage");
 
 const realFetch = globalThis.fetch;
+const realConfirm = globalThis.confirm;
 afterEach(() => {
   cleanup();
   queryClient.clear();
   dropEtags();
   globalThis.fetch = realFetch;
+  globalThis.confirm = realConfirm;
   localStorage.clear();
 });
 afterAll(uninstall);
@@ -307,5 +309,111 @@ describe("chat schedules in the global list", () => {
     await waitFor(() => {
       expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/chats/chat-1/schedules/sch-20261115-100000-abcd/run-now"))).toBe(true);
     });
+  });
+});
+
+describe("pause all and resume all", () => {
+  // Fake API for the bulk controls: enable/disable answer `answer(id, action)`; the list reflects each change.
+  function serveBulk(list: Schedule[], answer: (id: string, action: string) => Response): Call[] {
+    const calls: Call[] = [];
+    let current = list;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ method, url, body: undefined });
+      const toggle = /\/schedules\/([^/]+)\/(enable|disable)$/.exec(url);
+      if (method === "POST" && toggle) {
+        const [, id, action] = toggle;
+        const res = answer(id ?? "", action ?? "");
+        if (res.status === 200) {
+          current = current.map((s) => (s.id === id ? { ...s, enabled: action === "enable" } : s));
+        }
+        return Promise.resolve(res);
+      }
+      if (url.endsWith("/schedules")) {
+        return Promise.resolve(json(200, { generated_at: "2026-11-15T10:00:00Z", schedules: current }));
+      }
+      return Promise.resolve(json(404, { error: "no" }));
+    }) as typeof fetch;
+    return calls;
+  }
+
+  const ON = "sch-20261115-100000-0001";
+  const OFF = "sch-20261115-100000-0002";
+  const list = (): Schedule[] => [
+    schedule({ id: ON, name: "alpha", enabled: true }),
+    schedule({ id: "sch-20261115-100000-0003", name: "beta", enabled: true }),
+    schedule({ id: OFF, name: "gamma", enabled: false, next_at: null }),
+  ];
+
+  test("the counts show what each control affects; a zero count disables its control", async () => {
+    serveBulk([schedule({ id: ON, enabled: true }), schedule({ id: OFF, name: "gamma", enabled: false, next_at: null })], () => json(200, { ok: true }));
+    page();
+    const pause = (await screen.findByRole("button", { name: "Pause all (1)" })) as HTMLButtonElement;
+    const resume = screen.getByRole("button", { name: "Resume all (1)" }) as HTMLButtonElement;
+    expect(pause.disabled).toBe(false);
+    expect(resume.disabled).toBe(false);
+    expect(screen.getByText("Pause all affects 1 enabled, Resume all affects 1 disabled")).toBeTruthy();
+  });
+
+  test("with no enabled schedules, Pause all is disabled and sends nothing", async () => {
+    const calls = serveBulk([schedule({ id: OFF, enabled: false, next_at: null })], () => json(200, { ok: true }));
+    page();
+    const pause = (await screen.findByRole("button", { name: "Pause all (0)" })) as HTMLButtonElement;
+    expect(pause.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Resume all (1)" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  test("Pause all asks in the app dialog, then disables only the enabled schedules", async () => {
+    const calls = serveBulk(list(), () => json(200, { ok: true }));
+    const rawConfirm = { called: false };
+    globalThis.confirm = (() => {
+      rawConfirm.called = true;
+      return false;
+    }) as typeof globalThis.confirm;
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Pause all (2)" }));
+    expect(await screen.findByRole("button", { name: "Pause 2" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause 2" }));
+    await screen.findByText("Paused 2 of 2.");
+    const posts = calls.filter((c) => c.method === "POST").map((c) => c.url);
+    expect(posts).toHaveLength(2);
+    expect(posts.every((url) => url.endsWith("/disable"))).toBe(true);
+    expect(posts.some((url) => url.includes(OFF))).toBe(false);
+    expect(rawConfirm.called).toBe(false);
+  });
+
+  test("Resume all touches only the disabled schedules, with no confirm", async () => {
+    const calls = serveBulk(list(), () => json(200, { ok: true }));
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Resume all (1)" }));
+    await screen.findByText("Resumed 1 of 1.");
+    const posts = calls.filter((c) => c.method === "POST");
+    expect(posts.map((c) => c.url)).toEqual([expect.stringContaining(`${OFF}/enable`)]);
+  });
+
+  test("a partial failure reports each failed schedule and keeps the successes", async () => {
+    serveBulk(list(), (id) => (id === "sch-20261115-100000-0003" ? json(500, { error: "disk full" }) : json(200, { ok: true })));
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Pause all (2)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pause 2" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Paused 1 of 2.");
+    expect(alert.textContent).toContain("1 failed");
+    expect(alert.textContent).toContain("beta");
+    expect(alert.textContent).toContain("disk full");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Pause all (1)" })).toBeTruthy();
+    });
+  });
+
+  test("the active filter stays selected after a bulk action", async () => {
+    serveBulk(list(), () => json(200, { ok: true }));
+    page();
+    fireEvent.click(await screen.findByRole("radio", { name: /Paused/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume all (1)" }));
+    await screen.findByText("Resumed 1 of 1.");
+    expect(screen.getByRole("radio", { name: /Paused/ }).getAttribute("aria-checked")).toBe("true");
   });
 });

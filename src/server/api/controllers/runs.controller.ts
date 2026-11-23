@@ -23,9 +23,10 @@ import {
 } from "../../routes/runs-routes";
 import { repointRun } from "../../routes/runs-routes";
 import type { NodeMessageInput } from "../../routes/runs-routes";
+import { setMaxParallelRun } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, MaxParallelInputDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call, valid } from "./support";
 
@@ -183,9 +184,21 @@ export class RunsController {
     return call(this.messages, c);
   }
 
+  @Post("/runs/{id}/max-parallel", {
+    summary: "Set a run's parallel cap",
+    description: "Runs `dispatch.ts run set <id> max_parallel <value>`: the run's own cap, 1-30, or -1 for no per-run limit. The effective cap is min(global cap, per-run cap); -1 is still bounded by the global cap.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @Body(MaxParallelInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Set." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Value out of range, or no such run." })
+  setMaxParallel_(c: ApiContext): Promise<Response> {
+    return setMaxParallelRun(this.ctx, c.req.param("id") ?? "", valid<{ value: number }>(c, "json").value);
+  }
+
   @Post("/runs/{id}/repoint", {
-    summary: "Choose the coordinator",
-    description: "Runs `run repoint <id> <socket> <pane>`: points an unreachable coordinator at one of its listed candidates; the pending asks are delivered on the next sweep.",
+    summary: "Choose the orchestrator",
+    description: "Runs `run repoint <id> <socket> <pane>`: points an unreachable orchestrator at one of its listed candidates; the pending asks are delivered on the next sweep.",
   })
   @Param(RunIdParamsDto.schema)
   @Body(RepointInputDto.schema)

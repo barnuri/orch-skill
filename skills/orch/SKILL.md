@@ -13,7 +13,7 @@ allowed-tools: Bash(bash *), Monitor, TaskOutput, Read, AskUserQuestion
 
 # orch
 
-The agent running this skill is the coordinator. It decides *what* runs *where*, records every
+The agent running this skill is the orchestrator. It decides *what* runs *where*, records every
 state change with one short script call, and reports results. The dispatched harnesses do the work.
 
 All mechanics live in `<skill-dir>/scripts/dispatch.ts` (`<skill-dir>` is this skill's base
@@ -207,7 +207,7 @@ Loop until every node is terminal:
    exit code, size, and a head+tail excerpt. Never `tail` or `TaskOutput` the whole log.
 5. Skip a node the plan no longer needs: `orch node update <run-id> <node-id> skipped`.
 
-Keep coordinator output short:
+Keep orchestrator output short:
 - Run `orch use <run-id>` once. Then pass `.` as the run id to `node update|report|batch` and
   `run sync` (for example `orch run sync .`).
 - Do not repeat the shared subagent rules in each prompt. Write one line instead:
@@ -215,6 +215,17 @@ Keep coordinator output short:
 - Set the shell tool's working directory with its workdir argument. Do not prefix commands with
   `cd <repo> &&`. One measured run had 173 repeated shell preambles (153k chars) and 52 repeated
   rule blocks in prompts (178k chars).
+### One-command goal
+
+Use `orch goal "<goal>|@file"` for the complete planner-to-finished-run flow:
+
+```bash
+orch goal "Ship the feature" --profile opencode-smart-auto --until-done --timeout 30m
+orch goal @/path/to/goal.md --dry-run --interval 15 --timeout 30m --stop-on blocked
+```
+
+The command creates the run and requirement, dispatches the planner, applies the plan, and advances ready nodes. `--dry-run` validates without creating state. `--interval` sets scheduler polling. `--timeout` sets the maximum wait. `--stop-on blocked|error|timeout|all` declares the run stop condition. `--no-finish` leaves a completed run open.
+
 ### Planned run (a planner agent splits the work)
 
 When the split itself is the hard part, hand it to the planner instead of writing nodes by hand:
@@ -270,6 +281,11 @@ or has no resumable session, orch restarts from the stored original prompt with 
 partial work may already exist in the repo and `$ORCH_NODE_OUT`. The node output directory is
 kept across attempts.
 
+**Merge runs** with `orch run merge <source-run> <destination-run> [--nodes id,id]`.
+It moves selected nodes, or every source node, to the destination. Moving a node preserves its status,
+job id and owner fields. Requirements split along the same node selection. Owner records move to the
+destination run. The command does not stop or restart jobs.
+
 **Carry a run forward** with `orch run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]`.
 It starts a new run and moves every node that is not `done` into it, with the edges between them.
 Skipped nodes stay behind unless `--keep-skipped`. Running nodes move untouched: they keep their
@@ -283,7 +299,7 @@ The new run records `continued_from`, the old run records `continued_to`. Prints
 **Stop a run** with `orch run stop <run-id>`, or the dashboard's **Stop run** button. Running
 jobs get `SIGTERM`, running nodes become errors with the message `cancelled`, waiting nodes are
 skipped, and the run status becomes `cancelled`. Automatic retries skip a cancelled run. Use it
-also for a run left on `running` after its coordinator stopped.
+also for a run left on `running` after its orchestrator stopped.
 
 Manual retry is always allowed, even after automatic attempts are spent. That one extra dispatch
 is counted too, so the dashboard may show `manual retry 6` or `attempt 6/5`; automatic retries
@@ -360,10 +376,13 @@ A run cannot end on a false done. The ledger `<run>/requirements.json` holds eve
 
 1. The moment a user message arrives, record each ask: `dispatch.ts req add <run> "<ask>" [--id R1] [--node n1,n2]`.
 2. Link nodes that serve it: `req link <run> <id> --node n`.
-3. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> handled|partly|not|superseded|waived [--reason T]`. `waived` needs a reason from the user.
-4. After each user message, run `req check <run>`. It exits non-zero while any requirement is not handled, superseded or waived.
-5. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure.
-6. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
+3. Add a delivery requirement for every repo feature. The implementation node writes code, tests and its handoff. A delivery node, or the orchestrator after the implementation passes, completes the repository's required commit, push, pull request or merge evidence. A commit alone is not delivery when the repo requires a PR.
+4. Read the target repo's `CLAUDE.md`/`AGENTS.md` and the active harness rules before delivery. Repo instructions and explicit user rules take precedence. Follow the required path for that repo: commit locally, push a branch, open a PR, or complete a work-repo ticket and PR flow. Never rebase, force-push, stash, or rewrite another session's work. Use the repository's approved Git and PR command.
+5. Record delivery evidence before marking the feature requirement handled: commit SHA, branch name, PR URL/number and check state, or the exact documented reason delivery is blocked. A partial handoff never closes the requirement.
+6. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> handled|partly|not|superseded|waived [--reason T]`. `waived` needs a reason from the user.
+7. After each user message, run `req check <run>`. It exits non-zero while any requirement is not handled, superseded or waived.
+8. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure, including missing delivery evidence.
+9. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
 
 `run start` adds the last node `done-gate` (role validation, after every other node). The scheduler dispatches it last and it writes the verify result as its handoff.
 
@@ -371,7 +390,7 @@ A run cannot end on a false done. The ledger `<run>/requirements.json` holds eve
 
 The dashboard shows what the graph says, not what is happening. Keep it honest:
 
-- Start a node when the work starts (`node update ... running --owner <agent id|job id|coordinator>`) and finish it when the work ends, never in a batch afterwards. Use `--at <iso>` for a real time that already passed.
+- Start a node when the work starts (`node update ... running --owner <agent id|job id|orchestrator>`) and finish it when the work ends, never in a batch afterwards. Use `--at <iso>` for a real time that already passed.
 - During long work, `node ping <run> <node> --note "..." --progress 3/10` at least every 10 minutes. A running node quiet for `settings.stale_minutes` turns `stale`.
 - `node report` records model and tokens.
 - Pass the real session id in `--owner ses_xxx`. If you cannot, `node bind-owners` (run by `run sync`) finds the session; a node it cannot bind shows `unbound` with the reason, and one with no owner for 2 min shows `unowned`.
@@ -387,15 +406,16 @@ Mistakes to avoid (see [references/lessons.md](references/lessons.md)):
 - Verify with `run status` after you change the graph.
 - Set a node back to `waiting` only with `node update waiting`: it resets the node. Remove a mistaken node with `node remove`.
 
-## Commit and restart at safe points
+## Delivery at safe points
 
-When the user has allowed commits without push, the coordinator commits and refreshes the service as
-work lands, not at the end. After a node's own tests pass: commit that node's files by path as one
-logical commit (no co-author, never push, never another session's files), run
-`bun scripts/service.ts restart` if the repo has the orch dashboard service, and confirm
-`/api/build` reports `stale:false`. Without commit permission, do not commit; ask once through the
-user-question tool and remember the answer for the session. A restart pauses and resumes active runs by
-itself; do not restart while a node is still editing `src/`.
+Implementation is not done until it reaches the repository state that its own rules require.
+
+- Read the target repository's `CLAUDE.md` and `AGENTS.md` before delivery.
+- Follow the active harness rules and explicit user rules. They may require a local commit, a pushed branch, a pull request, or a ticket-linked branch and PR.
+- If delivery needs user authorization, record a blocked result and ask through the question tool. Do not mark the feature handled while required delivery is pending.
+- Restart a locally served dashboard only when the target repository requires it, and never while a node is editing its source.
+
+Store delivery proof in the requirement evidence: commit SHA, branch, PR identifier and check state, or the exact documented blocker. A test pass and handoff without the required repository delivery step are `partial`, never `full`.
 
 ## Learn from runs, and keep them fast
 
@@ -405,16 +425,16 @@ status, a missed notification, a stalled job, a retry loop. Measure it in minute
 fix the cause in the skill or the dispatcher, not only in the run. Record each lesson in
 `agent-spec/<slug>/handoff.md` and, if it is a rule, in this file.
 
-Speed rules for the coordinator:
-- **No tests in the coordinator.** The coordinator never runs tests or typecheck, not even "one quick
+Speed rules for the orchestrator:
+- **No tests in the orchestrator.** The orchestrator never runs tests or typecheck, not even "one quick
   check". Only child nodes run tests, and only the targeted tests of the files they touched; one
-  `verify` node runs the full suite once at the end. The coordinator reads their reports.
-- **Orch dispatches every node.** The coordinator never starts a foreground subagent (the `task` tool or
+  `verify` node runs the full suite once at the end. The orchestrator reads their reports.
+- **Orch dispatches every node.** The orchestrator never starts a foreground subagent (the `task` tool or
   any call that blocks its turn). Add the node and run `orch node dispatch <run> <node>`; orch starts it
   in its own job with the pinned profile and records tokens and cost. Follow-ups go to the node with
   `node tell` or `node retry`, never by a blocking subagent call.
 - Run the other deterministic work (commits, restarts, status reads, file checks) as plain commands in
-  the coordinator, not through an agent. Use `dispatch.ts` subcommands for state changes.
+  the orchestrator, not through an agent. Use `dispatch.ts` subcommands for state changes.
 - Start every node whose dependencies are done at once. Never wait on a node that does not block the next one.
 - Read `state.json` fresh before reporting a status.
 - Check a node's output files before you accept `done`.
@@ -423,15 +443,17 @@ Speed rules for the coordinator:
   Run `run.ts --full` once, at the end, in one node. A path-only or doc-only change runs the fast tier only.
   Add `--budget 300` to stop a run at 5 minutes. It prints the files that did not finish; rerun only those.
 
-## Coordinator model and rotation
+## Orchestrator model and rotation
+`coordinator` remains a compatibility alias for orchestrator commands.
 
-Coordinator sessions that orch starts use `settings.coordinator_model` in `profiles.json` (default
-`llm-hub/copilot/claude-sonnet-5-5`). Start one with `orch coordinator start <run>`.
 
-Keep the coordinator context small. After each wake, check your context size. When it passes
+Orchestrator sessions that orch starts use `settings.coordinator_model` in `profiles.json` (default
+`llm-hub/copilot/claude-sonnet-5-5`). Start one with `orch orchestrator start <run>`.
+
+Keep the orchestrator context small. After each wake, check your context size. When it passes
 `settings.coordinator_rotate_tokens` (default 200000), run
-`orch coordinator rotate <run> --tokens <N> --summary "<decisions, open questions, next steps>"`.
-It writes a handoff to `runs/<run>/coordinator-handoffs/`, starts a fresh coordinator with that handoff,
+`orch orchestrator rotate <run> --tokens <N> --summary "<decisions, open questions, next steps>"`.
+It writes a handoff to `runs/<run>/coordinator-handoffs/`, starts a fresh orchestrator with that handoff,
 and you end your session after the current turn. Below the threshold it prints `ok` and does nothing.
 
 ## Keep the prompt free
@@ -452,12 +474,13 @@ Every running run gets a `health:<run-id>` monitor (`run start` starts it; `run 
 - Run every node that can run, in parallel up to `max_parallel`. `run health` lists `ready` nodes and free `slots`.
 - When a node finishes, re-check `ready` at once and start those nodes. React to the monitor's change events (kind `health` in the run's activity feed) instead of polling. Without a monitor, run `run health <run>` every 5–10 min.
 - `stalled` (no session activity for 15 min, `ORCH_STALL_MIN`): the monitor nudges opencode sessions (once per node per 30 min; `settings.auto_nudge: false` turns it off; `run health --nudge` does it by hand). If the session stays stalled, respawn the node. `dead`: respawn it. `unowned`: bind an owner or restart the node. `no-report`: read the session and record the result.
+- `cli-source`: a CLI or source runtime error (for example `ReferenceError`, `TypeError`, `SyntaxError`, `Cannot find module`, `is not defined`, or a failure in `usage.ts` or `dispatch.ts`) is not a blind infra retry. The watchdog flags it, sends `node tell <run> coordinator` with the error, and leaves the node for the main orchestrator. The orchestrator fixes or replaces the source node, verifies the fix, and retries the failed work.
 - A node added before its deps were known: `node update <run> <node> --after a,b` (or `--after '*'` for a gate that waits on every other node). A node that waits on the user: `node update <run> <node> --needs-user "<reason>"` (`--clear-needs-user` when answered). `run health` then never lists it as ready, and shows it as `needs-user`.
 - A ready node you hold back on purpose (for example until load < 4): `node update <run> <node> --hold "<reason>"`. `run health` then never lists it as ready, and shows it as `held`; the card says `held: <reason>`.
 - Release the hold: `node update <run> <node> --clear-hold` (setting the node `running` clears it as well). In `node batch`: `"hold":"reason"` / `"clear_hold":true`.
 - Never leave a node `running` with no activity. Ask the user only about nodes that truly need them, and keep the rest running meanwhile.
 
-## Coordinator wake-up
+## Orchestrator wake-up
 
 `orch run wait <run>` blocks until the run needs you, then prints one line per event and exits 0: a node status change (`a running->done`), `ready: b,c`, `q needs-user: <reason>`, a node `stalled` (no session activity for `--stall-min`, default `settings.stall_minutes` or 15), `dead` (owner session gone), `no-report` (owner idle, node not reported), a dead health monitor (restarted for you), `run ended: <status>`. Exit 3 = nothing running or ready, 124 = `--timeout` passed with no change. A cursor in the run keeps what was already reported, so nothing between two waits is lost and nothing is reported twice. `--json` prints one object per event. Never write your own polling script for this.
 
@@ -533,7 +556,7 @@ question in its report, and the session asks it the same way.
 
 ## Node questions
 
-Nodes never talk to the user. They ask with `node ask`, and the question arrives in the coordinator session (through the herdr bridge, `run wait` or the notify log). The coordinator triages each question: it answers a technical or plan question itself with `node answer <run> <node> <id> "<text>"` and a one-line reason. When the decision belongs to the user (preference, risk, cost, credentials, scope), the coordinator asks the user through the question tool, with one option per node option and a recommended first option, and then relays the choice with `node answer`. The coordinator answers within one turn: an unanswered ask holds a node for up to 600 s.
+Nodes never talk to the user. They ask with `node ask`, and the question arrives in the orchestrator session (through the herdr bridge, `run wait` or the notify log). The orchestrator triages each question: it answers a technical or plan question itself with `node answer <run> <node> <id> "<text>"` and a one-line reason. When the decision belongs to the user (preference, risk, cost, credentials, scope), the orchestrator asks the user through the question tool, with one option per node option and a recommended first option, and then relays the choice with `node answer`. The orchestrator answers within one turn: an unanswered ask holds a node for up to 600 s.
 
 ## Asking the user
 
@@ -547,7 +570,7 @@ text ends the turn and stalls every parallel node until the user happens to repl
   "(Recommended)". Give each option a one-line consequence.
 - Plain text is the fallback only where the harness has no question tool, and then it ends with one
   concrete question.
-- The coordinator decides routine steps itself. Do not ask about them. Routine steps are: dispatch
+- The orchestrator decides routine steps itself. Do not ask about them. Routine steps are: dispatch
   a ready node, retry a failed node, stop a node that a newer node supersedes, restart the run watch,
   pick a profile and model by the rules in this file, set `auto_dispatch` on a run the user approved,
   pick the next node in dependency order, merge a base branch into a PR branch (never rebase), and
@@ -600,14 +623,14 @@ port.
 ## Feedback
 
 When the user gives feedback about orch, its chat or its code (or says "feedback", "orch should",
-"this is wrong in orch"), the coordinator records it:
+"this is wrong in orch"), the orchestrator records it:
 
 1. Pick `--kind`: `bug` (wrong behaviour), `idea` (new feature), `ux` (usability), `other`.
 2. Run `orch feedback add "<text>" --kind <kind> --source <chat|cli|ui>` (add `--chat <id>`,
    `--run <id>`, `--node <id>` when known). Confirm the printed id (`fb-<yyyymmdd>-<n>`) to the user.
 3. Offer `orch feedback work`. It queues every `new` item into one run `feedback-batch-<stamp>`:
    one node per item plus a `validate` node after all items. The command only adds nodes; it does
-   not dispatch them. The coordinator then runs `orch run advance <run> --until-done`.
+   not dispatch them. The orchestrator then runs `orch run advance <run> --until-done`.
    `--ids fb-a,fb-b` queues only those items.
 4. Close each item with `orch feedback update <id> --status done|wontfix --result "<text>"`.
 

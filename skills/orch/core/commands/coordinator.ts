@@ -1,6 +1,7 @@
-// Coordinator sessions orch starts itself: model setting, start and rotation at a context limit.
-//   coordinator start  <run> [--handoff FILE] [--dry-run]
-//   coordinator rotate <run> --tokens N [--summary TEXT] [--dry-run]
+// Orchestrator sessions orch starts itself: model setting, start and rotation at a context limit.
+//   orchestrator start  <run> [--handoff FILE] [--dry-run]
+//   orchestrator rotate <run> --tokens N [--summary TEXT] [--dry-run]
+// `coordinator` remains an alias.
 // Settings (profiles.json `settings`): coordinator_model, coordinator_rotate_tokens.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,7 +12,8 @@ import { nowIso } from "../state/clock.ts";
 
 export const COORDINATOR_MODEL_DEFAULT = "hub/copilot/mai-code-2-flash";
 export const COORDINATOR_ROTATE_TOKENS_DEFAULT = 200000;
-export const COORDINATOR_USAGE = "dispatch.ts coordinator start <run> [--handoff FILE] [--dry-run] | coordinator register <run> | coordinator rotate <run> --tokens N [--summary TEXT] [--dry-run]";
+export const ORCHESTRATOR_USAGE = "dispatch.ts orchestrator start <run> [--handoff FILE] [--dry-run] | orchestrator register <run> | orchestrator rotate <run> --tokens N [--summary TEXT] [--dry-run]";
+export const COORDINATOR_USAGE = ORCHESTRATOR_USAGE;
 
 type Doc = Parameters<typeof settingFrom>[0];
 
@@ -28,13 +30,13 @@ export function needsRotation(tokens: number, threshold: number): boolean {
 
 export function coordinatorPrompt(run: string, handoff: string | null): string {
   const lines = [
-    `You are the orch coordinator for run ${run}. Load the orch skill first.`,
+    `You are the orch orchestrator for run ${run}. Load the orch skill first.`,
     "Dispatch every task as an orch node (dispatch.ts node add / node dispatch); never start foreground subagents.",
     "Do not run tests or typecheck yourself; child nodes run targeted tests and report results.",
     "Profiles: implementation nodes use opencode-chip-exec (Haiku, mai models). Sonnet (opencode-sonnet-verify) is only for the final review node. Never change a node to another profile to get around a failure: replace the node with `node replace` (same goal and prompt) and keep the profile.",
     "Failures: a node that errors is retried by the run watch; after its attempts run out, use `node replace`. Never mark a node done by hand.",
   ];
-  if (handoff) lines.push(`Continue from the handoff of the previous coordinator: read ${handoff} first.`);
+  if (handoff) lines.push(`Continue from the handoff of the previous orchestrator: read ${handoff} first.`);
   return lines.join(" ");
 }
 
@@ -73,16 +75,16 @@ async function launch(home: string, run: string, handoff: string | null, dry: bo
   }
   const { startJob } = await import("../adapters/herdr.ts");
   const started = await startJob(home, jobDir, argv).catch(() => false);
-  await appendEvents(home, run, [{ at: nowIso(), kind: "note", node: null, from: null, to: null, note: `coordinator started: model ${model}${handoff ? `, handoff ${handoff}` : ""}`, by: "orch" }]).catch(() => undefined);
-  if (started) return out(`coordinator started in herdr: ${model} (${jobDir})\n`);
-  return out(`herdr unavailable; start the coordinator with:\n${argv.map((a) => JSON.stringify(a)).join(" ")}\n`);
+  await appendEvents(home, run, [{ at: nowIso(), kind: "note", node: null, from: null, to: null, note: `orchestrator started: model ${model}${handoff ? `, handoff ${handoff}` : ""}`, by: "orch" }]).catch(() => undefined);
+  if (started) return out(`orchestrator started in herdr: ${model} (${jobDir})\n`);
+  return out(`herdr unavailable; start the orchestrator with:\n${argv.map((a) => JSON.stringify(a)).join(" ")}\n`);
 }
 
 export async function coordinatorStart(args: string[]): Promise<number> {
   const run = args[0] ?? "";
-  if (!run || run.startsWith("--")) return err(`usage: ${COORDINATOR_USAGE}\n`, 2);
+  if (!run || run.startsWith("--")) return err(`usage: ${ORCHESTRATOR_USAGE}\n`, 2);
   const home = orchHome();
-  if (!(await loadRun(home, run))) return err(`coordinator start: no run ${run}\n`, 1);
+  if (!(await loadRun(home, run))) return err(`orchestrator start: no run ${run}\n`, 1);
   return launch(home, run, flag(args, "--handoff"), args.includes("--dry-run"));
 }
 
@@ -90,10 +92,10 @@ export async function coordinatorStart(args: string[]): Promise<number> {
 export async function coordinatorRotate(args: string[]): Promise<number> {
   const run = args[0] ?? "";
   const tokens = Number(flag(args, "--tokens"));
-  if (!run || run.startsWith("--") || !Number.isFinite(tokens) || flag(args, "--tokens") === null) return err(`usage: ${COORDINATOR_USAGE}\n`, 2);
+  if (!run || run.startsWith("--") || !Number.isFinite(tokens) || flag(args, "--tokens") === null) return err(`usage: ${ORCHESTRATOR_USAGE}\n`, 2);
   const home = orchHome();
   const st = await loadRun(home, run);
-  if (!st) return err(`coordinator rotate: no run ${run}\n`, 1);
+  if (!st) return err(`orchestrator rotate: no run ${run}\n`, 1);
   const { rotateTokens } = coordinatorSettingsFrom(await loadProfilesDoc(home));
   if (!needsRotation(tokens, rotateTokens)) return out(`ok: ${tokens} < ${rotateTokens}, no rotation\n`);
   const dir = join(paths.runs(home), run, "coordinator-handoffs");
@@ -102,11 +104,11 @@ export async function coordinatorRotate(args: string[]): Promise<number> {
   for (let i = 2; existsSync(file); i++) file = file.replace(/(-\d+)?\.md$/, `-${i}.md`);
   const open = st.nodes.filter((n) => n.status !== "done").map((n) => `- ${n.id}: ${n.status ?? "?"}${n.label ? ` — ${n.label}` : ""}`);
   const body = [
-    `# Coordinator handoff: run ${run}`,
+    `# Orchestrator handoff: run ${run}`,
     "",
     `Rotated at ${tokens} context tokens (threshold ${rotateTokens}), ${nowIso()}.`,
     "",
-    "## Summary from the previous coordinator",
+    "## Summary from the previous orchestrator",
     "",
     flag(args, "--summary") ?? "(none given)",
     "",
@@ -120,6 +122,6 @@ export async function coordinatorRotate(args: string[]): Promise<number> {
   writeFileSync(file, body);
   out(`rotate: ${tokens} >= ${rotateTokens}; handoff ${file}\n`);
   const code = await launch(home, run, file, args.includes("--dry-run"));
-  if (code === 0) out("The new coordinator takes over now. End this session after your current turn.\n");
+  if (code === 0) out("The new orchestrator takes over now. End this session after your current turn.\n");
   return code;
 }

@@ -15,7 +15,7 @@ test("coordinator settings: defaults and overrides", () => {
   expect(needsRotation(200000, 200000)).toBe(true);
 });
 
-test("coordinator prompt forbids tests and foreground subagents, argv pins the model", () => {
+test("orchestrator prompt forbids tests and foreground subagents, argv pins the model", () => {
   const p = coordinatorPrompt("r1", "/h.md");
   expect(p).toMatch(/never start foreground subagents/);
   expect(p).toMatch(/Do not run tests/);
@@ -46,6 +46,9 @@ test("coordinator rotate: below threshold no-op, above writes a handoff and star
   expect(argv.slice(0, 4)).toEqual(["opencode", "run", "--model", "llm-hub/test-model"]);
   expect(argv[4]).toContain(join(dir, files[0]!));
 
+  expect(o("orchestrator", "rotate", R).rc).toBe(2);
   expect(o("coordinator", "rotate", R).rc).toBe(2);
-  expect(o("coordinator", "start", "no-such-run", "--dry-run").rc).toBe(1);
+  expect(o("orchestrator", "start", R, "--dry-run").rc).toBe(0);
+  expect(o("coordinator", "start", R, "--dry-run").rc).toBe(0);
+  expect(o("orchestrator", "start", "no-such-run", "--dry-run").rc).toBe(1);
 });

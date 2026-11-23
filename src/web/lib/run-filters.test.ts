@@ -24,7 +24,7 @@ function run(status: RunStatus, finishedHoursAgo: number | null, startedHoursAgo
     started: new Date(NOW - startedHoursAgo * HOUR).toISOString(),
     finished: finishedHoursAgo === null ? null : new Date(NOW - finishedHoursAgo * HOUR).toISOString(),
     harness_session: "",
-    counts: { waiting: 0, running: 0, done: 1, error: 0, skipped: 0 },
+    counts: { waiting: 0, running: 0, done: 1, error: 0, skipped: 0, "blocked-user": 0, covered: 0, stopped: 0 },
   };
 }
 

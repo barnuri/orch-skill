@@ -50,12 +50,8 @@ main:has(.run-page) { max-width: none; }
 @media (max-width: 900px) {
   .run-page .run-layout { grid-template-columns: minmax(0, 1fr); }
   .run-page .run-layout .inspector {
-    position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 40;
-    max-height: 70dvh; border-radius: var(--r-xl) var(--r-xl) 0 0; border-width: 1px 0 0;
-    box-shadow: 0 -8px 24px color-mix(in srgb, var(--bg) 60%, transparent);
-    padding-bottom: max(var(--s4), env(safe-area-inset-bottom));
+    position: static; max-height: none; border-radius: var(--r-lg); padding-bottom: var(--s4);
   }
-  .run-page .run-layout .inspector:not(.has-node) { display: none; }
   .run-page .graph-tool, .run-page .btn, .run-row { min-height: 44px; }
   .inspector .panel-close { min-width: 44px; min-height: 44px; }
   .run-page .run-actions { margin-left: 0; width: 100%; }
@@ -75,6 +71,11 @@ main:has(.run-page) { max-width: none; }
 .inspector .node-session-head { flex-wrap: wrap; }
 .inspector .copy-cmd, .inspector .copy-cmd code, .inspector .transcript { max-width: 100%; min-width: 0; overflow-x: auto; }
 .inspector .panel-details dl { grid-template-columns: 76px minmax(0, 1fr); }
+.node-terminal .panel-details dl { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--s1) var(--s3); margin: 0; font-size: 12.5px; }
+.node-terminal .panel-details dt { color: var(--tx2); }
+.node-terminal .panel-details dd { margin: 0; color: var(--tx); overflow-wrap: anywhere; }
+.node-terminal .panel-details dd.missing { color: var(--tx3); }
+.node-terminal .panel-details dd.err { color: var(--status-error); }
 .inspector .node-session, .inspector .attempts, .inspector .panel-log { grid-template-columns: minmax(0, 1fr); }
 .inspector .copy-cmd-text { max-width: none; min-width: 0; flex: 1; text-align: left; }
 .inspector .ai-text { min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
@@ -161,14 +162,21 @@ main:has(.run-page) { max-width: none; }
 .coordinator-unreachable .coordinator-warn { color: var(--status-stale); }
 .coordinator-candidates { list-style: none; margin: 0; padding: 0; width: 100%; }
 
-.requirements-panel { margin-bottom: var(--s3); }
-.requirements-panel ul { list-style: none; padding: 0; margin: 0; }
-.requirements-panel li { padding: var(--s1) 0; }
+.requirements-panel { margin-bottom: var(--s3); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--tx); }
+.requirements-panel h2 { margin: 0; font-size: 12.5px; }
+.requirements-toggle { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.requirements-panel ul { list-style: none; padding: 0; margin: 0; border: 1px solid var(--s2); border-radius: var(--r-md); background: var(--panel); }
+.requirements-panel li { padding: var(--s2) var(--s3); border-left: 2px solid var(--s2); border-bottom: 1px solid var(--s2); overflow-wrap: anywhere; }
+.requirements-panel li:last-child { border-bottom: 0; }
+.requirements-panel li[data-status="handled"], .requirements-panel li[data-status="superseded"], .requirements-panel li[data-status="waived"] { border-left-color: var(--status-done); }
+.requirements-panel li[data-status="partly"] { border-left-color: var(--status-waiting); }
+.requirements-panel li.req-err { border-left-color: var(--status-error); }
 .requirements-panel .req-nodes { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
 .requirements-panel .req-evidence { padding-left: var(--s3); }
-.requirements-panel .req-ok { color: var(--ok, #2a7); }
-.requirements-panel .req-warn { color: var(--warn, #c80); }
-.requirements-panel .req-err { color: var(--err, #c33); }
+.requirements-panel .req-ok { color: var(--status-done); }
+.requirements-panel .req-warn { color: var(--status-waiting); }
+.requirements-panel .req-err { color: var(--status-error); }
+.node-statusline-usage { color: var(--tx); }
 
 .run-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
 .covered-link { color: var(--status-covered); font-size: var(--fs-meta); text-decoration: none; cursor: pointer; }
@@ -178,16 +186,21 @@ main:has(.run-page) { max-width: none; }
 .covers-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
 .covers-nodes, .covers-map { font-size: var(--fs-meta); color: var(--tx2); }
 
-/* ---- Node terminal: the node panel sits below the graph or table and reads like a shell session ---- */
+/* ---- Node terminal: prompt, output, message box, status line ---- */
 .node-terminal {
   margin: 0; width: 100%; box-sizing: border-box; border-radius: var(--r-lg);
   background: var(--panel); border: 1px solid var(--s2); overflow: hidden;
+  display: flex; flex-direction: column;
   font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--tx);
 }
 .node-terminal .node-panel-head { margin: 0; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--s2); font-size: 12.5px; font-weight: 600; }
 .node-terminal-prompt { color: var(--tx2); margin-right: var(--s2); }
-.node-terminal .panel-grid { grid-template-columns: minmax(0, 1fr); padding: var(--s4); }
+.node-terminal .panel-grid { grid-template-columns: minmax(0, 1fr); padding: var(--s4) var(--s4) 0; }
+.node-terminal .node-messages { margin: 0 var(--s4) var(--s3); }
+.node-terminal .node-output, .node-terminal .job-transcript, .node-terminal .chat-turns { background: var(--bg); }
+/* The status line is the last row of the terminal: the composer sits above it and it stays at the bottom. */
 .node-statusline {
+  margin-top: auto; flex: none;
   display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; padding: var(--s2) var(--s4);
   border-top: 1px solid var(--s2); background: var(--s1); color: var(--tx2); font-size: var(--fs-meta);
 }
@@ -195,15 +208,46 @@ main:has(.run-page) { max-width: none; }
 .node-statusline-state.is-error { color: var(--status-error); }
 .node-statusline-state.is-waiting { color: var(--status-waiting); }
 .node-statusline-state.is-stale { color: var(--status-stale); }
+.node-statusline-result { font-weight: 600; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); }
+.node-statusline-result.result-full { color: var(--status-full); border-color: var(--status-full-bd); background: var(--status-full-bg); }
+.node-statusline-result.result-partial { color: var(--status-partial); border-color: var(--status-partial-bd); background: var(--status-partial-bg); }
+.node-statusline-result.result-blocked { color: var(--status-blocked); border-color: var(--status-blocked-bd); background: var(--status-blocked-bg); }
+.node-statusline-result.result-unknown { color: var(--tx2); }
 
 /* ---- Filters and activity share one row: activity sits at the right of the filters ---- */
 .run-page .run-filter-row {
-  display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-start; justify-content: space-between;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s3); align-items: start;
 }
 .run-page .run-filter-row > .run-activity {
-  margin-left: auto; flex: 0 1 380px; min-width: 260px; max-height: 240px; overflow: auto;
+  min-width: 260px; max-height: 240px; overflow: auto;
 }
-.run-page .run-filter-row > .run-filter { flex: 1 1 520px; min-width: 0; }
+.run-page .run-filter-row > .run-filter { min-width: 0; }
+@media (max-width: 900px) {
+  .run-page .run-filter-row { grid-template-columns: minmax(0, 1fr); }
+  .run-page .run-filter-row > .run-activity { min-width: 0; width: 100%; }
+}
 
 .run-page .run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .run-page .run-filter-q { flex: 1 1 220px; min-width: 180px; }
+
+.overview-panel { margin-bottom: var(--s3); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--tx); }
+.overview-panel h2 { display: flex; align-items: center; gap: var(--s2); margin: 0; font-size: 12.5px; }
+.overview-panel .overview-toggle { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.overview-panel .overview-sections { border: 1px solid var(--s2); border-radius: var(--r-md); background: var(--panel); padding: var(--s2) var(--s3); overflow-x: auto; }
+.overview-panel h3 { font-size: 12px; margin: var(--s3) 0 var(--s1); color: var(--tx2); font-weight: 600; }
+.overview-panel h3:first-child { margin-top: 0; }
+.overview-panel .overview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.overview-panel .overview-table th,
+.overview-panel .overview-table td { text-align: left; vertical-align: top; padding: 2px var(--s2) 2px 0; border-bottom: 1px solid var(--s2); overflow-wrap: anywhere; }
+.overview-panel .overview-table th { color: var(--tx2); font-weight: 600; }
+
+
+/* Inline Retry on an error node's graph card (GraphSvg GraphRetry). Amber, not red: red is for error state only, the button is an action. */
+.graph-retry { cursor: pointer; }
+.graph-retry .graph-retry-box { fill: var(--wa); fill-opacity: 0.16; stroke: var(--wa); stroke-width: 1; }
+.graph-retry text { fill: var(--wa); font-size: 11px; font-weight: 600; pointer-events: none; }
+.graph-retry:focus-visible .graph-retry-box { stroke-width: 2; }
+.graph-retry.is-busy { cursor: progress; opacity: 0.6; }
+
+/* Warnings column: chips and the retry button wrap instead of overflowing the table. */
+.rt-warn { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 260px; }

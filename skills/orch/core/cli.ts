@@ -56,7 +56,7 @@ function withMonitor(h: Handler): Handler {
 }
 
 // Verbs of `herdr <verb>`: kept here so building the table does not load the herdr adapter (a test checks it matches).
-export const HERDR_VERB_KEYS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "close-ended", "job-gone-note", "serve-boot", "cli"];
+export const HERDR_VERB_KEYS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "close-ended", "job-gone-note", "serve-boot", "cli", "cleanup"];
 // `loop` and `schedule` handler keys, as exported by their modules (a test checks they match).
 export const LOOP_KEYS = ["loop start", "loop list", "loop stop", "loop resume", "loop tail", "loop recover", "loop prune", "loop __run", "loop", "watch start", "watch wait", "watch events", "watch list", "watch stop", "watch status-of", "watch __run", "watch", "active", "ghosts"];
 export const SCHEDULE_KEYS = ["schedule add", "schedule edit", "schedule list", "schedule show", "schedule enable", "schedule disable", "schedule remove", "schedule run", "schedule log", "schedule tick", "schedule next", "schedule record", "schedule pause", "schedule __runcmd", "schedule"];
@@ -88,6 +88,9 @@ export const COMMANDS: Record<string, Handler> = {
   "run broadcast": L(inbox, (m) => m.cmdRunBroadcast),
   "run rule": L(inbox, (m) => m.cmdRunRule),
   "run repoint": L(inbox, (m) => m.cmdRunRepoint),
+  "orchestrator start": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorStart),
+  "orchestrator register": L(() => import("./commands/pause.ts"), (m) => m.coordinatorRegister),
+  "orchestrator rotate": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorRotate),
   "coordinator start": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorStart),
   "coordinator register": L(() => import("./commands/pause.ts"), (m) => m.coordinatorRegister),
   "coordinator rotate": L(() => import("./commands/coordinator.ts"), (m) => m.coordinatorRotate),
@@ -101,6 +104,9 @@ export const COMMANDS: Record<string, Handler> = {
   "node update": L(node, (m) => m.nodeUpdate),
   "node report": L(node, (m) => m.nodeReport),
   "node result": L(node, (m) => m.nodeResult),
+  "delivery run": L(() => import("./commands/delivery.ts"), (m) => m.deliveryRun),
+  "delivery status": L(() => import("./commands/delivery.ts"), (m) => m.deliveryStatus),
+  "node quality": L(() => import("./commands/quality.ts"), (m) => m.nodeQuality),
   "node show": L(node, (m) => m.nodeShow),
   "node batch": L(() => import("./commands/node-batch.ts"), (m) => m.nodeBatch),
   "node started": L(timing, (m) => m.nodeStarted),
@@ -113,6 +119,7 @@ export const COMMANDS: Record<string, Handler> = {
   "suggest learn": L(() => import("./commands/learn.ts"), (m) => m.suggestLearn),
   "run uncover": L(() => import("./commands/cover.ts"), (m) => m.runUncover),
   "run carry": withMonitor(L(() => import("./commands/carry.ts"), (m) => m.runCarry)),
+  "run merge": L(() => import("./commands/merge.ts"), (m) => m.runMerge),
   "node replace": L(() => import("./commands/cover.ts"), (m) => m.nodeReplace),
   use: L(() => import("./commands/use.ts"), (m) => m.useCommand),
   "run status": L(() => import("./commands/run.ts"), (m) => m.runStatusCommand),
@@ -283,6 +290,8 @@ async function mainInner(argv: string[], opts: { direct?: boolean }): Promise<nu
     }
     return await dh(drest);
   }
+  // `goal "<objective>"` runs planning and execution from one command.
+  if (words[0] === "goal") return await (await import("./commands/goal.ts")).goalCommand(argv.slice(1));
   // `plan <run> "<goal>"`: the run id is the second word; `plan apply <run>` is a normal pair.
   if (words[0] === "plan" && words[1] !== "apply") return await (await import("./commands/plan.ts")).planCommand(argv.slice(1));
   const resolved = resolveCommand(words);

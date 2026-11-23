@@ -22,9 +22,9 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   expect([s.status, s.finished ?? null, s.nodes[0].status, s.nodes[0].attempts[0].job_id, s.nodes[0].attempts[0].retry_mode, s.nodes[0].dispatch_args]).toEqual(["running", null, "running", job, "restarted", ["--same", "args"]]);
   o("wait", r.out.trim(), "--timeout", "60", "--interval", "0.1");
   o("run", "sync", "retry-1");
+  // The job exited 0 without a handoff, so the node is an error and a retry is allowed.
   r = o("node", "retry", "retry-1", "a");
-  expect(r.rc).toBe(2);
-  expect(r.all).toMatch(/not error or skipped/);
+  expect(r.rc).toBe(0);
 
   home = seedHome(); o = orch(home);
   o("run", "start", "Old retry", "--id", "retry-old"); o("node", "add", "retry-old", "a", "a");

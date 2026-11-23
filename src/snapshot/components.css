@@ -62,12 +62,17 @@ dialog .btn.danger[disabled]:hover { background: transparent; border-color: var(
 .chip.default { --c: var(--acct); --bg-c: var(--accs); --bd-c: var(--accb); }
 .chip.running { --c: var(--status-running); --bg-c: var(--status-running-bg); --bd-c: var(--status-running-bd); }
 .chip.running::before { animation: pulse 1.4s ease-in-out infinite; }
-.chip.done, .chip.success { --c: var(--status-done); --bg-c: var(--status-done-bg); --bd-c: var(--status-done-bd); }
-.chip.error, .chip.failure, .chip.failed { --c: var(--status-error); --bg-c: var(--status-error-bg); --bd-c: var(--status-error-bd); }
-.chip.partial, .chip.lost, .chip.stale, .chip.unowned { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
-.chip.waiting { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
-.chip.covered { --c: var(--status-covered); --bg-c: var(--status-covered-bg); --bd-c: var(--status-covered-bd); }
-.chip.cancelled, .chip.skipped { --c: var(--status-skipped); --bg-c: var(--status-skipped-bg); --bd-c: var(--status-skipped-bd); }
+/* The shared palette (src/shared/status-palette.ts): one rule per key, keyed by its status-<key> class and the word. */
+.chip.done, .chip.success, .chip.status-done, .status-done { --c: var(--status-done); --bg-c: var(--status-done-bg); --bd-c: var(--status-done-bd); }
+.chip.full, .chip.status-full, .status-full { --c: var(--status-full); --bg-c: var(--status-full-bg); --bd-c: var(--status-full-bd); }
+.chip.error, .chip.failure, .chip.failed, .chip.status-error, .status-error { --c: var(--status-error); --bg-c: var(--status-error-bg); --bd-c: var(--status-error-bd); }
+.chip.blocked, .chip.status-blocked, .status-blocked { --c: var(--status-blocked); --bg-c: var(--status-blocked-bg); --bd-c: var(--status-blocked-bd); }
+.chip.partial, .chip.status-partial, .status-partial { --c: var(--status-partial); --bg-c: var(--status-partial-bg); --bd-c: var(--status-partial-bd); }
+.chip.lost, .chip.stale, .chip.unowned { --c: var(--status-stale); --bg-c: var(--status-stale-bg); --bd-c: var(--status-stale-bd); }
+.chip.waiting, .chip.status-waiting, .status-waiting { --c: var(--status-waiting); --bg-c: var(--status-waiting-bg); --bd-c: var(--status-waiting-bd); }
+.chip.blocked-user, .chip.status-blocked-user, .status-blocked-user { --c: var(--status-blocked-user); --bg-c: var(--status-blocked-user-bg); --bd-c: var(--status-blocked-user-bd); }
+.chip.covered, .chip.status-covered, .status-covered { --c: var(--status-covered); --bg-c: var(--status-covered-bg); --bd-c: var(--status-covered-bd); }
+.chip.cancelled, .chip.skipped, .chip.status-skipped, .status-skipped { --c: var(--status-skipped); --bg-c: var(--status-skipped-bg); --bd-c: var(--status-skipped-bd); }
 
 /* Kind tag: short uppercase name pill with a stable hue. */
 .tag {

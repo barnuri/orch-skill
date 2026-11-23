@@ -253,6 +253,32 @@ function opencodeSmartAutoConfig(e: Env): void {
   } catch {}
 }
 
+// Flags that orch reads for itself (node add / dispatch). None of them may reach `opencode run`.
+export const OPENCODE_ORCH_VALUE_FLAGS = ["--prompt", "--role", "--tier", "--acceptance", "--plan", "--task", "--after", "--origin"];
+export const OPENCODE_ORCH_BOOL_FLAGS = ["--plan-backed"];
+// Flags dropped here because orch passes its own standalone/server mode.
+const OPENCODE_DROPPED_FLAGS = ["--pure", "--standalone"];
+
+// opencodeArgs: split the dispatch args into the opencode server choice and the args that go to `opencode run`.
+// Value flags are dropped with their value, in both `--flag value` and `--flag=value` form.
+export function opencodeArgs(args: string[]): { server: string; rest: string[] } {
+  let server = "--standalone";
+  const rest: string[] = [];
+  const isFlag = (a: string, flags: string[]) => flags.some((f) => a === f || a.startsWith(`${f}=`));
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i] ?? "";
+    if (OPENCODE_DROPPED_FLAGS.includes(a)) continue;
+    if (isFlag(a, OPENCODE_ORCH_BOOL_FLAGS)) continue;
+    if (isFlag(a, OPENCODE_ORCH_VALUE_FLAGS)) {
+      if (!a.includes("=")) i += 1;
+      continue;
+    }
+    if (a === "--server" || a.startsWith("--server=")) server = "";
+    rest.push(a);
+  }
+  return { server, rest };
+}
+
 async function adapterOpencode(prompt: string, args: string[], e: Env): Promise<number> {
   const bin = await resolveBin("adapter_opencode", "opencode", e);
   if (!bin) return 127;
@@ -260,13 +286,7 @@ async function adapterOpencode(prompt: string, args: string[], e: Env): Promise<
   let session: string[] = [];
   if ((e.ORCH_RESUME_SESSION ?? "").startsWith("ses")) session = ["--session", e.ORCH_RESUME_SESSION!];
   if (e.ORCH_SESSION_TITLE && session.length === 0) session = ["--title", e.ORCH_SESSION_TITLE];
-  let server = "--standalone";
-  const rest: string[] = [];
-  for (const a of args) {
-    if (a === "--pure" || a === "--standalone") continue;
-    if (a === "--server" || a.startsWith("--server=")) server = "";
-    rest.push(a);
-  }
+  const { server, rest } = opencodeArgs(args);
   return (await exec([bin, "run", prompt, "--auto", ...(server ? [server] : []), ...session, ...rest], e)).rc;
 }
 

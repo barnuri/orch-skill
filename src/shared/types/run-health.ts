@@ -19,7 +19,7 @@ export interface RunHealth {
   at: string;
   max_parallel: number;
   running: number;
-  slots: number;
+  slots: number | null;
   nodes: NodeHealth[];
   ready: string[];
   changes: unknown[];
@@ -32,6 +32,7 @@ export interface RunHealthEnvelope {
   generated_at: string;
   source: RunHealthSource;
   health: RunHealth | null;
+  cache?: import("./runs-envelope").ApiCacheInfo;
 }
 
 /** `GET /api/health/summary`: node-health counts over the running runs, from the watcher's memory only. */

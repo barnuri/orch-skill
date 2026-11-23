@@ -1,7 +1,9 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import type { RunHealth } from "../../shared/types/run-health";
+import { RECONCILE_MS, reconcileArgs } from "../runs/run-reconciler";
 import type { WatchdogAction, WatchdogCounters, WatchdogFlag, WatchdogRule, WatchdogStatus } from "../../shared/types/watchdog";
 import { isEngineNode, loopOfRun } from "../../shared/engine-node";
 import { dispatchPath } from "../dispatch-path";
@@ -9,7 +11,8 @@ import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
 import { countPendingAsks } from "../runs/coordinator-state";
 import { RunEngine, type Starter } from "../runs/auto-dispatch";
-import { judgeAll, scanRunners } from "../../../skills/orch/core/ghosts.ts";
+import { listRuns } from "../runs/runs-reader";
+import { flagCleared, writeFlags } from "../../../skills/orch/core/runs/projection";
 
 /**
  * The one watchdog: every deterministic babysitting step for orch runs, in one place. It owns the
@@ -47,6 +50,13 @@ export const LOST_AFTER_MS: number = 120_000;
 export const STALL_MIN_DEFAULT: number = 15;
 /** The coordinator sweep runs at most this often per run. */
 const COORD_EVERY_MS = 20_000;
+const GHOST_SCAN_MS = 30_000;
+/** The supervisor terminal cleanup pass (`herdr cleanup --apply`) runs at most this often. */
+export const CLEANUP_EVERY_MS: number = 60_000;
+/** Takeover steps (`run heal`, `run advance`) run at most this often per run while no orchestrator is reachable. */
+export const TAKEOVER_EVERY_MS: number = 20_000;
+/** Retries of a node the takeover owns before it is replaced (same as `run watch`). */
+export const TAKEOVER_MAX_ATTEMPTS: number = 5;
 
 /** A node still `starting` (dispatched, no real activity) after this long is retried once. */
 export const STARTING_AFTER_MS: number = 180_000;
@@ -83,6 +93,8 @@ interface WatchNode {
   loop_id?: string | null;
   /** Early-end resumes done so far (`node retry --early-end` counts them). */
   resumes?: number | null;
+  /** The open question for the user (`node update --needs-user`); set on a blocked-user node. */
+  needs_user?: string | null;
 }
 
 interface JobEvidence {
@@ -102,7 +114,7 @@ interface WatchRun {
   stopped?: boolean;
   auto_dispatch?: boolean;
   nodes?: WatchNode[];
-  coordinator?: { unreachable?: unknown } | null;
+  coordinator?: { session_id?: unknown; unreachable?: unknown } | null;
 }
 
 export interface WatchdogOptions {
@@ -121,6 +133,19 @@ export interface WatchdogOptions {
   startingAfterMs?: number;
   /** Least time between two `node bind-owners` calls for one run; default OWNERS_EVERY_MS. */
   ownersEveryMs?: number;
+}
+
+/**
+ * True when the run has no reachable orchestrator: none was ever registered (`coordinator` null), or the
+ * registered one is unreachable. Only then does the supervisor take over.
+ */
+export function orchestratorAbsent(state: { coordinator?: { session_id?: unknown; unreachable?: unknown } | null; harness_session?: string | null }): boolean {
+  const coord = state.coordinator;
+  if (coord === undefined || coord === null) return true;
+  const registered = typeof coord.session_id === "string" ? coord.session_id : "";
+  const active = typeof state.harness_session === "string" ? state.harness_session : "";
+  if (registered !== "" && registered === active) return false;
+  return (coord.unreachable ?? null) !== null;
 }
 
 export function isCliSourceError(error: string | null | undefined): boolean {
@@ -264,8 +289,13 @@ export class WatchdogService {
   private readonly lostAfterMs: number;
   private readonly startingAfterMs: number;
   private readonly ownersEveryMs: number;
+  private readonly reconciledAt = new Map<string, number>();
+  private readonly reconcileBusy = new Set<string>();
   private readonly coordAt = new Map<string, number>();
   private readonly coordBusy = new Set<string>();
+  /** Last takeover step per run, and the runs with one in flight. */
+  private readonly takeoverAt = new Map<string, number>();
+  private readonly takeoverBusy = new Set<string>();
   /** Last `node bind-owners` start per run, and the runs with one in flight. */
   private readonly ownersAt = new Map<string, number>();
   private readonly ownersBusy = new Set<string>();
@@ -278,6 +308,8 @@ export class WatchdogService {
   private readonly actions: WatchdogAction[] = [];
   private readonly counters = new Map<string, WatchdogCounters>();
   private startedAt: string | null = null;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private cleanupBusy = false;
 
   constructor(readonly home: string, opts: WatchdogOptions = {}) {
     this.runDispatch = opts.run ?? spawnWatchdogDispatch;
@@ -300,11 +332,40 @@ export class WatchdogService {
   begin(): void {
     this.startedAt = this.now().toISOString();
     this.engine.begin();
+    this.cleanupTimer = setInterval(() => this.cleanupPass(), CLEANUP_EVERY_MS);
   }
 
   stop(): void {
+    if (this.cleanupTimer !== null) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
     this.engine.stop();
   }
+
+  /**
+   * Supervisor terminal cleanup: `dispatch.ts herdr cleanup --apply`, which closes only tabs with no live work
+   * and sends stale node messages to the orchestrator. The command re-checks its own plan before it acts.
+   */
+  private cleanupPass(): void {
+    if (this.cleanupBusy) {
+      return;
+    }
+    this.cleanupBusy = true;
+    const p = this.runDispatch(["herdr", "cleanup", "--apply"], this.home)
+      .then((rc) => {
+        if (rc !== 0) {
+          this.log(`herdr cleanup rc=${rc}`);
+        }
+      })
+      .catch((err: unknown) => this.log(`herdr cleanup failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        this.cleanupBusy = false;
+        this.inflight.delete(p);
+      });
+    this.inflight.add(p);
+  }
+
 
   /** Runs every rule over one run's state. Called by the engine on each state.json change and sweep. */
   inspect(runId: string, state: WatchRun): void {
@@ -341,12 +402,98 @@ export class WatchdogService {
       if (turned("done")) {
         this.checkHandoff(runId, node);
       } else if (turned("error")) {
+        if ((node.error ?? "") === "ended early without handoff") {
+          this.checkHandoff(runId, node);
+        }
         this.checkInfraError(runId, node);
       }
     }
     this.checkFinish(runId, state, nodes);
-    this.syncOwners(runId, nodes);
+    if (orchestratorAbsent(state)) {
+      this.takeover(runId, state, nodes);
+    }
+    this.syncRun(runId);
     this.syncCoordinator(runId, state);
+  }
+
+  /**
+   * Supervisor takeover, for a run with no reachable orchestrator. Only deterministic steps:
+   *  - blocked-user nodes stay untouched; their question is queued once for the next orchestrator (`node tell`).
+   *  - error nodes that no other rule owns get `node retry`, then `node replace` after TAKEOVER_MAX_ATTEMPTS.
+   *  - `run heal` creates the gap nodes and closes the gate. With `auto_dispatch`, `run advance` dispatches the
+   *    ready nodes, runs the gate and finishes the run. Throttled per run; each action is one actions.log line.
+   * Never answers a question, clears needs_user, or approves a destructive or outward-facing step.
+   */
+  private takeover(runId: string, state: WatchRun, nodes: WatchNode[]): void {
+    for (const node of nodes) {
+      if (node.status === "blocked-user") {
+        this.queueQuestion(runId, node);
+      } else if (node.status === "error" && !this.engineOwned(runId, node)) {
+        this.takeoverRetry(runId, node);
+      }
+    }
+    this.takeoverSteps(runId, state);
+  }
+
+  private queueQuestion(runId: string, node: WatchNode): void {
+    const question = (node.needs_user ?? "").trim();
+    if (question === "") {
+      return;
+    }
+    const digest = createHash("sha1").update(question).digest("hex").slice(0, 12);
+    if (!this.claim(runId, `blocked-${node.id}@${digest}`)) {
+      return;
+    }
+    const text = `Node ${node.id} is blocked-user and waits for the user: ${question}`;
+    this.chain(runId, node.id, async () => {
+      await this.act(runId, node.id, "takeover", ["node", "tell", runId, "coordinator", text, "--from", "watchdog"], "question queued for the next orchestrator");
+    });
+  }
+
+  private takeoverRetry(runId: string, node: WatchNode): void {
+    const error = node.error ?? "";
+    // Owned by other rules: early end (unverified), CLI or source errors (routed to the orchestrator), infra errors (infra-retry), test failures (never retried).
+    if (error === "ended early without handoff" || isCliSourceError(error) || isInfraError(error) || TEST_FAILURE.test(error)) {
+      return;
+    }
+    if (this.busy.has(`${runId}/${node.id}`)) {
+      return;
+    }
+    const attempts = (node.attempts ?? []).length;
+    if (!this.claim(runId, `takeover-${node.id}@${attempts}`)) {
+      return;
+    }
+    const replace = attempts >= TAKEOVER_MAX_ATTEMPTS;
+    this.chain(runId, node.id, async () => {
+      if (replace) {
+        await this.act(runId, node.id, "takeover", ["node", "replace", runId, node.id], `${attempts} attempts used: same goal and profile in a new node`);
+      } else {
+        await this.act(runId, node.id, "takeover", ["node", "retry", runId, node.id], `attempt ${attempts + 1} of ${TAKEOVER_MAX_ATTEMPTS}: ${error}`);
+      }
+    });
+  }
+
+  private takeoverSteps(runId: string, state: WatchRun): void {
+    const nowMs = this.now().getTime();
+    const last = this.takeoverAt.get(runId);
+    if (this.takeoverBusy.has(runId) || (last !== undefined && nowMs - last < TAKEOVER_EVERY_MS)) {
+      return;
+    }
+    this.takeoverAt.set(runId, nowMs);
+    this.takeoverBusy.add(runId);
+    const dispatch = state.auto_dispatch === true;
+    const p = (async (): Promise<void> => {
+      await this.act(runId, null, "takeover", ["run", "heal", runId], "orchestrator absent: gap nodes, gate, finish");
+      if (dispatch) {
+        await this.act(runId, null, "takeover", ["run", "advance", runId], "orchestrator absent: dispatch ready nodes, gate, finish");
+      }
+    })()
+      .catch((err: unknown) => this.log(`takeover ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        this.takeoverBusy.delete(runId);
+        this.inflight.delete(p);
+      });
+    this.inflight.add(p);
   }
 
   /** A node the loop engine made, or one whose loop is stopped: never verified, never retried. */
@@ -393,12 +540,25 @@ export class WatchdogService {
     this.coordAt.set(runId, nowMs);
     this.coordBusy.add(runId);
     const p = this.runDispatch(["run", "messages", runId, "retry"], this.home)
-      .then((rc) => this.record({ at: this.now().toISOString(), run: runId, node: null, rule: "coordinator", action: "run messages", detail: "coordinator sweep", rc }))
+      .then((rc) => this.record({ at: this.now().toISOString(), run: runId, node: null, rule: "coordinator", action: "run messages", detail: "orchestrator sweep", rc }))
       .catch((err: unknown) => this.log(`coordinator sweep ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
       .finally(() => {
         this.coordBusy.delete(runId);
         this.inflight.delete(p);
       });
+    this.inflight.add(p);
+  }
+
+  private syncRun(runId: string): void {
+    const now = this.now().getTime();
+    const last = this.reconciledAt.get(runId) ?? 0;
+    if (this.reconcileBusy.has(runId) || now - last < RECONCILE_MS) return;
+    this.reconciledAt.set(runId, now);
+    this.reconcileBusy.add(runId);
+    const p = this.runDispatch(reconcileArgs(runId).slice(2), this.home)
+      .then((rc) => { if (rc !== 0) this.log(`run sync ${runId} rc=${rc}`); })
+      .catch((err: unknown) => this.log(`run sync ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => { this.reconcileBusy.delete(runId); this.inflight.delete(p); });
     this.inflight.add(p);
   }
 
@@ -707,6 +867,7 @@ export class WatchdogService {
   private flag(runId: string, nodeId: string, rule: WatchdogRule, detail: string, status: string): void {
     const at = this.now().toISOString();
     this.flags.set(`${runId}/${nodeId}/${rule}`, { run: runId, node: nodeId, rule, detail, at, status });
+    this.persistFlags();
     this.record({ at, run: runId, node: nodeId, rule, action: "flag", detail, rc: null });
   }
 
@@ -715,16 +876,28 @@ export class WatchdogService {
    * finished, removed), or an `unverified` node now has its handoff.md.
    */
   private dropStaleFlags(runId: string, nodes: WatchNode[]): void {
+    let dropped = false;
     for (const [key, f] of this.flags) {
       if (f.run !== runId) {
         continue;
       }
       const node = nodes.find((n) => n.id === f.node);
-      const cleared = node === undefined || (node.status ?? "") !== f.status
-        || (f.rule === "unverified" && handoffPresent(this.home, runId, node));
-      if (cleared) {
+      if (flagCleared(f, node === undefined ? undefined : { status: node.status ?? "" }, node !== undefined && handoffPresent(this.home, runId, node))) {
         this.flags.delete(key);
+        dropped = true;
       }
+    }
+    if (dropped) {
+      this.persistFlags();
+    }
+  }
+
+  /** The flags the CLI and API read (`<home>/watchdog/flags.json`), written on every change. */
+  private persistFlags(): void {
+    try {
+      writeFlags(this.home, [...this.flags.values()]);
+    } catch (err) {
+      this.log(`flags.json write failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -781,21 +954,17 @@ export class WatchdogService {
    */
   private liveFlags(): WatchdogFlag[] {
     const running = new Map<string, WatchNode[]>();
-    try {
-      for (const id of readdirSync(join(this.home, "runs"))) {
-        const st = (() => {
-          try {
-            return JSON.parse(readFileSync(join(this.home, "runs", id, "state.json"), "utf8")) as WatchRun;
-          } catch {
-            return null;
-          }
-        })();
-        if (st?.status === "running") {
-          running.set(id, st.nodes ?? []);
-        }
+    // The run summaries are memoised per run, so this reads state.json only for the running runs.
+    for (const summary of listRuns(orchPaths(this.home))) {
+      if (summary.status !== "running") {
+        continue;
       }
-    } catch {
-      // no runs folder
+      try {
+        const st = JSON.parse(readFileSync(join(this.home, "runs", summary.run_id, "state.json"), "utf8")) as WatchRun;
+        running.set(summary.run_id, st.nodes ?? []);
+      } catch {
+        // a state.json that vanished or tore mid-write is skipped
+      }
     }
     for (const [id, nodes] of running) {
       this.dropStaleFlags(id, nodes);
@@ -815,19 +984,29 @@ export class WatchdogService {
     };
   }
 
-  // Ghost runners, from one process scan per 30 s. A scan failure reports 0 rather than failing the route.
+  // Ghost runners, from one process scan per 30 s. The scan (`ps`, blocking) runs in a worker, so the
+  // route returns the last count at once. Until the first scan ends the count is 0. A failed scan reports 0.
   private ghostCache: { at: number; count: number } | null = null;
+  private ghostScanning = false;
   private ghostCount(): number {
     const nowMs = this.now().getTime();
-    if (this.ghostCache && nowMs - this.ghostCache.at < 30_000) return this.ghostCache.count;
-    let count = 0;
-    try {
-      count = judgeAll(scanRunners()).filter((j) => j.ghost).length;
-    } catch {
-      count = 0;
+    if (!this.ghostScanning && (this.ghostCache === null || nowMs - this.ghostCache.at >= GHOST_SCAN_MS)) {
+      this.startGhostScan(nowMs);
     }
-    this.ghostCache = { at: nowMs, count };
-    return count;
+    return this.ghostCache?.count ?? 0;
+  }
+
+  private startGhostScan(nowMs: number): void {
+    this.ghostScanning = true;
+    const worker = new Worker(new URL("./ghost-worker.ts", import.meta.url).href);
+    const finish = (count: number): void => {
+      this.ghostCache = { at: nowMs, count };
+      this.ghostScanning = false;
+      worker.terminate();
+    };
+    worker.onmessage = (event: MessageEvent<unknown>): void => finish(typeof event.data === "number" ? event.data : 0);
+    worker.onerror = (): void => finish(0);
+    worker.postMessage("scan");
   }
 }
 

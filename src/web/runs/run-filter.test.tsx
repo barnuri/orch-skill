@@ -31,8 +31,8 @@ const NODES = [
 ];
 
 describe("run summary", () => {
-  test("counts total, done, running, waiting, paused and error", () => {
-    expect(runSummary(run(NODES))).toEqual({ total: 5, done: 1, running: 1, waiting: 1, paused: 1, error: 1, skipped: 0, covered: 0, stopped: 0 });
+  test("counts total, done, running, waiting, paused, blocked-user and error", () => {
+    expect(runSummary(run(NODES))).toEqual({ total: 5, done: 1, running: 1, waiting: 1, paused: 1, "blocked-user": 0, error: 1, skipped: 0, covered: 0, stopped: 0 });
   });
 
   test("a paused run counts its running and waiting nodes as paused", () => {

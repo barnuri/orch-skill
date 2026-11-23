@@ -61,7 +61,8 @@ test("node cost", () => {
   oc("wait", sj, "--timeout", "30", "--interval", "0.1");
   o("run", "sync", R);
   expect(cost().usd).toBe(0.5);
-  expect(runState(home, R).nodes[0].status).toBe("done");
+  // A job that exits 0 without a handoff is an error (no handoff = not done).
+  expect(runState(home, R).nodes[0].status).toBe("error");
 });
 
 test("node out and digest", () => {

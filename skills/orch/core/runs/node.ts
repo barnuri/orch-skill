@@ -10,7 +10,7 @@ import { paths } from "../state/home.ts";
 import { readJson, type RunState } from "../state/store.ts";
 import { ENGINE_ORIGINS, isEngineNode } from "../../../../src/shared/engine-node.ts";
 
-export const NODE_STATUSES = ["waiting", "running", "done", "error", "skipped", "stopped", "covered"];
+export const NODE_STATUSES = ["waiting", "running", "done", "error", "skipped", "stopped", "covered", "blocked-user"];
 export const WORK_ROLES = ["planning", "investigation", "implementation", "validation", "conversation"];
 export const SMART_AUTO_TIERS = ["efficiency", "balance", "intelligence", "fast"];
 export const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -341,6 +341,7 @@ export function archiveAttempt(n: Record<string, any>, reason = "reset to waitin
 export function ownerParse(text: string, jobsDir: string): [string, string] {
   const t = text.trim();
   if (t === "") return ["none", ""];
+  if (t.toLowerCase() === "orchestrator") return ["none", "orchestrator"];
   if (t.toLowerCase() === "coordinator") return ["none", "coordinator"];
   const s = /^(agent[\s:]+)?(ses_[A-Za-z0-9]+)$/.exec(t);
   if (s) return ["session", s[2]!];
@@ -407,6 +408,8 @@ export function setStatus(run: RunState, id: string, status: string, job: string
     } else if (["done", "error", "skipped", "stopped", "covered"].includes(status)) {
       segClose(n, eventAt);
       n.finished_at = eventAt;
+    } else if (status === "blocked-user") {
+      segClose(n, eventAt);
     } else if (status === "waiting") {
       segClose(n, eventAt);
       n.dispatched_at = null;
@@ -707,10 +710,12 @@ function depsBlock(run: RunState, a: UpdateArgs, deps: string, ctx: Ctx): void {
 }
 
 const ALLOWED: Record<string, string[]> = {
-  waiting: ["running", "done", "error", "skipped"],
-  running: ["done", "error", "waiting", "skipped"],
-  error: ["waiting", "running", "skipped"],
+  waiting: ["running", "done", "error", "skipped", "blocked-user"],
+  running: ["done", "error", "waiting", "skipped", "blocked-user"],
+  error: ["waiting", "running", "skipped", "blocked-user"],
   skipped: ["waiting", "running"],
+  // Waiting on a user decision: only the user's answer moves it, and only back to waiting or out to skipped.
+  "blocked-user": ["waiting", "skipped"],
   done: [],
 };
 
@@ -746,6 +751,9 @@ export function applyUpdate(run: RunState, a: UpdateArgs, ctx: Ctx): string {
     if (epoch > (epochOf(ctx.now) ?? 0)) fail("node update: --at is in the future");
   }
   if (a.status === "skipped" && a.force && !a.reason) fail(`node update: skipping with --force needs --reason "<why>"`);
+  if (a.status === "blocked-user" && !(a.needsSet ? a.needs : n.needs_user)) {
+    fail(`node update: ${a.id} blocked-user needs --needs-user "<the question for the user>"`);
+  }
   let status = a.status;
   if (n.id === "done-gate" && n.rerun === true && old === "running") {
     // A node was added while the gate ran: its verify predates that node, so the gate waits again.
@@ -753,6 +761,8 @@ export function applyUpdate(run: RunState, a: UpdateArgs, ctx: Ctx): string {
     if (status === "done") status = "waiting";
   }
   setStatus(run, a.id, status, a.job, a.err, a.at, a.owner, ctx);
+  // The question is answered once the node leaves blocked-user, so it does not hold the node after that.
+  if (old === "blocked-user" && status !== "blocked-user" && !a.needsSet) n.needs_user = null;
   if (status !== a.status) ev(ctx, "note", a.id, "", "", "a node was added during the gate: gate waits again");
   if (a.status === "skipped" && a.reason) n.skip_reason = a.reason;
   else if (old === "skipped" && a.status !== "skipped") n.skip_reason = null;

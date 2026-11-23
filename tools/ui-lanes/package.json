@@ -1,0 +1,17 @@
+{
+  "name": "orch-ui-lanes",
+  "private": true,
+  "type": "module",
+  "description": "Isolated UI lanes for orch: fast mock mode (Vite + in-memory API) and Docker Compose integration (server + Playwright). Never reads or writes the live orch home.",
+  "scripts": {
+    "mock:dev": "bun mock/serve.ts",
+    "test:mock": "playwright test -c playwright.mock.config.ts",
+    "test:isolation": "bun test tests/isolation",
+    "test:integration": "bun integration/run.ts",
+    "test:lanes": "bun test tests/isolation && playwright test -c playwright.mock.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "vite": "^8.3.8"
+  }
+}

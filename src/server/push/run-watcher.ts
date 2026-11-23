@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { runUrl, schedulesUrl } from "../../shared/push";
 import type { NodeStatus } from "../../shared/types/node-status";
 import { orchPaths } from "../files/paths";
-import { readRun } from "../runs/runs-reader";
+import { listRunIds, readRun } from "../runs/runs-reader";
 import type { NotifyInput } from "./hub";
 import type { PushCategory } from "../../shared/push";
 
@@ -15,6 +15,14 @@ interface RunSeen {
   nodes: Map<string, NodeStatus>;
 }
 
+function stateMtimeOf(runDir: string): number | null {
+  try {
+    return statSync(join(runDir, "state.json")).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Orch runs, watchdog flags and schedule fires as notifications. It only reads what orch already writes
  * (`runs/*\/state.json`, `watchdog/actions.log`, `schedules/*\/claims`), so the engine and the watchdog stay untouched.
@@ -22,6 +30,7 @@ interface RunSeen {
  */
 export class RunWatcher {
   private readonly runs = new Map<string, RunSeen>();
+  private readonly stateMtime = new Map<string, number>();
   private readonly claims = new Set<string>();
   private logOffset = 0;
   private primed = false;
@@ -37,15 +46,14 @@ export class RunWatcher {
 
   private scanRuns(): void {
     const paths = orchPaths(this.home);
-    let ids: string[] = [];
-    try {
-      ids = readdirSync(paths.runs);
-    } catch {
-      return;
-    }
+    const ids = listRunIds(paths.runs);
     for (const id of ids) {
+      // An unchanged state.json has no transition to announce: skip the parse and the activity scan.
+      const mtime = stateMtimeOf(join(paths.runs, id));
+      if (mtime !== null && this.stateMtime.get(id) === mtime && this.runs.has(id)) continue;
       const res = readRun(paths, id);
       if (res.kind !== "ok") continue;
+      if (mtime !== null) this.stateMtime.set(id, mtime);
       const run = res.run;
       const prev = this.runs.get(id);
       const nodes = new Map<string, NodeStatus>(run.nodes.map((n) => [n.id, n.status]));

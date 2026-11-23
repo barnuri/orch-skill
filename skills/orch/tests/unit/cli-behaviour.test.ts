@@ -50,6 +50,25 @@ test("harness, profile pick, model list, profile sanity", () => {
   expect(os.env({ ORCH_MODEL_ID: "m-sonnet" }, "run", "--profile", "p-allow", "x").rc).toBe(2);
 });
 
+test("goal command dry-run and stop options", () => {
+  const home = seedHome(), o = orch(home);
+  expect(o("goal").rc).toBe(2);
+  expect(o("goal", "Ship the widget", "--dry-run").rc).toBe(0);
+  expect(o("goal", "Ship the widget", "--dry-run").out).toMatch(/goal dry-run: Ship the widget/);
+  expect(o("goal", "Ship the widget", "--dry-run", "--stop-on", "blocked").out).toMatch(/stop-on: blocked/);
+  expect(o("goal", "Ship the widget", "--dry-run", "--stop-on", "never").rc).toBe(2);
+  expect(o("goal", "Ship the widget", "--dry-run", "--interval", "0s").rc).toBe(2);
+  expect(o("goal", "Ship the widget", "--dry-run", "--timeout", "1m").out).toMatch(/timeout: 60s/);
+  expect(o("goal", "@/tmp/missing-goal.md", "--dry-run").rc).toBe(1);
+});
+
+test("goal dry-run preserves stop-on in advance options", () => {
+  const home = seedHome(), o = orch(home);
+  expect(o("goal", "Ship the widget", "--dry-run", "--stop-on", "error").out).toMatch(/stop-on: error/);
+  expect(o("goal", "Ship the widget", "--dry-run", "--stop-on", "timeout").out).toMatch(/stop-on: timeout/);
+  expect(o("goal", "Ship the widget", "--dry-run", "--stop-on", "all").out).toMatch(/stop-on: all/);
+});
+
 test("run/node argument errors and node started", () => {
   const home = seedHome(), o = orch(home);
   expect(o("run", "start").rc).toBe(2);

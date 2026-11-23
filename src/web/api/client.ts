@@ -101,12 +101,14 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/build/restart`, restartSchema);
   }
 
-  getRuns(etag: string | null) {
-    return this.request("GET", `${API_BASE}/runs`, runsSchema, { etag });
+  getRuns(etag: string | null, bypassCache = false) {
+    const suffix = bypassCache ? "?cache=skip" : "";
+    return this.request("GET", `${API_BASE}/runs${suffix}`, runsSchema, { etag });
   }
 
-  getRun(id: string, etag: string | null) {
-    return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(id)}`, runSchema, { etag });
+  getRun(id: string, etag: string | null, bypassCache = false) {
+    const suffix = bypassCache ? "?cache=skip" : "";
+    return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(id)}${suffix}`, runSchema, { etag });
   }
 
   stopRun(id: string): Promise<ApiResult<OkDto>> {
@@ -119,6 +121,11 @@ export class ApiClient {
 
   pauseRun(id: string): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/pause`, okSchema);
+  }
+
+  /** `run set <id> max_parallel`: the run's own cap, 1-30 or -1 (unlimited, still bounded by the global cap). */
+  setRunMaxParallel(id: string, value: number): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/max-parallel`, okSchema, { body: { value } });
   }
 
   cancelNode(runId: string, nodeId: string): Promise<ApiResult<OkDto>> {

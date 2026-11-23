@@ -20,7 +20,7 @@ test("stale and after-the-fact flags", () => {
 test("owner text names the kind of owner", () => {
   expect(ownerText({ ...base, owner: "ses_abc" })).toBe("agent ses_abc");
   expect(ownerText({ ...base, owner: "job-123" })).toBe("job job-123");
-  expect(ownerText({ ...base, owner: "coordinator" })).toBe("coordinator");
+  expect(ownerText({ ...base, owner: "coordinator" })).toBe("orchestrator");
   expect(ownerText(base)).toBeNull();
 });
 

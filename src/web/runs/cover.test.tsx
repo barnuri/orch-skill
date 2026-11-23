@@ -5,7 +5,7 @@ import type { RunSummary } from "../../shared/types/run-summary";
 import { DEFAULT_RUN_FILTERS, parseRunFilters } from "../lib/run-filters";
 import { RUN_STATUSES } from "../../shared/types/run-status";
 
-const counts = { waiting: 1, running: 0, done: 1, error: 0, skipped: 0 };
+const counts = { waiting: 1, running: 0, done: 1, error: 0, skipped: 0, "blocked-user": 0, covered: 0, stopped: 0 };
 const sum = (over: Partial<RunSummary>): RunSummary => ({ run_id: "old", title: "Old run", status: "covered", started: "2026-11-15T10:00:00Z", finished: "2026-11-16T10:00:00Z", harness_session: "", counts, ...over });
 const newer = sum({ run_id: "new", title: "New run", status: "running", finished: null });
 

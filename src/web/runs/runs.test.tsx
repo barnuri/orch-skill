@@ -25,7 +25,7 @@ afterEach(() => {
 afterAll(uninstall);
 
 const iso = (msAgo: number): string => new Date(Date.now() - msAgo).toISOString();
-const counts = { waiting: 0, running: 1, done: 0, error: 0, skipped: 0 };
+const counts = { waiting: 0, running: 1, done: 0, error: 0, skipped: 0, "blocked-user": 0, covered: 0, stopped: 0 };
 const summary = (over: Partial<RunSummary>): RunSummary => ({ run_id: "r1", title: "T", status: "running", started: iso(5000), finished: null, harness_session: "", counts, ...over });
 
 function node(over: Partial<RunNode>): RunNode {
@@ -79,6 +79,13 @@ describe("run row", () => {
 });
 
 describe("node session transcript", () => {
+  test("ANSI chat text uses terminal spans instead of Markdown escapes", async () => {
+    const { ansiSegments } = await import("../lib/ansi");
+    const segments = ansiSegments("\u001b[31merror\u001b[0m plain");
+    expect(segments.map((segment) => segment.text).join("")).toBe("error plain");
+    expect(segments[0]?.style.base).toBe(1);
+  });
+
   test("follow pauses above the bottom and resumes at the bottom", async () => {
     const { isNearBottom, transcriptLines } = await import("./NodePanel");
     expect(isNearBottom(1000, 940, 100)).toBe(true);
@@ -86,6 +93,25 @@ describe("node session transcript", () => {
     const lines = Array.from({ length: 205 }, (_, index) => `line ${index + 1}`).join("\n");
     expect(transcriptLines(lines)).toHaveLength(200);
     expect(transcriptLines(lines)[0]).toBe("line 6");
+  });
+});
+
+describe("node terminal panel", () => {
+  test("shows the prompt, colored output, message box, and status line in order", async () => {
+    const n = node({ status: "waiting", job_id: null, log_tail: ["\u001b[32mgreen\u001b[0m output"], profile: "test-profile", actual_model: "test-model" });
+    render(<NodePanel run={runOf([n])} selectedId="n1" maxAttempts={5} flash={0} />);
+
+    const panel = document.querySelector(".node-terminal") as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector(".node-terminal-prompt")?.textContent).toBe("$ node");
+    expect(panel.querySelector(".node-output .ansi-fg-2")?.textContent).toBe("green");
+
+    const messages = panel.querySelector(".node-messages") as HTMLElement | null;
+    const status = panel.querySelector(".node-statusline") as HTMLElement | null;
+    expect(messages).toBeTruthy();
+    expect(status).toBeTruthy();
+    expect(messages !== null && status !== null && (messages.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+    expect(status?.getAttribute("aria-label")).toBe("Node status line");
   });
 });
 

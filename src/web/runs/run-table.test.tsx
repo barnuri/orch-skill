@@ -7,6 +7,7 @@ const { render, screen, cleanup, fireEvent } = await import("@testing-library/re
 const { EMPTY_FILTER, matchesFilter, hashWithFilter, parseFilter } = await import("./run-filter");
 const T = await import("../lib/run-table");
 const { RunTable, ViewSwitch } = await import("./RunTable");
+const { ToastProvider } = await import("../components/Toast");
 
 afterEach(cleanup);
 afterAll(uninstall);
@@ -42,7 +43,7 @@ describe("run table", () => {
       const sorted = T.sortRows(rows, { key: "id", dir });
       expect(sorted[0]?.kind).toBe("main");
     }
-    expect(T.mainRow(run).waiting).toBe("2 pending asks");
+    expect(T.mainRow(run).waiting).toBe("2 pending orchestrator questions");
     expect(T.sortRows(rows, { key: "id", dir: "asc" }).slice(1).map((r) => r.id)).toEqual(["a", "b", "c"]);
     expect(T.sortRows(rows, { key: "ctx", dir: "desc" }).slice(1).map((r) => r.id)[0]).toBe("b");
     expect(T.mainStatus({ ...run, coordinator_state: { ...run.coordinator_state, reachable: false } })).toBe("unreachable");
@@ -67,7 +68,7 @@ describe("run table", () => {
   });
   test("ARIA grid, pinned row, click selects node, sort header", () => {
     const picked: string[] = [];
-    render(<RunTable run={run} filter={EMPTY_FILTER} harnessByProfile={{}} selectedId={null} onSelect={(id) => picked.push(id)} />);
+    render(<ToastProvider><RunTable run={run} filter={EMPTY_FILTER} harnessByProfile={{}} selectedId={null} onSelect={(id) => picked.push(id)} /></ToastProvider>);
     expect(screen.getByRole("grid")).toBeTruthy();
     const rows = screen.getAllByRole("row");
     expect(rows.length).toBe(5);
@@ -87,5 +88,21 @@ describe("run table", () => {
     expect(screen.getByText("Graph").getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByText("Table"));
     expect(seen).toEqual(["table"]);
+  });
+  test("rowWarnings: error, needs you, held, stale and unowned, most urgent first; none when clean", () => {
+    expect(T.rowWarnings(node({ id: "z", status: "done" }))).toEqual([]);
+    const all = T.rowWarnings(node({ id: "z", status: "error", error: "boom", needs_user: "pick a model", hold: "wait for stg" }));
+    expect(all.map((w) => w.key)).toEqual(["error", "needs", "hold"]);
+    expect(all[0]?.text).toBe("boom");
+    expect(all[1]?.text).toBe("needs you: pick a model");
+    const running = T.rowWarnings(node({ id: "y", status: "running", stale: true, owner: null, job_id: null }));
+    expect(running.map((w) => w.key)).toEqual(["stale", "unowned"]);
+  });
+  test("table warning cell shows the chips and a Retry action on an error node", () => {
+    const errRun = { ...run, nodes: [node({ id: "c", status: "error", error: "boom", needs_user: "pick" })] };
+    render(<ToastProvider><RunTable run={errRun} filter={EMPTY_FILTER} harnessByProfile={{}} selectedId={null} onSelect={() => undefined} /></ToastProvider>);
+    expect(screen.getAllByText("error").length).toBe(2);
+    expect(screen.getByText("needs you")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 });

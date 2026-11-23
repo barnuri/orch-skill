@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { orchHome } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
-import { loadProfilesDoc, maxParallelCapFrom } from "../state/settings.ts";
+import { loadProfilesDoc, maxParallelCapFrom, runCapFrom } from "../state/settings.ts";
 import { findNode } from "../runs/node.ts";
 import { nodeReady } from "./run.ts";
 import { nodeDispatchStored, nodeOutDir } from "./dispatch.ts";
@@ -15,7 +15,7 @@ import { resolveRun, nodeUpdate, nodeResult } from "./node.ts";
 import { runSync as runSyncCmd } from "./runs.ts";
 import { GATE_ID, formatFailures, verifyRun } from "./verify.ts";
 
-export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish]";
+export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish] [--stop-on blocked|error|timeout|all]";
 const ADVANCE_INTERVAL_DEFAULT = 15;
 
 const out = (s: string) => void process.stdout.write(s);
@@ -73,7 +73,7 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
     run = (await loadRun(home, runId))!;
   }
   const doc = await loadProfilesDoc(home);
-  let slots = maxParallelCapFrom(doc) - count(run, "running");
+  let slots = runCapFrom(maxParallelCapFrom(doc), run.max_parallel) - count(run, "running");
   const dispatched: string[] = [];
   const queued: string[] = [];
   const manual: string[] = [];
@@ -117,16 +117,21 @@ export async function runAdvance(args: string[]): Promise<number> {
   let interval = String(ADVANCE_INTERVAL_DEFAULT);
   let timeout = "0";
   let finish = true;
+  let stopOn = "all";
   for (let i = 1; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--until-done") untilDone = true;
     else if (a === "--interval") interval = args[++i] ?? "";
     else if (a === "--timeout") timeout = args[++i] ?? "";
     else if (a === "--no-finish") finish = false;
+    else if (a === "--stop-on") stopOn = args[++i] ?? "";
     else return (err(`run advance: unknown argument ${a}\n  usage: ${RUN_ADVANCE_USAGE}\n`), 2);
   }
   if (!/^[0-9]+$/.test(interval) || Number(interval) < 1 || !/^[0-9]+$/.test(timeout)) {
     return (err("run advance: --interval expects >= 1 and --timeout >= 0 seconds\n"), 2);
+  }
+  if (!["blocked", "error", "timeout", "all"].includes(stopOn)) {
+    return (err("run advance: --stop-on must be blocked, error, timeout, or all\n"), 2);
   }
   const home = orchHome();
   const runId = await resolveRun(home, runArg);
@@ -153,7 +158,13 @@ export async function runAdvance(args: string[]): Promise<number> {
       }
       return 0;
     }
-    if (rc === 3) return 3;
+    if (rc === 3) {
+      if (stopOn === "blocked" || stopOn === "all") return 3;
+      if (!untilDone) return 0;
+      await Bun.sleep(Number(interval) * 1000);
+      elapsed += Number(interval);
+      continue;
+    }
     if (!untilDone) return 0;
     if (Number(timeout) > 0 && elapsed >= Number(timeout)) {
       err(`advance: timed out after ${timeout}s (run still active)\n`);

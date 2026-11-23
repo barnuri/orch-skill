@@ -78,3 +78,62 @@ export async function runUncover(args: string[]): Promise<number> {
   if (rc === 0) process.stdout.write(`${to}: ${id}\n`);
   return rc;
 }
+
+export const NODE_REPLACE_USAGE = "dispatch.ts node replace <run-id> <node-id> [--run <new-run>]";
+
+/** Replaces a stuck node: a fresh node with the same goal, prompt, profile and model, and the old node marked covered. */
+export async function nodeReplace(args: string[]): Promise<number> {
+  if (args.length < 2 || (args[0] ?? "").startsWith("--") || (args[1] ?? "").startsWith("--")) return (errLine(`usage: ${NODE_REPLACE_USAGE}`), 2);
+  const runArg = args[0] ?? "";
+  const nodeId = args[1] ?? "";
+  let target = "";
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === "--run") target = args[++i] ?? "";
+    else return (errLine(`node replace: unknown argument ${args[i]}\n  usage: ${NODE_REPLACE_USAGE}`), 2);
+  }
+  const home = orchHome();
+  const oldId = await resolveRun(home, runArg);
+  if (!oldId) return 1;
+  const old = await loadRun(home, oldId);
+  if (!old) return (errLine(`run ${oldId}: unknown run`), 2);
+  const src = old.nodes.find((x) => x.id === nodeId);
+  if (!src) return (errLine(`node replace: node ${nodeId} is not in ${oldId}`), 2);
+  if (src.status === "covered") return (errLine(`node replace: ${nodeId} is already covered by ${src.covered_by ?? "?"}`), 2);
+  let newRun = oldId;
+  if (target !== "") {
+    const t = await resolveRun(home, target);
+    if (t === null) return 1;
+    newRun = t;
+  }
+  const dst = await loadRun(home, newRun);
+  if (!dst) return (errLine(`run ${newRun}: unknown run`), 2);
+  let newId = `${nodeId}-r2`;
+  for (let k = 2; dst.nodes.some((x) => x.id === newId); k++) newId = `${nodeId}-r${k + 1}`;
+  const fresh: Record<string, any> = {
+    ...structuredClone(src),
+    id: newId,
+    status: "waiting",
+    owner: null, owner_kind: null, owner_id: null, owner_state: null,
+    job_id: null, started: null, finished: null, error: null, result: null,
+    handoff_reason: null, result_reason: null, unverified: null, auto: null,
+    next_retry_at: null, log_tail: null, cost: null, attempts: [], covered_by: null, covered_at: null,
+    replaces: `${oldId}/${nodeId}`,
+  };
+  if (newRun === oldId) fresh.after = Array.isArray(src.after) ? src.after.filter((d: string) => d !== nodeId) : [];
+  else fresh.after = [];
+  await mutateRun(home, newRun, (r, ctx) => {
+    r.nodes.push(fresh as any);
+    ev(ctx, "note", newId, "", "", `replaces ${oldId}/${nodeId}`);
+  });
+  const rc = await mutateRun(home, oldId, (r, ctx) => {
+    const x = r.nodes.find((n) => n.id === nodeId);
+    if (!x) throw new OpError(`node replace: node ${nodeId} is not in ${oldId}`);
+    x.status = "covered";
+    x.covered_by = `${newRun}/${newId}`;
+    x.covered_at = ctx.now;
+    x.finished = x.finished ?? ctx.now;
+    ev(ctx, "status", nodeId, src.status, "covered", `by ${newRun}/${newId}`);
+  });
+  if (rc === 0) process.stdout.write(`covered: ${oldId}/${nodeId} by ${newRun}/${newId}\n`);
+  return rc;
+}

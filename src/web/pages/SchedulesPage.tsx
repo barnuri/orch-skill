@@ -28,6 +28,7 @@ import { fmtDur, rel, until } from "../lib/format";
 const fmtMs = (ms: number): string => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 import { useSessionState } from "../lib/session-state";
 import {
+  bulkTargets,
   CRON_PRESETS,
   CUSTOM_CRON,
   draftErrors,
@@ -43,7 +44,74 @@ import {
   soonestNext,
   visibleSchedules,
 } from "../lib/schedule-logic";
-import type { DraftErrors, ScheduleDraft, ScheduleFilter } from "../lib/schedule-logic";
+import type { BulkAction, DraftErrors, ScheduleDraft, ScheduleFilter } from "../lib/schedule-logic";
+
+interface BulkReport {
+  action: BulkAction;
+  total: number;
+  ok: number;
+  failed: { name: string; error: string }[];
+}
+
+const BULK_NOUN: Record<BulkAction, string> = { pause: "Pause", resume: "Resume" };
+const BULK_PAST: Record<BulkAction, string> = { pause: "paused", resume: "resumed" };
+const BULK_LIST_CAP: number = 5;
+
+function BulkBar({
+  counts,
+  running,
+  report,
+  onRun,
+}: {
+  counts: Record<BulkAction, number>;
+  running: BulkAction | null;
+  report: BulkReport | null;
+  onRun: (action: BulkAction) => void;
+}) {
+  const busy = running !== null;
+  const actions: BulkAction[] = ["pause", "resume"];
+  return (
+    <section className="sched-bulk" aria-label="Schedules in bulk">
+      <div className="sched-bulk-controls">
+        {actions.map((action) => (
+          <Button
+            key={action}
+            variant={action === "pause" ? "default" : "primary"}
+            disabled={busy || counts[action] === 0}
+            onClick={() => {
+              onRun(action);
+            }}
+          >
+            {running === action ? `${BULK_NOUN[action]}ing…` : `${BULK_NOUN[action]} all (${counts[action]})`}
+          </Button>
+        ))}
+        <span className="muted sched-bulk-hint">
+          {running !== null
+            ? `${BULK_NOUN[running]} in progress, one schedule at a time`
+            : `Pause all affects ${counts.pause} enabled, Resume all affects ${counts.resume} disabled`}
+        </span>
+      </div>
+      {report === null ? null : (
+        <div className={report.failed.length > 0 ? "notice" : "sched-bulk-done"} role={report.failed.length > 0 ? "alert" : "status"}>
+          <p>
+            {`${BULK_PAST[report.action][0]?.toUpperCase()}${BULK_PAST[report.action].slice(1)} ${report.ok} of ${report.total}.`}
+            {report.failed.length > 0 ? ` ${report.failed.length} failed; the others kept their new state.` : ""}
+          </p>
+          {report.failed.length === 0 ? null : (
+            <ul className="sched-bulk-failed">
+              {report.failed.slice(0, BULK_LIST_CAP).map((item) => (
+                <li key={item.name}>
+                  <span className="mono">{item.name}</span>: {item.error}
+                </li>
+              ))}
+              {report.failed.length > BULK_LIST_CAP ? <li className="muted">{`and ${report.failed.length - BULK_LIST_CAP} more`}</li> : null}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function StatusChip({ status }: { status: string | null }) {
   if (status === null) {
@@ -529,6 +597,8 @@ export function SchedulesPage() {
   const [logs, setLogs] = useState<ReadonlyMap<string, string>>(new Map());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [bulkRunning, setBulkRunning] = useState<BulkAction | null>(null);
+  const [bulkReport, setBulkReport] = useState<BulkReport | null>(null);
   const profilesDoc = asProfilesDocument(profiles.data?.document);
   const profileNames = profilesDoc === null ? [] : Object.keys(profilesDoc.profiles);
   const defaultProfile = profilesDoc?.settings.default_profile ?? "";
@@ -554,6 +624,41 @@ export function SchedulesPage() {
       return;
     }
     toast("ok", action === "run" ? `Started ${schedule.name}` : `${schedule.name} ${action}d`);
+    void invalidateSchedules();
+  };
+  const runBulk = async (action: BulkAction): Promise<void> => {
+    const targets = bulkTargets(list ?? [], action);
+    if (targets.length === 0) {
+      return;
+    }
+    if (action === "pause") {
+      const confirmed = await confirm({
+        title: `Pause ${targets.length} ${targets.length === 1 ? "schedule" : "schedules"}?`,
+        body: "Each one stops firing until you resume it. Runs already in progress keep going.",
+        confirmLabel: `Pause ${targets.length}`,
+        danger: false,
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+    setBulkRunning(action);
+    setBulkReport(null);
+    // One request at a time: each enable or disable rewrites that schedule's file, and a failure must not stop the rest.
+    const failed: { name: string; error: string }[] = [];
+    let ok = 0;
+    for (const schedule of targets) {
+      const result = await api.scheduleAction(schedule.id, action === "pause" ? "disable" : "enable");
+      if (result.kind === "ok") {
+        ok += 1;
+      } else {
+        failed.push({ name: schedule.name, error: result.kind === "error" ? (result.body?.error ?? `failed (${result.status})`) : describeFailure(result, "failed") });
+      }
+    }
+    setBulkRunning(null);
+    setBulkReport({ action, total: targets.length, ok, failed });
+    const past = `${BULK_PAST[action][0]?.toUpperCase()}${BULK_PAST[action].slice(1)}`;
+    toast(failed.length > 0 ? "error" : "ok", failed.length > 0 ? `${past} ${ok} of ${targets.length}, ${failed.length} failed` : `${past} ${ok} ${ok === 1 ? "schedule" : "schedules"}`);
     void invalidateSchedules();
   };
   const remove = async (schedule: Schedule): Promise<void> => {
@@ -609,6 +714,14 @@ export function SchedulesPage() {
           }}
         />
       ) : null}
+      {list === null ? null : (
+        <BulkBar
+          counts={{ pause: bulkTargets(list, "pause").length, resume: bulkTargets(list, "resume").length }}
+          running={bulkRunning}
+          report={bulkReport}
+          onRun={(action) => void runBulk(action)}
+        />
+      )}
       {list === null ? (
         query.error === null ? <Skeleton rows={3} /> : <div className="notice">{query.error.message}</div>
       ) : list.length === 0 ? (

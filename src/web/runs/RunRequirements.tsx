@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RequirementView } from "../../shared/types/run-requirements";
+import type { ProjectionRequirement } from "../../../skills/orch/core/runs/projection";
 
 /** localStorage key for the requirements panel open state. Absent means collapsed. */
 export const REQUIREMENTS_OPEN_KEY: string = "orch.run.requirements.open";
@@ -33,7 +33,7 @@ export function RequirementsPanel({
   requirements,
   onSelect,
 }: {
-  requirements: readonly RequirementView[];
+  requirements: readonly ProjectionRequirement[];
   onSelect?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<boolean>(readOpen);
@@ -60,7 +60,7 @@ export function RequirementsPanel({
       {expanded ? (
       <ul>
         {requirements.map((r) => (
-          <li key={r.id} data-status={r.status}>
+          <li key={r.id} data-status={r.status} className={`req-${TONE[r.status] ?? "err"}`}>
             <span
               className={`chip req-${TONE[r.status] ?? "err"}`}
               data-testid={`req-status-${r.id}`}

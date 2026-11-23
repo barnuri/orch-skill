@@ -2,12 +2,14 @@ import { useMemo, useState, type KeyboardEvent } from "react";
 import type { RunState } from "../../shared/types/run-state";
 import { Chip } from "../components/Chip";
 import { fmtTime, rel } from "../lib/format";
+import { resultLabel } from "../lib/node-flags";
 import { COLUMNS, DEFAULT_COLS, effectiveCols, fmtCost, fmtTok, mainRow, nodeRow, saveCols, sortRows, toCsv, toMarkdown, visibleNodes, type RunView, type RunWithCoordinator, type Sort, type TableRow } from "../lib/run-table";
 import { isFilterActive, type NodeFilter } from "./run-filter";
 import { ModelIcon } from "./ModelIcon";
 import { useNow } from "./use-now";
 import { viewStateFor } from "./GraphViewport";
 import { saveGraphHideDone } from "../lib/graph-prefs";
+import { RetryNodeButton } from "./NodePanel";
 
 /** Graph | Table switch. */
 export function ViewSwitch({ view, onChange }: { view: RunView; onChange: (view: RunView) => void }) {
@@ -31,22 +33,33 @@ function download(name: string, text: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function Cell({ row, col, nowMs }: { row: TableRow; col: string; nowMs: number }) {
+function Cell({ row, col, nowMs, runId }: { row: TableRow; col: string; nowMs: number; runId: string }) {
   switch (col) {
     case "status":
       return <Chip status={row.status} />;
+    case "warn":
+      return row.node === null || row.warnings.length === 0 ? <span className="muted">—</span> : (
+        <span className="rt-warn">
+          {row.warnings.map((w) => (
+            <Chip key={w.key} status={w.status} title={w.text}>
+              {w.key === "needs" ? "needs you" : w.key}
+            </Chip>
+          ))}
+          {row.node.status === "error" ? <RetryNodeButton runId={runId} node={row.node} /> : null}
+        </span>
+      );
     case "id":
       return (
         <>
           <span className="mono rt-id">{row.idText}</span>
-          {row.kind === "main" ? <span className="rt-badge">coordinator</span> : null}
+          {row.kind === "main" ? <span className="rt-badge">orchestrator</span> : null}
           <span className="rt-goal" title={row.node?.label ?? row.goal}>{row.goal}</span>
         </>
       );
     case "result":
       return row.verdict === "" ? <span className="muted">—</span> : (
         <>
-          <span className={`rt-verdict v-${row.verdict}`}>{row.verdict}</span> <span className="rt-sum" title={row.summary}>{row.summary}</span>
+          <span className={`rt-verdict v-${row.verdict}`} role="img" aria-label={resultLabel(row.verdict)}>{row.verdict}</span> <span className="rt-sum" title={row.summary}>{row.summary}</span>
         </>
       );
     case "model":
@@ -188,12 +201,13 @@ export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect }
                 className={`rt-row ${row.kind === "main" ? "rt-main" : ""}${selectedId === row.id ? " selected" : ""}`}
                 data-kind={row.kind}
                 data-node={row.kind === "node" ? row.id : undefined}
+                data-verdict={row.verdict === "" ? undefined : row.verdict}
                 onClick={() => row.kind === "node" && onSelect(row.id)}
                 onKeyDown={(e) => key(e, row)}
               >
                 {shown.map((c) => (
                   <td key={c.key} role="gridcell">
-                    <Cell row={row} col={c.key} nowMs={nowMs} />
+                    <Cell row={row} col={c.key} nowMs={nowMs} runId={run.run_id} />
                   </td>
                 ))}
               </tr>

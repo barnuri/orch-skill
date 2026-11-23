@@ -11,7 +11,7 @@ const SCAN_ROOTS = [import.meta.dir, join(import.meta.dir, "../snapshot")];
 const TOKEN_FILE = join(import.meta.dir, "../snapshot/tokens.css");
 
 /** A selector may paint red only when it names an error, failure or invalid state. `.notice` is the error alert (`.notice.warn` and `.notice.info` are not red). */
-const ALLOWED_SELECTOR = /error|fail|invalid|problem|dead|down|offline|\berr\b|\bnotice\b|\bis-bad\b|needs-attention|\bis-er\b|dialog|\.confirm\b/;
+const ALLOWED_SELECTOR = /error|fail|invalid|problem|dead|down|offline|\berr\b|\bnotice\b|\bis-bad\b|needs-attention|\bis-er\b|dialog|\.confirm\b|blocked/;
 
 const RED_TOKEN = /--(status-error|er|erbg|erbd)(?![\w-])/;
 

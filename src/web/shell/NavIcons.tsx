@@ -28,6 +28,20 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   "#/suggestions": <path d="M12 3a6 6 0 0 0-3 11v3h6v-3a6 6 0 0 0-3-11zM10 20h4" />,
+  "#/how": (
+    <>
+      <circle cx="5" cy="6" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <circle cx="12" cy="18" r="2" />
+      <path d="M7 6h10M6.4 7.6 10.6 16.4M17.6 7.6 13.4 16.4" />
+    </>
+  ),
+  "#/feedback": (
+    <>
+      <rect x="6" y="4" width="12" height="17" rx="2" />
+      <path d="M9 3h6v3H9zM9.5 13l2 2 3.5-4" />
+    </>
+  ),
 };
 
 export function NavIcon({ href }: { href: string }) {

@@ -1,5 +1,5 @@
-// Coordinator state shown on the run page. Pure types: this file must stay free of Node and Bun imports.
-export interface CoordinatorCandidate {
+// Orchestrator state shown on the run page. Legacy coordinator exports remain aliases.
+export interface OrchestratorCandidate {
   transport?: "herdr" | "hc";
   socket_path: string;
   pane_id: string;
@@ -9,7 +9,7 @@ export interface CoordinatorCandidate {
   agent: string;
 }
 
-export interface CoordinatorState {
+export interface OrchestratorState {
   transport?: "herdr" | "hc";
   pane_id: string;
   reachable: boolean;
@@ -17,5 +17,8 @@ export interface CoordinatorState {
   unreachable_reason: string | null;
   pending_asks: number;
   last_repoint: { at: string; from: string; to: string; reason: string } | null;
-  candidates: CoordinatorCandidate[];
+  candidates: OrchestratorCandidate[];
 }
+
+export type CoordinatorCandidate = OrchestratorCandidate;
+export type CoordinatorState = OrchestratorState;

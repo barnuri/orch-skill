@@ -14,6 +14,7 @@ import {
 } from "./dag-layout";
 import type { DagLayout } from "./dag-layout";
 import { harnessMarkGroup } from "./harness-mark";
+import { paletteClass } from "../../../shared/status-palette";
 import { modelPick } from "./model-pick";
 import { cardUsageMetric, durationMetric, modelMetric, roleTierMetric, waitReason, waitingOnDeps } from "./node-metrics";
 import type { Metric } from "./node-metrics";
@@ -142,7 +143,7 @@ function orchNodeGroup(run: RunState, pos: Point): SVGElement {
     class: `graph-orch orch-root ${run.status}`,
     transform: `translate(${pos.x} ${pos.y})`,
     role: "img",
-    "aria-label": `orch coordinator, run ${run.status}`,
+    "aria-label": `orch orchestrator, run ${run.status}`,
   });
   group.appendChild(
     svgEl("rect", {
@@ -156,7 +157,7 @@ function orchNodeGroup(run: RunState, pos: Point): SVGElement {
   group.appendChild(
     svgText({ class: "orch-title", x: String(ORCH_NODE_W / 2), y: String(ORCH_NODE_H - 10), "text-anchor": "middle" }, "orch"),
   );
-  const session = run.harness_session !== "" ? truncate(run.harness_session, 14) : "coordinator";
+  const session = run.harness_session !== "" ? truncate(run.harness_session, 14) : "orchestrator";
   group.appendChild(
     svgText({ class: "orch-sub", x: String(ORCH_NODE_W / 2), y: String(ORCH_NODE_H - 24), "text-anchor": "middle" }, session),
   );
@@ -307,7 +308,7 @@ function nodeGroup(
   const verdict = resultChip(node);
   if (verdict !== null) {
     const chip = svgEl("g", {
-      class: `result-chip result-${verdict.verdict}`,
+      class: `result-chip result-${verdict.verdict} ${paletteClass(verdict.verdict)}`.trim(),
       transform: `translate(${META_RIGHT_X - 60} ${STATUS_Y - 11})`,
       "data-result": verdict.verdict,
     });

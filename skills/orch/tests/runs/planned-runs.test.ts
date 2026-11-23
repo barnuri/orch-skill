@@ -61,7 +61,10 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   const running = sync.split("\n").filter((l) => l.endsWith("\trunning")).length;
   expect(sync).toMatch(new RegExp(`^slots: ${2 - running}$`, "m"));
   // The echo-hub nodes write no handoff; the run gate (run verify) needs one per done node.
-  for (const id of ["plan", "a", "b", "c", "merge"]) handoff(home, "plan-1", id);
+  for (const id of ["plan", "a", "b", "c", "merge"]) {
+    handoff(home, "plan-1", id);
+    o("node", "result", "plan-1", id, "--verdict", "full", "--summary", "ok", "--follow-up", "none");
+  }
   o("node", "update", "plan-1", "plan", "done"); // re-check: clears unverified now that the handoff exists
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--interval", "1", "--timeout", "60");
   expect(r.rc).toBe(0);

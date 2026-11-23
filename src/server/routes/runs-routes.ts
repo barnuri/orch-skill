@@ -14,7 +14,7 @@ import { OwnerActivityReader, homeSpawner } from "../runs/owner-activity";
 import { readEvents } from "../runs/run-events-reader";
 import { readRunMessages } from "../runs/run-messages-reader";
 import { coordinatorState } from "../runs/coordinator-state";
-import { readRun, listRuns } from "../runs/runs-reader";
+import { readRunCached, listRunsCached } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
 import type { ServerContext } from "../types/server-context";
 
@@ -29,12 +29,14 @@ function payloadEtag(payload: unknown): string {
 
 export function listRunsHandler(ctx: ServerContext): RouteHandler {
   return (req: Request): Response => {
-    const runs = listRuns(ctx.paths);
+    const bypass = new URL(req.url).searchParams.get("cache") === "skip";
+    const result = listRunsCached(ctx.paths, bypass);
+    const runs = result.runs;
+    const body: RunsEnvelope = { generated_at: new Date().toISOString(), runs, cache: result.cache };
     const etag = payloadEtag(runs);
     if (req.headers.get(IF_NONE_MATCH) === etag) {
       return notModified(etag);
     }
-    const body: RunsEnvelope = { generated_at: new Date().toISOString(), runs };
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
   };
 }
@@ -42,7 +44,9 @@ export function listRunsHandler(ctx: ServerContext): RouteHandler {
 // `params.id` arrives percent-decoded from Bun; `readRun` rejects anything outside the id alphabet.
 export function readRunHandler(ctx: ServerContext): RouteHandler {
   return (req: Request, params: Readonly<Record<string, string>>): Response => {
-    const result = readRun(ctx.paths, params.id ?? "");
+    const bypass = new URL(req.url).searchParams.get("cache") === "skip";
+    const cached = readRunCached(ctx.paths, params.id ?? "", bypass);
+    const result = cached.result;
     if (result.kind === "missing") {
       return notFound();
     }
@@ -50,13 +54,13 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
       const error: ApiError = { error: CORRUPT_STATE };
       return jsonResponse(500, error);
     }
-    const coordinator = coordinatorState(ctx.paths.runs, result.run as unknown as Record<string, unknown>);
-    const run = coordinator === null ? result.run : { ...result.run, coordinator_state: coordinator };
+    const orchestrator = coordinatorState(ctx.paths.runs, result.run as unknown as Record<string, unknown>);
+    const run = orchestrator === null ? result.run : { ...result.run, orchestrator_state: orchestrator, coordinator_state: orchestrator };
     const etag = payloadEtag(run);
     if (req.headers.get(IF_NONE_MATCH) === etag) {
       return notModified(etag);
     }
-    const body: RunEnvelope = { generated_at: new Date().toISOString(), run };
+    const body: RunEnvelope = { generated_at: new Date().toISOString(), run, cache: cached.cache };
     return jsonResponse(200, body, { [ETAG_HEADER]: etag });
   };
 }
@@ -115,6 +119,11 @@ export function cancelNodeHandler(ctx: ServerContext): RouteHandler {
     }
     return dispatchSubcommand(ctx, ["node", "cancel", runId, nodeId]);
   };
+}
+
+/** Sets the run's own parallel cap: `run set <id> max_parallel <n|-1>`. The global cap still bounds it. */
+export function setMaxParallelRun(ctx: ServerContext, runId: string, value: number): Promise<Response> {
+  return dispatchSubcommand(ctx, ["run", "set", runId, "max_parallel", String(value)]);
 }
 
 /** The user picks the coordinator pane: `run repoint <id> <socket> <pane>` (the pane must be a candidate). */

@@ -8,7 +8,8 @@ export type Route =
   | { kind: "schedules" }
   | { kind: "memory" }
   | { kind: "suggestions" }
-  | { kind: "feedback" };
+  | { kind: "feedback" }
+  | { kind: "how" };
 
 export type RouteKind = Route["kind"];
 
@@ -24,6 +25,7 @@ const SECTION_HASHES: Readonly<Record<string, Route>> = {
   "#/memory": { kind: "memory" },
   "#/suggestions": { kind: "suggestions" },
   "#/feedback": { kind: "feedback" },
+  "#/how": { kind: "how" },
 };
 
 // The hash is user-controlled: a malformed escape must fall back to the list, not throw.
@@ -102,6 +104,7 @@ export const SECTION_HREF: Readonly<Record<RouteKind, string>> = {
   memory: "#/memory",
   suggestions: "#/suggestions",
   feedback: "#/feedback",
+  how: "#/how",
 };
 
 export const NAV_LINKS: readonly { href: string; label: string }[] = [
@@ -113,6 +116,7 @@ export const NAV_LINKS: readonly { href: string; label: string }[] = [
   { href: "#/memory", label: "Memory" },
   { href: "#/suggestions", label: "Suggestions" },
   { href: "#/feedback", label: "Feedback" },
+  { href: "#/how", label: "How orch works" },
 ];
 
 /** The hash of the start page for a new chat, optionally in a project or a folder. Nothing is created until the first message is sent. */

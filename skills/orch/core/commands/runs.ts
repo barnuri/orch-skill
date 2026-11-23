@@ -10,7 +10,7 @@ import { loadRun, type RunState } from "../state/store.ts";
 import { acquireLock } from "../state/lock.ts";
 import { jobStatus, pidAlive } from "../state/proc.ts";
 import { activityRows, staleMinutes, staleNodes } from "../state/timing.ts";
-import { loadProfilesDoc, maxParallelCap, settingFrom } from "../state/settings.ts";
+import { loadProfilesDoc, runCap, settingFrom } from "../state/settings.ts";
 import { trashPath } from "../state/trash.ts";
 import { ev, findNode, setStatus, doneVerify, nextRetryAt, ID_PATTERN } from "../runs/node.ts";
 import { closeJobTab, hcJobTail, jobGoneNote } from "../adapters/herdr.ts";
@@ -22,6 +22,7 @@ import { retryDispatch, profileRequire } from "./dispatch.ts";
 import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
 import { loopCommands } from "./loops.ts";
 import { captured } from "../io.ts";
+import { addFeedback, readFeedback } from "../feedback.ts";
 
 const RUN_STATUSES = ["done", "error", "cancelled"];
 const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>] [--description "<text>"]';
@@ -39,6 +40,35 @@ function jobFile(jobDir: string, name: string): string {
   } catch {
     return "";
   }
+}
+
+function recordMissingHandoffFeedback(home: string, runId: string, nodeId: string): void {
+  const signature = `missing-handoff:${runId}:${nodeId}`;
+  const existing = readFeedback(home).some((item) => item.text.includes(signature) && item.status !== "wontfix");
+  if (existing) return;
+  addFeedback(home, {
+    text: `Automatic orch repair: agent exited successfully without handoff.md (${signature}). Strengthen the shared node rules and prompt wrapper so every node writes handoff.md and records a result before exit.`,
+    source: "cli",
+    kind: "bug",
+    run_id: runId,
+    node_id: nodeId,
+  }, nowIso());
+}
+
+function transcriptHandoff(jobDir: string): string {
+  const log = join(jobDir, "log.plain");
+  const fallback = join(jobDir, "log");
+  let text = "";
+  try {
+    text = readFileSync(existsSync(log) ? log : fallback, "utf8");
+  } catch {
+    return "";
+  }
+  const clean = text.replace(/\r/g, "").trim();
+  if (clean.length === 0) return "";
+  const lines = clean.split("\n");
+  const bounded = lines.slice(-120).join("\n");
+  return `# Generated handoff from job output\n\nThe agent exited successfully without writing handoff.md. This handoff was generated from the final job transcript. Review it before accepting the node result.\n\n\x60\x60\x60text\n${bounded}\n\x60\x60\x60\n`;
 }
 
 function commitLogHandoff(jobDir: string): string {
@@ -191,7 +221,7 @@ export async function runRetry(args: string[]): Promise<number> {
   const run = await loadRun(home, runId);
   if (!run) return (errLine(`run ${runId}: unknown run`), 2);
   if (override && !(await profileRequire(home, override))) return 2;
-  let slots = (await maxParallelCap(home)) - run.nodes.filter((n) => n.status === "running").length;
+  let slots = (await runCap(home, run.max_parallel)) - run.nodes.filter((n) => n.status === "running").length;
   const retried: string[] = [];
   const queued: string[] = [];
   for (const id of run.nodes.filter((n) => n.status === "error").map((n) => n.id as string)) {
@@ -296,17 +326,21 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
     } else if (st === "done exit=0" || COMMIT_END_EXIT_CODES.has(st.replace(/^done exit=/, ""))) {
       const exitCode = st.replace(/^done exit=/, "");
       const commitHandoff = exitCode === "0" ? "" : commitLogHandoff(jobDir);
-      if (commitHandoff !== "") {
+      const generatedHandoff = exitCode === "0" ? transcriptHandoff(jobDir) : "";
+      if (commitHandoff !== "" || generatedHandoff !== "") {
         const outDir = await Bun.file(join(jobDir, "node")).text().then((v) => {
           const [runOut, nodeOut] = v.trim().split("/");
           return paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
         }).catch(() => paths.runOutDir(home, runId, node));
         mkdirSync(outDir, { recursive: true });
         const handoffFile = join(outDir, "handoff.md");
-        if (!existsSync(handoffFile)) writeFileSync(handoffFile, commitHandoff);
+        if (!existsSync(handoffFile) || Bun.file(handoffFile).size === 0) {
+          writeFileSync(handoffFile, commitHandoff || generatedHandoff);
+          if (generatedHandoff !== "") recordMissingHandoffFeedback(home, runId, node);
+        }
       }
       // A handoff the job wrote itself counts too: the stop signal can come after the work is done.
-      const ownHandoff = commitHandoff === "" && (await Bun.file(join(jobDir, "node")).text().then((v) => {
+      const ownHandoff = (commitHandoff === "" && generatedHandoff === "" || commitHandoff !== "" || generatedHandoff !== "") && (await Bun.file(join(jobDir, "node")).text().then((v) => {
         const [runOut, nodeOut] = v.trim().split("/");
         const dir = paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
         return existsSync(join(dir, "handoff.md")) && Bun.file(join(dir, "handoff.md")).size > 0;
@@ -360,11 +394,11 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
   const now = Math.floor(Date.now() / 1000);
   const stale = staleNodes(await activityRows(home, runId, run), await staleMinutes(home), now).join(",");
   const running = run.nodes.filter((n) => n.status === "running");
-  const max = await maxParallelCap(home);
+  const cap = await runCap(home, run.max_parallel);
   lines.push(
     "ready: " + run.nodes.filter((n) => n.status === "waiting" && nodeReady(run, n)).map((n) => n.id).join(","),
     `running: ${running.length}`,
-    `slots: ${Math.max(0, max - running.length)}`,
+    `slots: ${Number.isFinite(cap) ? Math.max(0, cap - running.length) : "unlimited"}`,
   );
   if (stale) lines.push("stale: " + stale);
   const stalled = running.filter((n) => n.stalled === true).map((n) => n.id);
@@ -394,8 +428,7 @@ async function autoRetryErrors(home: string, runId: string): Promise<number> {
   }
   const max = Number(maxRaw);
   if (!(max === -1 || max > 1)) return 0;
-  let slots = (await maxParallelCap(home)) - run.nodes.filter((n) => n.status === "running").length;
-  if (slots <= 0) return 0;
+  let slots = (await runCap(home, run.max_parallel)) - run.nodes.filter((n) => n.status === "running").length;
   const unscheduled = run.nodes.filter((n) => n.status === "error" && (n.prompt ?? "") !== "" && (n.next_retry_at ?? "") === "").map((n) => String(n.id));
   if (unscheduled.length) {
     await mutateRun(home, runId, (r, ctx) => {

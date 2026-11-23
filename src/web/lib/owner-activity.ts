@@ -25,7 +25,7 @@ export interface ActivityLine {
 }
 
 export const AGENT_SESSION_EMPTY = "This node's owner is an agent session. Its activity is read from the session, not from a job log.";
-export const INLINE_EMPTY = "Done inline by the coordinator: no job log. See notes below";
+export const INLINE_EMPTY = "Done inline by the orchestrator: no job log. See notes below";
 
 /** Every part becomes one `time  kind  text` line, oldest first. */
 export function activityLines(body: ActivityEnvelope): ActivityLine[] {

@@ -10,7 +10,7 @@ import { findNode } from "../runs/node.ts";
 
 export const RUN_WATCH_USAGE = "dispatch.ts run watch <run-id> [--json] [--stall-min N]";
 const MAX_CRASHES = 5;
-// Keep the run green without the coordinator: retry errored nodes (within max_attempts) and nudge idle ones.
+// Keep the run green without the orchestrator: retry errored nodes (within max_attempts) and nudge idle ones.
 const RETRY_GAP_MS = 60_000;
 const MAX_AUTO_ATTEMPTS = 5;
 const retriedAt: Record<string, number> = {};
@@ -55,7 +55,8 @@ async function keepGreen(home: string, runId: string, pass: string[]): Promise<v
     const key = `${runId}/${id}`;
     if (Date.now() - (retriedAt[key] ?? 0) < RETRY_GAP_MS) continue;
     retriedAt[key] = Date.now();
-    const attempts = Array.isArray((node as { attempts?: unknown[] }).attempts) ? (node as { attempts: unknown[] }).attempts.length : 0;
+    const attemptList = (node as unknown as { attempts?: unknown }).attempts;
+    const attempts = Array.isArray(attemptList) ? attemptList.length : 0;
     // Attempts used up: replace the node with a fresh one (same goal, prompt, profile) and mark this one covered.
     const verb = attempts >= MAX_AUTO_ATTEMPTS ? ["node", "replace", runId, id] : ["node", "retry", runId, id];
     const p = Bun.spawn([process.execPath, BIN_ORCH, ...verb], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });

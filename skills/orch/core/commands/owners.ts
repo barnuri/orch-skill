@@ -11,6 +11,7 @@ import { runLimited } from "../state/proc.ts";
 import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
+import { addFeedback, readFeedback } from "../feedback.ts";
 import { applyReport, ensureResult, ev, findNode, ownerParse, parseReportArgs, setStatus, SMART_AUTO_TIERS, type Ctx } from "../runs/node.ts";
 import { loadEnvFile, nodeSelectionsText } from "./selections.ts";
 import { mutateRun, resolveRun } from "./node.ts";
@@ -352,12 +353,15 @@ export function applyOwnerState(run: RunState, ctx: Ctx, node: string, state: st
     case "alive":
       n.updated = now;
       n.owner_state = "alive";
+      n.owner_reason = null;
       n.owner_checked = now;
       n.owner_idle_since = null;
       if (n.stalled === true) { n.stalled = null; n.stalled_reason = null; }
       return;
     default:
+      // unknown: the probe could not read the owner. The reason is always recorded, so the UI shows it.
       n.owner_state = "unknown";
+      n.owner_reason = note !== "" ? note : `owner ${id} state could not be read`;
       n.owner_checked = now;
   }
 }
@@ -449,6 +453,15 @@ function markUnbound(run: RunState, ctx: Ctx, node: string, reason: string): voi
 
 const running = (run: RunState): Node[] => run.nodes.filter((n) => n.status === "running");
 
+// owner_feedback: one feedback item per run and node. The first reason is kept, so a reason that changes
+// between polls (listing failed, then no session found) adds nothing. Any status counts, so a closed item is not re-added.
+export function ownerFeedback(home: string, runId: string, node: string, reason: string, nowIso: string): boolean {
+  const text = `Owner unbound on run ${runId} node ${node}: ${reason}`;
+  if (readFeedback(home).some((f) => f.run_id === runId && f.node_id === node)) return false;
+  addFeedback(home, { text, source: "cli", kind: "bug", run_id: runId, node_id: node }, nowIso);
+  return true;
+}
+
 // A running node whose owner text names other nodes of the run is an umbrella.
 async function umbrellaRun(home: string, runId: string): Promise<string[]> {
   const run = await loadRun(home, runId);
@@ -537,7 +550,7 @@ async function jobBindRun(home: string, runId: string): Promise<string[]> {
 }
 
 // A session id shorter than a full one is a prefix: bind the one session it names.
-async function prefixRun(home: string, runId: string, ix: Sess[]): Promise<string[]> {
+async function prefixRun(home: string, runId: string, ix: Sess[], feedback: { node: string; reason: string }[]): Promise<string[]> {
   const run = await loadRun(home, runId);
   if (!run) return [];
   const ops: Op[] = [];
@@ -562,6 +575,7 @@ async function prefixRun(home: string, runId: string, ix: Sess[]): Promise<strin
           emit(ctx, BINDER, "owner", node, "", "unbound", `session id prefix ${p} is ambiguous`);
         }));
       }
+      feedback.push({ node, reason });
       lines.push(`${node}\tunbound: prefix ${p} is ambiguous`);
     } else {
       ops.push((r, ctx) => bindApply(r, ctx, node, "session", m[0]!, "prefix"));
@@ -603,7 +617,9 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
   }
   await commit(home, runId, literalOps);
   const ix = sessionIndex();
-  out.push(...(await prefixRun(home, runId, ix)));
+  const prefixFeedback: { node: string; reason: string }[] = [];
+  out.push(...(await prefixRun(home, runId, ix, prefixFeedback)));
+  for (const f of prefixFeedback) ownerFeedback(home, runId, f.node, f.reason, nowIso());
   if (need.length === 0) return out;
 
   run = (await loadRun(home, runId))!;
@@ -620,6 +636,7 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
   let kidsOk = true;
   let idx: Cand[] | null = null;
   const ops: Op[] = [];
+  const feedback: { node: string; reason: string }[] = [];
   for (const node of need) {
     if (!throttleOk(home, `bind-${runId}-${node}`, bindSecs())) continue;
     let m = ownerBindMatch(nodesJson, node, pend, false);
@@ -676,14 +693,17 @@ export async function ownersBindRun(home: string, runId: string): Promise<string
           emit(ctx, BINDER, "owner", node, "", "unowned", "running without an owner");
         }));
       }
+      feedback.push({ node, reason: `running without an owner; ${why || "no session found"}` });
       out.push(`${node}\tunowned`);
     } else if (owner !== "") {
       const reason = `owner "${owner}" names no session id; ${why || "no session found"}`;
       ops.push((r, ctx) => markUnbound(r, ctx, node, reason));
+      feedback.push({ node, reason });
       out.push(`${node}\tunbound: ${why}`);
     }
   }
   await commit(home, runId, ops);
+  for (const f of feedback) ownerFeedback(home, runId, f.node, f.reason, nowIso());
   return out;
 }
 
@@ -1129,7 +1149,6 @@ export async function ownersVerifyRun(home: string, runId: string, apply: boolea
     let kind: string, id: string;
     if (text.startsWith("ses ")) { kind = "session"; id = text.slice(4); } else [kind, id] = ownerParse(text, paths.jobs(home));
     if (!["session", "process", "job"].includes(kind)) continue;
-    if (kind === "job" && id === (n.job_id ?? "")) continue;
     let state: string, note = "";
     const k = known.get(id);
     if (k) state = k;
@@ -1137,6 +1156,7 @@ export async function ownersVerifyRun(home: string, runId: string, apply: boolea
     if (state === "finished" && kind !== "job") state = "idle";
     const prev = n.owner_state ?? "";
     const node = n.id;
+    if (kind === "job" && id === (n.job_id ?? "") && n.owner_kind !== "job") continue;
     if (apply) {
       const now = nowIso();
       ops.push((r, ctx) => {

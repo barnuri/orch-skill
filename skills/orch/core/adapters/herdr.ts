@@ -12,7 +12,7 @@ import { acquireLock } from "../state/lock.ts";
 import { trashPath } from "../state/trash.ts";
 import { readJson, writeJsonAtomic } from "../state/store.ts";
 
-export const HERDR_USAGE = "dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]";
+export const HERDR_USAGE = "dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge] | herdr cleanup [--apply] [--limit N] [--json]";
 const NO_RUN_LABEL = "jobs";
 const PID_WAIT_SECS = 15;
 const PANE_CAP_DEFAULT = 20;
@@ -29,10 +29,10 @@ delivery = "off"
 
 const callTimeoutMs = () => Number(process.env.ORCH_HERDR_CALL_TIMEOUT || 8) * 1000;
 const startWaitSecs = () => Number(process.env.ORCH_HERDR_START_WAIT || 15);
-const herdrDir = (home: string) => join(home, "herdr");
+export const herdrDir = (home: string) => join(home, "herdr");
 const binPresent = () => Bun.which("herdr", { PATH: process.env.PATH ?? "" }) !== null;
 const readText = (f: string) => { try { return readFileSync(f, "utf8"); } catch { return ""; } };
-const readTrim = (f: string) => readText(f).trim();
+export const readTrim = (f: string) => readText(f).trim();
 const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 type Settings = Record<string, any>;
@@ -302,7 +302,7 @@ const lingerSec = async (home: string): Promise<number> => {
 
 const stoppedExitCode = (exitCode: number): boolean => [129, 130, 143].includes(exitCode);
 
-const ownerFile = (home: string, tab: string) => join(herdrDir(home), "tabs", `${tab.replace(/[^A-Za-z0-9._-]/g, "_")}.job`);
+export const ownerFile = (home: string, tab: string) => join(herdrDir(home), "tabs", `${tab.replace(/[^A-Za-z0-9._-]/g, "_")}.job`);
 
 // Closes the job's tab now when this job still owns it (cancelled or duplicate jobs). Best effort.
 export async function closeJobTab(home: string, jobDir: string): Promise<void> {
@@ -622,7 +622,7 @@ export async function startJob(home: string, jobDir: string, argv: string[]): Pr
   return true;
 }
 
-function jobRunning(jobDir: string): boolean {
+export function jobRunning(jobDir: string): boolean {
   const pid = Number(readTrim(join(jobDir, "pid")));
   if (pid && pidAlive(pid)) return true;
   if (existsSync(join(jobDir, "exit_code"))) return false;
@@ -743,6 +743,10 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
     case "serve-boot":
       if (await herdrEnabled(home)) await herdrOrch(home, "ensure");
       return 0;
+    case "cleanup": {
+      const { herdrCleanupCommand } = await import("./terminal-cleanup.ts");
+      return herdrCleanupCommand(home, args);
+    }
     case "cli": {
       const r = await herdrCli(home, args);
       process.stdout.write(r.stdout);
@@ -765,4 +769,4 @@ export async function herdrCommand(verb: string, args: string[], home: string = 
   return 0;
 }
 
-export const HERDR_VERBS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "close-ended", "job-gone-note", "serve-boot", "cli"];
+export const HERDR_VERBS = ["on", "off", "auto", "status", "attach", "ensure", "stop", "health", "sweep", "enabled", "start-job", "close-tab", "close-ended", "job-gone-note", "serve-boot", "cli", "cleanup"];

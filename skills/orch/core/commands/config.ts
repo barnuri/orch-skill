@@ -59,7 +59,7 @@ export async function settings(args: string[]): Promise<number> {
   if (key === "" || args.length < 3) return usage();
   let v: number | boolean;
   if (key === "defaults.max_parallel") {
-    if (!/^[0-9]+$/.test(value) || Number(value) < 1 || Number(value) > 32) return err("settings set: defaults.max_parallel must be an integer 1-32\n", 2);
+    if (value !== "-1" && (!/^[0-9]+$/.test(value) || Number(value) < 1 || Number(value) > 32)) return err("settings set: defaults.max_parallel must be -1 (unlimited) or an integer 1-32\n", 2);
     v = Number(value);
   } else if (key === "defaults.parallel_ok") {
     if (value !== "true" && value !== "false") return err("settings set: defaults.parallel_ok must be true or false\n", 2);

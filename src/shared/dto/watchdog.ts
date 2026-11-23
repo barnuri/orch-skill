@@ -40,7 +40,7 @@ export class WatchdogCountersDto extends ZodDto {
   @ZodField(z.number(), { description: "Done nodes re-queued for a missing handoff." })
   unverified!: number;
 
-  @ZodField(z.number(), { description: "CLI and source errors routed to the coordinator." })
+  @ZodField(z.number(), { description: "CLI and source errors routed to the orchestrator." })
   cli_source!: number;
 
   @ZodField(z.number(), { description: "Automatic retries." })

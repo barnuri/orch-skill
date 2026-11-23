@@ -3,6 +3,7 @@ import type { RunState } from "../../../shared/types/run-state";
 import { nodeUsage } from "../../../shared/run-usage";
 import { chip, el } from "../dom/el";
 import { fmtTokens, fmtUsd, rel } from "../dom/format";
+import { ownerStateLabel } from "./node-flags";
 
 /** Graph | Table view of the run page, kept like the other run UI prefs and in the hash query. */
 export type RunViewMode = "graph" | "table";
@@ -53,7 +54,7 @@ const COLS: Col[] = [
   { key: "tier", label: "Tier", value: (n) => n.tier ?? "" },
   { key: "profile", label: "Profile", value: (n) => n.profile ?? n.adapter ?? "" },
   { key: "model", label: "Model", value: (n) => n.actual_model ?? n.main_model ?? n.model ?? "" },
-  { key: "owner", label: "Owner", value: (n) => n.owner ?? "" },
+  { key: "owner", label: "Owner", value: (n) => [n.owner ?? "", ownerStateLabel(n)].filter((x) => x !== "").join(" · ") },
   { key: "waiting", label: "Waiting on / needs you", value: (n) => n.needs_user ?? n.hold ?? "" },
   { key: "started", label: "Started", value: (n) => ms(n.started_at ?? n.started) },
   { key: "activity", label: "Last activity", value: (n) => ms(n.last_activity ?? n.updated) },
@@ -120,7 +121,7 @@ export function renderRunTable(run: RunState, selectedId: string | null, onSelec
     const mainStatus = state !== null && state !== undefined && !state.reachable ? "unreachable" : run.status === "running" && run.paused !== true ? "running" : "idle";
     const main = el("tr", { role: "row", class: "rt-row rt-main", "data-kind": "main", tabindex: "0" }, [
       el("td", { role: "gridcell" }, [chip(mainStatus)]),
-      el("td", { role: "gridcell", colspan: String(COLS.length - 1), text: `coordinator · ${coordinator?.session_id ?? run.harness_session} · ${coordinator?.harness ?? "harness —"} · ${pending} pending ask${pending === 1 ? "" : "s"}` }),
+      el("td", { role: "gridcell", colspan: String(COLS.length - 1), text: `orchestrator · ${coordinator?.session_id ?? run.harness_session} · ${coordinator?.harness ?? "harness —"} · ${pending} pending orchestrator question${pending === 1 ? "" : "s"}` }),
     ]);
     const body = nodes.map((n, i) => {
       const tr = el("tr", { role: "row", class: `rt-row${selectedId === n.id ? " selected" : ""}`, "data-kind": "node", "data-node": n.id, tabindex: "0", "aria-rowindex": String(i + 3), "aria-selected": String(selectedId === n.id) },

@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import type { RunHealth } from "../../shared/types/run-health";
 import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
-import { actionsLog, EARLY_END_MESSAGE, isCliSourceError, isInfraError, WatchdogService } from "./watchdog-service";
+import { actionsLog, EARLY_END_MESSAGE, isCliSourceError, isInfraError, orchestratorAbsent, WatchdogService } from "./watchdog-service";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
@@ -27,7 +27,8 @@ type Node = Record<string, unknown> & { id: string; status: string };
 const T0 = Date.parse("2026-11-16T10:00:00Z");
 
 function stateOf(nodes: Node[], patch: Record<string, unknown> = {}, runId = "r1"): string {
-  return JSON.stringify({ run_id: runId, status: "running", auto_dispatch: false, nodes, edges: [], ...patch });
+  // A reachable orchestrator by default, so takeover (for an absent one) stays out of these rule tests.
+  return JSON.stringify({ run_id: runId, status: "running", auto_dispatch: false, nodes, edges: [], coordinator: { pane_id: "p0", unreachable: null }, ...patch });
 }
 
 interface Fixture {
@@ -83,6 +84,11 @@ function health(nodes: { id: string; health: RunHealth["nodes"][number]["health"
   };
 }
 
+test("an orchestrator session stays authoritative while its pane is temporarily unreachable", () => {
+  expect(orchestratorAbsent({ harness_session: "ses_current", coordinator: { session_id: "ses_current", unreachable: { reason: "gone" } } })).toBe(false);
+  expect(orchestratorAbsent({ harness_session: "ses_current", coordinator: { session_id: "ses_old", unreachable: { reason: "gone" } } })).toBe(true);
+});
+
 describe("watchdog", () => {
   test("flags clear once their cause is gone, even without a new state change", async () => {
     const f = fixture();
@@ -94,6 +100,16 @@ describe("watchdog", () => {
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:infra-retry"]);
     f.set([{ id: "a", status: "running", attempts: [{}] }]);
     expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("a node synced directly to ended-early error gets handoff recovery", async () => {
+    const f = fixture();
+    f.set([{ id: "a", status: "running", attempts: [] }]);
+    await f.tick();
+    f.set([{ id: "a", status: "error", error: "ended early without handoff", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toContain(`node retry r1 a --early-end ${EARLY_END_MESSAGE}`);
     f.home.dispose();
   });
 
@@ -348,6 +364,21 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
+  test("top rule: an unknown job process becomes one infra retry, not a test retry", async () => {
+    const f = fixture({ alive: false });
+    f.home.write("jobs/j1/pid", "999999\n");
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [] }]);
+    await f.tick();
+    f.clock.ms += 121_000;
+    await f.tick();
+    expect(f.actions()).toEqual(["node update r1 a error --error process died", "node retry r1 a"]);
+
+    f.set([{ id: "b", status: "error", error: "2 tests failed", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toEqual(["node update r1 a error --error process died", "node retry r1 a"]);
+    f.home.dispose();
+  });
+
   test("rule 4b: a CLI/source error is told to the coordinator, flagged cli-source, never retried", async () => {
     const f = fixture();
     const error = "ReferenceError: foo is not defined at skills/orch/core/usage.ts:12";
@@ -470,33 +501,33 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
-  test("rule 8: every sweep runs node bind-owners for a run with a running node, at most once per interval", async () => {
+  test("owner binding is owned by the reconciler, not every watchdog sweep", async () => {
     const f = fixture();
     const owners = (): string[] => (existsSync(f.home.resolve("fake-dispatch.owners")) ? readFileSync(f.home.resolve("fake-dispatch.owners"), "utf8").split("\n").filter((l) => l !== "") : []);
     f.set([{ id: "a", status: "running" }]);
     await f.tick();
     await f.tick();
-    expect(owners()).toEqual(["node bind-owners --run r1"]);
+    expect(owners()).toEqual([]);
     f.clock.ms += 30_000;
     await f.tick();
-    expect(owners()).toEqual(["node bind-owners --run r1", "node bind-owners --run r1"]);
+    expect(owners()).toEqual([]);
     expect(f.actions()).toEqual([]);
     expect(f.log()).toEqual([]);
     f.home.dispose();
   });
 
-  test("rule 8: a run with only old finished nodes is backfilled once, then left alone", async () => {
+  test("old finished nodes are backfilled by the reconciler, not watchdog sweeps", async () => {
     const f = fixture();
     const owners = (): string[] => (existsSync(f.home.resolve("fake-dispatch.owners")) ? readFileSync(f.home.resolve("fake-dispatch.owners"), "utf8").split("\n").filter((l) => l !== "") : []);
     f.set([{ id: "a", status: "done", updated: "2026-11-16T08:00:00Z" }, { id: "b", status: "pending" }]);
     await f.tick();
     f.clock.ms += 60_000;
     await f.tick();
-    expect(owners()).toEqual(["node bind-owners --run r1"]);
+    expect(owners()).toEqual([]);
     f.set([{ id: "a", status: "done", updated: new Date(f.clock.ms).toISOString() }, { id: "b", status: "pending" }]);
     f.clock.ms += 60_000;
     await f.tick();
-    expect(owners()).toEqual(["node bind-owners --run r1", "node bind-owners --run r1"]);
+    expect(owners()).toEqual([]);
     f.home.dispose();
   });
 

@@ -181,7 +181,7 @@ function appendReportRows(list: HTMLElement, node: RunNode): void {
   const tokens = [part(report.input_tokens, "in"), part(report.output_tokens, "out"), part(report.cache_read_tokens, "cache read")]
     .filter((text): text is string => text !== null)
     .join(" · ");
-  detailRow(list, "reported", `by the coordinator (${report.reported_by}) at ${fmtTime(report.at)}`);
+  detailRow(list, "reported", `by the orchestrator (${report.reported_by}) at ${fmtTime(report.at)}`);
   if (report.usd !== null) {
     detailRow(list, "report cost", fmtUsd(report.usd));
   }

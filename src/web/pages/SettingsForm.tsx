@@ -18,7 +18,7 @@ const NUMBER_FIELDS: readonly { key: NumberKey; label: string; max: number }[] =
   { key: "budget_threshold", label: "Budget threshold (%)", max: 100 },
 ];
 const PLANNING_FIELDS: readonly { key: NumberKey; label: string; max: number }[] = [
-  { key: "max_parallel", label: "Max parallel agents", max: 64 },
+  { key: "max_parallel", label: "Global max running nodes (-1 unlimited, default 30)", max: 32 },
   { key: "max_nodes", label: "Max planned tasks", max: 200 },
 ];
 
@@ -59,7 +59,7 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
   const [numbers, setNumbers] = useState<Record<NumberKey, string>>(() => ({
     retention_days: doc.settings.retention_days === undefined ? "" : String(doc.settings.retention_days),
     budget_threshold: doc.settings.budget_threshold === undefined ? "" : String(doc.settings.budget_threshold),
-    max_parallel: doc.settings.max_parallel === undefined ? "" : String(doc.settings.max_parallel),
+    max_parallel: String(doc.defaults?.max_parallel ?? doc.settings.max_parallel ?? 30),
     max_nodes: doc.settings.max_nodes === undefined ? "" : String(doc.settings.max_nodes),
   }));
   const [chat, setChat] = useState<ChatDraft>(() => chatDraftFrom(doc.settings));
@@ -74,7 +74,7 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
         <input
           id={id}
           type="number"
-          min={0}
+          min={key === "max_parallel" ? -1 : 0}
           max={max}
           step={1}
           aria-invalid={invalid || undefined}
@@ -107,9 +107,18 @@ export function SettingsForm({ doc, editor }: { doc: ProfilesDocument; editor: D
     const next: ProfilesSettings = { ...settings };
     applyChatDraft(next, chat, roots);
     for (const { key } of [...NUMBER_FIELDS, ...PLANNING_FIELDS]) {
-      applyNumber(next, key, numbers[key]);
+      if (key !== "max_parallel") applyNumber(next, key, numbers[key]);
     }
-    void editor.save({ ...doc, settings: next });
+    // The global cap lives in defaults.max_parallel: the effective cap reads it first.
+    delete next.max_parallel;
+    const defaults = { ...(doc.defaults ?? {}) };
+    const parallel = numbers.max_parallel.trim();
+    if (parallel === "") {
+      delete defaults.max_parallel;
+    } else {
+      defaults.max_parallel = Number(parallel);
+    }
+    void editor.save({ ...doc, settings: next, defaults });
   };
 
   return (

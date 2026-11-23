@@ -1,0 +1,152 @@
+/* How orch works: a static explainer. Swim lanes are a CSS grid (column = step, row = lane); below 760px the lanes stack into one list. Tokens only, no raw colours. */
+
+.how-page { display: grid; gap: var(--s4); min-width: 0; }
+.how-section { display: grid; gap: var(--s3); min-width: 0; }
+.how-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s4); }
+.how-section h2 { font-size: var(--fs-lg); font-weight: 600; color: var(--tx); margin: 0; }
+.how-note { margin: 0; font-size: var(--fs-meta); color: var(--tx2); line-height: var(--lh-body); max-width: 96ch; }
+
+.how-legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); list-style: none; margin: 0; padding: 0; }
+.how-legend li { display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--fs-micro); color: var(--tx2); }
+
+/* Swim lanes */
+.how-lanes {
+  --lane-label: 132px;
+  display: grid;
+  grid-template-columns: var(--lane-label) repeat(7, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  column-gap: var(--s3);
+  row-gap: var(--s2);
+  position: relative;
+  min-width: 0;
+  padding: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.how-band {
+  grid-column: 1 / -1;
+  grid-row: var(--r);
+  margin: calc(var(--s2) * -0.5) calc(var(--s2) * -1);
+  border-top: 1px solid var(--line);
+  background: var(--panel2);
+  z-index: 0;
+  pointer-events: none;
+  min-height: 100%;
+}
+.how-band:nth-child(even) { background: var(--panel); }
+.how-lane-label {
+  grid-column: 1;
+  grid-row: var(--r);
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--s2) 0;
+}
+.how-lane-name { font-size: var(--fs-ctl); font-weight: 600; color: var(--tx); overflow-wrap: anywhere; }
+.how-lane-who { font-size: var(--fs-micro); color: var(--tx3); line-height: var(--lh-body); overflow-wrap: anywhere; }
+
+.how-step {
+  grid-column: calc(var(--c) + 1);
+  grid-row: var(--r);
+  z-index: 1;
+  position: relative;
+  display: grid;
+  gap: var(--s1);
+  align-content: start;
+  min-width: 0;
+  padding: var(--s2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
+}
+.how-step:not(.is-last)::after {
+  content: "→";
+  position: absolute;
+  top: 50%;
+  right: calc(var(--s3) * -1);
+  transform: translate(50%, -50%);
+  font-size: var(--fs-ctl);
+  color: var(--tx3);
+  background: var(--panel);
+  line-height: 1;
+  z-index: 2;
+}
+.how-step-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s1); min-width: 0; }
+.how-step-head .how-lane-tag { display: none; }
+.how-step h3 { margin: 0; font-size: var(--fs-ctl); font-weight: 600; color: var(--tx); overflow-wrap: anywhere; }
+.how-step p { margin: 0; font-size: var(--fs-micro); color: var(--tx2); line-height: var(--lh-body); overflow-wrap: anywhere; }
+.how-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--acct);
+  background: var(--inset);
+  border-radius: var(--r-xs);
+  padding: 2px var(--s1);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  justify-self: start;
+}
+.how-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  color: var(--tx2);
+  letter-spacing: 0.02em;
+}
+
+/* Recovery flows */
+.how-recovery { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); min-width: 0; }
+.how-flow {
+  display: grid;
+  gap: var(--s2);
+  min-width: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+.how-flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; }
+.how-flow-head h3 { margin: 0; font-size: var(--fs-ctl); font-weight: 600; color: var(--tx); }
+.how-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s2);
+  min-width: 0;
+}
+.how-link {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  min-width: 0;
+  padding: var(--s2);
+  border-radius: var(--r-md);
+  background: var(--inset);
+  border-left: 2px solid var(--border-strong);
+}
+.how-link.how-act { border-left-color: var(--status-stale); }
+.how-link.how-end { border-left-color: var(--status-done); }
+.how-link-label { font-size: var(--fs-micro); font-weight: 600; color: var(--tx2); text-transform: uppercase; letter-spacing: 0.04em; }
+.how-link-text { font-size: var(--fs-micro); color: var(--tx1); line-height: var(--lh-body); overflow-wrap: anywhere; }
+
+.how-page a:focus-visible, .how-page button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Narrow screens: lanes become one ordered list, the lane name moves into each card */
+@media (max-width: 760px) {
+  .how-lanes { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); }
+  .how-band, .how-lane-label { display: none; }
+  .how-step { grid-column: auto; grid-row: auto; }
+  .how-step:not(.is-last)::after { content: none; }
+  .how-step-head .how-lane-tag { display: inline; font-size: var(--fs-micro); color: var(--tx3); }
+  .how-chain { grid-template-columns: minmax(0, 1fr); }
+  .how-section-head { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .how-page * { transition: none !important; animation: none !important; }
+}

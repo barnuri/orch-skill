@@ -21,7 +21,7 @@ export function Rail({ current, collapsed, onToggle }: { current: string; collap
       <nav className="rail-nav" aria-label="Sections">
         {NAV_LINKS.map((link) => {
           const item = (
-            <a key={link.href} href={link.href} title={link.label} aria-current={link.href === current ? "page" : undefined}>
+            <a key={link.href} href={link.href} title={link.label} aria-label={link.label} aria-current={link.href === current ? "page" : undefined}>
               <NavIcon href={link.href} />
               <span className="rail-label">{link.label}</span>
             </a>

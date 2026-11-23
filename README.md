@@ -145,7 +145,7 @@ carries when the server is bound to `0.0.0.0`. Trash that file and restart to ro
 **Stop a run.** A running run's page has a **Stop run** button. After you confirm, it does the
 same as `dispatch.ts run stop <run-id>`: running jobs get `SIGTERM`, running nodes become errors
 with the message `cancelled`, orch skips the waiting nodes, and the run status becomes `cancelled`.
-Automatic retries do not touch a cancelled run. Use it also to close a run whose coordinator
+Automatic retries do not touch a cancelled run. Use it also to close a run whose orchestrator
 stopped and left it on `running`.
 
 The shell has a left rail (runs, chats, profiles, harnesses, schedules, memory, suggestions).

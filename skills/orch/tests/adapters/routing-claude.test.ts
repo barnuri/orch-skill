@@ -65,6 +65,7 @@ test("adapter argv per profile", () => {
   const cur = run("--profile", "cursor-default", "x");
   expect(cur).toBe("-p x --output-format text --model composer-1"); expect(cur).not.toMatch(/--force/);
   expect(run("--profile", "opencode-default", "x")).toBe("run x --auto --standalone");
+  expect(run("opencode", "x", "--role", "validation", "--prompt", "ignored", "--tier", "efficiency", "--plan-backed")).toBe("run x --auto --standalone");
   const cop = run("--profile", "copilot-default", "x");
   expect(cop).toBe("-p x --silent --model auto --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot");
   expect(run("--profile", "copilot-planner", "x")).toBe("-p x --silent --model claude-opus-5.5 --context long_context --reasoning-effort xhigh --allow-all-tools --allow-all-paths --allow-all --yolo --no-ask-user --autopilot");

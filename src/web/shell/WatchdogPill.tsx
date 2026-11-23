@@ -5,6 +5,11 @@ export type WatchdogPillState = "off" | "ok" | "stalled" | "error";
 /** Rules whose flag means a node failed on infrastructure and the watchdog ran out of retries. Only these are red. */
 const ERROR_RULES: ReadonlySet<WatchdogFlag["rule"]> = new Set(["infra-retry", "lost"]);
 
+/** Visible name of a watchdog rule. The `coordinator` rule is stored and sent under its old name. */
+function ruleLabel(rule: WatchdogFlag["rule"]): string {
+  return rule === "coordinator" ? "orchestrator" : rule;
+}
+
 /**
  * Red only for a node in error the watchdog gave up on. Any other flag (stalled, unverified, info)
  * is amber. Off is grey, no flag is green.
@@ -23,7 +28,7 @@ export function watchdogPillState(status: WatchdogStatus): WatchdogPillState {
 export function describeAction(a: WatchdogAction): string {
   const where = a.node === null ? a.run : `${a.run}/${a.node}`;
   if (a.action === "flag") {
-    return `flagged ${where} ${a.rule}`;
+    return `flagged ${where} ${ruleLabel(a.rule)}`;
   }
   return `${a.action} ${where}`;
 }
@@ -39,7 +44,7 @@ export function WatchdogPill({ status }: { status: WatchdogStatus | null | undef
   const state = watchdogPillState(status);
   const last = status.last_actions[0];
   const lastText = last === undefined ? "no actions yet" : describeAction(last);
-  const flags = status.flags.map((f) => `${f.run}/${f.node} ${f.rule}: ${f.detail}`);
+  const flags = status.flags.map((f) => `${f.run}/${f.node} ${ruleLabel(f.rule)}: ${f.detail}`);
   const ghostText = status.ghosts > 0 ? `${status.ghosts} ghost runner${status.ghosts === 1 ? "" : "s"}` : "";
   const title = [
     `run watchdog: ${status.state}`,

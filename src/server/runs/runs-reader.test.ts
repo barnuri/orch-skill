@@ -114,7 +114,7 @@ describe("listRuns", () => {
         started: "2026-09-02T10:00:00Z",
         finished: null,
         harness_session: "sess-1",
-        counts: { waiting: 0, running: 0, done: 0, error: 0, skipped: 0 },
+        counts: { waiting: 0, running: 0, done: 0, error: 0, skipped: 0, "blocked-user": 0, covered: 0, stopped: 0 },
       },
       {
         run_id: "older",
@@ -123,7 +123,7 @@ describe("listRuns", () => {
         started: "2026-09-01T10:00:00Z",
         finished: null,
         harness_session: "sess-1",
-        counts: { waiting: 2, running: 1, done: 1, error: 1, skipped: 1 },
+        counts: { waiting: 2, running: 1, done: 1, error: 1, skipped: 1, "blocked-user": 0, covered: 0, stopped: 0 },
       },
     ];
     expect(runs).toEqual(expected);

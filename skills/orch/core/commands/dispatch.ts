@@ -71,6 +71,8 @@ export async function nodeLiveJob(home: string, runId: string, nodeId: string): 
     if ((await readTrim(join(paths.jobs(home), job, "node"))) !== `${runId}/${nodeId}`) continue;
     const pid = Number(await readTrim(join(paths.jobs(home), job, "pid")));
     if (!pid) continue;
+    const exitCode = await readTrim(join(paths.jobs(home), job, "exit_code"));
+    if (exitCode !== "") continue;
     try {
       process.kill(pid, 0);
       return job;
@@ -84,7 +86,7 @@ export async function nodeLiveJob(home: string, runId: string, nodeId: string): 
 async function inboxRulesBlock(run: RunState, runId: string, node: string): Promise<string> {
   const rules = ((run.rules ?? []) as any[]).map((r) => `- ${r.text}`).join("\n");
   let s = rules ? `## Run rules\n\n${rules}\n\n` : "";
-  s += `Messages: the coordinator can send you messages. Read them with \`dispatch.ts node inbox ${runId} ${node}\` between steps. Ask the coordinator with \`dispatch.ts node ask ${runId} ${node} "<question>"\`.\n`;
+  s += `Messages: the orchestrator can send you messages. Read them with \`dispatch.ts node inbox ${runId} ${node}\` between steps. Ask the orchestrator with \`dispatch.ts node ask ${runId} ${node} "<question>"\`.\n`;
   return s;
 }
 
@@ -342,7 +344,7 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
   if (earlyEnd && resumesSoFar >= MAX_EARLY_END_RESUMES && !force) {
     return fail(`node retry: ${nodeId} was already resumed ${resumesSoFar} times after an early end (max ${MAX_EARLY_END_RESUMES}); pass --force`);
   }
-  const prompt = String(n.prompt ?? "") || supplied;
+  const prompt = String(n.prompt ?? "");
   const doc = await loadProfilesDoc(home);
   const harnessOf = (p: string) => String(doc.profiles?.[p]?.harness ?? "");
   let profile = String(n.profile ?? "");
@@ -367,10 +369,11 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
   let mode = "";
   let resume = "";
   let dispatchPrompt = prompt;
-  if (!noDispatch && prompt && prevSession && target === oldAdapter && resumeOk(target, prevSession)) {
+  if (!noDispatch && (prompt || supplied) && prevSession && target === oldAdapter && resumeOk(target, prevSession)) {
     mode = "resumed";
     resume = prevSession;
-    dispatchPrompt = supplied || (earlyEnd ? EARLY_END_MESSAGE : "") || `The previous attempt stopped with: ${summary || "unknown error"}.\nContinue the same task from where you left off; check $ORCH_NODE_OUT for any partial handoff or notes from the previous attempt.\n`;
+    const continuation = supplied || (earlyEnd ? EARLY_END_MESSAGE : "") || `The previous attempt stopped with: ${summary || "unknown error"}.\nContinue the same task from where you left off; check $ORCH_NODE_OUT for any partial handoff or notes from the previous attempt.\n`;
+    dispatchPrompt = continuation;
   } else if (!noDispatch && prompt) {
     mode = "restarted";
     let original = prompt;
@@ -403,7 +406,7 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
     }
     if ((noDispatch || !prompt) && prompt) x.prompt = prompt;
   });
-  if (noDispatch || !prompt) return { rc: 0, jobId: "", out: `waiting: ${nodeId}\n` };
+  if (noDispatch || (!prompt && !supplied)) return { rc: 0, jobId: "", out: `waiting: ${nodeId}\n` };
   const target2 = targetArgs(override, profile, adapter);
   if (!target2) return fail(`node retry: ${nodeId} has no profile or adapter; pass --profile or an adapter`);
   const extra = ((n.dispatch_args ?? []) as string[]).filter((a) => a !== "");

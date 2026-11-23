@@ -26,6 +26,17 @@ function card(n: RunNode, waitingOn: string[] = []) {
   );
 }
 
+describe("NodeCard blocked-user badge", () => {
+  test("blocked-user: amber palette class on the card and the question shown as the wait reason", () => {
+    const { container, unmount } = card(node({ status: "blocked-user", needs_user: "Ship to prod?" } as Partial<RunNode>));
+    const el = container.querySelector("g.task-node");
+    expect(el?.getAttribute("class")).toContain("blocked-user");
+    expect(el?.getAttribute("class")).toContain("status-blocked-user");
+    expect(container.querySelector(".st")?.textContent).toContain("Ship to prod?");
+    unmount();
+  });
+});
+
 describe("NodeCard rows", () => {
   test("model, duration, usage and cost always show; role, tier and effort only when known", () => {
     const { container } = card(node());
@@ -52,7 +63,7 @@ describe("NodeCard rows", () => {
     const all = node({ needs_user: "pick a name", hold: "until load < 4" });
     expect(st(all, ["a", "b", "c"])).toEqual({ text: "waiting on a +2", title: "Waiting on: a, b, c" });
     expect(st(all)).toEqual({ text: "needs you: pick a name", title: "Needs you: pick a name" });
-    expect(st(node({ hold: "until load < 4" }))).toEqual({ text: "held: until load < 4", title: "Held by the coordinator: until load < 4" });
+    expect(st(node({ hold: "until load < 4" }))).toEqual({ text: "held: until load < 4", title: "Held by the orchestrator: until load < 4" });
     expect(st(node({ hold: "  " })).text).toBe("ready, not started");
     expect(st(node({ hold: "a very long reason that does not fit the card row" })).text).toBe("held: a very long reason …");
     expect(st(node({ status: "done", hold: "x" })).text).toBe("done · attempt 1/5");

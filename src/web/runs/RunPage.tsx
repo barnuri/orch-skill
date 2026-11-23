@@ -16,12 +16,14 @@ import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
 import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
 import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
-import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunRequirements, useWatchdog, type LiveState } from "./queries";
+import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunProjection, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
 import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
 import { CoordinatorBlock } from "./CoordinatorBlock";
 import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
 import { RequirementsPanel } from "./RunRequirements";
+import { NextActions } from "./RunNextActions";
+import { RunOverview } from "./RunOverview";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
 import { FailureBanner, LongRunningBanner, RunStateNotice } from "./RunAttention";
@@ -32,6 +34,7 @@ import { CoveredByLink, CoversBlock } from "./RunCover";
 import { ActiveStrip } from "./ActiveStrip";
 import { useActive } from "../api/queries";
 import { RunWatchdog } from "./RunWatchdog";
+import { RunParallel } from "./RunParallel";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -170,6 +173,7 @@ function RunActions({ run }: { run: RunState }) {
           Stop run
         </button>
       ) : null}
+      {run.status === "running" ? <RunParallel run={run} /> : null}
     </div>
   );
 }
@@ -222,10 +226,10 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   };
   const [flash, setFlash] = useState(0);
   const hasSelection = run.nodes.some((node) => node.id === selected);
-  const events = useRunEvents(run.run_id);
+  const events = useRunEvents(run.run_id, run.status === "running");
   const health = useRunHealth(run.run_id, run.status === "running");
-  const requirements = useRunRequirements(run.run_id);
-  const allRuns = useRuns().data?.runs ?? [];
+  const projection = useRunProjection(run.run_id, run.status === "running");
+  const allRuns = useRuns({ poll: false }).data?.runs ?? [];
   const engine = useActive().data?.items.filter((item) => item.id === run.run_id) ?? [];
   const watchdog = useWatchdog();
   const toast = useToast();
@@ -255,19 +259,18 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         </div>
         <RunMeta run={run} events={events} />
         <ActiveStrip items={engine} />
-        <RunWatchdog runId={run.run_id} status={watchdog} />
-        <CoversBlock runId={run.run_id} runs={allRuns} />
+        <RunWatchdog runId={run.run_id} status={watchdog} flags={projection?.supervisor.flags ?? []} />
         <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
         <div className="run-filter-row">
           <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
           <ActivityFeed events={events} />
         </div>
-        <CoordinatorBlock runId={run.run_id} state={run.coordinator_state} />
+        <CoordinatorBlock runId={run.run_id} state={run.orchestrator_state ?? run.coordinator_state} />
         <RunStateNotice run={run} />
         <FailureBanner run={run} />
         <LongRunningBanner run={run} nowMs={nowMs} />
         <StaleBanner run={run} />
-        <ReadyNotice health={health} />
+        <ReadyNotice ready={projection?.ready ?? []} />
         <NodeHealthStrip
           health={health}
           onSelect={(id) => {
@@ -275,7 +278,9 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
             setFlash((n) => n + 1);
           }}
         />
-        <RequirementsPanel requirements={requirements} onSelect={setSelected} />
+        <RequirementsPanel requirements={projection?.requirements ?? []} onSelect={setSelected} />
+        <NextActions actions={projection?.next_actions ?? []} onSelect={setSelected} />
+        <RunOverview runId={run.run_id} onSelect={setSelected} />
         {hasUnreviewed(run.nodes) ? (
           <div className="notice warn run-stale-banner" role="status">
             <b>{FINISHED_BY_OWNER}</b>
@@ -312,11 +317,12 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
       {hasSelection ? (
         <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
       ) : null}
+      <CoversBlock runId={run.run_id} runs={allRuns} />
     </div>
   );
 }
 
-/** `#/run/<id>`: header with totals and actions, the graph and the node panel. Remounted per run id. */
+/** `#/run/<id>`: header with totals and actions, the graph and the node panel, then the covers block. Remounted per run id. */
 export function RunPage({ runId }: { runId: string }) {
   const query = useRun(runId);
   const run = query.data?.run ?? null;

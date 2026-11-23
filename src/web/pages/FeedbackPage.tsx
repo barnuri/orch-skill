@@ -1,15 +1,19 @@
 import "./pages-b.css";
+import "./feedback.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import type { FeedbackItem, FeedbackKind } from "../../shared/types/feedback";
+import { FEEDBACK_STATUSES, type FeedbackItem, type FeedbackKind } from "../../shared/types/feedback";
 import { feedbackApi } from "../api/feedback-client";
 import { describeFailure } from "../api/result";
 import { POLL_MS } from "../lib/constants";
 import { Button } from "../components/Button";
 import { Checkbox } from "../components/Checkbox";
 import { Chip } from "../components/Chip";
+import { EmptyState } from "../components/EmptyState";
 import { PageHead } from "../components/PageHead";
+import { Segmented } from "../components/Segmented";
 import { Select } from "../components/Select";
+import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { useRuns } from "../runs/queries";
 import { useSessionState } from "../lib/session-state";
@@ -22,7 +26,6 @@ import {
   newIds,
   pruneSelection,
   sortNewestFirst,
-  statusOptions,
   workRunStatus,
   workSummary,
 } from "../lib/feedback-logic";
@@ -30,6 +33,7 @@ import type { StatusFilter } from "../lib/feedback-logic";
 
 const FEEDBACK_KEY = ["feedback"];
 
+/** One ledger row: status, the text with its metadata line, and the row actions. The metadata line holds the id, source, kind, link, work run and result. */
 function FeedbackRow({
   item,
   runStatus,
@@ -55,27 +59,29 @@ function FeedbackRow({
         <Chip status={item.status} />
       </td>
       <td>
-        <Chip status={item.kind} />
-      </td>
-      <td>{item.source}</td>
-      <td>
         <span className="feedback-text">{item.text}</span>
-        <span className="muted"> {item.id}</span>
+        <span className="feedback-meta">
+          <span className="feedback-mono">{item.id}</span>
+          <span>{item.source}</span>
+          <span>{item.kind}</span>
+          {link === null ? null : (
+            <a className="text-link feedback-mono" href={link.href}>
+              {link.label}
+            </a>
+          )}
+          {item.work_run === undefined ? null : (
+            <span className="feedback-run">
+              <a className="text-link feedback-mono" href={`#/run/${encodeURIComponent(item.work_run)}`}>
+                {item.work_run}
+              </a>
+              <Chip status={runStatus ?? "unknown"} />
+            </span>
+          )}
+          {item.result === undefined ? null : <span className="feedback-result">{item.result}</span>}
+        </span>
       </td>
-      <td>{link === null ? <span className="muted">none</span> : <a className="text-link" href={link.href}>{link.label}</a>}</td>
       <td>
-        {item.work_run === undefined ? (
-          <span className="muted">none</span>
-        ) : (
-          <>
-            <a className="text-link" href={`#/run/${encodeURIComponent(item.work_run)}`}>{item.work_run}</a>{" "}
-            <Chip status={runStatus ?? "unknown"} />
-          </>
-        )}
-      </td>
-      <td>{item.result ?? <span className="muted">none</span>}</td>
-      <td>
-        <div className="actions">
+        <div className="feedback-actions">
           {actionsFor(item.status).map((a) => (
             <Button key={a.action} disabled={busy} onClick={() => onAction(a.target)}>
               {a.label}
@@ -87,7 +93,7 @@ function FeedbackRow({
   );
 }
 
-/** The `#/feedback` page: feedback items for orch, with a form, status filters, row actions and work on new or selected items. */
+/** The `#/feedback` page: a composer, a status filter, a compact ledger with row actions, and work on new or selected items. */
 export function FeedbackPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -113,6 +119,10 @@ export function FeedbackPage() {
   const visible = filterByStatus(items, status);
   const runStatus = useMemo(() => new Map((runs.data?.runs ?? []).map((r) => [r.run_id, r.status] as const)), [runs.data]);
   const newCount = newIds(items).length;
+  const filterOptions = [
+    { value: ALL_STATUSES, label: `all ${items.length}` },
+    ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: `${s} ${items.filter((item) => item.status === s).length}` })),
+  ];
 
   const refresh = (): Promise<void> => queryClient.invalidateQueries({ queryKey: FEEDBACK_KEY }).then(() => undefined);
   const run = (task: () => Promise<void>): void => {
@@ -181,6 +191,64 @@ export function FeedbackPage() {
   };
 
   const selectedIds = [...pruneSelection(selected, items)];
+  const loadFailed = query.isError && items.length === 0;
+
+  const body = (() => {
+    if (query.isPending) {
+      return (
+        <div className="feedback-loading" role="status" aria-live="polite">
+          <span>Loading feedback…</span>
+          <Skeleton rows={4} />
+        </div>
+      );
+    }
+    if (loadFailed) {
+      return null;
+    }
+    if (items.length === 0) {
+      return (
+        <EmptyState title="No feedback yet" action={<Button onClick={() => document.getElementById("feedback-text")?.focus()}>Write feedback</Button>}>
+          Write the first item above. It starts as new and waits for a batch run.
+        </EmptyState>
+      );
+    }
+    if (visible.length === 0) {
+      return (
+        <EmptyState title="No feedback with this status" action={<Button onClick={() => setStatus(ALL_STATUSES)}>Show all statuses</Button>}>
+          Nothing has the status {status} yet. Show all statuses to see the {items.length} items.
+        </EmptyState>
+      );
+    }
+    return (
+      <div className="feedback-list">
+        <table className="feedback-table">
+          <thead>
+            <tr>
+              <th scope="col" className="sr-only">
+                Select
+              </th>
+              <th scope="col">Status</th>
+              <th scope="col">Feedback</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((item) => (
+              <FeedbackRow
+                key={item.id}
+                item={item}
+                runStatus={workRunStatus(item, runStatus)}
+                selected={selected.has(item.id)}
+                busy={busy}
+                onSelect={(checked) => toggle(item.id, checked)}
+                onAction={(next) => setItemStatus(item.id, next)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  })();
 
   return (
     <section className="page feedback-page">
@@ -200,65 +268,46 @@ export function FeedbackPage() {
       />
 
       <form
-        className="feedback-form"
+        className="feedback-composer"
         onSubmit={(event) => {
           event.preventDefault();
           add();
         }}
       >
-        <label className="filter-field">
-          <span className="filter-label">Feedback</span>
-          <textarea value={text} onChange={(event) => setText(event.target.value)} rows={2} />
+        <label className="feedback-field feedback-field-text">
+          <span className="feedback-label">New feedback</span>
+          <textarea id="feedback-text" className="feedback-input" value={text} onChange={(event) => setText(event.target.value)} rows={1} />
         </label>
-        <div className="filter-field">
-          <span className="filter-label">Kind</span>
-          <Select aria-label="Kind" value={kind} options={kindOptions()} onChange={(next) => setKind(next as FeedbackKind)} />
+        <div className="feedback-composer-side">
+          <div className="feedback-field">
+            <span className="feedback-label">Kind</span>
+            <Select aria-label="Kind" value={kind} options={kindOptions()} onChange={(next) => setKind(next as FeedbackKind)} />
+          </div>
+          <Button variant="primary" type="submit" disabled={busy}>
+            Add feedback
+          </Button>
         </div>
-        <Button variant="primary" type="submit" disabled={busy}>
-          Add feedback
-        </Button>
       </form>
 
-      <div className="filters">
-        <div className="filter-field">
-          <span className="filter-label">Status</span>
-          <Select aria-label="Status" value={status} options={statusOptions()} onChange={(next) => setStatus(next as StatusFilter)} />
+      <div className="feedback-bar">
+        <div className="feedback-filter">
+          <Segmented label="Filter by status" value={status} options={filterOptions} onChange={(next) => setStatus(next as StatusFilter)} />
         </div>
+        <span className="feedback-count" aria-live="polite">
+          {items.length === 0 ? "0 items" : `${visible.length} of ${items.length} items · ${newCount} new`}
+        </span>
       </div>
 
-      {query.isError ? <p className="error">Feedback could not be loaded: {(query.error as Error).message}</p> : null}
-      {visible.length === 0 && !query.isError ? <p className="muted">No feedback{status === ALL_STATUSES ? "" : ` with status ${status}`}.</p> : null}
+      {query.isError ? (
+        <div className="feedback-error" role="alert">
+          <span>
+            <strong>Load failed.</strong> Feedback could not be loaded: {(query.error as Error).message}
+          </span>
+          <Button onClick={() => void query.refetch()}>Retry</Button>
+        </div>
+      ) : null}
 
-      {visible.length === 0 ? null : (
-        <table className="feedback-table">
-          <thead>
-            <tr>
-              <th scope="col">Select</th>
-              <th scope="col">Status</th>
-              <th scope="col">Kind</th>
-              <th scope="col">Source</th>
-              <th scope="col">Feedback</th>
-              <th scope="col">Linked</th>
-              <th scope="col">Work run</th>
-              <th scope="col">Result</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((item) => (
-              <FeedbackRow
-                key={item.id}
-                item={item}
-                runStatus={workRunStatus(item, runStatus)}
-                selected={selected.has(item.id)}
-                busy={busy}
-                onSelect={(checked) => toggle(item.id, checked)}
-                onAction={(next) => setItemStatus(item.id, next)}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
+      {body}
     </section>
   );
 }

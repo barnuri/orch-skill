@@ -98,6 +98,16 @@ describe.concurrent("GET /api/runs", () => {
     expect(res.headers.get("etag")).toMatch(ETAG_PATTERN);
   });
 
+  test("reports cache mode and ?cache=skip returns bypass metadata", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState());
+    const cached = await (await srv.api("/api/runs")).json();
+    expect(cached.cache.mode).toBe("cache");
+    expect(["hit", "miss"]).toContain(cached.cache.source);
+    const bypass = await (await srv.api("/api/runs?cache=skip")).json();
+    expect(bypass.cache).toMatchObject({ mode: "bypass", source: "fresh", age_ms: 0 });
+  });
+
   test("a seeded run is summarized with per-status counts", async () => {
     const srv = server();
     seed(srv, RUN_ID, runState());
@@ -153,7 +163,7 @@ describe.concurrent("GET /api/runs", () => {
 });
 
 describe.concurrent("GET /api/runs/:id", () => {
-  test("it returns the full node and edge lists", async () => {
+  test("it reports cache metadata and bypasses with ?cache=skip", async () => {
     const srv = server();
     seed(srv, RUN_ID, runState());
     const res = await srv.api(`/api/runs/${RUN_ID}`);
@@ -164,6 +174,9 @@ describe.concurrent("GET /api/runs/:id", () => {
       ["a", "b"],
       ["a", "c"],
     ]);
+    expect(["hit", "miss"]).toContain(body.cache.source);
+    const bypass = await (await srv.api(`/api/runs/${RUN_ID}?cache=skip`)).json();
+    expect(bypass.cache).toMatchObject({ mode: "bypass", source: "fresh", age_ms: 0 });
   });
 
   // A running node's timing is derived from the clock, so its body (and ETag) changes every second.

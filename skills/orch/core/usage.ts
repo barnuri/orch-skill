@@ -10,21 +10,22 @@ import { PLAN_USAGE, PLAN_APPLY_USAGE } from "./commands/plan.ts";
 import { MSG_SEND_USAGE, MSG_READ_USAGE } from "./commands/msg.ts";
 import { NODE_STARTED_USAGE, RUN_BACKFILL_TIMING_USAGE } from "./commands/timing.ts";
 import { RUN_CARRY_USAGE } from "./commands/carry.ts";
+import { RUN_MERGE_USAGE } from "./commands/merge.ts";
 import { NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE } from "./commands/owners.ts";
 import { NODE_SELECTIONS_USAGE } from "./commands/selections.ts";
 import { NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE } from "./commands/inbox.ts";
-import { COORDINATOR_USAGE } from "./commands/coordinator.ts";
+import { ORCHESTRATOR_USAGE } from "./commands/coordinator.ts";
 
 const RUNS_SECTION = [
   "Runs and nodes (a run is a DAG of nodes; state lives under the config home):",
   "dispatch.ts run start \"<title>\" [--id ID] [--harness-session S]",
-  RUN_CARRY_USAGE, NODE_USAGE.add, NODE_USAGE.update, NODE_USAGE.report, NODE_USAGE.batch,
+  RUN_CARRY_USAGE, RUN_MERGE_USAGE, NODE_USAGE.add, NODE_USAGE.update, NODE_USAGE.report, NODE_USAGE.batch,
   NODE_DISPATCH_USAGE, NODE_RETRY_USAGE, NODE_STARTED_USAGE, RUN_BACKFILL_TIMING_USAGE,
   RUN_WAIT_USAGE, RUN_WATCH_USAGE, RUN_STATUS_USAGE.replace(/^usage: /, ""), RUN_HEALTH_USAGE, RUN_FINISH_USAGE, RUN_RETRY_USAGE, RUN_ADVANCE_USAGE,
   PLAN_USAGE, PLAN_APPLY_USAGE, MSG_SEND_USAGE, MSG_READ_USAGE,
   NODE_VERIFY_OWNERS_USAGE, NODE_BIND_OWNERS_USAGE, NODE_BRIEF_USAGE, NODE_ACTIVITY_USAGE, NODE_SELECTIONS_USAGE,
   NODE_TELL_USAGE, NODE_ASK_USAGE, NODE_INBOX_USAGE,
-  COORDINATOR_USAGE,
+  ORCHESTRATOR_USAGE,
 ].join("\n");
 
 export const USAGE = `dispatch.ts classify "<task description>" [--complexity trivial|small|medium|large] [--prefer-local]
@@ -53,6 +54,12 @@ dispatch.ts tail <job-id> [-n N]  -> prints the last N (default 20) log lines
 dispatch.ts wait <job-id> [--timeout SECS(default 300)] [--interval SECS(default 5)]
     -> polls status until done or timeout; exit 0 if finished, 124 on timeout.
 dispatch.ts list                  -> job-id, status, profile — newest first.
+
+dispatch.ts goal "<goal>|@file" [--id ID] [--profile P] [--node ID] [--dry-run]
+                         [--interval SECS] [--timeout SECS] [--until-done] [--no-finish]
+                         [--stop-on blocked|error|timeout|all]
+    -> starts a run, adds the goal requirement, dispatches its planner, and advances it to finish.
+       --dry-run validates and prints the plan settings without creating a run.
 
 dispatch.ts init                  -> creates the config home (default ~/.harness-orch) with template
                                      profiles.json + empty memory.json; prints the path.

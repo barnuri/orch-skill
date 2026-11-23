@@ -8,6 +8,7 @@ import { paths, orchHome } from "../state/home.ts";
 import { activityRows, staleMinutes, staleNodes, isoToEpoch } from "../state/timing.ts";
 import { resultText } from "../runs/node.ts";
 import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
+import { loadRunProjection, type RunProjection } from "../runs/projection.ts";
 
 // CLI handler: writes stdout/stderr and returns the exit code.
 export async function runStatusCommand(args: string[]): Promise<number> {
@@ -102,6 +103,9 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
       return {
         id: r.id,
         owner: ownerRaw === "-" ? null : ownerRaw,
+        job_id: alt(n.job_id, null),
+        owner_state: alt(n.owner_state, null),
+        owner_reason: alt(n.owner_reason, null),
         age_s: r.started === "-" || started === null ? null : now - started,
         last_activity_s: r.last === null ? null : now - r.last,
         stale: stale.has(r.id),
@@ -126,6 +130,7 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     questions: (run.nodes ?? []).filter((n: any) => ((n.needs_user ?? "") as string) !== "").map((n: any) => ({ id: n.id, question: String(n.needs_user) })),
     link: `http://127.0.0.1:${await servePort(home)}/#/run/${runId}`,
     owner_events: ownerReportLines(await ownersVerifyRun(home, runId, false)),
+    projection: await loadRunProjection(home, runId),
   };
 
   const freshLine = fresh ? freshLineOf(run, runId, nowIso, home) : "";
@@ -145,15 +150,29 @@ export async function runStatusText(home: string, args: string[]): Promise<{ cod
     if (r.progress !== null) line += `, ${r.progress}`;
     if (r.note !== null) line += `, "${r.note}"`;
     if (r.stale) line += " [STALE]";
-    if (r.owner === null) line += " [UNOWNED: nothing is recorded as doing the work]";
+    if (r.owner_state !== null) line += ` [owner_state: ${String(r.owner_state)}${r.owner_reason !== null ? `, owner_reason: ${String(r.owner_reason)}` : ""}]`;
+    else if (r.owner === null && r.job_id === null) line += " [UNOWNED: nothing is recorded as doing the work]";
+    else if (r.job_id === null) line += " [owner not checked]";
     lines.push(line);
   }
   for (const n of (run.nodes ?? []).filter((x: any) => x.result)) lines.push(`result ${n.id}: ${resultText(n, 200)}`);
   if (summary.ready.length > 0) lines.push("ready: " + summary.ready.join(","));
   for (const e of summary.errors) lines.push(`error ${e.id}: ${String(alt(e.error, "unknown"))}`);
   for (const q of summary.questions) lines.push(`question ${q.id}: ${q.question}`);
+  if (summary.projection) lines.push(...projectionLines(summary.projection));
   lines.push(...summary.owner_events, summary.link);
   return { code: 0, out: lines.join("\n") + "\n", err: "" };
+}
+
+/** Text lines of the run projection: effective status, requirement and node buckets, then the first 5 next actions. */
+export function projectionLines(p: RunProjection): string[] {
+  const ids = (xs: string[]) => (xs.length === 0 ? "none" : xs.join(","));
+  const lines = [
+    `projection: ${p.status} (run ${p.raw_status}); open requirements: ${ids(p.open_requirements)}; partial: ${ids(p.partials)}; blocked: ${ids(p.blocked)}; covered: ${ids(p.covered)}; skipped: ${ids(p.skipped)}; handoff gaps: ${ids(p.handoff_gaps.map((g) => g.node))}`,
+  ];
+  for (const a of p.next_actions.slice(0, 5)) lines.push(`next: ${a.text}`);
+  if (p.next_actions.length > 5) lines.push(`next: ${p.next_actions.length - 5} more (run status --json)`);
+  return lines;
 }
 
 // run_fresh_line: read time, run status, node ids grouped by status (group_by sorts by status).

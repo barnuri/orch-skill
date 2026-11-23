@@ -87,14 +87,14 @@ export function modelMetric(node: RunNode, max: number = Number.POSITIVE_INFINIT
       ? "the hub expected this model before dispatch"
       : "the model that served the node, reported by the hub"
     : node.report?.model === pick.model
-      ? "reported by the coordinator"
+      ? "reported by the orchestrator"
       : "the model of the node's profile";
   return { text: pickLabel(pick), present: true, title: `${pick.model}: ${source}` };
 }
 
 function inlineReason(node: RunNode): string {
   return node.job_id === null
-    ? "ran inline in the coordinator session"
+    ? "ran inline in the orchestrator session"
     : `the harness reported no usage for job ${node.job_id}`;
 }
 
@@ -102,7 +102,7 @@ export function usageMetric(node: RunNode): Metric {
   const usage = nodeUsage(node);
   const origin =
     usage.source === "report"
-      ? "reported by the coordinator"
+      ? "reported by the orchestrator"
       : usage.source === "session"
         ? `from opencode session ${node.session_stats?.session ?? ""}`.trim()
         : "reported by the harness";
@@ -388,10 +388,15 @@ export interface WaitReason {
  * coordinator hold, else ready. `max` truncates `text` (the card row); null for a node not waiting.
  */
 export function waitReason(node: RunNode, waitingOn: readonly string[], max: number = Number.POSITIVE_INFINITY): WaitReason | null {
+  const fit = (text: string): string => (Number.isFinite(max) ? truncate(text, max) : text);
+  if (node.status === "blocked-user") {
+    // The node waits for the user, so its question is the reason it has not moved.
+    const question = needsUserReason(node);
+    return question === null ? null : { kind: "needs-user", text: fit(`needs you: ${question}`), title: `Needs you: ${question}` };
+  }
   if (node.status !== "waiting") {
     return null;
   }
-  const fit = (text: string): string => (Number.isFinite(max) ? truncate(text, max) : text);
   if (waitingOn.length > 0) {
     return { kind: "deps", text: fit(`waiting on ${waitingOn[0]}${waitingOn.length > 1 ? ` +${waitingOn.length - 1}` : ""}`), title: `Waiting on: ${waitingOn.join(", ")}` };
   }
@@ -401,7 +406,7 @@ export function waitReason(node: RunNode, waitingOn: readonly string[], max: num
   }
   const hold = holdReason(node);
   if (hold !== null) {
-    return { kind: "held", text: fit(`held: ${hold}`), title: `Held by the coordinator: ${hold}` };
+    return { kind: "held", text: fit(`held: ${hold}`), title: `Held by the orchestrator: ${hold}` };
   }
-  return { kind: "ready", text: fit(READY_NOT_STARTED_TEXT), title: "Every dependency is done; the coordinator has not started it yet" };
+  return { kind: "ready", text: fit(READY_NOT_STARTED_TEXT), title: "Every dependency is done; the orchestrator has not started it yet" };
 }

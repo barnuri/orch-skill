@@ -84,7 +84,7 @@ describe("node activity panel", () => {
     await settle();
     expect(seen.urls.some((u) => u.includes("/activity"))).toBe(false);
     const text = view.container.textContent ?? "";
-    expect(text).toContain("Done inline by the coordinator");
+    expect(text).toContain("Done inline by the orchestrator");
     expect(text).toContain("progress 2/5");
     expect(text).toContain("wrote the migration");
     expect(text).toContain("ran the checks");

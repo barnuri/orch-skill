@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RequirementsPanel } from "./RunRequirements";
 
-const req = (over: object) => ({ id: "R1", text: "make it fast", status: "not", reason: null, ok: false, nodes: [], evidence: [], ...over });
+const req = (over: object) => ({ id: "R1", text: "make it fast", status: "not", reason: null, ok: false, bucket: "open" as const, blocked: false, nodes: [], evidence: [], ...over });
 
 describe("RequirementsPanel", () => {
   test("renders nothing without a ledger", () => {
@@ -13,6 +13,19 @@ describe("RequirementsPanel", () => {
     expect(html).toContain("1 of 1 open");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("req-status-");
+  });
+  test("each row carries a tone class so the rail colour names the status, not a hex value", () => {
+    const store = new Map<string, string>([["orch.run.requirements.open", "1"]]);
+    const g = globalThis as { localStorage?: unknown };
+    const before = g.localStorage;
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      const html = renderToStaticMarkup(<RequirementsPanel requirements={[req({}), req({ id: "R2", status: "handled", ok: true })]} />);
+      expect(html).toContain('class="req-err"');
+      expect(html).toContain('class="req-ok"');
+    } finally {
+      g.localStorage = before;
+    }
   });
   test("shows status chip, linked node marks and evidence when the saved state is open", () => {
     const store = new Map<string, string>([["orch.run.requirements.open", "1"]]);

@@ -4,9 +4,10 @@ import { authHeaders } from "../api/chats";
 import { followSse, type ConnState } from "../lib/sse";
 import type { RunEvent } from "../../shared/types/run-event";
 import { mergeEvents } from "../lib/run-activity";
-import type { RequirementView } from "../../shared/types/run-requirements";
+import type { RunProjection } from "../../../skills/orch/core/runs/projection";
+import type { RunOverview } from "../../shared/types/run-overview";
 import type { HealthSummary, RunHealth } from "../../shared/types/run-health";
-import { eventsSchema, healthSummarySchema, runHealthSchema, runRequirementsSchema, watchdogStatusSchema } from "./schemas";
+import { eventsSchema, healthSummarySchema, runHealthSchema, runOverviewSchema, runProjectionSchema, watchdogStatusSchema } from "./schemas";
 import type { WatchdogStatus } from "../../shared/types/watchdog";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { api } from "../api/client";
@@ -24,17 +25,18 @@ export const runKeys = {
   nodeActivity: (run: string, node: string): string => `node-activity:${run}:${node}`,
   messages: (id: string): string => `run-messages:${id}`,
   health: (id: string): string => `run-health:${id}`,
+  projection: (id: string): string => `run-projection:${id}`,
   healthSummary: "health-summary",
   watchdog: "watchdog",
 } as const;
 
 const DEFAULT_MAX_ATTEMPTS = 5;
 
-export function useRuns() {
+export function useRuns(options: { poll?: boolean } = {}) {
   return useQuery({
     queryKey: [runKeys.runs],
-    queryFn: () => conditionalGet(runKeys.runs, (etag) => api.getRuns(etag)),
-    refetchInterval: POLL_MS,
+    queryFn: () => conditionalGet(runKeys.runs, (etag) => api.getRuns(etag, false)),
+    refetchInterval: options.poll === false ? false : POLL_MS,
   });
 }
 
@@ -89,7 +91,7 @@ export function useRun(runId: string) {
   }, [runId]);
   const query = useQuery({
     queryKey: [runKeys.run(runId)],
-    queryFn: () => conditionalGet(runKeys.run(runId), (etag) => api.getRun(runId, etag)),
+    queryFn: () => conditionalGet(runKeys.run(runId), (etag) => api.getRun(runId, etag, false)),
     refetchInterval: runPollMs(live),
   });
   return { ...query, live };
@@ -209,7 +211,7 @@ export function useCachedNodeActivity(runId: string, nodeId: string) {
 }
 
 /** The run's activity feed, oldest first: each poll asks only for events after the newest one held. */
-export function useRunEvents(runId: string): RunEvent[] {
+export function useRunEvents(runId: string, live = true): RunEvent[] {
   const held = useRef<RunEvent[]>([]);
   const query = useQuery({
     queryKey: [runKeys.events(runId)],
@@ -222,27 +224,44 @@ export function useRunEvents(runId: string): RunEvent[] {
       held.current = mergeEvents(held.current, result.body.events);
       return held.current;
     },
-    refetchInterval: POLL_MS,
+    refetchInterval: live ? 10_000 : false,
     retry: false,
   });
   return query.data ?? [];
 }
 
-/** A run's requirements ledger, on the same POLL_MS as the run. */
-export function useRunRequirements(runId: string): RequirementView[] {
+/** A run's canonical projection (GET /api/runs/{id}/projection): the one state the run page, the supervisor and `run status` read. Polled while `live`. */
+export function useRunProjection(runId: string, live = true): RunProjection | null {
   const query = useQuery({
-    queryKey: [`run-requirements:${runId}`],
+    queryKey: [runKeys.projection(runId)],
     queryFn: async () => {
-      const result = await api.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/requirements`, runRequirementsSchema, { quiet: true });
+      const result = await api.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/projection`, runProjectionSchema, { quiet: true });
       if (result.kind !== "ok") {
         throw new ApiFailure(result as NonOk);
       }
-      return result.body.requirements;
+      return result.body;
     },
-    refetchInterval: POLL_MS,
+    refetchInterval: live ? 10_000 : false,
     retry: false,
   });
-  return query.data ?? [];
+  return query.data ?? null;
+}
+
+/** A run's overview (repos, commits, pull requests, models, skills, nodes, handoffs). Fetched only while `enabled`: it runs gh per commit on the server, so it is never polled. */
+export function useRunOverview(runId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [`run-overview:${runId}`],
+    enabled,
+    queryFn: async (): Promise<RunOverview> => {
+      const result = await api.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/overview`, runOverviewSchema, { quiet: true });
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body;
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
 }
 
 async function fetchRunHealth(runId: string): Promise<RunHealth | null> {
@@ -253,25 +272,28 @@ async function fetchRunHealth(runId: string): Promise<RunHealth | null> {
   return result.body.health;
 }
 
-/** A run's latest node-health check (the server keeps it in memory), on the same POLL_MS as the run. */
+/** The server re-checks a running run every 30 s, so a faster client poll reads the same result again. */
+export const RUN_HEALTH_POLL_MS = 30_000;
+
+/** A run's latest node-health check (the server keeps it in memory), polled every RUN_HEALTH_POLL_MS. */
 export function useRunHealth(runId: string, enabled = true): RunHealth | null {
   const query = useQuery({
     queryKey: [runKeys.health(runId)],
     enabled,
     queryFn: () => fetchRunHealth(runId),
-    refetchInterval: POLL_MS,
+    refetchInterval: RUN_HEALTH_POLL_MS,
     retry: false,
   });
   return query.data ?? null;
 }
 
-/** The health of several runs at once (the running ones), keyed by run id; same POLL_MS. */
+/** The health of several runs at once (the running ones), keyed by run id; polled every RUN_HEALTH_POLL_MS. */
 export function useRunsHealth(runIds: readonly string[]): ReadonlyMap<string, RunHealth> {
   const results = useQueries({
     queries: runIds.map((id) => ({
       queryKey: [runKeys.health(id)],
       queryFn: () => fetchRunHealth(id),
-      refetchInterval: POLL_MS,
+      refetchInterval: RUN_HEALTH_POLL_MS,
       retry: false,
     })),
   });
@@ -286,7 +308,7 @@ export function useRunsHealth(runIds: readonly string[]): ReadonlyMap<string, Ru
 }
 
 /** The header's node-health counts: one small in-memory read every 10 s, paused while the tab is hidden. */
-export const HEALTH_SUMMARY_POLL_MS = 10_000;
+export const HEALTH_SUMMARY_POLL_MS = 30_000;
 
 export function useHealthSummary(): HealthSummary | null {
   const query = useQuery({

@@ -1,5 +1,5 @@
 // Feedback store: one JSON file per item under <home>/feedback/<id>.json. Bun built-ins only.
-// Single writer: only the feedback CLI and the /api/feedback routes call these functions.
+// Single writer: the feedback CLI, the /api/feedback routes and the owner binder (owners.ts ownerFeedback) call these functions.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {

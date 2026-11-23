@@ -5,7 +5,7 @@ export type Theme = "dark" | "light";
 
 const THEME_ATTR = "data-theme";
 
-// With no saved choice the OS decides (theme-boot.js set the attribute before first paint).
+// Dark is the default. With no saved choice the page starts dark (theme-boot.js sets the attribute before first paint).
 export function storedOrSystem(): Theme {
   let saved: string | null = null;
   try {
@@ -13,10 +13,7 @@ export function storedOrSystem(): Theme {
   } catch {
     saved = null;
   }
-  if (saved === "light" || saved === "dark") {
-    return saved;
-  }
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return saved === "light" ? "light" : "dark";
 }
 
 function currentTheme(): Theme {

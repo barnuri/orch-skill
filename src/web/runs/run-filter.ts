@@ -2,7 +2,7 @@ import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
 
 /** What the run summary counts. A held waiting node and a running node of a paused run are "paused". */
-export const SUMMARY_BUCKETS = ["done", "running", "waiting", "paused", "error", "skipped", "covered", "stopped"] as const;
+export const SUMMARY_BUCKETS = ["done", "running", "waiting", "paused", "blocked-user", "error", "skipped", "covered", "stopped"] as const;
 export type SummaryBucket = (typeof SUMMARY_BUCKETS)[number];
 
 export function nodeBucket(run: RunState, node: RunNode): SummaryBucket {
@@ -18,7 +18,7 @@ export function nodeBucket(run: RunState, node: RunNode): SummaryBucket {
 export type RunSummary = Record<SummaryBucket, number> & { total: number };
 
 export function runSummary(run: RunState): RunSummary {
-  const out: RunSummary = { total: run.nodes.length, done: 0, running: 0, waiting: 0, paused: 0, error: 0, skipped: 0, covered: 0, stopped: 0 };
+  const out: RunSummary = { total: run.nodes.length, done: 0, running: 0, waiting: 0, paused: 0, "blocked-user": 0, error: 0, skipped: 0, covered: 0, stopped: 0 };
   for (const node of run.nodes) {
     out[nodeBucket(run, node)] += 1;
   }

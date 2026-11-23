@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { currentRunResolve } from "../state/current-run.ts";
 import { acquireLock } from "../state/lock.ts";
 import { orchHome } from "../state/home.ts";
+import { enqueueNode } from "../delivery/enqueue-node.ts";
 import { appendEvents, loadRun, saveRun, type RunState } from "../state/store.ts";
 import {
   applyAdd,
@@ -198,7 +199,16 @@ export async function nodeResult(args: string[]): Promise<number> {
   const home = orchHome();
   const runId = await resolveRun(home, runArg);
   if (runId === null) return 1;
-  return mutateRun(home, runId, (run, ctx) => applyResult(run, a, ctx));
+  const code = await mutateRun(home, runId, (run, ctx) => applyResult(run, a, ctx));
+  // Delivery queue: a recorded full or partial result enqueues the node's commits. A failure here never fails the result.
+  if (code === 0 && a.verdict !== "blocked") {
+    try {
+      await enqueueNode(home, runId, a.id, new Date().toISOString());
+    } catch (e) {
+      errLine(`delivery: could not enqueue ${a.id}: ${(e as Error).message}`);
+    }
+  }
+  return code;
 }
 
 // `node show <run> <node>`: the node's result in full, then the node as JSON.

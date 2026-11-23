@@ -2,7 +2,7 @@ import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
 import { nodeUsage } from "../../shared/run-usage";
 import { fmtTokens, fmtUsd } from "./format";
-import { holdReason, needsUserReason, ownerText } from "./node-flags";
+import { exactOwner, holdReason, needsUserReason, nodeFlags, ownerText } from "./node-flags";
 import { durationMetric, waitingOnDeps } from "./node-metrics";
 import { iconModelOf, familyOf, type ModelFamily } from "./model-family";
 import { nodeModel, type NodeFilter, matchesFilter } from "../runs/run-filter";
@@ -61,6 +61,7 @@ export const COLUMNS: readonly ColumnDef[] = [
   { key: "model", label: "Model", defaultOn: true, wide: true },
   { key: "owner", label: "Owner", defaultOn: false, wide: true },
   { key: "waiting", label: "Waiting on / needs you", defaultOn: true },
+  { key: "warn", label: "Warnings", defaultOn: true },
   { key: "started", label: "Started", defaultOn: false, wide: true },
   { key: "duration", label: "Duration", defaultOn: true },
   { key: "activity", label: "Last activity", defaultOn: true, wide: true },
@@ -103,8 +104,40 @@ export type RunWithCoordinator = RunState & { coordinator?: { session_id?: strin
 
 export type MainStatus = "running" | "idle" | "unreachable";
 
+/** One inline warning of a node row. `status` picks the chip colour class (Chip). */
+export interface RowWarning {
+  key: string;
+  status: "error" | "waiting" | "stale" | "unowned";
+  text: string;
+}
+
+/** The warnings of a node row, most urgent first: error, needs you, held, stale, unowned. Empty when none apply. */
+export function rowWarnings(node: RunNode): RowWarning[] {
+  const out: RowWarning[] = [];
+  if (node.status === "error") {
+    out.push({ key: "error", status: "error", text: node.error?.trim() || "failed" });
+  }
+  const needs = needsUserReason(node);
+  if (needs !== null) {
+    out.push({ key: "needs", status: "waiting", text: `needs you: ${needs}` });
+  }
+  const hold = holdReason(node);
+  if (hold !== null) {
+    out.push({ key: "hold", status: "waiting", text: `held: ${hold}` });
+  }
+  const flags = nodeFlags(node);
+  if (flags.stale) {
+    out.push({ key: "stale", status: "stale", text: "stale: no activity from the owner" });
+  }
+  if (flags.unowned) {
+    out.push({ key: "unowned", status: "unowned", text: "unowned: no owner or job recorded" });
+  }
+  return out;
+}
+
 export interface TableRow {
   kind: "main" | "node";
+  warnings: RowWarning[];
   id: string;
   node: RunNode | null;
   status: string;
@@ -140,7 +173,7 @@ const ms = (iso: string | null | undefined): number | null => {
 };
 
 export function mainStatus(run: RunWithCoordinator): MainStatus {
-  const state = run.coordinator_state;
+  const state = run.orchestrator_state ?? run.coordinator_state;
   if (state !== null && state !== undefined && !state.reachable) {
     return "unreachable";
   }
@@ -148,18 +181,19 @@ export function mainStatus(run: RunWithCoordinator): MainStatus {
 }
 
 export function mainRow(run: RunWithCoordinator): TableRow {
-  const state = run.coordinator_state;
+  const state = run.orchestrator_state ?? run.coordinator_state;
   const session = run.coordinator?.session_id ?? run.harness_session;
   const harness = run.coordinator?.harness ?? "";
   const status = mainStatus(run);
   return {
     kind: "main", id: "__main__", node: null, status,
     idText: session === "" ? "main session" : session,
-    goal: "Orch main session (coordinator)",
-    verdict: "", summary: "", role: "coordinator", tier: "", profile: harness, model: "", family: "fallback",
-    owner: "", waiting: state === null || state === undefined ? "" : `${state.pending_asks} pending ask${state.pending_asks === 1 ? "" : "s"}`,
+    goal: "Orch main session (orchestrator)",
+    verdict: "", summary: "", role: "orchestrator", tier: "", profile: harness, model: "", family: "fallback",
+    owner: "", waiting: state === null || state === undefined ? "" : `${state.pending_asks} pending orchestrator question${state.pending_asks === 1 ? "" : "s"}`,
     startedMs: ms(run.started), durationMs: null, durationText: "—",
     activityMs: ms(run.coordinator?.at), attempts: null, tokens: null, cost: null, ctx: null, handoff: null,
+    warnings: [],
   };
 }
 
@@ -175,13 +209,14 @@ export function nodeRow(run: RunState, node: RunNode, nowMs: number, harnessByPr
   const end = ms(node.finished_at ?? node.finished);
   return {
     kind: "node", id: node.id, node, status: node.status,
+    warnings: rowWarnings(node),
     idText: node.id,
     goal: (node.label.split("\n")[0] ?? "").trim(),
     verdict: node.result?.verdict ?? "", summary: node.result?.summary ?? "",
     role: node.role ?? "", tier: node.tier ?? "",
     profile: node.profile ?? node.adapter ?? harnessByProfile[node.profile ?? ""] ?? "",
     model, family: familyOf(model !== "" ? model : iconModelOf(node)),
-    owner: ownerText(node) ?? "", waiting,
+    owner: [ownerText(node), node.owner_state != null ? exactOwner(node) : null].filter((x) => x != null && x !== "").join(" · "), waiting,
     startedMs: start,
     durationMs: start === null ? null : (end ?? nowMs) - start,
     durationText: dur.text,
