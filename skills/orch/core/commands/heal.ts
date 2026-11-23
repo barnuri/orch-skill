@@ -26,7 +26,12 @@ export async function healRun(home: string, runId: string): Promise<string> {
   // Never close a run whose requests are not recorded and handled: a run with no ledger proves nothing.
   const ledger = (await loadLedger(home, runId)).requirements ?? [];
   if (ledger.length === 0) return "needs-requirements";
-  if (ledger.some((r) => !REQ_OK.includes(String(r.status)))) return "requirements-open";
+  if (ledger.some((r) => !REQ_OK.includes(String(r.status)))) {
+    // Open requests: create the missing work as nodes so the run keeps moving.
+    const { findGaps, createGapNodes } = await import("./gaps.ts");
+    const made = await createGapNodes(home, runId, (await findGaps(home, runId)).filter((g) => g.kind === "request"));
+    return `requirements-open:${made.join(",") || "none-new"}`;
+  }
   if (!work.every((n: any) => nodeSatisfied(run, n))) return "waiting-work";
   // Gaps: a request not handled, or a done node with no result. Create the missing work as new nodes instead of closing.
   const { findGaps, createGapNodes } = await import("./gaps.ts");
