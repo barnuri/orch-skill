@@ -5,6 +5,7 @@ import type { RunNode } from "../../shared/types/run-node";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { Chip } from "../components/Chip";
+import { PageLoader } from "../components/Skeleton";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 import { fmtTime } from "../lib/format";
@@ -339,7 +340,7 @@ export function RunPage({ runId }: { runId: string }) {
         ) : query.isError ? (
           <div className="notice">{`Could not load the run: ${query.error instanceof Error ? query.error.message : "request failed"}`}</div>
         ) : (
-          <div className="sub">Loading…</div>
+          <PageLoader label="Loading run…" onRetry={() => void query.refetch()} />
         )}
       </>
     );

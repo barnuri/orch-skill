@@ -105,3 +105,14 @@
 @media (max-width: 900px) {
   .watchdog-pill .watchdog-pill-words { display: none; }
 }
+
+/* Loading and failure states: a page is never blank. */
+.page-loader { display: grid; gap: 0.5rem; padding: 1.25rem; max-width: 40rem; }
+.page-loader p { margin: 0; color: var(--muted, inherit); }
+.page-loader-spinner { width: 1.4rem; height: 1.4rem; border: 2px solid var(--line, #3a3f4b); border-top-color: var(--accent, #5aa0ff); border-radius: 50%; animation: page-loader-spin 0.8s linear infinite; }
+@keyframes page-loader-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .page-loader-spinner { animation: none; } }
+.loader-slow { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0.8rem; margin-top: 0.5rem; border: 1px solid var(--line, #3a3f4b); border-radius: 8px; color: var(--muted, inherit); }
+.page-error { padding: 1.25rem; max-width: 40rem; }
+.page-error h2 { margin: 0 0 0.4rem; }
+.page-error-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }

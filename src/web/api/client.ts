@@ -82,6 +82,9 @@ const UNAUTHORIZED = 401;
  * the server answers with; a body that does not match resolves to `invalid`, never to bad data.
  * Maps every outcome onto ApiResult, so callers never need try/catch.
  */
+/** A GET that takes longer than this fails as a network error. */
+export const GET_TIMEOUT_MS = 30_000;
+
 export class ApiClient {
   constructor(private readonly status: StatusStore = connection) {}
 
@@ -279,6 +282,10 @@ export class ApiClient {
       init.body = JSON.stringify(options.body);
     }
     const isGet = method === "GET";
+    if (isGet) {
+      // A request that never answers must end as an error the page can show, not a loader that never stops.
+      init.signal = AbortSignal.timeout(GET_TIMEOUT_MS);
+    }
     const watch = isGet && options.quiet !== true;
     let res: Response;
     try {

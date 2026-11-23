@@ -13,6 +13,8 @@ import { HowPage } from "../pages/HowPage";
 import { SuggestionsPage } from "../pages/SuggestionsPage";
 import type { Route } from "../router/route";
 import { SECTION_HREF } from "../router/route";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { PageLoader } from "../components/Skeleton";
 import { Header } from "./Header";
 import { Rail, TabBar } from "./Rail";
 import { TokenGate } from "./TokenGate";
@@ -104,7 +106,7 @@ export function AppShell() {
         <Header route={route} />
         <SecureLinkHint />
         <main id="main" tabIndex={-1}>
-          {authRequired ? <TokenGate /> : <Suspense fallback={null}><Page route={route} /></Suspense>}
+          {authRequired ? <TokenGate /> : <ErrorBoundary resetKey={window.location.hash}><Suspense fallback={<PageLoader label="Loading page…" />}><Page route={route} /></Suspense></ErrorBoundary>}
         </main>
       </div>
       <TabBar current={current} />

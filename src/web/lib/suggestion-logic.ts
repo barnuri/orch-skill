@@ -44,7 +44,8 @@ export function sortSuggestions(list: readonly Suggestion[]): Suggestion[] {
     if (b.status === "pending" && a.status !== "pending") {
       return 1;
     }
-    return b.created.localeCompare(a.created);
+    // Learned `orch-fix` entries have no `created`; they sort last instead of crashing the page.
+    return (b.created ?? "").localeCompare(a.created ?? "");
   });
 }
 

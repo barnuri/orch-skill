@@ -12,6 +12,7 @@ export { Panel, PanelBox } from "./Panel";
 export { RunStrip } from "./RunStrip";
 export { Segmented, Labelled } from "./Segmented";
 export { Select } from "./Select";
-export { Skeleton } from "./Skeleton";
+export { ErrorBoundary } from "./ErrorBoundary";
+export { PageLoader, Skeleton, SlowLoadNote, SLOW_LOAD_MS, useSlowLoad } from "./Skeleton";
 export { ToastProvider, useToast } from "./Toast";
 export { Toggle } from "./Toggle";
