@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { IconButton } from "../components/IconButton";
-import { refreshPage, useActive } from "../api/queries";
+import { refreshPage } from "../api/queries";
 import { NAV_LINKS, SECTION_HREF } from "../router/route";
 import type { Route } from "../router/route";
 import { BuildBanner } from "./BuildBanner";
-import { ActivePill } from "./ActivePill";
 import { HealthPill } from "../runs/RunHealth";
 import { HerdrChip } from "./HerdrChip";
-import { WatchdogPill } from "./WatchdogPill";
-import { useHealthSummary, useWatchdog } from "../runs/queries";
+import { useHealthSummary } from "../runs/queries";
 import { Freshness } from "./Freshness";
 import { useTheme } from "./theme";
 
@@ -18,11 +16,9 @@ const TITLES: Record<Route["kind"], string> = Object.fromEntries(
 
 const REFRESH_LABEL = "Refresh this page";
 
-/** Top bar: section title, active-items pill, freshness, refresh and theme. Navigation lives in the rail and tab bar. */
+/** Top bar: section title, health, herdr, freshness, refresh and theme. Loops, monitors and the watchdog show inside their run. Navigation lives in the rail and tab bar. */
 export function Header({ route }: { route: Route }) {
-  const active = useActive();
   const healthSummary = useHealthSummary();
-  const watchdog = useWatchdog();
   const { theme, toggle } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   return (
@@ -30,10 +26,8 @@ export function Header({ route }: { route: Route }) {
       <h1 className="topbar-title">{TITLES[route.kind]}</h1>
       <div className="spacer" />
       <BuildBanner />
-      <ActivePill items={active.data?.items ?? []} />
       <HealthPill summary={healthSummary} />
       <HerdrChip health={healthSummary?.herdr} />
-      <WatchdogPill status={watchdog} />
       <Freshness />
       <IconButton
         id="refresh"

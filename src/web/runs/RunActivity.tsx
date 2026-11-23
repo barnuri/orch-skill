@@ -31,16 +31,47 @@ export function StaleBanner({ run }: { run: RunState }) {
 export const ACTIVITY_PREVIEW = 5;
 
 /** Newest first, live: each row is time, node, change. The last ACTIVITY_PREVIEW rows show until "Show more". */
+/** localStorage key for the Activities panel open state. Absent means collapsed. */
+export const ACTIVITIES_OPEN_KEY: string = "orch.run.activities.open";
+
+function readActivitiesOpen(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(ACTIVITIES_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeActivitiesOpen(open: boolean): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(ACTIVITIES_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Storage can be blocked; the panel still toggles for this page view.
+  }
+}
+
 export function ActivityFeed({ events }: { events: readonly RunEvent[] }) {
   // One choice for all runs, restored on load.
   const [expanded, setExpanded] = useState(() => loadGraphPrefs().activityExpanded);
+  const [open, setOpen] = useState<boolean>(readActivitiesOpen);
   const rows = feedRows(events);
   const shown = expanded ? rows : rows.slice(0, ACTIVITY_PREVIEW);
   const hidden = rows.length - shown.length;
+  const toggle = () => {
+    setOpen((prev) => {
+      writeActivitiesOpen(!prev);
+      return !prev;
+    });
+  };
   return (
-    <section className="panel run-activity" aria-label="Activity">
-      <h2>Activity</h2>
-      {rows.length === 0 ? (
+    <section className="panel run-activity" aria-label="Activities" data-expanded={open}>
+      <h2>
+        <button type="button" className="requirements-toggle" aria-expanded={open} onClick={toggle}>
+          <span aria-hidden="true">{open ? "▾" : "▸"}</span> Activities{" "}
+          <span className="muted">{rows.length}</span>
+        </button>
+      </h2>
+      {!open ? null : rows.length === 0 ? (
         <p className="hint panel-empty">No activity recorded yet.</p>
       ) : (
         <>

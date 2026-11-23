@@ -1,3 +1,4 @@
+import { Select } from "../components/Select";
 import type { RunState } from "../../shared/types/run-state";
 import type { LiveState } from "./queries";
 import { filterOptions, isFilterActive, EMPTY_FILTER, SUMMARY_BUCKETS, VERDICTS, type NodeFilter, type RunSummary, type SummaryBucket } from "./run-filter";
@@ -27,7 +28,7 @@ export function RunSummaryBar({ summary, active, onPick }: { summary: RunSummary
         <b>{summary.total}</b>
       </button>
       {SUMMARY_BUCKETS.map((bucket) =>
-        bucket === "skipped" && summary.skipped === 0 ? null : (
+        (bucket === "skipped" || bucket === "covered" || bucket === "stopped") && summary[bucket] === 0 ? null : (
           <button
             key={bucket}
             type="button"
@@ -66,38 +67,24 @@ export function NodeFilterBar({ run, filter, harnessByProfile, shown, onChange }
         value={filter.q}
         onChange={(event) => onChange({ ...filter, q: event.target.value })}
       />
-      <select className="input" aria-label="Filter by status" value={filter.status} onChange={(event) => onChange({ ...filter, status: event.target.value as SummaryBucket | "" })}>
-        <option value="">any status</option>
-        {SUMMARY_BUCKETS.map((bucket) => (
-          <option key={bucket} value={bucket}>
-            {bucket}
-          </option>
-        ))}
-      </select>
-      <select className="input" aria-label="Filter by profile or harness" value={filter.profile} onChange={(event) => onChange({ ...filter, profile: event.target.value })}>
-        <option value="">any profile / harness</option>
-        {options.profiles.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <select className="input" aria-label="Filter by model" value={filter.model} onChange={(event) => onChange({ ...filter, model: event.target.value })}>
-        <option value="">any model</option>
-        {options.models.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <select className="input" aria-label="Filter by result verdict" value={filter.verdict} onChange={(event) => onChange({ ...filter, verdict: event.target.value as NodeFilter["verdict"] })}>
-        <option value="">any verdict</option>
-        {VERDICTS.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
+      <Select
+        aria-label="Filter by profile or harness"
+        value={filter.profile}
+        onChange={(next) => onChange({ ...filter, profile: next })}
+        options={[{ value: "", label: "any profile / harness" }, ...options.profiles.map((name) => ({ value: name, label: name }))]}
+      />
+      <Select
+        aria-label="Filter by model"
+        value={filter.model}
+        onChange={(next) => onChange({ ...filter, model: next })}
+        options={[{ value: "", label: "any model" }, ...options.models.map((name) => ({ value: name, label: name }))]}
+      />
+      <Select
+        aria-label="Filter by result verdict"
+        value={filter.verdict}
+        onChange={(next) => onChange({ ...filter, verdict: next as NodeFilter["verdict"] })}
+        options={[{ value: "", label: "any verdict" }, ...VERDICTS.map((name) => ({ value: name, label: name }))]}
+      />
       {active ? (
         <>
           <span className="muted run-filter-count">{`${shown} of ${run.nodes.length} nodes`}</span>
