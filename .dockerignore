@@ -1,0 +1,6 @@
+.git
+agent-spec
+dist
+logs
+tools/ui-lanes/node_modules
+tools/ui-lanes/.vite-cache

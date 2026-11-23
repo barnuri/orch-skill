@@ -367,3 +367,9 @@ Repo layout and the invariants to respect when changing things: [CLAUDE.md](CLAU
 ## License
 
 [MIT](LICENSE)
+
+## Isolated UI lanes
+
+- Mock lane (no backend, no live state): `cd tools/ui-lanes && bun mock/serve.ts` serves the UI at http://127.0.0.1:5174 against in-memory fixtures.
+- Integration lane (real server in Docker on a throwaway volume, host port 16724): `bun tools/ui-lanes/integration/run.ts`. Run `bun install` in the repo first; the container mounts the repo and bun's cache read-only.
+- `bun test tools/ui-lanes/tests/isolation` proves neither lane references `~/.harness-orch` or port 6724.

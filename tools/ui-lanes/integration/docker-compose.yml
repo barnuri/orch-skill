@@ -7,11 +7,15 @@ services:
       context: ../../..
       dockerfile: tools/ui-lanes/integration/Dockerfile
     ports:
-      - "${ORCH_LANE_PORT:-16724}:6724"
+      - "127.0.0.1:${ORCH_LANE_PORT:-16724}:6724"
     volumes:
+      - ../../..:/app:ro
+      # bun's node_modules symlink into its global cache with absolute paths; mount it at the same path
+      - ${HOME}/.bun/install/cache:${HOME}/.bun/install/cache:ro
       - lane-home:/orch-home
     environment:
       HARNESS_ORCH_HOME: /orch-home
       ORCH_HERDR: "0"
+      ORCH_ALLOW_REMOTE: "1"
 volumes:
   lane-home:
