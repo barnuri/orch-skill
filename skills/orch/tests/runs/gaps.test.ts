@@ -16,6 +16,23 @@ test("an unhandled request is a gap; the gate refuses to close with it", async (
   void loadRun; void orchHome;
 });
 
+test("open requirements create gap nodes while an unrelated node is running", async () => {
+  const home = seedHome();
+  const o = orch(home, {});
+  const R = o("run", "start", "parallel gaps").out.trim();
+  o("node", "add", R, "unrelated", "Unrelated work");
+  o("node", "update", R, "unrelated", "running");
+  o("req", "add", R, "ship first", "--id", "R1");
+  o("req", "add", R, "ship second", "--id", "R2");
+  const { findGaps, createGapNodes } = await import("../../core/commands/gaps.ts");
+  const gaps = await findGaps(home, R);
+  const created = await createGapNodes(home, R, gaps);
+  expect(created).toEqual(["gap-R1", "gap-R2"]);
+  const run = (await loadRun(home, R))!;
+  expect(run.nodes.some((n: any) => n.id === "gap-R1")).toBe(true);
+  expect(run.nodes.some((n: any) => n.id === "gap-R2")).toBe(true);
+});
+
 test("a done node whose owner stopped is a gap until a coordinator result is recorded", async () => {
   const { findGaps } = await import("../../core/commands/gaps.ts");
   const home = seedHome();
