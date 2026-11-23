@@ -45,7 +45,9 @@ describe("run summary", () => {
     const picked: string[] = [];
     render(<RunSummaryBar summary={runSummary(run(NODES))} active="" onPick={(b) => picked.push(b)} />);
     expect(screen.getByText("total").parentElement?.textContent).toBe("total5");
-    expect(screen.queryByText("skipped")).toBeNull();
+    expect(screen.getByText("skipped")).toBeTruthy();
+    expect(screen.getByText("covered")).toBeTruthy();
+    expect(screen.getByText("stopped")).toBeTruthy();
     fireEvent.click(screen.getByTitle("Show only error nodes"));
     expect(picked).toEqual(["error"]);
   });

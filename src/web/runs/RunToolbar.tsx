@@ -27,21 +27,19 @@ export function RunSummaryBar({ summary, active, onPick }: { summary: RunSummary
         <span className="run-summary-key">total</span>
         <b>{summary.total}</b>
       </button>
-      {SUMMARY_BUCKETS.map((bucket) =>
-        (bucket === "skipped" || bucket === "covered" || bucket === "stopped") && summary[bucket] === 0 ? null : (
-          <button
-            key={bucket}
-            type="button"
-            className={`run-summary-item is-${bucket}${active === bucket ? " is-on" : ""}${summary[bucket] === 0 ? " is-zero" : ""}`}
-            aria-pressed={active === bucket}
-            title={`Show only ${bucket} nodes`}
-            onClick={() => onPick(active === bucket ? "" : bucket)}
-          >
-            <span className="run-summary-key">{bucket}</span>
-            <b>{summary[bucket]}</b>
-          </button>
-        ),
-      )}
+      {SUMMARY_BUCKETS.map((bucket) => (
+        <button
+          key={bucket}
+          type="button"
+          className={`run-summary-item is-${bucket}${active === bucket ? " is-on" : ""}${summary[bucket] === 0 ? " is-zero" : ""}`}
+          aria-pressed={active === bucket}
+          title={`Show only ${bucket} nodes`}
+          onClick={() => onPick(active === bucket ? "" : bucket)}
+        >
+          <span className="run-summary-key">{bucket}</span>
+          <b>{summary[bucket]}</b>
+        </button>
+      ))}
     </div>
   );
 }
