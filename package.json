@@ -2,6 +2,11 @@
   "name": "orch",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/barnuri/orch-skill.git"
+  },
+  "homepage": "https://github.com/barnuri/orch-skill",
   "description": "orch dashboard server and client. The skill itself (skills/orch) needs none of this to run the CLI.",
   "scripts": {
     "test": "ORCH_HERDR=0 bun scripts/heavy-test-lock.ts run -- bun test --timeout 300000 --parallel=6 --retry=1 --timings=${TMPDIR:-/tmp}/orch-bun-test-timings.json --update-timings src",

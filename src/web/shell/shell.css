@@ -73,6 +73,10 @@
   .rail-brand, .rail-nav a, .rail-toggle { justify-content: center; padding: 0; }
   .rail-toggle { display: none; }
 }
+/* Bug link: a plain anchor in the header, with a visible focus ring. */
+.bug-report { text-decoration: none; }
+.bug-report:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 /* The node-health pill keeps only its count on a phone, so the header's buttons still fit. */
 @media (max-width: 600px) {
   .health-pill .health-pill-words { display: none; }
