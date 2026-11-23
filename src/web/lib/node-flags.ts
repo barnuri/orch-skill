@@ -172,5 +172,5 @@ export function resultChip(node: RunNode): ResultChip | null {
   if (r === undefined || r === null) {
     return node.status === "done" ? { verdict: "unknown", summary: "", followUp: "" } : null;
   }
-  return { verdict: r.verdict, summary: r.summary, followUp: r.follow_up };
+  return { verdict: r.verdict, summary: r.summary ?? "", followUp: r.follow_up ?? "" };
 }

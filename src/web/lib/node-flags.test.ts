@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import type { RunNode } from "../../shared/types/run-node";
-import { healthClass, needsUserReason } from "./node-flags";
+import { healthClass, needsUserReason, resultChip } from "./node-flags";
 
 const base = { id: "n", label: "n", status: "running", job_id: null } as unknown as RunNode;
 
@@ -20,4 +20,9 @@ test("needs-user reason: trimmed text, null when absent or blank", () => {
   expect(needsUserReason({ ...base, needs_user: "" } as RunNode)).toBeNull();
   expect(needsUserReason({ ...base, needs_user: null } as RunNode)).toBeNull();
   expect(needsUserReason(base)).toBeNull();
+});
+
+test("resultChip tolerates a result with null summary or follow_up", () => {
+  const chip = resultChip({ id: "a", status: "done", result: { verdict: "full", summary: null, follow_up: null } } as never);
+  expect(chip).toEqual({ verdict: "full", summary: "", followUp: "" });
 });
