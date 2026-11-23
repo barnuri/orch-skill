@@ -42,6 +42,9 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
 export async function createGapNodes(home: string, runId: string, gaps: Gap[]): Promise<string[]> {
   const created: string[] = [];
   const run = await loadRun(home, runId);
+  // Work already in flight covers the gap: do not start the same work twice.
+  const inFlight = (run?.nodes ?? []).some((n: any) => n.id !== "done-gate" && (n.status === "running" || n.status === "waiting"));
+  if (inFlight) return created;
   for (const g of gaps) {
     if (g.kind === "errored-node") continue; // the watch replaces errored nodes itself (node replace)
     const id = `gap-${g.kind === "request" ? g.id : g.id}`.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 60);
