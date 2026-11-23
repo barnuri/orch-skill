@@ -531,6 +531,7 @@ export function applyResult(run: RunState, a: ResultArgs, ctx: Ctx): string {
   if (summary === "") fail("node result: --summary is required");
   const follow = oneLine(a.followUp) || (a.verdict === "full" ? "none" : "");
   n.result = { verdict: a.verdict, summary, follow_up: follow, at: ctx.now };
+  n.reviewed = true;
   n.result_reason = null;
   n.updated = ctx.now;
   if (n.status === "done") {

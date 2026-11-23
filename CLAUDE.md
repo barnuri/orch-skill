@@ -261,3 +261,9 @@ load `SKILL.md` directly). It therefore probes for *capabilities* — "does this
 background-capable Bash and a Monitor tool?" — rather than branching on a harness name, and it
 never depends on Claude-Code-only machinery such as `${CLAUDE_PLUGIN_ROOT}` or frontmatter hooks.
 Keep new instructions harness-neutral and state the fallback explicitly.
+
+## Service restart after every change
+
+After finishing any change to orch code, restart the live service so it runs the latest code:
+`bun scripts/service.ts restart` from the repo root. Confirm the output says `service: restarted`
+before reporting the task done. Do this even when the change looks unrelated to the service.

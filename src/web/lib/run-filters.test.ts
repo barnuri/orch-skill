@@ -6,6 +6,7 @@ import {
   ALL_STATUSES,
   DEFAULT_RUN_FILTERS,
   SHOW_ALL_RUN_FILTERS,
+  isEngineRun,
   matchesRunFilters,
   parseRunFilters,
   runFiltersActive,
@@ -59,6 +60,13 @@ describe("matchesRunFilters age", () => {
 
   test("a run finished outside the window is hidden", () => {
     expect(matchesRunFilters(run("done", 30), filters(), NOW)).toBe(false);
+  });
+
+  test("an unfinished run ages from its newest activity, not its start", () => {
+    const idle = { ...run("covered", null, 400), updated: new Date(NOW - 2 * HOUR).toISOString() };
+    expect(matchesRunFilters(idle, filters(), NOW)).toBe(true);
+    const stale = { ...run("covered", null, 400), updated: new Date(NOW - 60 * HOUR).toISOString() };
+    expect(matchesRunFilters(stale, filters(), NOW)).toBe(false);
   });
 
   test("exactly at the cutoff is still kept", () => {
@@ -143,5 +151,12 @@ describe("parseRunFilters", () => {
     expect(parseRunFilters("{ not json")).toEqual(DEFAULT_RUN_FILTERS);
     expect(parseRunFilters("null")).toEqual(DEFAULT_RUN_FILTERS);
     expect(parseRunFilters("[]")).toEqual(filters());
+  });
+
+  test("isEngineRun marks loop and watch runs, not coordinator runs", () => {
+    expect(isEngineRun("loop-20261112-100000-0001")).toBe(true);
+    expect(isEngineRun("watch-20261112-100000-0001")).toBe(true);
+    expect(isEngineRun("feature-run-1")).toBe(false);
+    expect(isEngineRun("my-loop-2")).toBe(false);
   });
 });
