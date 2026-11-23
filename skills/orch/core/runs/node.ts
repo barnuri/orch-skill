@@ -190,7 +190,7 @@ export interface AddArgs {
 
 // argv after `node add <run>`: <id> <label> [flags]. Checks the enumerations, as cmd_node_add does.
 export function parseAddArgs(args: string[]): AddArgs {
-  const a: AddArgs = { id: args[0] ?? "", label: args[1] ?? "", after: "", profile: "", role: "", tier: "", model: "", planBacked: false, acceptance: "", origin: "" };
+  const a: AddArgs & { planFile?: string; planTask?: string } = { id: args[0] ?? "", label: args[1] ?? "", after: "", profile: "", role: "", tier: "", model: "", planBacked: false, acceptance: "", origin: "" };
   let i = 2;
   while (i < args.length) {
     const k = args[i];
@@ -201,6 +201,8 @@ export function parseAddArgs(args: string[]): AddArgs {
       case "--tier": a.tier = nextValue(args, i); i++; break;
       case "--model": a.model = nextValue(args, i); i++; break;
       case "--plan-backed": a.planBacked = true; break;
+      case "--plan": a.planFile = nextValue(args, i); i++; break;
+      case "--task": a.planTask = nextValue(args, i); i++; break;
       case "--acceptance": a.acceptance = nextValue(args, i); i++; break;
       case "--origin": a.origin = nextValue(args, i); i++; break;
       default: fail(`node add: unknown argument ${k}`);
@@ -263,6 +265,7 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
     plan_backed: a.planBacked,
     acceptance: nn(a.acceptance),
     ...(a.origin ? { origin: a.origin } : {}),
+    ...((a as any).planFile && (a as any).planTask ? { plan: { file: (a as any).planFile, task: (a as any).planTask } } : {}),
   });
   run.edges = [...(run.edges ?? []), ...kept.map((d) => [d, a.id])];
   // The done-gate stays last: a node added after it ran makes it wait again.
