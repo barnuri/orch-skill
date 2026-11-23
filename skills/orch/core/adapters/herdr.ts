@@ -448,8 +448,29 @@ export function buildJobTerminalName(runTitle: string, nodeLabel: string, attemp
   return attempt > 1 ? `${base}-attempt-${attempt}` : base;
 }
 
-async function appPlacement(home: string, jobDir: string, run: string, node: string): Promise<{ labels: string[]; name: string } | null> {
+/** Addresses of every hc terminal (any label), used to find the default shell that `tab.new` adds. */
+async function hcAllAddresses(): Promise<Set<string>> {
+  const r = await hcCli(["ls", "--json"]);
+  try { return new Set(((JSON.parse(r.stdout).terminals ?? []) as any[]).map((t) => String(t.address))); } catch { return new Set(); }
+}
+
+/** Removes the empty shell `tab.new` opens in a fresh run tab. Only unlabeled shells that appeared during tab.new. */
+async function removeDefaultShells(addrs: string[]): Promise<void> {
+  for (const a of addrs) {
+    const g = await hcCli(["get", a, "--json"]);
+    try {
+      const t = JSON.parse(g.stdout);
+      const labeled = t.labels?.orch !== undefined;
+      if (labeled || t.state !== "live") continue;
+    } catch { continue; }
+    await hcCli(["kill", a]);
+    await hcCli(["rm", a]);
+  }
+}
+
+async function appPlacement(home: string, jobDir: string, run: string, node: string): Promise<{ labels: string[]; name: string; defaultShells: string[] } | null> {
   const log = (m: string) => { try { appendFileSync(join(jobDir, "log"), `orch: herdr-app: ${m}\n`); } catch { /* ignore */ } };
+  let defaultShells: string[] = [];
   try {
     const envSpace = process.env.ORCH_HERDR_SPACE; // test hook: "default" means use the setting
     const raw = envSpace !== undefined && envSpace !== "default" ? envSpace : (await settings(home)).herdr_space;
@@ -468,8 +489,10 @@ async function appPlacement(home: string, jobDir: string, run: string, node: str
       if (tab) appTabCache.set(key, tab);
     }
     if (!tab) {
+      const before = await hcAllAddresses();
       const r = await appCli(["do", "tab.new", "--name", run.slice(-12), "--space", space, "--focus", "false"]);
       tab = r.ok ? idIn(r.stdout, "tb") : "";
+      if (tab) defaultShells = [...(await hcAllAddresses())].filter((a) => !before.has(a));
       if (!tab) throw new Error("tab.new failed");
       appTabCache.set(key, tab);
     }
@@ -478,7 +501,7 @@ async function appPlacement(home: string, jobDir: string, run: string, node: str
     const nodeEntry = Array.isArray(state?.nodes) ? state.nodes.find((n: any) => n.id === node) : null;
     const nodeLabel = process.env.ORCH_NODE_LABEL || (typeof nodeEntry?.label === "string" ? nodeEntry.label : node);
     const attempt = Number(process.env.ORCH_NODE_ATTEMPT || 1);
-    return { labels: [`herdr.space=${space}`, `herdr.tab=${tab}`], name: buildJobTerminalName(runTitle, nodeLabel, attempt) };
+    return { labels: [`herdr.space=${space}`, `herdr.tab=${tab}`], name: buildJobTerminalName(runTitle, nodeLabel, attempt), defaultShells };
   } catch (e) {
     log(`${(e as Error).message}, job stays hidden`);
     return null;
@@ -504,7 +527,10 @@ async function hcStartJob(home: string, jobDir: string, argv: string[]): Promise
   try { addr = JSON.parse(r.stdout).address ?? ""; } catch { /* no address */ }
   if (!r.ok || !addr) return false;
   writeFileSync(join(jobDir, "hc_term"), `${addr}\n`);
-  if (place) writeFileSync(join(jobDir, "hc_app"), `${place.labels.join(" ")}\n`);
+  if (place) {
+    writeFileSync(join(jobDir, "hc_app"), `${place.labels.join(" ")}\n`);
+    await removeDefaultShells(place.defaultShells.filter((a) => a !== addr)).catch(() => undefined);
+  }
   return true;
 }
 

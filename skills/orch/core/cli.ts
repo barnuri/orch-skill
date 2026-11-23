@@ -120,6 +120,7 @@ export const COMMANDS: Record<string, Handler> = {
   "run uncover": L(() => import("./commands/cover.ts"), (m) => m.runUncover),
   "run carry": withMonitor(L(() => import("./commands/carry.ts"), (m) => m.runCarry)),
   "run merge": L(() => import("./commands/merge.ts"), (m) => m.runMerge),
+  "run settle": L(() => import("./commands/settle.ts"), (m) => m.runSettle),
   "node replace": L(() => import("./commands/cover.ts"), (m) => m.nodeReplace),
   use: L(() => import("./commands/use.ts"), (m) => m.useCommand),
   "run status": L(() => import("./commands/run.ts"), (m) => m.runStatusCommand),

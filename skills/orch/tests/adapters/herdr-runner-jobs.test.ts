@@ -34,7 +34,7 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   expect(readText(join(jd, "herdr-launch.sh"))).not.toMatch(/live-session/);
   expect(readText(join(jd, "herdr-launch.sh"))).toMatch(/exec bun .*\/core\/commands\/herdr-launch\.ts/);
   expect(readText(join(jd, "argv.json"))).toMatch(/"job-run"/);
-  expect(t.fakeState().tabs.map((x: any) => x.label).join(" ")).toMatch(new RegExp(`(^|\\] )${job}$`));
+  expect(t.fakeState().tabs.map((x: any) => x.label).join(" ")).toContain(`jobs-${job.slice(0, 24)}`);
   expect(t.fakeState().workspaces.map((w: any) => w.label)).toEqual(["jobs"]);
   expect(t.calls()).not.toMatch(/pane split/);
   await waitUntil(() => t.fakeState().tabs.length === 0, 30);
@@ -46,8 +46,8 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   t.waitJob(nj);
   expect(d("status", nj).out.trim()).toBe("done exit=3");
   expect(t.fakeState().workspaces.map((w: any) => w.label)).toEqual(["hr-run"]);
-  expect(t.fakeState().tabs.map((x: any) => x.label).join(" ")).toMatch(/(^|\] )a$/);
-  const tab = t.fakeState().tabs.find((x: any) => /(^|\] )a$/.test(x.label));
+  expect(t.fakeState().tabs.map((x: any) => x.label).join(" ")).toMatch(/(^|\] )herdr-run-a$/);
+  const tab = t.fakeState().tabs.find((x: any) => /(^|\] )herdr-run-a$/.test(x.label));
   expect(t.fakeState().panes.filter((p: any) => p.tab_id === tab.tab_id).length).toBe(1);
   expect([(t.calls().match(/tab create/g) ?? []).length, (t.calls().match(/pane split/g) ?? []).length]).toEqual([1, 0]);
   expect(readText(join(t.home, "jobs", nj, "herdr_tab")).trim()).toMatch(/^w\d+:t\d+$/);
@@ -55,7 +55,7 @@ test("job panes, node tabs, retries, caps, lost panes", async () => {
   const rj = d.env({ ORCH_RUN_ID: "hr-run", ORCH_NODE_ID: "a", ORCH_NODE_ATTEMPT: "2", ORCH_HERDR_CLOSE_AFTER: "30", ORCH_TEST_EXIT: "0" }, "start", "claude", "retry probe").out.trim();
   t.waitJob(rj);
   expect((t.calls().match(/tab create/g) ?? []).length).toBe(0);
-  expect(t.fakeState().tabs.map((x: any) => x.label)).toContain("[1] a #2");
+  expect(t.fakeState().tabs.map((x: any) => x.label)).toContain("[1] herdr-run-a-attempt-2");
   expect(readText(join(t.home, "jobs", rj, "herdr_tab")).trim()).toBe(readText(join(t.home, "jobs", nj, "herdr_tab")).trim());
   expect(t.fakeState().tabs.length).toBe(1);
 

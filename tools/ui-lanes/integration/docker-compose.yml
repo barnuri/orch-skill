@@ -1,0 +1,17 @@
+# Full-backend lane. The server runs against a named volume seeded with a throwaway orch home, never the live home.
+# Host port defaults to 16724 (never 6724). Run: bun tools/ui-lanes/integration/run.ts
+name: orch-ui-lane
+services:
+  orch:
+    build:
+      context: ../../..
+      dockerfile: tools/ui-lanes/integration/Dockerfile
+    ports:
+      - "${ORCH_LANE_PORT:-16724}:6724"
+    volumes:
+      - lane-home:/orch-home
+    environment:
+      HARNESS_ORCH_HOME: /orch-home
+      ORCH_HERDR: "0"
+volumes:
+  lane-home:

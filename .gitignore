@@ -35,3 +35,4 @@ skills/orch/templates/profiles.local.json
 .claude/skills/orch-perf/learnings.md
 .claude/skills/orch-perf/local.md
 **/agent-spec
+tools/ui-lanes/.vite-cache/

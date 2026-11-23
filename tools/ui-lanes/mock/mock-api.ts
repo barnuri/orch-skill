@@ -5,11 +5,13 @@ import {
   BUILD_INFO,
   HARNESSES_ENVELOPE,
   HEALTH,
+  HEALTH_SUMMARY,
   SERVER_INFO,
   memoryEnvelope,
   profilesEnvelope,
   runDetail,
   runEvents,
+  runHealth,
   runsList,
 } from "./fixtures";
 
@@ -44,10 +46,16 @@ const ROUTES: readonly Route[] = [
   },
   {
     method: "GET",
+    pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/health$/,
+    respond: ({ id }) => orNotFound(runHealth(id)),
+  },
+  {
+    method: "GET",
     pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/events$/,
     respond: ({ id }) => orNotFound(runEvents(id)),
   },
   { method: "GET", pattern: /^\/api\/active$/, respond: () => ok(ACTIVE_ENVELOPE) },
+  { method: "GET", pattern: /^\/api\/health\/summary$/, respond: () => ok(HEALTH_SUMMARY) },
   { method: "GET", pattern: /^\/api\/harnesses$/, respond: () => ok(HARNESSES_ENVELOPE) },
   { method: "GET", pattern: /^\/api\/profiles$/, respond: () => ok(profilesEnvelope()) },
   { method: "GET", pattern: /^\/api\/memory$/, respond: () => ok(memoryEnvelope()) },

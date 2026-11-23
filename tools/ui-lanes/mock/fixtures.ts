@@ -108,7 +108,7 @@ function summaryOf(state: { run_id: string; title: string; status: string; start
     counts[node.status as keyof typeof counts] += 1;
   }
   return {
-    id: state.run_id,
+    run_id: state.run_id,
     title: state.title,
     status: state.status,
     started: state.started,
@@ -242,3 +242,31 @@ export function memoryEnvelope() {
 }
 
 export const ACTIVE_ENVELOPE = { generated_at: FIXED_NOW, items: [] };
+
+export const HEALTH_SUMMARY = {
+  running_runs: 1,
+  stalled: 0,
+  dead: 0,
+  unowned: 0,
+  no_report: 0,
+  needs_user: 0,
+  ready: 1,
+  flagged_runs: [],
+  herdr: { state: "off", problems: [] },
+};
+
+export function runHealth(id: string) {
+  if (RUNS[id] === undefined) {
+    return null;
+  }
+  return {
+    generated_at: FIXED_NOW,
+    source: "fixture",
+    health: {
+      run: id,
+      slots: 4,
+      nodes: RUNS[id].nodes.map((node) => ({ id: node.id, health: node.status === "running" ? "ok" : "idle" })),
+      ready: [],
+    },
+  };
+}

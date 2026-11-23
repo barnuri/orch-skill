@@ -2,7 +2,7 @@
 // (default 5174). Refuses 6724, the live orch port, so it can never shadow the live service.
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { orchMockApi } from "./vite-plugin";
+import { orchLowerDecorators, orchMockApi, orchMockDevPage } from "./vite-plugin.ts";
 
 const LIVE_PORT = 6724;
 const DEFAULT_MOCK_PORT = 5174;
@@ -13,7 +13,12 @@ if (!Number.isInteger(port) || port <= 0 || port === LIVE_PORT) {
 
 export default defineConfig({
   root: fileURLToPath(new URL("../../../src/web", import.meta.url)),
-  plugins: [orchMockApi()],
+  plugins: [
+    orchLowerDecorators(),
+    orchMockApi(),
+    orchMockDevPage(fileURLToPath(new URL("./shims.ts", import.meta.url))),
+  ],
+  cacheDir: fileURLToPath(new URL("../.vite-cache", import.meta.url)),
   server: { host: "127.0.0.1", port, strictPort: true },
   build: { outDir: fileURLToPath(new URL("../.out/mock-dist", import.meta.url)), emptyOutDir: true },
 });
