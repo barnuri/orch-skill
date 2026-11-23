@@ -22,7 +22,7 @@ if (a[0] === "run" && a[1] === "messages" && a[3] === "retry") {
   record("fake-dispatch.sweeps", a.join(" "));
   process.exit(0);
 }
-if ((a[0] === "node" && (a[1] === "update" || a[1] === "started")) || (a[0] === "run" && a[1] === "finish")) {
+if ((a[0] === "node" && (a[1] === "update" || a[1] === "started" || a[1] === "tell")) || (a[0] === "run" && a[1] === "finish")) {
   record("fake-dispatch.actions", a.join(" "));
   process.exit(0);
 }

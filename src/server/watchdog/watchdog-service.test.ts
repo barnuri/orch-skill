@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import type { RunHealth } from "../../shared/types/run-health";
 import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
-import { actionsLog, EARLY_END_MESSAGE, isInfraError, WatchdogService } from "./watchdog-service";
+import { actionsLog, EARLY_END_MESSAGE, isCliSourceError, isInfraError, WatchdogService } from "./watchdog-service";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
@@ -346,6 +346,41 @@ describe("watchdog", () => {
     expect(f.actions()).toEqual(["node retry r1 a"]);
     expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:infra-retry"]);
     f.home.dispose();
+  });
+
+  test("rule 4b: a CLI/source error is told to the coordinator, flagged cli-source, never retried", async () => {
+    const f = fixture();
+    const error = "ReferenceError: foo is not defined at skills/orch/core/usage.ts:12";
+    f.set([{ id: "a", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "error", error, attempts: [] }]);
+    await f.tick();
+    await f.tick();
+    expect(f.actions()).toHaveLength(1);
+    expect(f.actions()[0]).toStartWith("node tell r1 coordinator Node a failed with a CLI or source error.");
+    expect(f.actions()[0]).toEndWith(`${error} --from watchdog`);
+    expect(f.actions().some((x) => x.startsWith("node retry"))).toBe(false);
+    expect(f.log().map((x) => `${x.rule}:${x.action}`)).toEqual(["cli-source:flag", "cli-source:node tell"]);
+    expect(f.dog.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["a:cli-source"]);
+    expect(f.dog.status().runs["r1"]).toMatchObject({ cli_source: 1, flagged: 1, retried: 0 });
+    // The node leaves error: the flag clears.
+    f.set([{ id: "a", status: "running", attempts: [{}] }]);
+    expect(f.dog.status().flags).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("rule 4b: CLI/source error classification", () => {
+    expect(isCliSourceError("ReferenceError: x is not defined")).toBe(true);
+    expect(isCliSourceError("TypeError: cannot read properties of undefined")).toBe(true);
+    expect(isCliSourceError("SyntaxError: Unexpected token")).toBe(true);
+    expect(isCliSourceError("error: Cannot find module './gone'")).toBe(true);
+    expect(isCliSourceError("bar is not defined")).toBe(true);
+    expect(isCliSourceError("at cmdRun (skills/orch/core/usage.ts:40:3)")).toBe(true);
+    expect(isCliSourceError("crash in skills/orch/scripts/dispatch.ts")).toBe(true);
+    expect(isCliSourceError("dispatch exit 1")).toBe(false);
+    expect(isCliSourceError("3 tests failed")).toBe(false);
+    expect(isCliSourceError(null)).toBe(false);
+    expect(isCliSourceError("")).toBe(false);
   });
 
   test("rule 9b: a node starting for over 3 minutes whose job is alive is stamped started, never marked stuck", async () => {

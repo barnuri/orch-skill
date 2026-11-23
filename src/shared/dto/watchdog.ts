@@ -1,7 +1,7 @@
 import { ZodDto, ZodField, ZodObject } from "@barnuri/zod-decorators";
 import { z } from "zod";
 
-const RULES = ["lost", "stalled", "unverified", "infra-retry", "starting", "finish"] as const;
+const RULES = ["lost", "stalled", "unverified", "infra-retry", "cli-source", "starting", "finish", "coordinator"] as const;
 
 @ZodObject({ description: "One watchdog action, as one line of `<home>/watchdog/actions.log`." })
 export class WatchdogActionDto extends ZodDto {
@@ -39,6 +39,9 @@ export class WatchdogCountersDto extends ZodDto {
 
   @ZodField(z.number(), { description: "Done nodes re-queued for a missing handoff." })
   unverified!: number;
+
+  @ZodField(z.number(), { description: "CLI and source errors routed to the coordinator." })
+  cli_source!: number;
 
   @ZodField(z.number(), { description: "Automatic retries." })
   retried!: number;

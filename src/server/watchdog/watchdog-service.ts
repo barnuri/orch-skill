@@ -30,6 +30,8 @@ import { judgeAll, scanRunners } from "../../../skills/orch/core/ghosts.ts";
  *    are exempt from every rule above that retries or verifies: the loop decides whether another tick runs.
  *  - infra-retry: a node seen turning error with an infrastructure error (dispatch exit, model
  *    unavailable, process died, job vanished) gets one `node retry`. Test failures are never retried.
+ *  - cli-source: a node seen turning error with a CLI or source runtime error is flagged and reported
+ *    to the run coordinator with `node tell`. It is never retried.
  *  - starting: a node dispatched (running, segment open) with no started_at for STARTING_AFTER_MS
  *    is marked error "stuck starting" (an infrastructure failure) and gets one `node retry`.
  *  - finish: an auto_dispatch run whose nodes are all done gets `run finish`.
@@ -57,6 +59,7 @@ const LAST_ACTIONS: number = 50;
 const LOG_TAIL_BYTES: number = 512 * 1024;
 
 const INFRA_ERROR: RegExp = /stuck starting|dispatch exit|exit=unknown|model (is )?(unavailable|not available)|process died|job vanished|job (is )?gone/i;
+const CLI_SOURCE_ERROR: RegExp = /ReferenceError|TypeError|SyntaxError|Cannot find module|is not defined|(?:usage|dispatch)\.ts/i;
 const TEST_FAILURE: RegExp = /tests? fail|failing tests?|test(s)? did not pass|assertion/i;
 
 interface WatchNode {
@@ -120,6 +123,10 @@ export interface WatchdogOptions {
   ownersEveryMs?: number;
 }
 
+export function isCliSourceError(error: string | null | undefined): boolean {
+  return typeof error === "string" && error !== "" && CLI_SOURCE_ERROR.test(error);
+}
+
 /** Infra error, never a test failure: the only errors the watchdog retries by itself. */
 export function isInfraError(error: string | null | undefined): boolean {
   if (typeof error !== "string" || error === "") {
@@ -178,7 +185,7 @@ function handoffPresent(home: string, runId: string, node: WatchNode): boolean {
 }
 
 function emptyCounters(): WatchdogCounters {
-  return { lost: 0, stalled: 0, unverified: 0, retried: 0, flagged: 0, finished: 0 };
+  return { lost: 0, stalled: 0, unverified: 0, cli_source: 0, retried: 0, flagged: 0, finished: 0 };
 }
 
 export function watchdogDir(home: string): string {
@@ -238,6 +245,9 @@ function counterFor(rule: WatchdogRule, action: string): keyof WatchdogCounters 
   }
   if (rule === "unverified") {
     return "unverified";
+  }
+  if (rule === "cli-source") {
+    return "cli_source";
   }
   return null;
 }
@@ -613,6 +623,10 @@ export class WatchdogService {
   }
 
   private checkInfraError(runId: string, node: WatchNode): void {
+    if (isCliSourceError(node.error)) {
+      this.routeCliSourceError(runId, node);
+      return;
+    }
     if (!isInfraError(node.error)) {
       return;
     }
@@ -626,6 +640,19 @@ export class WatchdogService {
     }
     this.chain(runId, node.id, async () => {
       await this.act(runId, node.id, "infra-retry", ["node", "retry", runId, node.id], node.error ?? "");
+    });
+  }
+
+  private routeCliSourceError(runId: string, node: WatchNode): void {
+    const attempt = (node.attempts ?? []).length;
+    if (!this.claim(runId, `cli-source-${node.id}@${attempt}`)) {
+      return;
+    }
+    const error = node.error ?? "";
+    this.flag(runId, node.id, "cli-source", error, "error");
+    const message = `Node ${node.id} failed with a CLI or source error. The watchdog did not retry it. Fix the source, then retry the node. Error: ${error}`;
+    this.chain(runId, node.id, async () => {
+      await this.act(runId, node.id, "cli-source", ["node", "tell", runId, "coordinator", message, "--from", "watchdog"], error);
     });
   }
 
