@@ -251,3 +251,11 @@ main:has(.run-page) { max-width: none; }
 
 /* Warnings column: chips and the retry button wrap instead of overflowing the table. */
 .rt-warn { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 260px; }
+
+/* Per-run parallel cap: a small menu, not an inline form in the page header. */
+.run-parallel-menu { position: relative; font-size: 0.8rem; }
+.run-parallel-menu > summary { cursor: pointer; list-style: none; padding: 0.25rem 0.6rem; border: 1px solid var(--border, #3a3f4b); border-radius: 6px; color: var(--muted, inherit); white-space: nowrap; }
+.run-parallel-menu > summary::-webkit-details-marker { display: none; }
+.run-parallel-menu[open] > summary { background: var(--surface-2, rgba(127, 127, 127, 0.15)); }
+.run-parallel-menu .run-parallel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; gap: 0.5rem; align-items: center; padding: 0.6rem; background: var(--surface, #14171c); border: 1px solid var(--border, #3a3f4b); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+.run-parallel-menu .run-parallel input { width: 5.5rem; }

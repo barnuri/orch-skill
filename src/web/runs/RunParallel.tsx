@@ -41,6 +41,8 @@ export function RunParallel({ run }: { run: RunState }) {
     });
   };
   return (
+    <details className="run-parallel-menu">
+      <summary title="Per-run parallel cap">parallel: {current === null ? "global" : current === -1 ? "unlimited" : current}</summary>
     <form
       className="run-parallel"
       onSubmit={(event) => {
@@ -67,5 +69,6 @@ export function RunParallel({ run }: { run: RunState }) {
         Set parallel
       </button>
     </form>
+    </details>
   );
 }
