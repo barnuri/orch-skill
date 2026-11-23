@@ -481,6 +481,24 @@ Treat every substantive task as a graph, the way Claude Code's ultracode does: p
 5. **Fan out.** Dispatch nodes with `orch node dispatch`; never do parallel steps yourself and never start foreground subagents.
 6. **Stay free to monitor.** Use `run sync` and `node digest` instead of reading logs, and give the user the `#/run/<run-id>` link when the run starts.
 
+## Delegate, never edit in the session
+
+When an orch run is active, or the user asks for code, UI, docs or config changes that belong to a run,
+the orch session never edits the files itself. It adds a node and dispatches it, on the node profile
+the user chose (default: `opencode-chip-exec` with `hub-copilot-mai-code-2-flash`). Then it records a
+requirement for the node, so the done gate can judge it:
+
+1. `orch node add <run-id> <node> "<label>" --profile <profile> --model <model> --role implementation`
+2. `orch node dispatch <run-id> <node> --force @<prompt-file>` (the prompt names the worktree, the
+   commit rules and the handoff path).
+3. `orch req add <run-id> "<requirement>" --node <node> --id R<n>`
+4. `orch run heal <run-id>` and `orch run watch <run-id>` keep it moving.
+
+Only the session's own reads (status, logs, diffs), run maintenance (heal, verify, advance, finish) and
+the user's questions stay in the session. A change made directly in the session is a bug in the run:
+it skips the requirement, the handoff and the done gate. If a node is blocked, the session replaces or
+fixes the node. It does not take over the work.
+
 ## Delegation workflow
 
 Use this when a strong model should plan and review, and a cheaper model should write the code. The
