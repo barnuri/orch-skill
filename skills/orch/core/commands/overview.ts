@@ -33,7 +33,9 @@ export async function runDescribe(args: string[]): Promise<number> {
 // Skill names read by the agent in a job, from `Read .../skills/<name>/SKILL.md` lines in its log.
 export function skillsInLog(log: string): string[] {
   const names = new Set<string>();
-  for (const m of log.matchAll(/skills\/([A-Za-z0-9._-]+)\/SKILL\.md/g)) names.add(m[1]);
+  for (const m of log.matchAll(/skills\/([A-Za-z0-9._-]+)\/SKILL\.md/g)) {
+    if (m[1]) names.add(m[1]);
+  }
   return [...names].sort();
 }
 
