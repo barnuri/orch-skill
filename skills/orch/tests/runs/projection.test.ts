@@ -73,6 +73,13 @@ test("pure projection: paused run starts nothing and reports the gate", () => {
   expect(buildRunProjection(input).status).toBe("stopped");
 });
 
+test("pure projection: a finished run has nothing ready and nothing next", () => {
+  const input = fixture();
+  input.run.status = "done";
+  const p = buildRunProjection(input);
+  expect([p.status, p.ready, p.next_actions]).toEqual(["done", [], []]);
+});
+
 test("pure rules: after_all waits for every other node; a cleared unverified flag is dropped", () => {
   const run = { run_id: "r", status: "running", edges: [] as [string, string][], nodes: [{ id: "x", status: "waiting", after_all: true }, { id: "y", status: "running" }, { id: "z", status: "done" }] };
   expect(blockersOf(run, run.nodes[0]!)).toEqual(["y"]);

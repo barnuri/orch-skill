@@ -259,6 +259,10 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
   for (const f of flags) next.push({ kind: "review_flag", node: f.node, requirement: null, text: `watchdog ${f.rule} on ${f.node}: ${f.detail}` });
   if (rawGate === null) for (const id of ready) next.push({ kind: "start_node", node: id, requirement: null, text: `start ${id}` });
 
+  // A finished run (done or cancelled) has nothing to start and nothing to do next.
+  const finished = run.status === "done" || run.status === "cancelled";
+  if (finished) next.length = 0;
+
   return {
     run_id: run.run_id,
     status: rawGate === "stopped" ? "stopped" : rawGate === "paused" ? "paused" : run.status,
@@ -269,7 +273,7 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
     open_requirements: requirements.filter((r) => r.bucket === "open").map((r) => r.id),
     partials: requirements.filter((r) => r.bucket === "partial").map((r) => r.id),
     handoff_gaps: handoffGaps,
-    ready: rawGate === null ? ready : [],
+    ready: rawGate === null && !finished ? ready : [],
     blocked: ids((n) => n.state === "blocked"),
     covered: ids((n) => n.state === "covered"),
     skipped: ids((n) => n.state === "skipped"),
