@@ -37,6 +37,8 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
       gaps.push({ kind: "errored-node", id: n.id, detail: String(n.error ?? "error") });
     }
     if (n.status === "done" && (!n.result || n.result.verdict === "unknown")) gaps.push({ kind: "no-result", id: n.id, detail: "done without a result" });
+    // The owner stopped and the node was marked done without a coordinator review: review it before relying on it.
+    else if (n.status === "done" && n.owner_state === "finished" && n.reviewed !== true) gaps.push({ kind: "no-result", id: n.id, detail: "done because its owner stopped, unreviewed" });
   }
   // Plan conformance: a done node tied to a plan task must have changed only that task's files.
   const { conformance } = await import("./conform.ts");
