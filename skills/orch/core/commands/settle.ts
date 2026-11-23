@@ -1,7 +1,11 @@
 // `run settle <run> --reason T [--commit SHA] [--accept-partial]`: close a run whose work was finished outside its nodes
 // (main-session takeover). Unfinished nodes become skipped, handoff-stale done nodes are accepted, open requirements are
 // marked handled with the reason and commit as evidence. Nothing is deleted; every change is recorded in the reason fields.
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { acquireLock } from "../state/lock.ts";
+import { paths } from "../state/home.ts";
+import { handoffProblem } from "../runs/node.ts";
 import { orchHome } from "../state/home.ts";
 import { loadRun, saveRun, writeJsonAtomic } from "../state/store.ts";
 import { resolveRun, errLine } from "./node.ts";
@@ -42,11 +46,29 @@ export async function runSettle(args: string[]): Promise<number> {
     let accepted = 0;
     for (const node of run.nodes as any[]) {
       if (node.status === "done" || node.status === "skipped") {
-        if (acceptPartial && (node.unverified === true || (node.result && node.result.verdict !== "full"))) {
+        const handoffFile = join(typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : paths.runOutDir(home, runId, String(node.id)), "handoff.md");
+        if (acceptPartial && node.status === "done" && (node.unverified === true || (node.result && node.result.verdict !== "full") || handoffProblem(handoffFile, node) !== "")) {
           node.unverified = false;
-          node.result = { ...(node.result ?? {}), follow_up: null, settled: note };
+          node.result = { ...(node.result ?? {}), follow_up: "none", settled_follow_up: node.result?.follow_up ?? null, settled: note };
+          // A stale handoff makes verify call the node unverified; the acceptance note is a real, dated edit of it.
+          const dir = typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : paths.runOutDir(home, runId, String(node.id));
+          mkdirSync(dir, { recursive: true });
+          appendFileSync(join(dir, "handoff.md"), `\n\n---\nAccepted ${now} by run settle: ${note}\n`);
           accepted++;
         }
+        continue;
+      }
+      if (node.id === "done-gate") continue; // the gate runs verify itself: `run advance` after settle
+      if (node.role === "validation") {
+        // A validation node must pass: the main session ran the checks itself, so it closes as done with the evidence in its handoff.
+        const dir = typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : paths.runOutDir(home, runId, String(node.id));
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "handoff.md"), `# ${node.id}\n\nClosed by run settle at ${now}.\n\n${note}\n`);
+        node.status = "done";
+        node.finished_at = now;
+        node.unverified = false;
+        node.result = { verdict: "full", summary: `settled by the main session: ${note}`.slice(0, 300), follow_up: "none", settled: note };
+        skipped++;
         continue;
       }
       node.status = "skipped";
