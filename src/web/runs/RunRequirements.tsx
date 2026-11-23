@@ -11,9 +11,13 @@ const TONE: Record<string, string> = {
 /** Run page: one row per requirement with a status chip, linked nodes (done / handoff / unverified) and evidence. Nothing when there is no ledger. */
 export function RequirementsPanel({
   requirements,
+  expanded,
+  onToggle,
   onSelect,
 }: {
   requirements: readonly RequirementView[];
+  expanded: boolean;
+  onToggle: () => void;
   onSelect?: (id: string) => void;
 }) {
   if (requirements.length === 0) {
@@ -21,14 +25,14 @@ export function RequirementsPanel({
   }
   const open = requirements.filter((r) => !r.ok).length;
   return (
-    <section className="requirements-panel" aria-label="Requirements">
-      <h2>
-        Requirements{" "}
+    <section className="run-strip requirements-panel" aria-label="Requirements">
+      <button type="button" className="run-strip-head" aria-expanded={expanded} onClick={onToggle}>
+        <b>Requirements</b>
         <span className="muted" aria-live="polite">
           {open === 0 ? "all closed" : `${open} of ${requirements.length} open`}
         </span>
-      </h2>
-      <ul>
+      </button>
+      {expanded ? <ul className="run-strip-body">
         {requirements.map((r) => (
           <li key={r.id} data-status={r.status}>
             <span
@@ -71,7 +75,7 @@ export function RequirementsPanel({
             ) : null}
           </li>
         ))}
-      </ul>
+      </ul> : null}
     </section>
   );
 }

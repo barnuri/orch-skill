@@ -28,6 +28,7 @@ import { FailureBanner, LongRunningBanner, RunStateNotice } from "./RunAttention
 import { useNow } from "./use-now";
 import { RunTable, ViewSwitch } from "./RunTable";
 import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
+import { RUN_REQUIREMENTS_OPEN_KEY } from "../lib/constants";
 import { CoveredByLink, CoversBlock } from "./RunCover";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
@@ -222,6 +223,22 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const events = useRunEvents(run.run_id);
   const health = useRunHealth(run.run_id, run.status === "running");
   const requirements = useRunRequirements(run.run_id);
+  const [requirementsOpen, setRequirementsOpen] = useState(() => {
+    try {
+      return globalThis.localStorage?.getItem(RUN_REQUIREMENTS_OPEN_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleRequirements = (): void => {
+    const next = !requirementsOpen;
+    setRequirementsOpen(next);
+    try {
+      globalThis.localStorage?.setItem(RUN_REQUIREMENTS_OPEN_KEY, next ? "1" : "0");
+    } catch {
+      // Storage is optional.
+    }
+  };
   const allRuns = useRuns().data?.runs ?? [];
   const toast = useToast();
   const lastSnapshot = useRef<RunSnapshot | null>(null);
@@ -246,34 +263,42 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           </a>
           <ViewSwitch view={runView} onChange={changeView} />
           <RunActions run={run} />
-          <LiveIndicator state={live} />
         </div>
         <RunMeta run={run} events={events} />
         <CoversBlock runId={run.run_id} runs={allRuns} />
-        <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
-        <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
+        <div className="run-summary-row">
+          <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
+          <LiveIndicator state={live} />
+        </div>
+        <div className="run-filter-row">
+          <ActivityFeed events={events} compact />
+          <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />
+        </div>
         <CoordinatorBlock runId={run.run_id} state={run.coordinator_state} />
-        <RunStateNotice run={run} />
-        <FailureBanner run={run} />
-        <LongRunningBanner run={run} nowMs={nowMs} />
-        <StaleBanner run={run} />
-        <ReadyNotice health={health} />
-        <NodeHealthStrip
-          health={health}
-          onSelect={(id) => {
-            setSelected(id);
-            setFlash((n) => n + 1);
-          }}
-        />
-        <RequirementsPanel requirements={requirements} onSelect={setSelected} />
-        {hasUnreviewed(run.nodes) ? (
-          <div className="notice warn run-stale-banner" role="status">
-            <b>{FINISHED_BY_OWNER}</b>
-            <span>One or more nodes are done only because their owner stopped. Review them before relying on the result.</span>
-          </div>
-        ) : null}
       </div>
       <div className={hasSelection ? "layout run-layout" : "layout run-layout no-selection"}>
+        <div className="run-view-column">
+        <div className="run-content-strips">
+          <RequirementsPanel requirements={requirements} expanded={requirementsOpen} onToggle={toggleRequirements} onSelect={setSelected} />
+          <RunStateNotice run={run} />
+          <FailureBanner run={run} />
+          <LongRunningBanner run={run} nowMs={nowMs} />
+          <StaleBanner run={run} />
+          <ReadyNotice health={health} />
+          <NodeHealthStrip
+            health={health}
+            onSelect={(id) => {
+              setSelected(id);
+              setFlash((n) => n + 1);
+            }}
+          />
+          {hasUnreviewed(run.nodes) ? (
+            <div className="notice warn run-strip run-unreviewed" role="status">
+              <b>{FINISHED_BY_OWNER}</b>
+              <span>One or more nodes are done only because their owner stopped. Review them before relying on the result.</span>
+            </div>
+          ) : null}
+        </div>
         {runView === "table" ? (
           <RunTable
             run={run}
@@ -298,11 +323,11 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           match={match}
         />
         )}
+        </div>
         {hasSelection ? (
           <NodePanel run={run} selectedId={selected} maxAttempts={facts.maxAttempts} flash={flash} onClose={() => setSelected(null)} />
         ) : null}
       </div>
-      <ActivityFeed events={events} />
     </div>
   );
 }

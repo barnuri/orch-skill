@@ -1,7 +1,8 @@
 import type { RunEvent } from "../../shared/types/run-event";
 import type { RunState } from "../../shared/types/run-state";
 import { useState } from "react";
-import { loadGraphPrefs, saveGraphActivityExpanded } from "../lib/graph-prefs";
+import { RUN_ACTIVITIES_OPEN_KEY } from "../lib/constants";
+import { saveGraphActivityExpanded } from "../lib/graph-prefs";
 import { fmtTime, rel } from "../lib/format";
 import { describeEvent, feedRows, staleSummary } from "../lib/run-activity";
 import { useNow } from "./use-now";
@@ -31,16 +32,39 @@ export function StaleBanner({ run }: { run: RunState }) {
 export const ACTIVITY_PREVIEW = 5;
 
 /** Newest first, live: each row is time, node, change. The last ACTIVITY_PREVIEW rows show until "Show more". */
-export function ActivityFeed({ events }: { events: readonly RunEvent[] }) {
+export function ActivityFeed({ events, compact = false }: { events: readonly RunEvent[]; compact?: boolean }) {
   // One choice for all runs, restored on load.
-  const [expanded, setExpanded] = useState(() => loadGraphPrefs().activityExpanded);
+  const [open, setOpen] = useState(() => {
+    try {
+      return globalThis.localStorage?.getItem(RUN_ACTIVITIES_OPEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [expanded, setExpanded] = useState(false);
   const rows = feedRows(events);
   const shown = expanded ? rows : rows.slice(0, ACTIVITY_PREVIEW);
   const hidden = rows.length - shown.length;
   return (
-    <section className="panel run-activity" aria-label="Activity">
-      <h2>Activity</h2>
-      {rows.length === 0 ? (
+    <section className="run-strip run-activity" aria-label="Activity">
+      <button
+        type="button"
+        className="run-strip-head"
+        aria-expanded={open}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          try {
+            globalThis.localStorage?.setItem(RUN_ACTIVITIES_OPEN_KEY, next ? "1" : "0");
+          } catch {
+            // Storage is optional.
+          }
+        }}
+      >
+        <b>Activities</b>
+        <span className="muted">{rows.length === 0 ? "none" : `${rows.length} events`}</span>
+      </button>
+      {open ? (rows.length === 0 ? (
         <p className="hint panel-empty">No activity recorded yet.</p>
       ) : (
         <>
@@ -70,7 +94,7 @@ export function ActivityFeed({ events }: { events: readonly RunEvent[] }) {
             </button>
           ) : null}
         </>
-      )}
+      )) : null}
     </section>
   );
 }

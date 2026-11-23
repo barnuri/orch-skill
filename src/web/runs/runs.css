@@ -3,8 +3,26 @@
 .active-ledger-list { display: contents; }
 
 /* ---- Run header: a compact line, no tiles ---- */
+main:has(.run-page) { padding-top: var(--s2); }
+.run-page { gap: 2px; }
+.run-view-column { min-width: 0; }
+.run-page-header .run-meta { margin: 0; }
 .run-page-header { max-width: none; margin: 0; }
-.run-head { align-items: center; gap: var(--s3); margin-bottom: var(--s2); }
+.run-head { align-items: center; gap: var(--s2); margin-bottom: 2px; }
+.run-head .run-actions { margin-left: auto; }
+.run-summary-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.run-filter-row { display: flex; align-items: center; gap: var(--s2); }
+.run-filter-row .run-activity { flex: 0 0 auto; width: auto; }
+.run-filter-row .run-filter { flex: 1 1 auto; margin-top: 0; }
+.run-filter-row .run-activity .run-strip-head { min-height: 36px; }
+.run-content-strips { display: grid; gap: 4px; }
+.run-strip { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel); }
+.run-strip-head { width: 100%; min-height: 32px; display: flex; align-items: center; gap: var(--s2); border: 0; background: none; color: var(--tx); padding: 4px var(--s2); text-align: left; cursor: pointer; }
+.run-strip-head::after { content: "⌄"; margin-left: auto; color: var(--tx3); }
+.run-strip-head[aria-expanded="true"]::after { content: "⌃"; }
+.run-strip-body { padding: var(--s2); }
+.requirements-panel { margin: 0; }
+.run-unreviewed { display: flex; gap: var(--s2); padding: var(--s2); }
 .run-head h1 { font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0; }
 .run-actions { margin-left: auto; }
 .run-page .run-meta { gap: 2px var(--s4); }
@@ -59,6 +77,12 @@ main:has(.run-page) { max-width: none; }
   .run-page .graph-tool, .run-page .btn, .run-row { min-height: 44px; }
   .inspector .panel-close { min-width: 44px; min-height: 44px; }
   .run-page .run-actions { margin-left: 0; width: 100%; }
+  .run-summary-row { align-items: flex-start; }
+  .run-summary { gap: 4px; }
+  .run-head h1 { max-width: 220px; }
+  .run-filter-row { align-items: stretch; flex-direction: column; }
+  .run-filter-row .run-filter { flex: 1 1 auto; }
+  .run-filter-row .run-activity { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .run-page .node .mark { animation: none; }

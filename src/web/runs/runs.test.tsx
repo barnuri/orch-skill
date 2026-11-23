@@ -276,6 +276,7 @@ describe("visibility", () => {
   });
 
   test("the activity feed is newest first and has an empty state", () => {
+    localStorage.setItem("orch.run.activities.open", "1");
     const e = (n: number, note: string) => ({ n, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note, by: null });
     const { container, rerender } = render(<ActivityFeed events={[]} />);
     expect(container.textContent).toContain("No activity recorded yet.");
@@ -285,6 +286,7 @@ describe("visibility", () => {
   });
 
   test("the activity feed shows the last 5 rows until Show more is clicked", () => {
+    localStorage.setItem("orch.run.activities.open", "1");
     const e = (n: number) => ({ n, at: iso(1000), kind: "note", node: "n1", from: null, to: null, note: `item ${n}`, by: null });
     const events = Array.from({ length: 8 }, (_, i) => e(i + 1));
     const { container } = render(<ActivityFeed events={events} />);

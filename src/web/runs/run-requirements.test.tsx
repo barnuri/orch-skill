@@ -6,11 +6,13 @@ const req = (over: object) => ({ id: "R1", text: "make it fast", status: "not", 
 
 describe("RequirementsPanel", () => {
   test("renders nothing without a ledger", () => {
-    expect(renderToStaticMarkup(<RequirementsPanel requirements={[]} />)).toBe("");
+    expect(renderToStaticMarkup(<RequirementsPanel requirements={[]} expanded={true} onToggle={() => {}} />)).toBe("");
   });
   test("shows status chip, linked node marks and evidence", () => {
     const html = renderToStaticMarkup(
       <RequirementsPanel
+        expanded={true}
+        onToggle={() => {}}
         requirements={[
           req({ nodes: [{ id: "n1", status: "done", done: true, handoff: true, unverified: false }, { id: "n2", status: "done", done: true, handoff: false, unverified: true }], evidence: [{ note: "bench ok", file: "a.ts", test: "bun test a", at: "t" }] }),
           req({ id: "R2", status: "handled", ok: true }),
