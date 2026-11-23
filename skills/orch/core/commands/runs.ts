@@ -346,7 +346,7 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
         return existsSync(join(dir, "handoff.md")) && Bun.file(join(dir, "handoff.md")).size > 0;
       }).catch(() => false));
       await mutateRun(home, runId, (r, ctx) => {
-        if (commitHandoff === "" && !ownHandoff) {
+        if (commitHandoff === "" && generatedHandoff === "" && !ownHandoff) {
           setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
           return;
         }

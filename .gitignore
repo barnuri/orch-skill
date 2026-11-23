@@ -36,3 +36,6 @@ skills/orch/templates/profiles.local.json
 .claude/skills/orch-perf/local.md
 **/agent-spec
 tools/ui-lanes/.vite-cache/
+tools/ui-lanes/.out/
+tools/ui-lanes/test-results/
+tools/ui-lanes/playwright-report/

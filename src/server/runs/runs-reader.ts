@@ -234,7 +234,7 @@ export interface RunListResult {
   cache: { mode: "cache" | "bypass"; source: "hit" | "miss" | "fresh"; age_ms: number };
 }
 
-const listCache = new Map<string, { at: number; signature: string; runs: RunSummary[] }>();
+const listCache = new Map<string, { at: number; signature: string; names: string; runs: RunSummary[] }>();
 const LIST_CACHE_MS = 500;
 
 /**
@@ -256,7 +256,8 @@ export function listRunsCached(paths: OrchPaths, bypass = false): RunListResult 
   // A list holding a running run changes on every events.jsonl write, so its signature is not a
   // usable key: it is reused for the same short window the running summaries already use.
   const hasRunning = cached?.runs.some((r) => r.status === "running") ?? false;
-  if (!bypass && cached !== undefined && hasRunning && now - cached.at < RUNNING_SUMMARY_MS) {
+  const names = runDirNames(paths.runs).join("|");
+  if (!bypass && cached !== undefined && hasRunning && now - cached.at < RUNNING_SUMMARY_MS && cached.names === names) {
     return { runs: cached.runs, cache: { mode: "cache", source: "hit", age_ms: now - cached.at } };
   }
   const signatures = scanRunSignatures(paths.runs);
@@ -300,7 +301,7 @@ export function listRunsCached(paths: OrchPaths, bypass = false): RunListResult 
   }
   // Same as the old jq `sort_by(.started) | reverse`: a stable ascending sort, then reversed.
   const runs = summaries.sort((a, b) => compareStrings(a.started, b.started)).reverse();
-  listCache.set(paths.runs, { at: now, signature, runs });
+  listCache.set(paths.runs, { at: now, signature, names, runs });
   return { runs, cache: { mode: bypass ? "bypass" : "cache", source: bypass ? "fresh" : (cached === undefined ? "miss" : "fresh"), age_ms: 0 } };
 }
 

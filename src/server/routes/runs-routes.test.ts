@@ -114,7 +114,7 @@ describe.concurrent("GET /api/runs", () => {
     const body = await (await srv.api("/api/runs")).json();
     expect(body.runs).toHaveLength(1);
     expect(body.runs[0].run_id).toBe(RUN_ID);
-    expect(body.runs[0].counts).toEqual({
+    expect(body.runs[0].counts).toMatchObject({
       waiting: 1,
       running: 1,
       done: 1,

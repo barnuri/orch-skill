@@ -10,10 +10,15 @@ import { actionsLog, TAKEOVER_EVERY_MS, WatchdogService } from "./watchdog-servi
 const DISPATCH = resolve(import.meta.dir, "../../../skills/orch/scripts/dispatch.ts");
 const RUN = "e2e-takeover";
 
+// The caller's harness session variables would register the test run's orchestrator, so they are dropped.
+function cleanEnv(): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(OPENCODE|CLAUDE|HERDR|CODEX|COPILOT|CURSOR|AGENT)/i.test(k)));
+}
+
 // The real CLI in the test home. Nothing touches the user's ~/.harness-orch.
 function dispatchIn(home: string, args: string[]): { rc: number; out: string } {
   const proc = Bun.spawnSync([process.execPath, DISPATCH, ...args], {
-    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1", ORCH_DISPATCH: "" },
+    env: { ...cleanEnv(), HARNESS_ORCH_HOME: home, ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1", ORCH_DISPATCH: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -41,8 +46,15 @@ test("a run with no orchestrator advances to done under the supervisor", async (
   writeFileSync(join(outDir, "handoff.md"), "# Handoff\n\nThe note is written.\n");
   expect(dispatchIn(dir, ["node", "result", RUN, "write-note", "--verdict", "full", "--summary", "note written"]).rc).toBe(0);
   expect(dispatchIn(dir, ["node", "update", RUN, "write-note", "done"]).rc).toBe(0);
+  expect(dispatchIn(dir, ["req", "evidence", RUN, "R1", "--note", "handoff.md written"]).rc).toBe(0);
+  expect(dispatchIn(dir, ["req", "status", RUN, "R1", "handled"]).rc).toBe(0);
 
-  // The supervisor alone: no coordinator is registered for the run.
+  // The supervisor alone: the caller's own terminal may have registered itself, so the registration is removed.
+  const stateFile = join(dir, "runs", RUN, "state.json");
+  const raw = JSON.parse(readFileSync(stateFile, "utf8"));
+  delete raw.coordinator;
+  delete raw.harness_session;
+  writeFileSync(stateFile, JSON.stringify(raw));
   expect(runStatus(dir).nodes.find((n) => n.id === "write-note")?.status).toBe("done");
   let clock = Date.parse("2026-11-23T10:00:00Z");
   const dog = new WatchdogService(dir, { now: () => new Date(clock), log: () => undefined, health: () => null, pidAlive: () => true });

@@ -43,6 +43,44 @@ function parseOverview(text: string, runId: string): RunOverview | null {
   }
 }
 
+export const OVERVIEW_CACHE_MS: number = 15_000;
+
+interface OverviewCacheEntry { at: number; stateMtime: number; value: RunOverview | null; pending: Promise<RunOverview | null> | null }
+const overviewCache = new Map<string, OverviewCacheEntry>();
+
+/** Test hook: forget every cached overview. */
+export function resetOverviewCache(): void {
+  overviewCache.clear();
+}
+
+/**
+ * One overview per run at a time. A request inside OVERVIEW_CACHE_MS of the last build, with an unchanged state file, gets the
+ * cached value; concurrent requests share the build in flight, so a busy page never starts a second `dispatch.ts` process.
+ */
+async function cachedOverview(ctx: ServerContext, id: string, spawn: OverviewSpawner): Promise<RunOverview | null> {
+  const key = `${ctx.paths.home}:${id}`;
+  const stateMtime = mtimeOf(join(ctx.paths.runs, id, "state.json"));
+  const hit = overviewCache.get(key);
+  if (hit !== undefined) {
+    if (hit.pending !== null) return hit.pending;
+    if (hit.value !== null && hit.stateMtime === stateMtime && Date.now() - hit.at < OVERVIEW_CACHE_MS) return hit.value;
+  }
+  const entry: OverviewCacheEntry = { at: 0, stateMtime, value: hit?.value ?? null, pending: null };
+  entry.pending = (async () => {
+    const result = await spawn(ctx.paths.home, [id, "--json"]);
+    return result.code === 0 ? parseOverview(result.stdout, id) : null;
+  })();
+  overviewCache.set(key, entry);
+  try {
+    const built = await entry.pending;
+    entry.at = Date.now();
+    entry.value = built ?? entry.value;
+    return built;
+  } finally {
+    entry.pending = null;
+  }
+}
+
 /** `GET /api/runs/{id}/overview`: the run overview built by `dispatch.ts run overview <id> --json`. 404 for an unknown run, 502 when dispatch fails. */
 export function readRunOverviewHandler(ctx: ServerContext, spawn: OverviewSpawner = spawnOverview): RouteHandler {
   return async (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> => {
@@ -50,8 +88,7 @@ export function readRunOverviewHandler(ctx: ServerContext, spawn: OverviewSpawne
     if (readRun(ctx.paths, id).kind === "missing") {
       return notFound();
     }
-    const result = await spawn(ctx.paths.home, [id, "--json"]);
-    const overview = result.code === 0 ? parseOverview(result.stdout, id) : null;
+    const overview = await cachedOverview(ctx, id, spawn);
     if (overview === null) {
       return jsonResponse(502, { error: "run overview: dispatch.ts did not return the overview" });
     }
