@@ -6,6 +6,7 @@ import {
   ALL_STATUSES,
   DEFAULT_RUN_FILTERS,
   SHOW_ALL_RUN_FILTERS,
+  isEngineRun,
   matchesRunFilters,
   parseRunFilters,
   runFiltersActive,
@@ -150,5 +151,12 @@ describe("parseRunFilters", () => {
     expect(parseRunFilters("{ not json")).toEqual(DEFAULT_RUN_FILTERS);
     expect(parseRunFilters("null")).toEqual(DEFAULT_RUN_FILTERS);
     expect(parseRunFilters("[]")).toEqual(filters());
+  });
+
+  test("isEngineRun marks loop and watch runs, not coordinator runs", () => {
+    expect(isEngineRun("loop-20261112-100000-0001")).toBe(true);
+    expect(isEngineRun("watch-20261112-100000-0001")).toBe(true);
+    expect(isEngineRun("feature-run-1")).toBe(false);
+    expect(isEngineRun("my-loop-2")).toBe(false);
   });
 });

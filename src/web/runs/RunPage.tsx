@@ -29,6 +29,8 @@ import { useNow } from "./use-now";
 import { RunTable, ViewSwitch } from "./RunTable";
 import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
 import { CoveredByLink, CoversBlock } from "./RunCover";
+import { ActiveStrip } from "./ActiveStrip";
+import { useActive } from "../api/queries";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -223,6 +225,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const health = useRunHealth(run.run_id, run.status === "running");
   const requirements = useRunRequirements(run.run_id);
   const allRuns = useRuns().data?.runs ?? [];
+  const engine = useActive().data?.items.filter((item) => item.id === run.run_id) ?? [];
   const toast = useToast();
   const lastSnapshot = useRef<RunSnapshot | null>(null);
   const nowMs = useNow(run.nodes.some((node) => node.status === "running"));
@@ -249,6 +252,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
           <LiveIndicator state={live} />
         </div>
         <RunMeta run={run} events={events} />
+        <ActiveStrip items={engine} />
         <CoversBlock runId={run.run_id} runs={allRuns} />
         <RunSummaryBar summary={summary} active={filter.status} onPick={(status) => setFilter({ ...filter, status })} />
         <NodeFilterBar run={run} filter={filter} harnessByProfile={facts.harnessByProfile} shown={shownCount} onChange={setFilter} />

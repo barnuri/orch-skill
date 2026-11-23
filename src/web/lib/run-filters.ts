@@ -60,6 +60,11 @@ export function parseRunFilters(raw: string | null): RunFilters {
   };
 }
 
+/** A loop or monitor also has a run (same id). It belongs to its own run page, never to the run list. */
+export function isEngineRun(runId: string): boolean {
+  return /^(loop|watch)-/.test(runId);
+}
+
 export function runFiltersActive(filters: RunFilters): boolean {
   return filters.age !== DEFAULT_RUN_FILTERS.age || filters.status !== DEFAULT_RUN_FILTERS.status;
 }

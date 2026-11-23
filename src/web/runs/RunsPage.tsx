@@ -19,6 +19,7 @@ import {
   DEFAULT_RUN_FILTERS,
   RUN_AGE_VALUES,
   SHOW_ALL_RUN_FILTERS,
+  isEngineRun,
   loadRunFilters,
   matchesRunFilters,
   runFiltersActive,
@@ -142,8 +143,8 @@ export function sortedRuns(runs: readonly RunSummary[]): RunSummary[] {
   });
 }
 
-// A loop is also a run (its id starts with "loop-"); the Loops tile counts it, so this one does not.
-const isLoopRun = (run: RunSummary): boolean => run.run_id.startsWith("loop-");
+// A loop or a watch is also a run (same id); it is shown on its own run page, not as a run row.
+const isLoopRun = (run: RunSummary): boolean => isEngineRun(run.run_id);
 
 function Kpis({ allRuns, active }: { allRuns: readonly RunSummary[]; active: readonly ActiveItem[] }) {
   const runs = allRuns.filter((run) => !isLoopRun(run));
@@ -217,7 +218,7 @@ function subtitle(visible: readonly RunSummary[], hidden: number): string {
   return hidden === 0 ? counted : `${counted} — ${hidden} hidden by filters`;
 }
 
-/** `#/`: KPI tiles, the loops-and-monitors strip, filters and the run rows. */
+/** `#/`: KPI tiles, filters and the run rows. Loops and monitors live on their own run page. */
 export function RunsPage() {
   const runsQuery = useRuns();
   const active = useActive().data?.items ?? [];
@@ -245,7 +246,6 @@ export function RunsPage() {
     <>
       {head}
       <Kpis allRuns={all} active={active} />
-      <ActiveStrip items={active} />
       <div className="section-head">
         <h2 className="section-title">Recent runs</h2>
         <span className="section-meta">{`${runs.length} of ${all.length}`}</span>
