@@ -61,6 +61,13 @@ describe("matchesRunFilters age", () => {
     expect(matchesRunFilters(run("done", 30), filters(), NOW)).toBe(false);
   });
 
+  test("an unfinished run ages from its newest activity, not its start", () => {
+    const idle = { ...run("covered", null, 400), updated: new Date(NOW - 2 * HOUR).toISOString() };
+    expect(matchesRunFilters(idle, filters(), NOW)).toBe(true);
+    const stale = { ...run("covered", null, 400), updated: new Date(NOW - 60 * HOUR).toISOString() };
+    expect(matchesRunFilters(stale, filters(), NOW)).toBe(false);
+  });
+
   test("exactly at the cutoff is still kept", () => {
     expect(matchesRunFilters(run("done", 24), filters(), NOW)).toBe(true);
   });

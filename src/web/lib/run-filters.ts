@@ -66,7 +66,8 @@ export function runFiltersActive(filters: RunFilters): boolean {
 
 /**
  * A running run is never aged out — active work stays on screen however long it has been
- * going. Everything else ages from when it finished, falling back to when it started.
+ * going. Everything else ages from when it finished. A run that has not finished ages from its
+ * newest node activity, falling back to when it started.
  */
 export function matchesRunFilters(run: RunSummary, filters: RunFilters, nowMs: number): boolean {
   if (filters.status !== ALL_STATUSES && run.status !== filters.status) {
@@ -76,7 +77,7 @@ export function matchesRunFilters(run: RunSummary, filters: RunFilters, nowMs: n
   if (days === null || run.status === "running") {
     return true;
   }
-  const stamp = Date.parse(run.finished ?? run.started);
+  const stamp = Date.parse(run.finished ?? run.updated ?? run.started);
   // An unparseable timestamp must not silently hide a run.
   return Number.isNaN(stamp) || nowMs - stamp <= days * MS_PER_DAY;
 }
