@@ -27,6 +27,11 @@ function card(n: RunNode, waitingOn: string[] = []) {
 }
 
 describe("NodeCard rows", () => {
+  test("covered nodes show covered status and the replacement link", () => {
+    const { container } = card(node({ id: "p2-task", status: "covered", covered_by: "r1/p2-task-r2" }));
+    expect(container.querySelector(".st")?.textContent).toContain("covered · covered by p2-task-r2");
+    expect(container.querySelector(".covered-node-link")?.getAttribute("href")).toBe("#/run/r1?node=p2-task-r2");
+  });
   test("model, duration, usage and cost always show; role, tier and effort only when known", () => {
     const { container } = card(node());
     expect(container.querySelector(".model")?.textContent).toContain("model not reported");

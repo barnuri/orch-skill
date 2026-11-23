@@ -142,6 +142,9 @@ export function durationMetric(node: RunNode, run?: TimedRun | null, nowMs: numb
   if (hasTiming(node)) {
     return timedDuration(node, run, nowMs, sessionDuration);
   }
+  if (status === "covered") {
+    return { text: "covered", present: true, liveSince: null, title: "This node is covered by replacement work" };
+  }
   if (status === "running" && started !== null) {
     return { text: fmtDur(started), present: true, liveSince: started, title: `running since ${started}` };
   }
@@ -285,7 +288,7 @@ export interface RunTotals {
 
 export function runTotals(run: Pick<RunState, "started" | "finished" | "nodes"> & TimedRun, nowMs: number = Date.now()): RunTotals {
   const usage = runUsage(run.nodes);
-  const done = run.nodes.filter((node) => node.status === "done").length;
+  const done = run.nodes.filter((node) => node.status === "done" || node.status === "covered").length;
   const live = run.finished === null || run.finished === undefined;
   const from = Date.parse(run.started);
   const to = live ? nowMs : Date.parse(run.finished ?? "");
@@ -373,7 +376,10 @@ export const READY_NOT_STARTED_TEXT = "ready, not started";
 /** The unfinished (waiting or running) dependencies of a node, in edge order. */
 export function waitingOnDeps(run: Pick<RunState, "nodes" | "edges">, id: string): string[] {
   const statusById = new Map(run.nodes.map((node) => [node.id, node.status]));
-  return run.edges.filter(([from, to]) => to === id && (statusById.get(from) === "waiting" || statusById.get(from) === "running")).map(([from]) => from);
+  return run.edges.filter(([from, to]) => {
+    const status = statusById.get(from);
+    return to === id && (status === "waiting" || status === "running");
+  }).map(([from]) => from);
 }
 
 /** Why a waiting node has not started, and the full text for its tooltip. */

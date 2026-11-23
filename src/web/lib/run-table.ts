@@ -105,6 +105,7 @@ export type MainStatus = "running" | "idle" | "unreachable";
 
 export interface TableRow {
   kind: "main" | "node";
+  runId: string;
   id: string;
   node: RunNode | null;
   status: string;
@@ -153,7 +154,7 @@ export function mainRow(run: RunWithCoordinator): TableRow {
   const harness = run.coordinator?.harness ?? "";
   const status = mainStatus(run);
   return {
-    kind: "main", id: "__main__", node: null, status,
+    kind: "main", runId: run.run_id, id: "__main__", node: null, status,
     idText: session === "" ? "main session" : session,
     goal: "Orch main session (coordinator)",
     verdict: "", summary: "", role: "coordinator", tier: "", profile: harness, model: "", family: "fallback",
@@ -174,7 +175,7 @@ export function nodeRow(run: RunState, node: RunNode, nowMs: number, harnessByPr
   const start = ms(node.started_at ?? node.started);
   const end = ms(node.finished_at ?? node.finished);
   return {
-    kind: "node", id: node.id, node, status: node.status,
+    kind: "node", runId: run.run_id, id: node.id, node, status: node.status,
     idText: node.id,
     goal: (node.label.split("\n")[0] ?? "").trim(),
     verdict: node.result?.verdict ?? "", summary: node.result?.summary ?? "",
@@ -196,7 +197,7 @@ export function nodeRow(run: RunState, node: RunNode, nowMs: number, harnessByPr
 /** The node ids both views show: the filter, the Hide done toggle, and the selected node (always kept). */
 export function visibleNodes(run: RunState, filter: NodeFilter, harnessByProfile: Readonly<Record<string, string>>, hideDone: boolean, selectedId: string | null, active: boolean): RunNode[] {
   return run.nodes.filter(
-    (node) => node.id === selectedId || ((!hideDone || (node.status !== "done" && node.status !== "skipped")) && (!active || matchesFilter(run, node, filter, harnessByProfile))),
+    (node) => node.id === selectedId || ((!hideDone || (node.status !== "done" && node.status !== "skipped" && node.status !== "covered")) && (!active || matchesFilter(run, node, filter, harnessByProfile))),
   );
 }
 

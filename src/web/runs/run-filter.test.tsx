@@ -32,7 +32,7 @@ const NODES = [
 
 describe("run summary", () => {
   test("counts total, done, running, waiting, paused and error", () => {
-    expect(runSummary(run(NODES))).toEqual({ total: 5, done: 1, running: 1, waiting: 1, paused: 1, error: 1, skipped: 0 });
+    expect(runSummary(run(NODES))).toEqual({ total: 5, done: 1, running: 1, waiting: 1, paused: 1, error: 1, skipped: 0, covered: 0, stopped: 0 });
   });
 
   test("a paused run counts its running and waiting nodes as paused", () => {
@@ -46,6 +46,8 @@ describe("run summary", () => {
     render(<RunSummaryBar summary={runSummary(run(NODES))} active="" onPick={(b) => picked.push(b)} />);
     expect(screen.getByText("total").parentElement?.textContent).toBe("total5");
     expect(screen.queryByText("skipped")).toBeNull();
+    expect(screen.getByText("covered")).toBeTruthy();
+    expect(screen.getByText("stopped")).toBeTruthy();
     fireEvent.click(screen.getByTitle("Show only error nodes"));
     expect(picked).toEqual(["error"]);
   });

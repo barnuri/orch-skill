@@ -29,6 +29,7 @@ import { useNow } from "./use-now";
 import { RunTable, ViewSwitch } from "./RunTable";
 import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
 import { CoveredByLink, CoversBlock } from "./RunCover";
+import { parseNodeParam } from "../lib/covered-node";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -200,10 +201,14 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
     [run, filter, harnessByProfile],
   );
   const shownCount = match === null ? run.nodes.length : run.nodes.filter(match).length;
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => parseNodeParam(location.hash));
   const [runView, setRunView] = useState<RunView>(() => parseViewParam(location.hash) ?? loadRunView());
   useEffect(() => {
     const onHash = (): void => {
+      const node = parseNodeParam(location.hash);
+      if (node !== null) {
+        setSelected(node);
+      }
       const v = parseViewParam(location.hash);
       if (v !== null) {
         setRunView(v);

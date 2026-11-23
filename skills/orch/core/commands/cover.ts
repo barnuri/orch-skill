@@ -59,6 +59,36 @@ export async function runCover(args: string[]): Promise<number> {
   return rc;
 }
 
+export async function nodeReplace(args: string[]): Promise<number> {
+  const [runArg = "", nodeArg = ""] = args;
+  if (!runArg || !nodeArg) return (errLine(`usage: node replace <run-id> <node-id>`), 2);
+  const home = orchHome();
+  const runId = await resolveRun(home, runArg);
+  if (runId === null) return 1;
+  return mutateRun(home, runId, (run, ctx) => {
+    const old = run.nodes.find((node: { id?: string }) => node.id === nodeArg);
+    if (!old) throw new OpError(`node replace: node ${nodeArg} is not in ${runId}`);
+    let replacement = "";
+    let suffix = 2;
+    while (replacement === "" || run.nodes.some((node: { id?: string }) => node.id === replacement)) {
+      replacement = `${nodeArg}-r${suffix++}`;
+    }
+    const clone = structuredClone(old);
+    clone.id = replacement;
+    clone.status = "waiting";
+    clone.error = null;
+    clone.finished = null;
+    clone.started = null;
+    clone.job_id = null;
+    clone.attempts = [];
+    old.status = "covered";
+    old.covered_by = `${runId}/${replacement}`;
+    run.nodes.push(clone);
+    run.edges = run.edges.map((edge: string[]) => edge[0] === nodeArg ? [replacement, edge[1]] : edge);
+    ev(ctx, "status", nodeArg, "error", "covered", `replaced by ${replacement}`);
+  });
+}
+
 export async function runUncover(args: string[]): Promise<number> {
   const runArg = args[0] ?? "";
   if (!runArg || args.length !== 1) return (errLine(`usage: ${RUN_UNCOVER_USAGE}`), 2);

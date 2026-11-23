@@ -81,6 +81,13 @@ describe("run table", () => {
     fireEvent.click(head.querySelector("button") as HTMLElement);
     expect(head.getAttribute("aria-sort")).toBe("ascending");
   });
+  test("covered rows show a cross-run replacement link", () => {
+    const covered = { ...run.nodes[0], id: "old", status: "covered", covered_by: "other/next" } as typeof run.nodes[number];
+    const coveredRun = { ...run, nodes: [covered] };
+    render(<RunTable run={coveredRun} filter={EMPTY_FILTER} harnessByProfile={{}} selectedId={null} onSelect={() => undefined} />);
+    const link = screen.getByText("covered by next");
+    expect(link.getAttribute("href")).toBe("#/run/other?node=next");
+  });
   test("view switch is a pressed-state group", () => {
     const seen: string[] = [];
     render(<ViewSwitch view="graph" onChange={(v) => seen.push(v)} />);

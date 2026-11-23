@@ -17,6 +17,7 @@ import { AGENT_SESSION_EMPTY, INLINE_EMPTY, activityLines, isInline, usesSession
 import { modelPick, pickLabel } from "../lib/model-pick";
 import { actualModelMetric, aliasActual, aliasActualText, attemptLine, effortText, effortTitle, modelMetric, usageMetric, waitReason, waitingOnDeps } from "../lib/node-metrics";
 import type { Metric } from "../lib/node-metrics";
+import { coveredHref, coveredTarget } from "../lib/covered-node";
 import { activeStageSummary, formatSelectionLine, timelineEvents } from "../lib/selection-timeline";
 import { Ago } from "./RunActivity";
 import { useJobChat, useJobLog, useNodeActivity } from "./queries";
@@ -645,7 +646,15 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
     <aside className="panel node-panel has-node inspector" id="node-panel" aria-live="polite" ref={panel}>
       <h2 className="node-panel-head">
         <span className="node-panel-title">{node.label || node.id}</span>
-        <Chip status={node.status} />
+        {node.status === "covered" ? (
+          <span className="covered-panel-status">
+            <Chip status="covered">covered</Chip>{" "}
+            {(() => {
+              const target = coveredTarget(run.run_id, node);
+              return target === null ? null : <a className="covered-link" href={coveredHref(run.run_id, node) ?? undefined}>covered by {target.nodeId}</a>;
+            })()}
+          </span>
+        ) : <Chip status={node.status} />}
         <FlagChips node={node} />
         <span className="node-panel-spacer" />
         <RetryNodeButton runId={run.run_id} node={node} />

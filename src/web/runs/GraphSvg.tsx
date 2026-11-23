@@ -17,6 +17,7 @@ import { profilePalette } from "../lib/profile-color";
 import { Ago } from "./RunActivity";
 import { ModelIcon } from "./ModelIcon";
 import { useNow } from "./use-now";
+import { coveredHref, coveredTarget } from "../lib/covered-node";
 
 type Point = { x: number; y: number };
 
@@ -237,7 +238,8 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
   const roleTier = roleTierMetric(node);
   const wait = waitReason(node, waitingOn, META_MAX_CHARS);
   const style = profile === null ? undefined : ({ "--profile-accent": palette.accent(profile), "--profile-soft": palette.soft(profile) } as React.CSSProperties);
-  const aria = `${label}, ${node.status}${profile !== null ? `, ${profile}` : ""}${harness !== null ? `, ${harness}` : ""}, ${
+  const covered = coveredTarget(runId, node);
+  const aria = `${label}, ${covered === null ? node.status : "covered"}${covered === null ? "" : `, covered by ${covered.nodeId}`}${profile !== null ? `, ${profile}` : ""}${harness !== null ? `, ${harness}` : ""}, ${
     model.present ? `model ${model.text}` : model.text
   }${pick?.tier != null ? `, tier ${pick.tier}` : ""}, ${duration.text}, ${usage.text}${roleTier.present ? `, ${roleTier.text}` : ""}, ${attempt}${needsUserReason(node) !== null ? ", needs you" : ""}`;
   const autoTitle = pick?.isAuto === true ? `${pick.isExpected ? "expected " : ""}${[pick.model, pick.tier, pick.role, pick.reason].filter((part) => part !== null).join(" · ")}` : null;
@@ -267,10 +269,16 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
         {truncate(label, LABEL_MAX)}
       </text>
       {harness !== null ? <HarnessGlyph id={harness} x={NODE_W - HARNESS_MARK_SIZE - 9} y={8} size={HARNESS_MARK_SIZE} /> : null}
-      <text className="st" x={META_LEFT_X} y={STATUS_Y}>
-        {wait === null ? statusLine(node, maxAttempts) : wait.text}
-        {wait === null ? null : <title>{wait.title}</title>}
-      </text>
+      {covered === null ? (
+        <text className="st" x={META_LEFT_X} y={STATUS_Y}>
+          {wait === null ? statusLine(node, maxAttempts) : wait.text}
+          {wait === null ? null : <title>{wait.title}</title>}
+        </text>
+      ) : (
+        <a className="covered-node-link" href={coveredHref(runId, node) ?? undefined}>
+          <text className="st covered" x={META_LEFT_X} y={STATUS_Y}>covered · covered by {covered.nodeId}</text>
+        </a>
+      )}
       <ResultChipView node={node} />
       <ModelIcon family={familyOf(iconModelOf(node))} x={META_LEFT_X} y={MODEL_Y - 10} />
       <MetricText metric={model} base={pick?.isAuto === true ? "model auto" : "model"} x={META_LEFT_X + MODEL_ICON_GAP} y={MODEL_Y} max={META_MAX_CHARS - MODEL_ICON_GAP_CHARS} />
@@ -302,7 +310,7 @@ interface GraphSvgProps {
 /** The run's DAG: orch coordinator first, then task nodes coloured by profile, in layered stages. */
 export function GraphSvg({ run, layout, selectedId, onSelect, harnessByProfile, maxAttempts }: GraphSvgProps) {
   const palette = profilePalette(run.nodes.map(profileKey).filter((name): name is string => name !== null));
-  const doneIds = new Set(run.nodes.filter((node) => node.status === "done").map((node) => node.id));
+  const doneIds = new Set(run.nodes.filter((node) => node.status === "done" || node.status === "covered" || node.status === "skipped").map((node) => node.id));
   return (
     <svg width={layout.width} height={layout.height} role="img" aria-label="Task graph">
       {layout.stages.length < 2

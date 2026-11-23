@@ -85,6 +85,8 @@ function countNodes(run: RunState): Record<NodeStatus, number> {
     done: 0,
     error: 0,
     skipped: 0,
+    covered: 0,
+    stopped: 0,
   };
   for (const node of run.nodes) {
     const status: unknown = node?.status;

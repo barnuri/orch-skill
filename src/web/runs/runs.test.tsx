@@ -25,7 +25,7 @@ afterEach(() => {
 afterAll(uninstall);
 
 const iso = (msAgo: number): string => new Date(Date.now() - msAgo).toISOString();
-const counts = { waiting: 0, running: 1, done: 0, error: 0, skipped: 0 };
+const counts = { waiting: 0, running: 1, done: 0, error: 0, skipped: 0, covered: 0, stopped: 0 };
 const summary = (over: Partial<RunSummary>): RunSummary => ({ run_id: "r1", title: "T", status: "running", started: iso(5000), finished: null, harness_session: "", counts, ...over });
 
 function node(over: Partial<RunNode>): RunNode {

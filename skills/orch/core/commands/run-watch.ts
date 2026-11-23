@@ -55,7 +55,8 @@ async function keepGreen(home: string, runId: string, pass: string[]): Promise<v
     const key = `${runId}/${id}`;
     if (Date.now() - (retriedAt[key] ?? 0) < RETRY_GAP_MS) continue;
     retriedAt[key] = Date.now();
-    const attempts = Array.isArray((node as { attempts?: unknown[] }).attempts) ? (node as { attempts: unknown[] }).attempts.length : 0;
+    const attemptsValue = (node as { attempts?: unknown[] }).attempts;
+    const attempts = Array.isArray(attemptsValue) ? attemptsValue.length : 0;
     // Attempts used up: replace the node with a fresh one (same goal, prompt, profile) and mark this one covered.
     const verb = attempts >= MAX_AUTO_ATTEMPTS ? ["node", "replace", runId, id] : ["node", "retry", runId, id];
     const p = Bun.spawn([process.execPath, BIN_ORCH, ...verb], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });

@@ -172,6 +172,8 @@ main:has(.run-page) { max-width: none; }
 
 .run-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
 .covered-link { color: var(--status-covered); font-size: var(--fs-meta); text-decoration: none; cursor: pointer; }
+.covered-node-link { color: var(--status-covered); text-decoration: none; }
+.covered-panel-status { display: inline-flex; align-items: center; gap: var(--s1); }
 .covered-link:hover { text-decoration: underline; }
 .covers-block { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--status-covered-bd); border-radius: var(--r-md); background: var(--status-covered-bg); }
 .covers-block h3 { margin: 0 0 var(--s2); color: var(--status-covered); font-size: var(--fs-ctl); }
