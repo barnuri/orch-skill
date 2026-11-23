@@ -24,7 +24,7 @@ import { loopCommands } from "./loops.ts";
 import { captured } from "../io.ts";
 
 const RUN_STATUSES = ["done", "error", "cancelled"];
-const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>]';
+const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>] [--description "<text>"]';
 const RUN_SYNC_USAGE = "dispatch.ts run sync <run-id> [--no-retry]";
 const RUN_STOP_USAGE = "dispatch.ts run stop <run-id>";
 const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
@@ -86,9 +86,11 @@ export async function runStart(args: string[]): Promise<number> {
   const title = args[0] ?? "";
   if (!title) return (errLine(`usage: ${RUN_START_USAGE}`), 2);
   let runId = "";
+  let description = "";
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--id") runId = rest[++i] ?? "";
+    else if (rest[i] === "--description") description = rest[++i] ?? "";
     else return (errLine(`run start: unknown argument ${rest[i]}`), 2);
   }
   const home = orchHome();
@@ -105,7 +107,7 @@ export async function runStart(args: string[]): Promise<number> {
   const session = process.env.CLAUDE_CODE_SESSION_ID || process.env.OPENCODE_SESSION_ID || `pid-${process.ppid}`;
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, ...(description ? { description } : {}), harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");
