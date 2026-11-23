@@ -32,7 +32,8 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   r = o("node", "retry", "retry-old", "a", "--no-dispatch", "@/tmp/old-prompt.md");
   expect(r.rc).toBe(0);
   const n = runState(home, "retry-old").nodes[0];
-  expect([n.status, n.prompt]).toEqual(["waiting", "@/tmp/old-prompt.md"]);
+  // A supplied prompt is continuation context, never the node prompt.
+  expect([n.status, n.prompt]).toEqual(["waiting", null]);
 
   // run retry
   home = seedHome(); o = orch(home);

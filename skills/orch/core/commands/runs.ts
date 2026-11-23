@@ -327,7 +327,15 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
       const exitCode = st.replace(/^done exit=/, "");
       const commitHandoff = exitCode === "0" ? "" : commitLogHandoff(jobDir);
       const generatedHandoff = exitCode === "0" ? transcriptHandoff(jobDir) : "";
-      if (commitHandoff !== "" || generatedHandoff !== "") {
+      // A handoff the job wrote itself counts: the stop signal can come after the work is done. Read it before any generated file exists.
+      const ownHandoff = commitHandoff === "" && (await Bun.file(join(jobDir, "node")).text().then((v) => {
+        const [runOut, nodeOut] = v.trim().split("/");
+        const dir = paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
+        const file = join(dir, "handoff.md");
+        // A generated handoff from an earlier attempt is evidence, not the job's own report.
+        return existsSync(file) && Bun.file(file).size > 0 && !readFileSync(file, "utf8").startsWith("# Generated handoff");
+      }).catch(() => false));
+      if (commitHandoff !== "" || (generatedHandoff !== "" && !ownHandoff)) {
         const outDir = await Bun.file(join(jobDir, "node")).text().then((v) => {
           const [runOut, nodeOut] = v.trim().split("/");
           return paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
@@ -336,17 +344,11 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
         const handoffFile = join(outDir, "handoff.md");
         if (!existsSync(handoffFile) || Bun.file(handoffFile).size === 0) {
           writeFileSync(handoffFile, commitHandoff || generatedHandoff);
-          if (generatedHandoff !== "") recordMissingHandoffFeedback(home, runId, node);
+          if (commitHandoff === "") recordMissingHandoffFeedback(home, runId, node);
         }
       }
-      // A handoff the job wrote itself counts too: the stop signal can come after the work is done.
-      const ownHandoff = (commitHandoff === "" && generatedHandoff === "" || commitHandoff !== "" || generatedHandoff !== "") && (await Bun.file(join(jobDir, "node")).text().then((v) => {
-        const [runOut, nodeOut] = v.trim().split("/");
-        const dir = paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
-        return existsSync(join(dir, "handoff.md")) && Bun.file(join(dir, "handoff.md")).size > 0;
-      }).catch(() => false));
       await mutateRun(home, runId, (r, ctx) => {
-        if (commitHandoff === "" && generatedHandoff === "" && !ownHandoff) {
+        if (commitHandoff === "" && !ownHandoff) {
           setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
           return;
         }
