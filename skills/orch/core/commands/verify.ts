@@ -27,6 +27,18 @@ async function openAsks(home: string, runId: string): Promise<Failure[]> {
 
 export async function verifyRun(home: string, runId: string, run: RunState): Promise<Failure[]> {
   const fails: Failure[] = [];
+  // A covered run's final gate is the gate of the run that carries its work: follow covered_by to its end.
+  if (run.status === "covered") {
+    const seen = new Set<string>([runId]);
+    let cur: RunState | null = run;
+    while (cur && cur.status === "covered" && cur.covered_by && !seen.has(cur.covered_by)) {
+      seen.add(cur.covered_by);
+      cur = await loadRun(home, cur.covered_by);
+    }
+    if (cur && cur.status === "done") return fails;
+    fails.push({ nodes: [], msg: `covered by ${run.covered_by}, which is not done`, hint: `finish ${run.covered_by} first` });
+    return fails;
+  }
   // A run with no recorded requests proves nothing: the gate cannot pass it. Record the requests with `req add`.
   const ledger = (await loadLedger(home, runId)).requirements ?? [];
   if (ledger.length === 0 && run.nodes.some((n) => n.id !== GATE_ID)) {
