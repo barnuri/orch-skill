@@ -27,9 +27,14 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
   const run = await loadRun(home, runId);
   if (!run) return [];
   const gaps: Gap[] = [];
+  const statusOf = new Map((run.nodes ?? []).map((n: any) => [n.id, String(n.status ?? "")]));
   for (const r of (await loadLedger(home, runId)).requirements ?? []) {
     // Only open and in-progress requirements need implementation work; implemented and verifying ones are in the verification flow.
-    if (["open", "in_progress"].includes(String(r.status))) gaps.push({ kind: "request", id: String(r.id), detail: String(r.text ?? r.id) });
+    if (!["open", "in_progress"].includes(String(r.status))) continue;
+    // A linked node that is still working, or done and waiting for the requirement step, already owns the request.
+    const linked = ((r as any).nodes ?? []).map((id: string) => statusOf.get(id) ?? "");
+    if (linked.some((s: string) => ["waiting", "ready", "running", "stale", "done"].includes(s))) continue;
+    gaps.push({ kind: "request", id: String(r.id), detail: String(r.text ?? r.id) });
   }
   const ids = new Set((run.nodes ?? []).map((n: any) => n.id));
   for (const n of run.nodes ?? []) {

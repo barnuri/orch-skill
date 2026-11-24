@@ -9,11 +9,28 @@ test("an unhandled request is a gap; the gate refuses to close with it", async (
   const o = orch(home, {});
   const R = o("run", "start", "gap run").out.trim();
   o("node", "add", R, "a", "A");
+  o("node", "update", R, "a", "skipped");
   o("req", "add", R, "ship the thing", "--node", "a", "--id", "R1");
+  o("req", "add", R, "ship alone", "--id", "R2");
   const { findGaps } = await import("../../core/commands/gaps.ts");
   const gaps = await findGaps(home, R);
   expect(gaps.some((g) => g.kind === "request" && g.id === "R1")).toBe(true);
+  expect(gaps.some((g) => g.kind === "request" && g.id === "R2")).toBe(true);
   void loadRun; void orchHome;
+});
+
+test("a request whose linked node is waiting, running or done is not a gap", async () => {
+  const home = seedHome();
+  const o = orch(home, {});
+  const R = o("run", "start", "owned requests").out.trim();
+  for (const [id, status] of [["w", ""], ["r", "running"], ["d", "done"]] as const) {
+    o("node", "add", R, id, id);
+    if (status) o("node", "update", R, id, status, "--force");
+    o("req", "add", R, `ship ${id}`, "--node", id, "--id", `R-${id}`);
+  }
+  const { findGaps } = await import("../../core/commands/gaps.ts");
+  const gaps = await findGaps(home, R);
+  expect(gaps.filter((g) => g.kind === "request")).toEqual([]);
 });
 
 test("open requirements create gap nodes while an unrelated node is running", async () => {
