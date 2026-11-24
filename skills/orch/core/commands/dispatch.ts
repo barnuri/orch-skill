@@ -15,6 +15,7 @@ import { archiveAttempt, ev, findNode, OpError, setStatus, SMART_AUTO_TIERS } fr
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
 import { pauseGuard } from "./pause.ts";
+import { closureProblems } from "../runs/closure.ts";
 import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
@@ -169,6 +170,12 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   const passArgs = rest.slice(promptIdx + 1);
 
   const outDir = await nodeOutDir(home, runId, nodeId, run);
+  if (prompt.startsWith("@")) {
+    const text = await Bun.file(prompt.slice(1)).text().catch(() => null);
+    if (text !== null) prompt = withHandoffFooter(text, outDir, runId, nodeId);
+  } else {
+    prompt = withHandoffFooter(prompt, outDir, runId, nodeId);
+  }
   try {
     await mkdir(outDir, { recursive: true });
     await Bun.write(join(outDir, "goal.md"), `${nodeGoal}\n`);
@@ -290,6 +297,12 @@ export function resumeSessionOf(n: Record<string, any>, adapter: string): string
   return own;
 }
 
+// Every node prompt ends with where its handoff goes. A prompt that already names ORCH_NODE_OUT (the footer does too) is left as is, so a retry or resume never adds a second footer.
+export function withHandoffFooter(prompt: string, outDir: string, runId: string, nodeId: string): string {
+  if (prompt.includes("ORCH_NODE_OUT")) return prompt;
+  return `${prompt.trimEnd()}\n\n---\nHandoff: write ${outDir}/handoff.md ($ORCH_NODE_OUT/handoff.md). agent-spec/ is not the handoff.\nThen record: dispatch.ts node result ${runId} ${nodeId} --verdict full|partial|blocked --summary "<one sentence>" --follow-up "<findings or none>"\n`;
+}
+
 // A prompt that only points at the node goal gets the goal text appended, so the agent does not need a lookup.
 const SEE_GOAL_ONLY = /^\s*see (?:the )?node goal\.?\s*$/i;
 export function appendNodeGoal(prompt: string, goal: string): string {
@@ -386,8 +399,8 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
       original = await f.text();
     }
     dispatchPrompt = earlyEnd
-      ? `${supplied || EARLY_END_MESSAGE}\nThe previous attempt on ${oldProfile || "unknown profile"} ended without a handoff. Partial work may already exist in the repo and in $ORCH_NODE_OUT.\n\n${original}\n`
-      : `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${original}\n`;
+      ? `${supplied || EARLY_END_MESSAGE}\nThe previous attempt on ${oldProfile || "unknown profile"} ended without a handoff. Partial work may already exist in the repo and in $ORCH_NODE_OUT.\n\n${withHandoffFooter(original, await nodeOutDir(home, runId, nodeId, run), runId, nodeId)}\n`
+      : `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${withHandoffFooter(original, await nodeOutDir(home, runId, nodeId, run), runId, nodeId)}\n`;
   }
   const now = nowIso();
   await mutateRun(home, runId, (r, ctx) => {
@@ -481,6 +494,12 @@ export async function runFinish(args: string[]): Promise<number> {
   if (runId === null) return 1;
   const pre = await loadRun(home, runId);
   if (!pre) return (errLine(`run ${runId}: unknown run`), 2);
+  // The closure gate holds even with --force: a run never becomes done while work is open or the done-gate has not run.
+  const closing = status === "" ? !pre.nodes.some((n) => n.status === "error") : status === "done";
+  if (closing && pre.status !== "covered") {
+    const open = closureProblems(pre);
+    if (open.length > 0) return (errLine(`run finish refused: ${open.join("; ")}\n  fix: dispatch.ts run advance ${runId}, or skip each node with a reason: dispatch.ts node update ${runId} <node> skipped --force --reason "<why>"`), 1);
+  }
   if (!force && status !== "cancelled") {
     const { verifyRun, formatFailures } = await import("./verify.ts");
     const fails = await verifyRun(home, runId, pre);

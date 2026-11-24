@@ -42,6 +42,20 @@ function jobFile(jobDir: string, name: string): string {
   }
 }
 
+// A handoff the job wrote to <repo>/agent-spec/<slug>/handoff.md instead of $ORCH_NODE_OUT, when that file is newer than the attempt start.
+function specHandoffSince(jobDir: string, attemptStartMs: number): string | null {
+  const repo = jobFile(jobDir, "repo");
+  if (!repo || !Number.isFinite(attemptStartMs)) return null;
+  let newest: { file: string; mtime: number } | null = null;
+  for (const rel of new Bun.Glob("agent-spec/*/handoff.md").scanSync({ cwd: repo })) {
+    const file = join(repo, rel);
+    const st = statSync(file);
+    if (st.size === 0 || st.mtimeMs < attemptStartMs) continue;
+    if (!newest || st.mtimeMs > newest.mtime) newest = { file, mtime: st.mtimeMs };
+  }
+  return newest?.file ?? null;
+}
+
 function recordMissingHandoffFeedback(home: string, runId: string, nodeId: string): void {
   const signature = `missing-handoff:${runId}:${nodeId}`;
   const existing = readFeedback(home).some((item) => item.text.includes(signature) && item.status !== "wontfix");
@@ -335,7 +349,17 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
         // A generated handoff from an earlier attempt is evidence, not the job's own report.
         return existsSync(file) && Bun.file(file).size > 0 && !readFileSync(file, "utf8").startsWith("# Generated handoff");
       }).catch(() => false));
-      if (commitHandoff !== "" || (generatedHandoff !== "" && !ownHandoff)) {
+      // The job wrote its handoff into the repo's agent-spec/ instead of $ORCH_NODE_OUT: copy it across.
+      const specFile = commitHandoff === "" && !ownHandoff ? specHandoffSince(jobDir, Date.parse(String(n.dispatched_at ?? ""))) : null;
+      if (specFile) {
+        const outDir = await Bun.file(join(jobDir, "node")).text().then((v) => {
+          const [runOut, nodeOut] = v.trim().split("/");
+          return paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
+        }).catch(() => paths.runOutDir(home, runId, node));
+        mkdirSync(outDir, { recursive: true });
+        writeFileSync(join(outDir, "handoff.md"), `> Copied by run sync from ${specFile}: the job wrote it to agent-spec/, not $ORCH_NODE_OUT.\n\n${readFileSync(specFile, "utf8")}`);
+      }
+      if (commitHandoff !== "" || (generatedHandoff !== "" && !ownHandoff && !specFile)) {
         const outDir = await Bun.file(join(jobDir, "node")).text().then((v) => {
           const [runOut, nodeOut] = v.trim().split("/");
           return paths.runOutDir(home, runOut ?? runId, nodeOut ?? node);
@@ -348,7 +372,7 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
         }
       }
       await mutateRun(home, runId, (r, ctx) => {
-        if (commitHandoff === "" && !ownHandoff) {
+        if (commitHandoff === "" && !ownHandoff && !specFile) {
           setStatus(r, node, "error", "", "ended early without handoff", "", "", ctx);
           return;
         }
