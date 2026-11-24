@@ -24,6 +24,9 @@ const CHECKOUT = deployCheckout(HOME);
 const LOCK = join(DIR, "lock.d");
 const BUN = process.execPath;
 
+// A git hook runs with GIT_DIR, GIT_INDEX_FILE and friends set to the committing checkout; git in the deploy checkout must not inherit them.
+for (const k of Object.keys(process.env)) if (/^GIT_(DIR|INDEX_FILE|WORK_TREE|PREFIX|OBJECT_DIRECTORY|COMMON_DIR|REFLOG_ACTION)$/.test(k)) delete process.env[k];
+
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const refIdx = args.indexOf("--ref");
