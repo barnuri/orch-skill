@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // List (and with --kill, stop) orphaned test processes: parent pid 1, test-process command, older than 10 min.
 // Never matches target/release, launchd services, opencode, herdr or a node job (jobs/*/pid).
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,27 @@ export const TEST_PATTERNS: RegExp[] = [
 ];
 export const NEVER_PATTERNS: RegExp[] = [/target\/release/, /opencode/, /herdr/, /launchd/, /\.harness-orch\/deploy\//];
 export const MIN_AGE_SEC = 600;
+
+/** A `herdr server` whose HOME is /tmp/orch-herdr-<uid>-<sum> linking into a temp dir (test home) or to nothing. The live instance links into ~/.harness-orch. */
+export function isTestHerdrServer(command: string, envHome: string | null, link: (p: string) => string | null = readLinkOrNull): boolean {
+  if (command.trim() !== "herdr server" || !envHome || !/^\/tmp\/orch-herdr-\d+-[0-9a-f]+$/.test(envHome)) return false;
+  const target = link(envHome);
+  return target === null || /^(?:\/private)?(?:\/var\/folders\/[^/]+\/[^/]+\/T\/|\/tmp\/)/.test(target);
+}
+
+function readLinkOrNull(p: string): string | null {
+  try { return lstatSync(p).isSymbolicLink() ? readlinkSync(p) : p; } catch { return null; }
+}
+
+/** HOME of a process, read from `ps -Eww` (macOS appends the environment). */
+function envHomeOf(pid: number): string | null {
+  const out = Bun.spawnSync(["ps", "-Eww", "-p", String(pid), "-o", "command="]).stdout.toString();
+  return out.match(/(?:^|\s)HOME=(\S+)/)?.[1] ?? null;
+}
+
+export function matchTestHerdrServers(procs: Proc[], minAge = MIN_AGE_SEC, homeOf: (pid: number) => string | null = envHomeOf, link: (p: string) => string | null = readLinkOrNull): Proc[] {
+  return procs.filter((p) => p.ppid === 1 && p.ageSec >= minAge && p.command.trim() === "herdr server" && isTestHerdrServer(p.command, homeOf(p.pid), link));
+}
 
 /** "[[dd-]hh:]mm:ss" from ps etime to seconds. */
 export function parseEtime(s: string): number {
@@ -58,7 +79,8 @@ if (import.meta.main) {
   const kill = process.argv.includes("--kill");
   const home = process.env.HARNESS_ORCH_HOME ?? join(homedir(), ".harness-orch");
   const ps = Bun.spawnSync(["ps", "-axo", "pid=,ppid=,etime=,command="]).stdout.toString();
-  const hits = matchOrphans(parsePs(ps), jobPidsFrom(home));
+  const all = parsePs(ps);
+  const hits = [...matchOrphans(all, jobPidsFrom(home)), ...matchTestHerdrServers(all)];
   const stamp = new Date().toISOString();
   for (const p of hits) console.log(`${stamp} orphan pid=${p.pid} age=${p.ageSec}s ${p.command.slice(0, 160)}`);
   console.log(`${stamp} ${hits.length} orphan(s)${kill ? ", killing" : ""}`);

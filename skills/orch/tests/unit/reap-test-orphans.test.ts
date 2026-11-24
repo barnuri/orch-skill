@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { matchOrphans, parseEtime, parsePs } from "../../../../scripts/reap-test-orphans.ts";
+import { isTestHerdrServer, matchTestHerdrServers, matchOrphans, parseEtime, parsePs } from "../../../../scripts/reap-test-orphans.ts";
 
 const ps = `
   101     1 30:00:10 /Users/x/llm-hub/target/debug/llm-hub serve
@@ -37,3 +37,14 @@ test("a fake exits within 3 s when its parent is SIGKILLed", async () => {
   while (Date.now() < end && alive(kids[0]!)) await Bun.sleep(100);
   expect(alive(kids[0]!)).toBe(false);
 }, 20000);
+
+test("herdr server with a temp-home HOME is reaped, the live one is not", () => {
+  const link = (p: string) => (p.endsWith("-aaa") ? "/var/folders/21/q6/T/orch-t-x/home/herdr/home" : p.endsWith("-bbb") ? "/Users/x/.harness-orch/herdr/home" : null);
+  expect(isTestHerdrServer("herdr server", "/tmp/orch-herdr-501-aaa", link)).toBe(true);
+  expect(isTestHerdrServer("herdr server", "/tmp/orch-herdr-501-bbb", link)).toBe(false);
+  expect(isTestHerdrServer("herdr server", "/tmp/orch-herdr-501-ccc", link)).toBe(true);
+  expect(isTestHerdrServer("herdr server", "/Users/x", link)).toBe(false);
+  const procs = parsePs("  201     1  2-01:00:00 herdr server\n  202     1  2-01:00:00 herdr server\n  203  9    20:00 herdr server\n");
+  const homes: Record<number, string> = { 201: "/tmp/orch-herdr-501-aaa", 202: "/tmp/orch-herdr-501-bbb", 203: "/tmp/orch-herdr-501-aaa" };
+  expect(matchTestHerdrServers(procs, 600, (pid) => homes[pid] ?? null, link).map((p) => p.pid)).toEqual([201]);
+});

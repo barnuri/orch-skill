@@ -342,8 +342,10 @@ function writeLauncher(file: string, jobDir: string, launcherTs: string, close: 
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
   s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
   if (close) {
+    // herdr-launch.ts runs `herdr close-ended` when the job ends, which closes the tab. This watcher is only the
+    // fallback for a launcher killed without that call, so it polls every 15 s (one process start per 15 s per job).
     // Success and stop signals close the tab at once; a failed job keeps its tab for the linger first.
-    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n`;
+    s += `( while kill -0 "$me" 2>/dev/null; do sleep 15; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n`;
     s += `  case "$exit_code" in 0|129|130|143|"") ;; *) sleep ${close.linger} ;; esac\n`;
     s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
     s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;
