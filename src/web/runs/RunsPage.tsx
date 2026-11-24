@@ -26,7 +26,6 @@ import {
   saveRunFilters,
 } from "../lib/run-filters";
 import type { RunFilters } from "../lib/run-filters";
-import { ActiveStrip } from "./ActiveStrip";
 import { useRuns, useRunsHealth } from "./queries";
 import { RunHealthSummary } from "./RunHealth";
 import type { RunHealth } from "../../shared/types/run-health";
