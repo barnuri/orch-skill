@@ -261,3 +261,7 @@ main:has(.run-page) { max-width: none; }
 .run-parallel-menu .run-parallel input { width: 5.5rem; }
 .requirements-panel .req-info { color: var(--status-running, #5aa0ff); }
 .requirements-panel li.req-info { border-left-color: var(--status-running, #5aa0ff); }
+/* Covered is purple and settled; skipped is gray (the shared status palette). */
+.run-summary-item.is-covered { color: var(--status-covered); border-color: var(--status-covered-bd); background: var(--status-covered-bg); }
+.run-summary-item.is-covered b { color: var(--status-covered); }
+.run-summary-item.is-skipped b { color: var(--status-skipped, var(--tx3, #8a93a3)); }
