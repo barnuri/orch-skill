@@ -107,4 +107,14 @@ if (existsSync(inbox)) {
   }
 }
 writeFileSync(join(outDir, "asks.md"), askLines.join("\n") + "\n");
+// Every requirement with its lifecycle step, so the main session knows all of them without reading the run.
+const reqFile = join(home, "runs", run, "requirements.json");
+const reqLines = [`# requirements of ${run}`, "", "Lifecycle: open -> in_progress -> implemented -> verifying -> done (another node verifies).", "", "| id | status | implemented by | verifier | nodes | request |", "|---|---|---|---|---|---|"];
+if (existsSync(reqFile)) {
+  const ledger = JSON.parse(readFileSync(reqFile, "utf8")) as { requirements?: Array<{ id: string; status: string; text: string; nodes?: string[]; implemented_by?: string[]; verifier?: string | null }> };
+  const legacy: Record<string, string> = { not: "open", partly: "in_progress", handled: "done" };
+  for (const r of ledger.requirements ?? []) reqLines.push(`| ${r.id} | ${legacy[r.status] ?? r.status} | ${(r.implemented_by ?? []).join(", ") || "-"} | ${r.verifier ?? "-"} | ${(r.nodes ?? []).join(", ") || "-"} | ${String(r.text).replace(/\|/g, "/")} |`);
+}
+writeFileSync(join(outDir, "requirements.md"), reqLines.join("\n") + "\n");
+console.log(`\nwrote ${join(outDir, "requirements.md")}`);
 console.log(`\nwrote ${tasksFile}\nwrote ${join(outDir, "asks.md")}\nhandoff copies: ${join(outDir, "handoffs")}`);

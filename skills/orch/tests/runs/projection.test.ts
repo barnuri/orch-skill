@@ -54,7 +54,7 @@ test("pure projection: states, buckets, gaps, ready and next actions from one in
   expect(p.skipped).toEqual(["h"]);
   expect(p.open_requirements).toEqual(["R2"]);
   expect(p.partials).toEqual(["R1"]);
-  expect(p.counts.requirements).toMatchObject({ total: 4, open: 1, partial: 1, handled: 1, skipped: 1, covered: 0 });
+  expect(p.counts.requirements).toMatchObject({ total: 4, open: 1, in_progress: 1, done: 1, skipped: 1, covered: 0 });
   expect(p.handoff_gaps).toEqual([{ node: "g", reason: "missing_handoff" }]);
   expect(p.owners).toEqual([{ node: "i", job_id: null, owner_state: "dead", owner_reason: "pid gone", diagnosis: "dead" }]);
   expect(p.supervisor.flags).toEqual([{ node: "c", rule: "stalled", detail: "idle 20 min", at: "2026-11-23T10:00:00Z" }]);

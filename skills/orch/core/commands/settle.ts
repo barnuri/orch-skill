@@ -81,7 +81,8 @@ export async function runSettle(args: string[]): Promise<number> {
     let handled = 0;
     for (const req of ledger.requirements) {
       if (REQ_OK.includes(req.status)) continue;
-      req.status = "handled";
+      req.status = "done";
+      req.forced = note; // closed by a person without the independent check
       req.reason = note;
       req.evidence.push({ note, file: null, test: null, at: now });
       req.updated = now;

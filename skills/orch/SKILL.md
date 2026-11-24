@@ -378,9 +378,9 @@ A run cannot end on a false done. The ledger `<run>/requirements.json` holds eve
 2. Link nodes that serve it: `req link <run> <id> --node n`.
 3. Add a delivery requirement for every repo feature. The implementation node writes code, tests and its handoff. A delivery node, or the orchestrator after the implementation passes, completes the repository's required commit, push, pull request or merge evidence. A commit alone is not delivery when the repo requires a PR.
 4. Read the target repo's `CLAUDE.md`/`AGENTS.md` and the active harness rules before delivery. Repo instructions and explicit user rules take precedence. Follow the required path for that repo: commit locally, push a branch, open a PR, or complete a work-repo ticket and PR flow. Never rebase, force-push, stash, or rewrite another session's work. Use the repository's approved Git and PR command.
-5. Record delivery evidence before marking the feature requirement handled: commit SHA, branch name, PR URL/number and check state, or the exact documented reason delivery is blocked. A partial handoff never closes the requirement.
-6. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> handled|partly|not|superseded|waived [--reason T]`. `waived` needs a reason from the user.
-7. After each user message, run `req check <run>`. It exits non-zero while any requirement is not handled, superseded or waived.
+5. Record delivery evidence before marking the feature requirement implemented: commit SHA, branch name, PR URL/number and check state, or the exact documented reason delivery is blocked. A partial handoff never closes the requirement.
+6. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> implemented`. Never mark it done yourself: `req verify <run> <id>` creates a verifier node on another profile; its `req verdict <run> <id> pass|fail --node <verifier> [--gap "<missing>" ...]` closes it (done) or reopens it (in_progress) and creates one gap node per gap. Lifecycle: open -> in_progress -> implemented -> verifying -> done (superseded|waived close without work). `run heal` runs this flow for every requirement. Only a person closes one without a verifier: `req status <run> <id> done --force --reason "<why>"`.
+7. After each user message, run `req check <run>`. It exits non-zero while any requirement is not done, superseded or waived.
 8. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure, including missing delivery evidence.
 9. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
 
@@ -412,7 +412,7 @@ Implementation is not done until it reaches the repository state that its own ru
 
 - Read the target repository's `CLAUDE.md` and `AGENTS.md` before delivery.
 - Follow the active harness rules and explicit user rules. They may require a local commit, a pushed branch, a pull request, or a ticket-linked branch and PR.
-- If delivery needs user authorization, record a blocked result and ask through the question tool. Do not mark the feature handled while required delivery is pending.
+- If delivery needs user authorization, record a blocked result and ask through the question tool. Do not mark the feature implemented while required delivery is pending.
 - Restart a locally served dashboard only when the target repository requires it, and never while a node is editing its source.
 
 Store delivery proof in the requirement evidence: commit SHA, branch, PR identifier and check state, or the exact documented blocker. A test pass and handoff without the required repository delivery step are `partial`, never `full`.

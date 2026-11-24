@@ -17,6 +17,6 @@ test("run settle skips unfinished nodes and handles open requirements with evide
   expect(r.out).toContain("2 nodes skipped");
   expect(nodeOf(home, run, "a")?.status).toBe("skipped");
   const req = readJson(join(home, "runs", run, "requirements.json")).requirements[0];
-  expect(req.status).toBe("handled");
+  expect([req.status, req.forced]).toEqual(["done", expect.stringContaining("finished in main session")]);
   expect(req.evidence[0].note).toContain("abc123");
 }, 120000);

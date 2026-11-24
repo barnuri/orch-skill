@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadRun } from "../state/store.ts";
 import { paths, orchHome } from "../state/home.ts";
-import { loadLedger, REQ_OK } from "./req.ts";
+import { loadLedger } from "./req.ts";
 import { mutateRun } from "./node.ts";
 import { planTasks } from "./conform.ts";
 
@@ -28,7 +28,8 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
   if (!run) return [];
   const gaps: Gap[] = [];
   for (const r of (await loadLedger(home, runId)).requirements ?? []) {
-    if (!REQ_OK.includes(String(r.status))) gaps.push({ kind: "request", id: String(r.id), detail: String(r.text ?? r.id) });
+    // Only open and in-progress requirements need implementation work; implemented and verifying ones are in the verification flow.
+    if (["open", "in_progress"].includes(String(r.status))) gaps.push({ kind: "request", id: String(r.id), detail: String(r.text ?? r.id) });
   }
   const ids = new Set((run.nodes ?? []).map((n: any) => n.id));
   for (const n of run.nodes ?? []) {

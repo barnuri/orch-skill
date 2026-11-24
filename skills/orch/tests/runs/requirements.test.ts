@@ -41,10 +41,10 @@ test("ledger: add, link, evidence, status, list, check", () => {
   expect(l.requirements[1].nodes).toEqual(["n1"]);
   let c = o("req", "check", R);
   expect(c.rc).toBe(1);
-  expect(c.out).toMatch(/R1 \[not\] OPEN/);
+  expect(c.out).toMatch(/R1 \[open\] OPEN/);
   expect(c.out).toMatch(/n1: waiting done=false handoff=no unverified=false/);
   finishNode(home, o, R, "n1");
-  o("req", "status", R, "R1", "handled");
+  o("req", "status", R, "R1", "done", "--force", "--reason", "closed by the test");
   o("req", "status", R, "X2", "waived", "--reason", "not needed");
   c = o("req", "check", R);
   expect(c.rc).toBe(0);
@@ -67,7 +67,7 @@ test("run verify lists numbered failures and passes when clean; finish refuses u
   expect(v.out).toMatch(/^1\. /m);
   expect(v.out).toMatch(/\[v\] node v is error/);
   expect(v.out).toMatch(/\[v\] validation node v did not pass/);
-  expect(v.out).toMatch(/requirement R1 is not/);
+  expect(v.out).toMatch(/requirement R1 is open/);
   expect(v.out).toMatch(/fix: /);
   const f = o("run", "finish", R);
   expect(f.rc).toBe(1);
@@ -83,7 +83,7 @@ test("clean run verifies and finishes; open hold and open ask fail verify", () =
   o("node", "add", R, "a", "A");
   finishNode(home, o, R, "a");
   o("req", "add", R, "do a", "--node", "a");
-  o("req", "status", R, "R1", "handled");
+  o("req", "status", R, "R1", "done", "--force", "--reason", "closed by the test");
   o("node", "update", R, "done-gate", "running", "--owner", "coordinator");
   writeFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "verified\n");
   o("node", "result", R, "done-gate", "--verdict", "full", "--summary", "verification passed", "--follow-up", "none");

@@ -9,13 +9,19 @@ import { acquireLock } from "../state/lock.ts";
 import { resolveRun, errLine } from "./node.ts";
 import { handoffProblem } from "../runs/node.ts";
 
-export const REQ_STATUSES = ["handled", "partly", "not", "superseded", "waived"];
-export const REQ_OK = ["handled", "superseded", "waived"];
+// Lifecycle: open -> in_progress -> implemented -> verifying -> done. `done` needs a verifier that is not the implementer.
+// superseded and waived close a requirement without work. The old names stay accepted: not, partly, handled.
+export const REQ_STATUSES = ["open", "in_progress", "implemented", "verifying", "done", "superseded", "waived"];
+export const REQ_LEGACY: Record<string, string> = { not: "open", partly: "in_progress", handled: "done" };
+export const normReq = (status: string): string => REQ_LEGACY[status] ?? status;
+export const REQ_OK = ["done", "superseded", "waived", "handled"];
 export const REQ_USAGE = {
   add: 'dispatch.ts req add <run-id> "<user ask>" [--id R1] [--node n1,n2]',
   link: "dispatch.ts req link <run-id> <req-id> --node n",
   evidence: 'dispatch.ts req evidence <run-id> <req-id> --note "<text>" [--file path] [--test "bun test ..."]',
-  status: `dispatch.ts req status <run-id> <req-id> ${REQ_STATUSES.join("|")} [--reason T]`,
+  status: `dispatch.ts req status <run-id> <req-id> ${REQ_STATUSES.join("|")} [--reason T] [--verifier <node>] [--by n1,n2] [--force]`,
+  verify: "dispatch.ts req verify <run-id> <req-id> [--profile P]   (creates the independent verifier node)",
+  verdict: 'dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--gap "<missing>" ...]',
   list: "dispatch.ts req list <run-id> [--json]",
   check: "dispatch.ts req check <run-id>",
 };
@@ -27,6 +33,12 @@ export interface Req {
   reason: string | null;
   nodes: string[];
   evidence: Array<{ note: string; file: string | null; test: string | null; at: string }>;
+  /** Nodes whose work implemented this requirement; the verifier must not be one of them. */
+  implemented_by?: string[];
+  /** The node that verifies it (never an implementer). */
+  verifier?: string | null;
+  /** Set when a person closed it without the independent check (`--force --reason`). */
+  forced?: string | null;
   created: string;
   updated: string;
 }
@@ -40,7 +52,9 @@ export async function loadLedger(home: string, runId: string): Promise<Ledger> {
   if (!existsSync(f)) return { requirements: [] };
   try {
     const l = await readJson<Ledger>(f);
-    return { requirements: Array.isArray(l.requirements) ? l.requirements : [] };
+    const requirements = Array.isArray(l.requirements) ? l.requirements : [];
+    for (const r of requirements) r.status = normReq(String(r.status));
+    return { requirements };
   } catch {
     return { requirements: [] };
   }
@@ -83,7 +97,8 @@ function parse(args: string[], valued: string[], bools: string[] = []): { pos: s
     const a = args[i]!;
     if (valued.includes(a)) {
       if (i + 1 >= args.length || args[i + 1]!.startsWith("--")) fail(`${a} expects a value, not a flag`);
-      f[a] = args[++i]!;
+      const value = args[++i]!;
+      f[a] = a in f ? `${f[a]}\n${value}` : value;
     } else if (bools.includes(a)) b.add(a);
     else if (a.startsWith("--")) fail(`unknown argument ${a}`);
     else pos.push(a);
@@ -125,7 +140,7 @@ export async function reqAdd(args: string[]): Promise<number> {
     if (l.requirements.some((r) => r.id === id)) fail(`req add: ${id} already exists`);
     const nodes = csv(c.p.f["--node"] ?? "");
     needNodes(run, nodes);
-    l.requirements.push({ id, text, status: "not", reason: null, nodes, evidence: [], created: now, updated: now });
+    l.requirements.push({ id, text, status: "open", reason: null, nodes, evidence: [], created: now, updated: now });
     return id;
   });
 }
@@ -159,15 +174,57 @@ export async function reqEvidence(args: string[]): Promise<number> {
   });
 }
 
+const done = (run: RunState, id: string) => (run.nodes as any[]).find((n) => n.id === id);
+
+/** Why `verifier` may not verify `r`: it implemented it, or shares the implementer's owner session or profile. "" when independent. */
+export function independenceProblem(run: RunState, r: Req, verifier: string): string {
+  const v = done(run, verifier);
+  if (!v) return `verifier ${verifier}: not in this run`;
+  const implementers = (r.implemented_by ?? []).map((id) => done(run, id)).filter(Boolean) as any[];
+  if ((r.implemented_by ?? []).includes(verifier)) return `${verifier} implemented ${r.id}; a different node must verify it`;
+  for (const i of implementers) {
+    if (v.owner_id && i.owner_id && v.owner_id === i.owner_id) return `${verifier} runs in the same session (${v.owner_id}) as implementer ${i.id}`;
+    if (v.profile && i.profile && v.profile === i.profile) return `${verifier} uses profile ${v.profile}, the implementer ${i.id}'s profile; pick another with --profile`;
+  }
+  return "";
+}
+
 export async function reqStatus(args: string[]): Promise<number> {
-  const c = await prep(args, REQ_USAGE.status, ["--reason"]);
+  const c = await prep(args, REQ_USAGE.status, ["--reason", "--verifier", "--by"], ["--force"]);
   if (!c) return 2;
-  const [, id, status] = c.p.pos;
-  if (!id || !status || c.p.pos.length > 3) return (errLine(`usage: ${REQ_USAGE.status}`), 2);
+  const [, id, raw] = c.p.pos;
+  if (!id || !raw || c.p.pos.length > 3) return (errLine(`usage: ${REQ_USAGE.status}`), 2);
+  const status = normReq(raw);
   if (!REQ_STATUSES.includes(status)) return (errLine(`req status: status must be one of: ${REQ_STATUSES.join(" ")}`), 2);
-  return mutateLedger(c.home, c.runId, (l, _run, now) => {
+  return mutateLedger(c.home, c.runId, (l, run, now) => {
     const r = need(l, id);
+    const force = c.p.b.has("--force");
     if (status === "waived" && !c.p.f["--reason"]) fail("req status: waived needs --reason");
+    if (status === "implemented") {
+      if (r.evidence.length === 0) fail(`req status: ${id} needs evidence first: dispatch.ts req evidence ${c.runId} ${id} --note "..."`);
+      const by = c.p.f["--by"] ? csv(c.p.f["--by"]) : r.nodes.filter((n) => done(run, n)?.status === "done");
+      if (by.length === 0) fail(`req status: ${id} has no done node; pass --by <node> or link the node that did the work`);
+      needNodes(run, by);
+      r.implemented_by = [...new Set(by)];
+      r.verifier = null;
+    }
+    if (status === "verifying") {
+      const verifier = c.p.f["--verifier"] ?? "";
+      if (!verifier) fail(`req status: verifying needs --verifier <node>; create it with: dispatch.ts req verify ${c.runId} ${id}`);
+      if (!(r.implemented_by ?? []).length) fail(`req status: ${id} is not implemented yet`);
+      const why = independenceProblem(run, r, verifier);
+      if (why) fail(`req status: ${why}`);
+      r.verifier = verifier;
+    }
+    if (status === "done" && !(force && c.p.f["--reason"])) {
+      const verifier = r.verifier ?? "";
+      const node = verifier ? done(run, verifier) : null;
+      const why = verifier ? independenceProblem(run, r, verifier) : "";
+      if (!verifier || !node) fail(`req status: ${id} is done only after an independent verifier passes it: dispatch.ts req verify ${c.runId} ${id}. A person may close it with --force --reason "<why>".`);
+      if (why) fail(`req status: ${why}`);
+      if (node.status !== "done" || node.result?.verdict !== "full") fail(`req status: verifier ${verifier} has not finished with a full result (it is ${node.status}${node.result?.verdict ? `, ${node.result.verdict}` : ""})`);
+    }
+    if (status === "done" && force) r.forced = c.p.f["--reason"] ?? null;
     r.status = status;
     r.reason = c.p.f["--reason"] ?? r.reason;
     r.updated = now;
@@ -233,6 +290,6 @@ export async function reqProblems(home: string, runId: string, run: RunState): P
     .map((v) => ({
       nodes: v.req.nodes,
       msg: `requirement ${v.req.id} is ${v.req.status}: ${v.req.text}`,
-      hint: `finish the work, then: dispatch.ts req evidence ${runId} ${v.req.id} --note "..." and dispatch.ts req status ${runId} ${v.req.id} handled (or superseded|waived --reason)`,
+      hint: `${v.req.status === "implemented" || v.req.status === "verifying" ? `get it verified by another node: dispatch.ts req verify ${runId} ${v.req.id}` : `finish the work, record evidence, then dispatch.ts req status ${runId} ${v.req.id} implemented`} (or superseded|waived --reason)`,
     }));
 }

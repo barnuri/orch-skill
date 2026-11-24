@@ -20,11 +20,17 @@ function writeOpen(open: boolean): void {
   }
 }
 
+// One tone per lifecycle step: open and in progress still need work, implemented waits for an independent verifier.
 const TONE: Record<string, string> = {
+  done: "ok",
   handled: "ok",
   superseded: "ok",
   waived: "ok",
+  verifying: "info",
+  implemented: "info",
+  in_progress: "warn",
   partly: "warn",
+  open: "err",
   not: "err",
 };
 

@@ -74,6 +74,8 @@ export const COMMANDS: Record<string, Handler> = {
   "req link": L(() => import("./commands/req.ts"), (m) => m.reqLink),
   "req evidence": L(() => import("./commands/req.ts"), (m) => m.reqEvidence),
   "req status": L(() => import("./commands/req.ts"), (m) => m.reqStatus),
+  "req verify": L(() => import("./commands/req-flow.ts"), (m) => m.reqVerify),
+  "req verdict": L(() => import("./commands/req-flow.ts"), (m) => m.reqVerdict),
   "req list": L(() => import("./commands/req.ts"), (m) => m.reqList),
   "req check": L(() => import("./commands/req.ts"), (m) => m.reqCheck),
   "plan apply": L(() => import("./commands/plan.ts"), (m) => m.planApply),

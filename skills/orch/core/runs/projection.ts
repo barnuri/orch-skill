@@ -14,7 +14,7 @@ import { paths } from "../state/home.ts";
 import { loadLedger, REQ_OK } from "../commands/req.ts";
 
 export type NodeState = "ready" | "blocked" | "running" | "done" | "error" | "covered" | "skipped" | (string & {});
-export type RequirementBucket = "open" | "partial" | "handled" | "covered" | "skipped";
+export type RequirementBucket = "open" | "in_progress" | "implemented" | "verifying" | "done" | "covered" | "skipped";
 
 export interface ProjectionNodeInput {
   id: string;
@@ -107,7 +107,7 @@ export interface RunProjection {
   requirements: ProjectionRequirement[];
   /** Ids of requirements in bucket open. */
   open_requirements: string[];
-  /** Ids of requirements in bucket partial. */
+  /** Ids of requirements in bucket in_progress. */
   partials: string[];
   handoff_gaps: HandoffGap[];
   ready: string[];
@@ -121,8 +121,8 @@ export interface RunProjection {
   supervisor: { flags: SupervisorFlag[] };
 }
 
-const BUCKET: Record<string, RequirementBucket> = { handled: "handled", partly: "partial", superseded: "covered", waived: "skipped" };
-const BUCKETS: RequirementBucket[] = ["open", "partial", "handled", "covered", "skipped"];
+const BUCKET: Record<string, RequirementBucket> = { open: "open", not: "open", in_progress: "in_progress", partly: "in_progress", implemented: "implemented", verifying: "verifying", done: "done", handled: "done", superseded: "covered", waived: "skipped" };
+const BUCKETS: RequirementBucket[] = ["open", "in_progress", "implemented", "verifying", "done", "covered", "skipped"];
 
 /** Whether a dependency is met: done or skipped, or covered by a done replacement. */
 export function nodeSatisfied(run: { nodes: ProjectionNodeInput[] }, n: ProjectionNodeInput): boolean {
@@ -197,7 +197,7 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
   const stateOf = new Map(nodes.map((n) => [n.id, n]));
 
   const requirements: ProjectionRequirement[] = input.requirements.map((r) => {
-    const status = String(r.status ?? "not");
+    const status = String(r.status ?? "open");
     const linked = (r.nodes ?? []).map((id) => {
       const n = byId.get(id);
       const state = n === undefined ? "missing" : stateOf.get(id)!.state;
@@ -253,8 +253,11 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
     const raw = byId.get(n.id);
     if (n.status === "done" && (!raw?.result || raw.result.verdict === "unknown")) next.push({ kind: "record_result", node: n.id, requirement: null, text: `record a result for ${n.id}` });
   }
-  for (const r of requirements.filter((x) => x.bucket === "open" || x.bucket === "partial")) {
-    next.push({ kind: "close_requirement", node: null, requirement: r.id, text: `${r.bucket === "partial" ? "finish" : "handle"} requirement ${r.id}` });
+  for (const r of requirements.filter((x) => x.bucket === "open" || x.bucket === "in_progress")) {
+    next.push({ kind: "close_requirement", node: null, requirement: r.id, text: `${r.bucket === "in_progress" ? "finish" : "handle"} requirement ${r.id}` });
+  }
+  for (const r of requirements.filter((x) => x.bucket === "implemented")) {
+    next.push({ kind: "close_requirement", node: null, requirement: r.id, text: `get requirement ${r.id} verified by another node` });
   }
   for (const f of flags) next.push({ kind: "review_flag", node: f.node, requirement: null, text: `watchdog ${f.rule} on ${f.node}: ${f.detail}` });
   if (rawGate === null) for (const id of ready) next.push({ kind: "start_node", node: id, requirement: null, text: `start ${id}` });
@@ -271,7 +274,7 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
     nodes,
     requirements,
     open_requirements: requirements.filter((r) => r.bucket === "open").map((r) => r.id),
-    partials: requirements.filter((r) => r.bucket === "partial").map((r) => r.id),
+    partials: requirements.filter((r) => r.bucket === "in_progress").map((r) => r.id),
     handoff_gaps: handoffGaps,
     ready: rawGate === null && !finished ? ready : [],
     blocked: ids((n) => n.state === "blocked"),

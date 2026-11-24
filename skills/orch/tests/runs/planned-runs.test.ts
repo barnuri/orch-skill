@@ -73,7 +73,7 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   handoff(home, "plan-1", "merge");
   o("node", "update", "plan-1", "merge", "done");
   o("req", "evidence", "plan-1", "R1", "--note", "merge handoff written");
-  o("req", "status", "plan-1", "R1", "handled");
+  o("req", "status", "plan-1", "R1", "done", "--force", "--reason", "closed by the test");
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--interval", "1", "--timeout", "60");
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^finished: done$/m);

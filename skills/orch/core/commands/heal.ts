@@ -12,22 +12,11 @@ export const RUN_HEAL_USAGE = "dispatch.ts run heal [<run-id>]";
 
 const GATE = "done-gate";
 
-// Routine evidence: an open requirement whose linked nodes are all done with a full result is handled by that
-// work. The evidence is the nodes' recorded results; nothing is answered or approved on the user's behalf.
+// Routine step: requirements whose linked nodes are all done with a full result become implemented, then an independent
+// verifier node is created for each; a passing verifier closes it, a failing one reopens it with gap nodes.
 export async function recordRoutineEvidence(home: string, runId: string): Promise<number> {
-  const run = await loadRun(home, runId);
-  if (!run) return 0;
-  const { reqEvidence, reqStatus } = await import("./req.ts");
-  let recorded = 0;
-  for (const r of (await loadLedger(home, runId)).requirements ?? []) {
-    if (REQ_OK.includes(String(r.status)) || !Array.isArray(r.nodes) || r.nodes.length === 0) continue;
-    const linked = r.nodes.map((id: string) => (run.nodes ?? []).find((n: any) => n.id === id));
-    if (!linked.every((n: any) => n && n.status === "done" && n.result?.verdict === "full")) continue;
-    const note = `nodes ${r.nodes.join(", ")} done with a full result (routine evidence)`;
-    if ((await reqEvidence([runId, String(r.id), "--note", note])) !== 0) continue;
-    if ((await reqStatus([runId, String(r.id), "handled"])) === 0) recorded++;
-  }
-  return recorded;
+  const { advanceRequirements } = await import("./req-flow.ts");
+  return (await advanceRequirements(home, runId)).length;
 }
 
 export async function healRun(home: string, runId: string): Promise<string> {

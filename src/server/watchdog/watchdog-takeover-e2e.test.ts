@@ -47,7 +47,7 @@ test("a run with no orchestrator advances to done under the supervisor", async (
   expect(dispatchIn(dir, ["node", "result", RUN, "write-note", "--verdict", "full", "--summary", "note written"]).rc).toBe(0);
   expect(dispatchIn(dir, ["node", "update", RUN, "write-note", "done"]).rc).toBe(0);
   expect(dispatchIn(dir, ["req", "evidence", RUN, "R1", "--note", "handoff.md written"]).rc).toBe(0);
-  expect(dispatchIn(dir, ["req", "status", RUN, "R1", "handled"]).rc).toBe(0);
+  expect(dispatchIn(dir, ["req", "status", RUN, "R1", "done", "--force", "--reason", "closed by the test"]).rc).toBe(0);
 
   // The supervisor alone: the caller's own terminal may have registered itself, so the registration is removed.
   const stateFile = join(dir, "runs", RUN, "state.json");

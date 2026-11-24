@@ -6,7 +6,7 @@ import { jsonResponse, notFound } from "../http/responses";
 import type { ServerContext } from "../types/server-context";
 import { readRun } from "./runs-reader";
 
-const OK = ["handled", "superseded", "waived"];
+const OK = ["done", "handled", "superseded", "waived"];
 
 function handoffExists(dir: string): boolean {
   try {
