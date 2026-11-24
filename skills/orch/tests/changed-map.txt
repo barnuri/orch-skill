@@ -29,3 +29,7 @@ inbox           inbox coordinator
 advance         goal-stop-on
 goal            goal-stop-on
 install         install-cli
+attribution     req-delivery
+req-flow        req-delivery req-lifecycle
+delivery        req-delivery
+spawn           req-delivery

@@ -72,6 +72,8 @@ export interface RunNode {
   attempts?: RunNodeAttempt[];
   /** Earliest automatic retry time for an errored node. Optional for older runs. */
   next_retry_at?: string | null;
+  /** Repo the node's last job ran in (git toplevel). Optional for older runs. */
+  repo?: string | null;
   usage?: NodeUsage;
   /**
    * What the dispatch cost, when the harness reported it. Optional and nullable: most adapters

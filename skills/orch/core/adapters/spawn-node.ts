@@ -11,7 +11,7 @@ const bridge: SpawnNode = async (job: SpawnJob): Promise<SpawnResult> => {
   argv.push(job.prompt, ...job.args);
   const env: Record<string, string> = { ...(process.env as Record<string, string>), ...job.env, HARNESS_ORCH_HOME: job.home };
   if (job.resumeSession) env.ORCH_RESUME_SESSION = job.resumeSession;
-  const p = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn(argv, { env, ...(job.repo ? { cwd: job.repo } : {}), stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   if (code !== 0) {
     process.stderr.write(err);

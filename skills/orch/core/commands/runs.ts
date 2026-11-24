@@ -8,7 +8,7 @@ import { orchHome, paths } from "../state/home.ts";
 import { epochOf, nowIso } from "../state/clock.ts";
 import { loadRun, type RunState } from "../state/store.ts";
 import { acquireLock } from "../state/lock.ts";
-import { jobStatus, pidAlive } from "../state/proc.ts";
+import { jobStatus, pidAlive, signalTree } from "../state/proc.ts";
 import { activityRows, staleMinutes, staleNodes } from "../state/timing.ts";
 import { loadProfilesDoc, runCap, settingFrom } from "../state/settings.ts";
 import { trashPath } from "../state/trash.ts";
@@ -18,7 +18,8 @@ import { hubNodeSettle } from "../adapters/hub.ts";
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { nodeReady } from "./run.ts";
 import { ensureHome } from "./serve.ts";
-import { retryDispatch, profileRequire } from "./dispatch.ts";
+import { gitToplevel } from "../runs/repo.ts";
+import { retryDispatch, profileRequire, nodeLiveJob } from "./dispatch.ts";
 import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
 import { loopCommands } from "./loops.ts";
 import { captured } from "../io.ts";
@@ -149,9 +150,10 @@ export async function runStart(args: string[]): Promise<number> {
   if (existsSync(dir)) return (errLine(`run start: ${runId} already exists`), 2);
   await mkdir(dir, { recursive: true });
   const session = process.env.CLAUDE_CODE_SESSION_ID || process.env.OPENCODE_SESSION_ID || `pid-${process.ppid}`;
+  const repo = gitToplevel(process.cwd());
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, ...(description ? { description } : {}), harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");
@@ -190,15 +192,7 @@ export async function runCancel(args: string[]): Promise<number> {
     const jobDir = join(paths.jobs(home), String(n.job_id));
     const pid = Number(readTrim(join(jobDir, "pid")));
     if (!pid || !pidAlive(pid)) continue;
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        continue;
-      }
-    }
+    if (signalTree(pid, "SIGTERM").length === 0) continue;
     stopped++;
     await closeJobTab(home, jobDir).catch(() => undefined);
   }
@@ -240,12 +234,22 @@ export async function runRetry(args: string[]): Promise<number> {
   const queued: string[] = [];
   for (const id of run.nodes.filter((n) => n.status === "error").map((n) => n.id as string)) {
     if (!noDispatch && slots > 0) {
-      const r = await retryDispatch(home, runId, id, override, false, "manual run retry", "", false);
+      // An old process that still runs owns the node: stop it first (node retry --force), never start a second one beside it.
+    if (await nodeLiveJob(home, runId, id)) {
+      errLine(`auto-retry: ${id} still has a live job; not retried`);
+      continue;
+    }
+    const r = await retryDispatch(home, runId, id, override, false, "manual run retry", "", false);
       if (r.rc !== 0) return r.rc;
       retried.push(id);
       slots--;
     } else {
-      const r = await retryDispatch(home, runId, id, override, true, "manual run retry", "", false);
+      // An old process that still runs owns the node: stop it first (node retry --force), never start a second one beside it.
+    if (await nodeLiveJob(home, runId, id)) {
+      errLine(`auto-retry: ${id} still has a live job; not retried`);
+      continue;
+    }
+    const r = await retryDispatch(home, runId, id, override, true, "manual run retry", "", false);
       if (r.rc !== 0) return r.rc;
       queued.push(id);
     }
@@ -492,6 +496,11 @@ async function autoRetryErrors(home: string, runId: string): Promise<number> {
     let reason = "auto retry";
     if (override && override !== profile) reason = `auto retry: quota/rate/auth matched; fallback profile ${override}`;
     else if (quotaLike(n)) reason = "auto retry: quota/rate/auth matched; no usable fallback";
+    // An old process that still runs owns the node: stop it first (node retry --force), never start a second one beside it.
+    if (await nodeLiveJob(home, runId, id)) {
+      errLine(`auto-retry: ${id} still has a live job; not retried`);
+      continue;
+    }
     const r = await retryDispatch(home, runId, id, override, false, reason, "", false);
     if (r.rc !== 0) return r.rc;
     retried.push(id);

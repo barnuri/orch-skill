@@ -7,6 +7,8 @@ export interface RunState {
   run_id: string;
   title: string;
   harness_session: string;
+  /** Git toplevel of the cwd `run start` ran in. Optional for older runs. */
+  repo?: string | null;
   started: string;
   finished: string | null;
   status: RunStatus;

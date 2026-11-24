@@ -2,6 +2,7 @@
 // Appends "<path> <body>" per POST to $HUB_POSTS and prints its port on stdout.
 import { appendFileSync } from "node:fs";
 
+const __pp = process.ppid; setInterval(() => { if (process.ppid !== __pp) process.exit(0); }, 1000);
 const srv = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
   const u = new URL(req.url);
   if (req.method === "GET") {

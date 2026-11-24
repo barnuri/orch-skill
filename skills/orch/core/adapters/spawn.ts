@@ -18,6 +18,7 @@ import {
 import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { SMART_AUTO_TIERS } from "./hub.ts";
 import { harnessFindBinary } from "./harness.ts";
+import { writeStatusSnapshot } from "../delivery/attribution.ts";
 
 export const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 export const PROFILE_UNCONFIGURED_RC = 3;
@@ -520,6 +521,8 @@ export async function cmdStart(args: string[]): Promise<number> {
     if (headProbe.exitCode === 0) {
       w("repo", repoRoot);
       w("start_commit", headProbe.stdout.toString().trim());
+      // Uncommitted files at dispatch, so delivery can tell this node's edits from earlier ones.
+      writeStatusSnapshot(jobDir, repoRoot);
     }
   }
   if (loaded) {

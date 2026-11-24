@@ -1,6 +1,7 @@
 // Loopback echo hub as its own process: a blocking spawn in the test cannot stall it (unlike fakeHub in index.ts).
 export async function spawnEchoHub(delayMs = 0) {
-  const src = `const d = ${delayMs};
+  const src = `const __pp = process.ppid; setInterval(() => { if (process.ppid !== __pp) process.exit(0); }, 1000);
+const d = ${delayMs};
 const s = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
   let content = "", model = "";
   try { const b = await req.json(); content = b.messages?.[0]?.content ?? ""; model = b.model ?? ""; } catch {}

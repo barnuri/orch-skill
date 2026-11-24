@@ -110,6 +110,8 @@ export const COMMANDS: Record<string, Handler> = {
   "node result": L(node, (m) => m.nodeResult),
   "delivery run": L(() => import("./commands/delivery.ts"), (m) => m.deliveryRun),
   "delivery status": L(() => import("./commands/delivery.ts"), (m) => m.deliveryStatus),
+  "delivery enqueue": L(() => import("./commands/delivery.ts"), (m) => m.deliveryEnqueue),
+  "delivery drop": L(() => import("./commands/delivery.ts"), (m) => m.deliveryDrop),
   "node quality": L(() => import("./commands/quality.ts"), (m) => m.nodeQuality),
   "node show": L(node, (m) => m.nodeShow),
   "node batch": L(() => import("./commands/node-batch.ts"), (m) => m.nodeBatch),

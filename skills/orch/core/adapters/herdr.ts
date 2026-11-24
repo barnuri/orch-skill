@@ -289,9 +289,16 @@ async function runWorkspace(home: string, label: string, cwd: string): Promise<{
   return ws ? { ws, rootTab: created?.result?.tab?.tab_id ?? "" } : null;
 }
 
+// True when the job that owns this tab is still running.
+export function tabBusy(home: string, tab: string): boolean {
+  const owner = readTrim(ownerFile(home, tab));
+  return owner !== "" && jobRunning(owner);
+}
+
 async function findNodeTab(home: string, ws: string, title: string): Promise<string> {
   const list = await cliJson(home, ["tab", "list", "--workspace", ws]);
-  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/-attempt-\d+$/, "") === title);
+  // A tab whose owner job still runs is busy: a new job there would be typed into the old job's terminal and never start.
+  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/-attempt-\d+$/, "") === title && !tabBusy(home, x.tab_id));
   return t?.tab_id ?? "";
 }
 

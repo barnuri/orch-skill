@@ -232,7 +232,7 @@ test("session index, stall, umbrella, refresh, final, backfill, co-owners", asyn
   expect(dupTotal()).toBe(300);
 
   // smart-auto alias resolved by the hub
-  const hubSrc = `const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) { const u = new URL(req.url); return Response.json(u.searchParams.get("session") === "ses_autoXXXXXXXXXXXXXXXXXXXXXX" ? { selection: { main: { model: "copilot/claude-opus-5-5", stage: "solver" } } } : { selection: null }); } }); console.log(s.port);`;
+  const hubSrc = `const __pp = process.ppid; setInterval(() => { if (process.ppid !== __pp) process.exit(0); }, 1000); const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) { const u = new URL(req.url); return Response.json(u.searchParams.get("session") === "ses_autoXXXXXXXXXXXXXXXXXXXXXX" ? { selection: { main: { model: "copilot/claude-opus-5-5", stage: "solver" } } } : { selection: null }); } }); console.log(s.port);`;
   const hubProc = Bun.spawn(["bun", "-e", hubSrc], { stdout: "pipe" });
   const hub = { port: Number((await hubProc.stdout.getReader().read().then((r) => new TextDecoder().decode(r.value))).trim()), stop: (_?: boolean) => hubProc.kill() };
   insertSession(d, "ses_autoXXXXXXXXXXXXXXXXXXXXXX", "ses_root", "auto", "hub/smart-auto-balance", 0, now, now, true, [1, 1]); clearCache();
