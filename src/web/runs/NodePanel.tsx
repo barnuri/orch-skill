@@ -22,7 +22,9 @@ import { Ago } from "./RunActivity";
 import { useJobChat, useJobLog, useNodeActivity } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
+import { NodeActions, NodeWarnings } from "./NodeActions";
 import { NodeMessages } from "./NodeMessages";
+import { NodeStatusLine } from "./NodeStatusLine";
 import { paletteClass } from "../../shared/status-palette";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
@@ -281,20 +283,26 @@ function Selections({ node }: { node: RunNode }) {
   if (history.length === 0) {
     return null;
   }
+  const events = timelineEvents(history);
+  const picked = node.actual_model ?? node.model_id ?? node.model ?? "no model yet";
+  const switches = Math.max(0, history.length - 1);
   const header = [node.requested_selector ?? "", activeStageSummary(node) ?? ""].filter((part) => part !== "").join(" · ");
   return (
-    <section className="selections" aria-label="Model selections">
-      <h3 className="panel-log-title">{`Selections — ${history.length}`}</h3>
+    <details className="disclosure selections" aria-label="Model selections">
+      <summary>
+        <span className="disclosure-title">Selections</span>
+        <span className="disclosure-sum mono">{`${picked} · ${switches} ${switches === 1 ? "switch" : "switches"}`}</span>
+      </summary>
       {header === "" ? null : <p className="hint">{header}</p>}
       <ol>
-        {timelineEvents(history).map((event) => (
+        {events.map((event) => (
           <li key={event.seq} className="selection-item">
             <div className="mono">{formatSelectionLine(event)}</div>
             <div className="hint">{fmtTime(event.ts)}</div>
           </li>
         ))}
       </ol>
-    </section>
+    </details>
   );
 }
 
@@ -374,26 +382,22 @@ function JobTranscript({ text }: { text: string }) {
   );
 }
 
-function ChatTurns({ turns, truncated }: { turns: readonly ChatTurn[]; truncated: boolean }) {
+function ChatTurns({ turns, truncated, node }: { turns: readonly ChatTurn[]; truncated: boolean; node: RunNode }) {
   const list = useRef<HTMLDivElement>(null);
-  // The newest turn is on top: scroll home only when the turn count changed, so a reader who has
-  // scrolled back to older turns is not pulled away by a refetch.
+  // Oldest first, like a terminal: follow the newest turn when the count changes.
   useEffect(() => {
     if (list.current !== null) {
-      list.current.scrollTop = 0;
+      list.current.scrollTop = list.current.scrollHeight;
     }
   }, [turns.length]);
+  const model = node.actual_model ?? node.model_id ?? node.model ?? "model not reported";
   return (
-    <div className="chat-turns" id="node-chat-list" ref={list}>
-      {truncated ? <p className="hint chat-truncated">Older turns were dropped — transcript too long.</p> : null}
-      {turns.length === 0 ? <p className="hint">The transcript holds no turns yet.</p> : null}
-      {[...turns].reverse().map((turn) => (
+    <div className="chat-turns term-log" id="node-chat-list" ref={list} role="log" aria-label="Session chat">
+      {truncated ? <p className="term-dim chat-truncated">Older turns were dropped: the transcript is too long.</p> : null}
+      {turns.length === 0 ? <p className="term-dim">The transcript holds no turns yet.</p> : null}
+      {turns.map((turn) => (
         <article key={turn.id} className={`chat-turn is-${turn.role}`}>
-          <div className="chat-turn-head">
-            <span className={`chat-role is-${turn.role}`}>{turn.role}</span>
-            {turn.timestamp === null ? null : <span className="chat-time">{fmtTime(turn.timestamp)}</span>}
-          </div>
-          {turn.text === "" ? null : <AiText className="ai-text" text={turn.text} plain={turn.text} />}
+          {turn.text === "" ? null : <AiText className={turn.role === "user" ? "term-user" : "ai-text"} text={turn.text} plain={turn.text} />}
           {turn.tools.length === 0 ? null : (
             <div className="chat-tools">
               {turn.tools.map((tool, index) => (
@@ -404,7 +408,31 @@ function ChatTurns({ turns, truncated }: { turns: readonly ChatTurn[]; truncated
               ))}
             </div>
           )}
+          {turn.role === "assistant" ? (
+            <div className="term-meta">{[node.profile ?? "agent", model, turn.timestamp === null ? "" : fmtTime(turn.timestamp)].filter((part) => part !== "").join(" · ")}</div>
+          ) : null}
         </article>
+      ))}
+    </div>
+  );
+}
+
+/** `+ Tokens: ...` footer under the stream, the way opencode prints a finished turn. */
+function TokensLine({ node }: { node: RunNode }) {
+  const cost = node.cost;
+  if (cost === undefined || cost === null) {
+    return null;
+  }
+  const part = (n: number, label: string): string => `${n.toLocaleString()} ${label}`;
+  return <div className="term-meta term-tokens">{`+ Tokens: ${[part(cost.input_tokens, "in"), part(cost.output_tokens, "out"), part(cost.cache_read_tokens, "cache read")].join(" · ")}`}</div>;
+}
+
+/** Shape of the real content while the first fetch runs. */
+function TermSkeleton({ label }: { label: string }) {
+  return (
+    <div className="term-skeleton" role="status" aria-label={`${label}…`}>
+      {[72, 48, 86, 36, 60].map((w, i) => (
+        <span key={i} className="term-skel-line" style={{ width: `${w}%` }} />
       ))}
     </div>
   );
@@ -459,21 +487,25 @@ function NodeSession({ node }: { node: RunNode }) {
   let body: ReactNode;
   if (view === "chat") {
     body =
-      chat === null ? <p className="hint">Reading the session chat…</p> : <ChatTurns turns={chat.turns} truncated={chat.truncated} />;
+      chat === null ? <TermSkeleton label="Reading the session chat" /> : <ChatTurns turns={chat.turns} truncated={chat.truncated} node={node} />;
   } else if (jobId !== null && log.isPending) {
-    body = <p className="hint">Reading the session…</p>;
+    body = <TermSkeleton label="Reading the session" />;
   } else if (envelope !== null) {
     body = <JobTranscript text={envelope.text} />;
   } else if (node.log_tail.length > 0) {
     body = <pre className="transcript node-output"><AnsiLog text={node.log_tail.join("\n")} /></pre>;
   } else {
-    const hint =
-      jobId === null
-        ? "Not dispatched yet — no session to show."
-        : log.isError
-          ? "Could not read the transcript."
-          : "Log tail appears after the next run sync.";
-    body = <p className="hint">{hint}</p>;
+    body =
+      jobId !== null && log.isError ? (
+        <div className="term-error" role="alert">
+          <span>Could not read the transcript. The server may be busy: retry in a moment.</span>
+          <button className="btn" type="button" onClick={() => void log.refetch()}>
+            Retry
+          </button>
+        </div>
+      ) : (
+        <p className="term-dim term-empty">{jobId === null ? "Not dispatched yet. No session to show." : "No output yet. The log tail appears after the next run sync."}</p>
+      );
   }
   const command = resumeCommand(node, envelope?.session ?? node.session ?? null);
   const tab = (id: "chat" | "output", label: string, enabled: boolean) => (
@@ -491,7 +523,7 @@ function NodeSession({ node }: { node: RunNode }) {
     </button>
   );
   return (
-    <section className="node-session" aria-label="Node session">
+    <section className="node-session term" aria-label="Node session">
       <div className="node-session-head">
         <h3 className="panel-log-title">{heading}</h3>
         <div className="session-tabs" role="group" aria-label="Session view">
@@ -501,6 +533,7 @@ function NodeSession({ node }: { node: RunNode }) {
         {command === null ? null : <CopyButton command={command} />}
       </div>
       {body}
+      <TokensLine node={node} />
     </section>
   );
 }
@@ -649,7 +682,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
   if (node === undefined) {
     return null;
   }
-  const verdict = resultChip(node);
+  const waitingOn = waitingOnDeps(run, node.id);
   return (
     <aside className="node-terminal" id="node-panel" aria-live="polite" ref={panel}>
       <h2 className="node-panel-head">
@@ -658,32 +691,32 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
         <Chip status={node.status} />
         <FlagChips node={node} />
         <span className="node-panel-spacer" />
-        <RetryNodeButton runId={run.run_id} node={node} />
         {onClose === undefined ? null : (
           <button className="panel-close" type="button" aria-label="Close inspector" onClick={onClose}>
             ✕
           </button>
         )}
       </h2>
+      <NodeWarnings node={node} />
+      <NodeActions runId={run.run_id} node={node} />
       <div className="panel-grid">
         <div className="panel-details">
-          <ModelBlock node={node} />
-          <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOnDeps(run, node.id)} />
-          <Attempts node={node} />
+          <details className="disclosure node-details">
+            <summary>
+              <span className="disclosure-title">Details</span>
+              <span className="disclosure-sum mono">{node.id}</span>
+            </summary>
+            <ModelBlock node={node} />
+            <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOn} />
+            <Attempts node={node} />
+          </details>
           <Selections node={node} />
         </div>
-        <NodeBody runId={run.run_id} node={node} />
       </div>
-      <NodeMessages key={node.id} runId={run.run_id} node={node} />
-      <footer className="node-statusline" aria-label="Node status line">
-        <span className={`node-statusline-state is-${node.status} ${paletteClass(node.status)}`.trim()}>{node.status}</span>
-        {verdict === null ? null : <span className={`node-statusline-result result-${verdict.verdict} ${paletteClass(verdict.verdict)}`.trim()} role="img" aria-label={resultLabel(verdict.verdict)}>{verdict.verdict}</span>}
-        <span>{node.profile ?? "no profile"}</span>
-        <span>{node.actual_model ?? node.model_id ?? node.model ?? "no model"}</span>
-        <span>attempt {(node.attempts?.length ?? 0) + 1}/{maxAttempts}</span>
-        <span title={node.owner_reason ?? undefined}>{ownerStateLabel(node)}</span>
-        <span className="node-statusline-usage mono" title={usageMetric(node).title}>{usageMetric(node).text}</span>
-      </footer>
+      <NodeMessages key={node.id} runId={run.run_id} node={node}>
+        <NodeBody runId={run.run_id} node={node} />
+      </NodeMessages>
+      <NodeStatusLine node={node} run={run} maxAttempts={maxAttempts} />
     </aside>
   );
 }

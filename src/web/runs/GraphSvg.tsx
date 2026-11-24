@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { MARKER_ICON } from "../lib/node-markers";
+import { NodeMenu } from "./NodeMarkers";
+import { useNodeMarkers } from "./node-marker-context";
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
 import { isStarting } from "../../shared/node-timing";
@@ -130,6 +133,31 @@ function GraphRetry({ node, runId }: { node: RunNode; runId: string }) {
       <rect width={RETRY_W} height={18} rx={4} className="graph-retry-box" />
       <text x={RETRY_W / 2} y={13} textAnchor="middle">{label}</text>
     </g>
+  );
+}
+
+/** Markers on the card's top edge (icon and word, straddling the border) and the "⋯" menu in the top right corner. */
+function CardMarkers({ node, runId }: { node: RunNode; runId: string }) {
+  const markers = useNodeMarkers(node.id);
+  let x = META_LEFT_X;
+  return (
+    <>
+      {markers.map((m) => {
+        const w = 18 + m.word.length * 6;
+        const at = x;
+        x += w + 4;
+        return (
+          <g key={m.code} className={`card-marker is-${m.tone}`} transform={`translate(${at} -9)`} data-marker={m.code}>
+            <title>{m.title}</title>
+            <rect width={w} height={15} rx={7.5} />
+            <text x={7} y={11}>{`${MARKER_ICON[m.code]} ${m.word}`}</text>
+          </g>
+        );
+      })}
+      <foreignObject className="card-menu" x={NODE_W - 28} y={-11} width={160} height={150}>
+        <NodeMenu runId={runId} node={node} markers={markers} />
+      </foreignObject>
+    </>
   );
 }
 
@@ -332,6 +360,7 @@ export function NodeCard({ node, pos, selected, isCyclic, onSelect, palette, har
       <ContextChip node={node} />
       {roleTier.present ? <MetricText metric={roleTier} base="metric role" x={META_LEFT_X} y={ROLE_TIER_Y} max={META_MAX_CHARS} /> : null}
       <Health node={node} runId={runId} />
+      <CardMarkers node={node} runId={runId} />
       <GraphRetry node={node} runId={runId} />
       {isCyclic ? (
         <text className="cycle" x={NODE_W - 8} y={14} textAnchor="end">
