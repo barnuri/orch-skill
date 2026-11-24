@@ -17,7 +17,7 @@ export interface BuildServiceOptions {
   gitBin?: string;
 }
 
-type Core = Omit<BuildInfo, "busy">;
+type Core = Omit<BuildInfo, "busy" | "deploy">;
 
 export function isTracked(path: string): boolean {
   return !path.split("/").includes("node_modules") && !/\.test\.[^/]*$/.test(path);

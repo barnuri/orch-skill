@@ -6,6 +6,7 @@
 //   service.ts install [--host H] [--port P] [--home DIR] [--require-token] [--allow-remote]
 //                                                           register + start (macOS launchd / Linux systemd --user)
 //   service.ts uninstall                                    stop + deregister
+//   service.ts install|restart [--root DIR]               run from DIR (default: <home>/deploy/orch-skill when it exists, else this repo)
 //   service.ts restart                                      stop + start (run this after changing the skill)
 //   service.ts status                                       supervisor state, listener probe, dashboard URL
 //   service.ts logs [-n N]                                  tail the service log
@@ -20,7 +21,12 @@ import { readTlsConfig } from "../src/server/tls/config.ts";
 import { formatHttpsLine, readTlsStatus } from "../src/server/tls/status-file.ts";
 import { DISPATCH, HOME, REPO_DIR, run, sleep, trashPath, which } from "./lib/util.ts";
 
-const SKILL_DIR = join(REPO_DIR, "skills/orch");
+// The root the unit runs from: --root, else the deploy checkout when it exists, else this repo.
+let runRoot: string | null = null;
+const deployRoot = (): string => join(orchHome, "deploy/orch-skill");
+const activeRoot = (): string => runRoot ?? (existsSync(join(deployRoot(), "skills/orch/scripts/dispatch.ts")) ? deployRoot() : REPO_DIR);
+const dispatchFile = (): string => (process.env["ORCH_DISPATCH"] ? DISPATCH : join(activeRoot(), "skills/orch/scripts/dispatch.ts"));
+const skillDir = (): string => join(activeRoot(), "skills/orch");
 // ORCH_SERVICE_LABEL / ORCH_SERVICE_UNIT name a second, throwaway service (tests, sandbox checks); the defaults are the real one.
 const SERVICE_LABEL = process.env["ORCH_SERVICE_LABEL"] || "io.github.barnuri.orch";
 const SYSTEMD_UNIT_NAME = process.env["ORCH_SERVICE_UNIT"] || "orch-dashboard.service";
@@ -74,6 +80,9 @@ function parseInstallOpts(args: string[]): number {
     } else if (a === "--home") {
       orchHome = args[++i] ?? "";
       if (!orchHome) return (err("service: --home expects a directory\n"), 2);
+    } else if (a === "--root") {
+      runRoot = args[++i] ?? "";
+      if (!runRoot) return (err("service: --root expects a directory\n"), 2);
     } else if (a === "--require-token") {
       requireToken = true;
       configSetArgs.push("--require-token");
@@ -102,7 +111,7 @@ function bunPath(): string | null {
 const logFile = (): string => join(orchHome, "serve/service.log");
 
 function preflight(): number {
-  if (!existsSync(DISPATCH)) return (err(`service: ${DISPATCH} missing — run this from the repo checkout\n`), 1);
+  if (!existsSync(dispatchFile())) return (err(`service: ${dispatchFile()} missing — run this from the repo checkout\n`), 1);
   if (!bunPath()) return 127;
   try {
     mkdirSync(join(orchHome, "serve"), { recursive: true, mode: 0o700 });
@@ -114,7 +123,7 @@ function preflight(): number {
 }
 
 function dispatch(args: string[], env: Record<string, string> = {}): { code: number; out: string } {
-  const r = run([bunPath() ?? "bun", DISPATCH, ...args], { env: { HARNESS_ORCH_HOME: orchHome, ...env } });
+  const r = run([bunPath() ?? "bun", dispatchFile(), ...args], { env: { HARNESS_ORCH_HOME: orchHome, ...env } });
   return { code: r.code, out: r.out };
 }
 
@@ -134,7 +143,7 @@ function unitInstalledForCheckout(): boolean {
   const p = unitPath();
   if (!existsSync(p)) return false;
   const t = readFileSync(p, "utf8");
-  if (!t.includes(DISPATCH) || !t.includes(orchHome)) return false;
+  if (!t.includes(dispatchFile()) || !t.includes(orchHome)) return false;
   // A unit written before restarts spared job processes is out of date and gets rewritten.
   if (!/AbandonProcessGroup|KillMode=process/.test(t)) return false;
   // So is one whose PATH lacks ~/.opencode/bin, where the opencode installer puts the binary.
@@ -197,7 +206,7 @@ function launchdWritePlist(): string | null {
     <key>ProgramArguments</key>
     <array>
         <string>${bun}</string>
-        <string>${DISPATCH}</string>
+        <string>${dispatchFile()}</string>
         <string>serve</string>
     </array>
     <key>EnvironmentVariables</key>
@@ -210,7 +219,7 @@ function launchdWritePlist(): string | null {
         <string>${bun}</string>
     </dict>
     <key>WorkingDirectory</key>
-    <string>${SKILL_DIR}</string>
+    <string>${skillDir()}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -298,11 +307,11 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${bun} ${DISPATCH} serve
+ExecStart=${bun} ${dispatchFile()} serve
 Environment=HARNESS_ORCH_HOME=${orchHome}
 Environment=ORCH_BUN=${bun}
 Environment=PATH=${pathValue(bun, "")}
-WorkingDirectory=${SKILL_DIR}
+WorkingDirectory=${skillDir()}
 Restart=always
 KillMode=process
 RestartSec=${THROTTLE_SECS}
@@ -394,11 +403,29 @@ async function cmdUninstall(): Promise<number> {
   return backend === "launchd" ? await launchdUninstall() : systemdUninstall();
 }
 
-async function cmdRestart(): Promise<number> {
+async function cmdRestart(args: string[]): Promise<number> {
   const backend = platform();
   if (!backend) return 1;
+  if (args[0] === "--root") {
+    runRoot = args[1] ?? "";
+    if (!runRoot) return (err("service: --root expects a directory\n"), 2);
+  }
   loadServeConfig();
   if (!existsSync(unitPath())) return (err(`service: nothing installed — run \`${SELF} install\` first\n`), 1);
+  // A unit that points at another root is rewritten and reloaded, so the restart runs the wanted checkout.
+  if (!unitInstalledForCheckout()) {
+    const written = backend === "launchd" ? launchdWritePlist() : systemdWriteUnit();
+    if (!written) return 127;
+    if (backend === "launchd") {
+      await launchdUnload(written);
+      if (!(await launchdLoad(written))) return (err(`service: launchd could not load ${written}\n`), 1);
+    } else {
+      run(["systemctl", "--user", "daemon-reload"]);
+      if (run(["systemctl", "--user", "restart", SYSTEMD_UNIT_NAME]).code !== 0) return 1;
+    }
+    out(`service: restarted (config: ${orchHome}/serve.json, root: ${activeRoot()})\n`);
+    return 0;
+  }
   if (backend === "launchd") {
     // A loaded unit is restarted in place: no window where nothing is loaded.
     if (!(launchdIsLoaded() && run(["launchctl", "kickstart", "-k", `gui/${uid()}/${SERVICE_LABEL}`]).code === 0)) {
@@ -445,7 +472,7 @@ let code: number;
 switch (sub) {
   case "install": code = await cmdInstall(rest); break;
   case "uninstall": code = await cmdUninstall(); break;
-  case "restart": code = await cmdRestart(); break;
+  case "restart": code = await cmdRestart(rest); break;
   case "status": code = await cmdStatus(); break;
   case "logs": code = cmdLogs(rest); break;
   case "-h": case "--help": case "help": case "": usage(out); code = 0; break;

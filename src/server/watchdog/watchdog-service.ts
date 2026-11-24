@@ -1,4 +1,5 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { startDeployWatch } from "../build/deploy-watch";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
@@ -172,7 +173,7 @@ export function isInfraError(error: string | null | undefined): boolean {
 
 export const spawnWatchdogDispatch: Starter = async (args, home) => {
   const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
-    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "watchdog", ORCH_NO_ANNOUNCE: "1" },
+    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "watchdog", ORCH_NO_ANNOUNCE: "1", ORCH_LOAD_GATE: "1" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
@@ -325,6 +326,7 @@ export class WatchdogService {
   private readonly counters = new Map<string, WatchdogCounters>();
   private startedAt: string | null = null;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private stopDeployWatch: (() => void) | null = null;
   private cleanupBusy = false;
 
   constructor(readonly home: string, opts: WatchdogOptions = {}) {
@@ -353,9 +355,12 @@ export class WatchdogService {
     this.startedAt = this.now().toISOString();
     this.engine.begin();
     this.cleanupTimer = setInterval(() => this.cleanupPass(), CLEANUP_EVERY_MS);
+    if (process.env["ORCH_DEPLOY_WATCH"] !== "0") this.stopDeployWatch = startDeployWatch(this.home);
   }
 
   stop(): void {
+    this.stopDeployWatch?.();
+    this.stopDeployWatch = null;
     if (this.cleanupTimer !== null) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;

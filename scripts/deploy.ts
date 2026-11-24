@@ -1,0 +1,200 @@
+#!/usr/bin/env bun
+// Deploy a committed ref to the always-on service, from a deploy checkout that never holds edits.
+//
+//   deploy.ts [--ref REF] [--dry-run]   REF defaults to master
+//
+// Steps: update <home>/deploy/orch-skill (git worktree, detached) to REF, link or install node_modules,
+// run typecheck and the fast test tier there, point the service at the checkout and restart it, wait until
+// /api/build reports the sha. Any failure keeps (or restores) the previous sha and exits 1 with the reason.
+// Records <home>/deploy/current.json and history.jsonl. A lock stops two deploys at once.
+//
+// Env seams (tests): ORCH_DEPLOY_REPO, ORCH_DEPLOY_TYPECHECK_CMD, ORCH_DEPLOY_TEST_CMD (sh -c, run in the checkout),
+// ORCH_SERVICE_SH (service script), ORCH_DEPLOY_HEALTH_URL, ORCH_DEPLOY_HEALTH_TIMEOUT_MS.
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { deployCheckout, deployDir, readCurrent } from "../src/server/build/deploy-status.ts";
+import type { DeployCurrent } from "../src/server/build/deploy-status.ts";
+import { REPO_DIR, run, sleep } from "./lib/util.ts";
+
+const HOME = process.env["HARNESS_ORCH_HOME"] || join(homedir(), ".harness-orch");
+const REPO = process.env["ORCH_DEPLOY_REPO"] || REPO_DIR;
+const DIR = deployDir(HOME);
+const CHECKOUT = deployCheckout(HOME);
+const LOCK = join(DIR, "lock.d");
+const BUN = process.execPath;
+
+const args = process.argv.slice(2);
+const dryRun = args.includes("--dry-run");
+const refIdx = args.indexOf("--ref");
+const ref = refIdx >= 0 ? (args[refIdx + 1] ?? "master") : "master";
+
+const log = (s: string): void => void process.stdout.write(`deploy: ${s}\n`);
+const git = (cwd: string, ...a: string[]) => run(["git", ...a], { cwd });
+let attempted: string | null = null;
+const history = (e: Record<string, unknown>): void => appendFileSync(join(DIR, "history.jsonl"), JSON.stringify({ at: new Date().toISOString(), ref, ...e }) + "\n");
+
+function fail(reason: string, tests = "not run"): never {
+  mkdirSync(DIR, { recursive: true });
+  history({ ok: false, reason, tests, sha: attempted, kept: readCurrent(HOME)?.sha ?? null });
+  process.stderr.write(`deploy failed: ${reason}\n`);
+  unlock();
+  process.exit(1);
+}
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+function lock(): void {
+  mkdirSync(DIR, { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      mkdirSync(LOCK);
+      writeFileSync(join(LOCK, "pid"), String(process.pid));
+      return;
+    } catch {
+      const pid = Number(readFileSync(join(LOCK, "pid"), "utf8").trim() || 0);
+      if (pid > 0 && alive(pid)) {
+        process.stderr.write(`deploy failed: another deploy is running (pid ${pid})\n`);
+        process.exit(1);
+      }
+      try {
+        unlinkSync(join(LOCK, "pid"));
+        rmdirSync(LOCK);
+      } catch {}
+    }
+  }
+  process.stderr.write("deploy failed: cannot take the lock\n");
+  process.exit(1);
+}
+
+function unlock(): void {
+  try {
+    unlinkSync(join(LOCK, "pid"));
+    rmdirSync(LOCK);
+  } catch {}
+}
+
+function sh(cmd: string, cwd: string): { code: number; out: string } {
+  const r = run(["sh", "-c", cmd], { cwd });
+  return { code: r.code, out: r.out };
+}
+
+function ensureModules(): void {
+  if (!existsSync(join(CHECKOUT, "package.json"))) return;
+  const nm = join(CHECKOUT, "node_modules");
+  const lock = (d: string): string => (existsSync(join(d, "bun.lock")) ? readFileSync(join(d, "bun.lock"), "utf8") : "");
+  if (existsSync(nm) && !lstatSync(nm).isSymbolicLink()) {
+    if (lock(CHECKOUT) === "") return;
+  }
+  if (lock(CHECKOUT) === lock(REPO) && existsSync(join(REPO, "node_modules"))) {
+    if (!existsSync(nm)) symlinkSync(join(REPO, "node_modules"), nm);
+    return;
+  }
+  if (existsSync(nm) && lstatSync(nm).isSymbolicLink()) unlinkSync(nm);
+  const r = run([BUN, "install", "--frozen-lockfile"], { cwd: CHECKOUT });
+  if (r.code !== 0) fail(`bun install failed: ${r.out.trim().split("\n").slice(-1)[0] ?? ""}`);
+}
+
+async function healthy(sha: string): Promise<boolean> {
+  const url = process.env["ORCH_DEPLOY_HEALTH_URL"] || `http://127.0.0.1:${readPort()}/api/build`;
+  const deadline = Date.now() + Number(process.env["ORCH_DEPLOY_HEALTH_TIMEOUT_MS"] || 90_000);
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) {
+        const b = (await r.json()) as { head?: string | null };
+        if (b.head === sha) return true;
+      }
+    } catch {}
+    await sleep(1000);
+  }
+  return false;
+}
+
+function readPort(): string {
+  try {
+    return String((JSON.parse(readFileSync(join(HOME, "serve.json"), "utf8")) as { port?: number }).port ?? 6724);
+  } catch {
+    return "6724";
+  }
+}
+
+function restart(): { code: number; out: string } {
+  const svc = process.env["ORCH_SERVICE_SH"] || join(REPO, "scripts/service.ts");
+  return run([BUN, svc, "restart", "--root", CHECKOUT], { env: { HARNESS_ORCH_HOME: HOME } });
+}
+
+const sha = git(REPO, "rev-parse", "--verify", `${ref}^{commit}`);
+if (sha.code !== 0) {
+  process.stderr.write(`deploy failed: cannot resolve ref ${ref}\n`);
+  process.exit(1);
+}
+const target = sha.out.trim();
+attempted = target;
+const prev = readCurrent(HOME);
+
+if (dryRun) {
+  log(`ref ${ref} -> ${target}`);
+  log(`current: ${prev ? `${prev.sha} (${prev.deployed_at})` : "none"}`);
+  log(`checkout: ${CHECKOUT} (${existsSync(CHECKOUT) ? "exists" : "git worktree add --detach"}), then git checkout --detach ${target.slice(0, 7)}`);
+  log("node_modules: link the repo's when bun.lock is identical, else bun install --frozen-lockfile");
+  log(`checks in the checkout: ${process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || "bun scripts/typecheck.ts"}; ${process.env["ORCH_DEPLOY_TEST_CMD"] || "bun skills/orch/tests/run.ts"}`);
+  log(`service: service.ts restart --root ${CHECKOUT}; wait for /api/build head = ${target.slice(0, 7)}`);
+  log(`on failure: keep ${prev ? prev.sha.slice(0, 7) : "nothing (no previous deploy)"}, roll the service back, exit 1`);
+  log(`record: ${join(DIR, "current.json")}, ${join(DIR, "history.jsonl")}; lock ${LOCK}`);
+  process.exit(0);
+}
+
+lock();
+if (prev?.sha === target && (await healthy(target))) {
+  log(`already deployed ${target.slice(0, 7)}`);
+  unlock();
+  process.exit(0);
+}
+
+// 1. checkout
+if (!existsSync(join(CHECKOUT, ".git"))) {
+  git(REPO, "worktree", "prune");
+  const w = git(REPO, "worktree", "add", "--detach", CHECKOUT, target);
+  if (w.code !== 0) fail(`worktree add failed: ${w.out.trim().slice(-200)}`);
+} else {
+  git(CHECKOUT, "reset", "--hard", "-q");
+  const c = git(CHECKOUT, "checkout", "--detach", "-f", "-q", target);
+  if (c.code !== 0) fail(`checkout failed: ${c.out.trim().slice(-200)}`);
+}
+ensureModules();
+
+// 2. checks
+const tc = sh(process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || `${BUN} scripts/typecheck.ts`, CHECKOUT);
+if (tc.code !== 0) restoreAndFail(`typecheck failed: ${tc.out.trim().split("\n").slice(-1)[0] ?? ""}`, "typecheck failed");
+const ts = sh(process.env["ORCH_DEPLOY_TEST_CMD"] || `${BUN} skills/orch/tests/run.ts`, CHECKOUT);
+if (ts.code !== 0) restoreAndFail(`tests failed: ${ts.out.trim().split("\n").slice(-1)[0] ?? ""}`, "failed");
+
+// 3. switch the service
+const rs = restart();
+if (rs.code !== 0 || !(await healthy(target))) {
+  if (prev) {
+    git(CHECKOUT, "checkout", "--detach", "-f", "-q", prev.sha);
+    restart();
+  }
+  fail(`service did not report ${target.slice(0, 7)} after restart${prev ? `; rolled back to ${prev.sha.slice(0, 7)}` : ""}`, "passed");
+}
+const cur: DeployCurrent = { sha: target, ref, deployed_at: new Date().toISOString(), tests: "passed" };
+writeFileSync(join(DIR, "current.json"), JSON.stringify(cur, null, 2) + "\n");
+history({ ok: true, sha: target, tests: "passed" });
+log(`deployed ${target.slice(0, 7)} (${ref})`);
+unlock();
+process.exit(0);
+
+/** A failed check leaves the checkout on the previous sha so it never holds the rejected one. */
+function restoreAndFail(reason: string, tests: string): never {
+  if (prev) git(CHECKOUT, "checkout", "--detach", "-f", "-q", prev.sha);
+  return fail(reason, tests);
+}

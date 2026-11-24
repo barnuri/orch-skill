@@ -4,7 +4,17 @@ export interface BuildCommit {
   date: string;
 }
 
+export interface DeployInfo {
+  sha: string | null;
+  short: string | null;
+  ref: string | null;
+  deployed_at: string | null;
+  behind: number | null;
+  failed: string | null;
+}
+
 export interface BuildInfo {
+  deploy: DeployInfo | null;
   boot_at: string;
   boot_head: string | null;
   head: string | null;

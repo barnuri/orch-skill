@@ -46,8 +46,32 @@ export class BuildBusyDto extends ZodDto {
   runs_running!: number;
 }
 
+@ZodObject({ description: "The last deploy through scripts/deploy.ts." })
+export class DeployInfoDto extends ZodDto {
+  @ZodField(z.string().nullable(), { description: "Deployed sha." })
+  sha!: string | null;
+
+  @ZodField(z.string().nullable(), { description: "Deployed short sha." })
+  short!: string | null;
+
+  @ZodField(z.string().nullable(), { description: "Deployed ref." })
+  ref!: string | null;
+
+  @ZodField(z.string().nullable(), { description: "When, ISO 8601." })
+  deployed_at!: string | null;
+
+  @ZodField(z.number().int().nullable(), { description: "Commits master is ahead of the deployed sha." })
+  behind!: number | null;
+
+  @ZodField(z.string().nullable(), { description: "Reason of the last deploy, when it failed." })
+  failed!: string | null;
+}
+
 @ZodObject({ description: "Whether the running server includes the code on disk." })
 export class BuildInfoDto extends ZodDto {
+  @ZodField(DeployInfoDto.schema.nullable(), { description: "Deploy state; null when never deployed." })
+  deploy!: DeployInfoDto | null;
+
   @ZodField(z.string(), { description: "When this server process started, ISO 8601 UTC." })
   boot_at!: string;
 

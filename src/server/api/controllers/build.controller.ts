@@ -3,6 +3,7 @@ import { Controller, Get, Post, Response as ResponseSchema } from "@barnuri/hono
 import { BuildInfoDto, RestartAcceptedDto, RestartRefusedDto } from "../../../shared/dto/build";
 import type { BuildInfo } from "../../../shared/types/build-info";
 import { BuildService } from "../../build/build-service";
+import { readDeployInfo } from "../../build/deploy-status";
 import { MANUAL_COMMAND, REPO_ROOT, RESTART_DELAY_MS, Restarter, SERVICE_COMMAND } from "../../build/restart";
 import { chatServiceFor } from "../../chats/service";
 import { jsonResponse } from "../../http/responses";
@@ -49,7 +50,8 @@ export class BuildController {
   @ResponseSchema(BuildInfoDto.schema, { description: "The build state." })
   async getBuild(): Promise<Response> {
     const core = await this.build.check();
-    return jsonResponse(200, { ...core, busy: this.busy() });
+    const deploy = await readDeployInfo(this.ctx.paths.home, REPO_ROOT);
+    return jsonResponse(200, { ...core, deploy, busy: this.busy() });
   }
 
   @Post("/build/restart", {
