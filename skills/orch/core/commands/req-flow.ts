@@ -60,9 +60,12 @@ export async function reqVerify(args: string[]): Promise<number> {
   if (r.status !== "implemented") return (errLine(`req verify: ${id} is ${r.status}; only an implemented requirement is verified (dispatch.ts req status ${runId} ${id} implemented)`), 2);
   const profile = await pickVerifierProfile(home, run, r, wanted);
   if (!profile) return (errLine(`req verify: no profile differs from the implementers' ${(r.implemented_by ?? []).join(", ")}; pass --profile`), 2);
-  const node = verifierNodeId(id);
+  // A finished verifier from an earlier round holds an old verdict: each round gets a fresh node.
+  const ids = new Set((run.nodes as any[]).map((n) => n.id));
+  let node = verifierNodeId(id);
+  for (let k = 2; ids.has(node) && (run.nodes as any[]).find((n) => n.id === node)?.status !== "waiting"; k++) node = `${verifierNodeId(id)}-${k}`;
   const handoffs = (r.implemented_by ?? []).map((n) => join(paths.runOutDir(home, runId, n), "handoff.md"));
-  if (!(run.nodes as any[]).some((n) => n.id === node)) {
+  if (!ids.has(node)) {
     const add = await cli(home, ["node", "add", runId, node, `Verify ${id}: ${r.text}`.slice(0, 120), "--profile", profile, "--role", "validation", "--acceptance", `requirement ${id} verified by someone other than its implementer`]);
     if (add.rc !== 0) return (errLine(`req verify: node add failed: ${add.out.trim()}`), 2);
   }
