@@ -58,3 +58,9 @@ export function useToast(): PushToast {
   }
   return push;
 }
+
+/** Like `useToast`, but a no-op outside a provider: for a control that is also drawn inside the graph SVG. */
+export function useToastOptional(): (kind: "ok" | "error", text: string) => void {
+  const push = use(ToastContext);
+  return push ?? (() => {});
+}

@@ -32,7 +32,7 @@ describe("node messages", () => {
 
   test("messageLine shows the direction, the answer and a non-delivered state", () => {
     expect(messageLine(MESSAGES[0]!)).toBe("a asks: which db? (answered: postgres)");
-    expect(messageLine(MESSAGES[3]!)).toBe("user → a: Answer to m1: postgres");
+    expect(messageLine(MESSAGES[3]!)).toBe("user → a: Answer to m1: postgres (delivered)");
     expect(messageLine(MESSAGES[4]!)).toBe("user → b: for b (pending)");
   });
 

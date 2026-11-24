@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { RunNode } from "../../shared/types/run-node";
 import { api } from "../api/client";
 import { describeFailure } from "../api/result";
@@ -12,7 +12,7 @@ import { runKeys, useRunMessages } from "./queries";
  * (`node tell`). A running node gets the text in its herdr pane or inbox; a waiting node gets it in
  * its prompt when it starts.
  */
-export function NodeMessages({ runId, node }: { runId: string; node: RunNode }) {
+export function NodeMessages({ runId, node, children = null }: { runId: string; node: RunNode; children?: ReactNode }) {
   const toast = useToast();
   const live = canMessage(node.status);
   const messages = useRunMessages(runId, live);
@@ -22,7 +22,7 @@ export function NodeMessages({ runId, node }: { runId: string; node: RunNode }) 
   const asks = openAsks(all, node.id);
   const thread = nodeThread(all, node.id);
   if (!live && thread.length === 0) {
-    return null;
+    return children === null ? null : <section className="node-messages is-readonly" aria-label="Session">{children}</section>;
   }
   const trimmed = text.trim();
 
@@ -42,26 +42,27 @@ export function NodeMessages({ runId, node }: { runId: string; node: RunNode }) 
   }
 
   return (
-    <section className="node-messages" aria-label="Messages">
-      <h3>Messages</h3>
-      {asks.map((ask) => (
-        <div className="node-ask" key={ask.id}>
-          <span className="node-ask-text">{ask.text}</span>
-          <button className="btn primary" type="button" disabled={busy || trimmed === ""} title="Answer with the text below" onClick={() => send("answer", ask.id)}>
-            Answer
-          </button>
-        </div>
-      ))}
-      {thread.length === 0 ? null : (
-        <ul className="node-thread">
-          {thread.map((m) => (
-            <li key={m.id}>{messageLine(m)}</li>
-          ))}
-        </ul>
-      )}
+    <section className="node-messages" aria-label="Session and messages">
+      <div className="term-stream">
+        {children}
+        {thread.map((m) => (
+          <div className="term-user" key={m.id}>
+            {messageLine(m)}
+          </div>
+        ))}
+        {asks.map((ask) => (
+          <div className="term-ask node-ask" key={ask.id} role="group" aria-label="Open question">
+            <span className="term-ask-mark" aria-hidden="true">?</span>
+            <span className="node-ask-text">{ask.text}</span>
+            <button className="btn primary" type="button" disabled={busy || trimmed === ""} title="Answer with the text in the input below" onClick={() => send("answer", ask.id)}>
+              Answer
+            </button>
+          </div>
+        ))}
+      </div>
       {live ? (
         <form
-          className="node-send"
+          className="node-send term-composer"
           onSubmit={(event) => {
             event.preventDefault();
             if (trimmed !== "" && !busy) {
@@ -76,7 +77,8 @@ export function NodeMessages({ runId, node }: { runId: string; node: RunNode }) 
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }
             }}
