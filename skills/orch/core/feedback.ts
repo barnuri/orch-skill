@@ -4,10 +4,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { join } from "node:path";
 import {
   FEEDBACK_KINDS, FEEDBACK_SOURCES, FEEDBACK_STATUSES,
-  type FeedbackItem, type FeedbackKind, type FeedbackSource, type FeedbackStatus,
+  type FeedbackItem, type FeedbackKind, type FeedbackNote, type FeedbackSource, type FeedbackStatus,
 } from "../../../src/shared/types/feedback.ts";
 
-export type { FeedbackItem, FeedbackKind, FeedbackSource, FeedbackStatus };
+export type { FeedbackItem, FeedbackKind, FeedbackNote, FeedbackSource, FeedbackStatus };
 
 export function feedbackDir(home: string): string {
   return join(home, "feedback");
@@ -128,8 +128,51 @@ function writeItem(home: string, item: FeedbackItem): void {
   renameSync(tmp, file);
 }
 
+// Lower case, whitespace collapsed, trimmed: the text key of an item with no run and no node.
+export function normalizeFeedbackText(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// An item is open until it is done or wontfix.
+export function isOpenFeedback(item: FeedbackItem): boolean {
+  return item.status !== "done" && item.status !== "wontfix";
+}
+
+// The open item a new add merges into: the same run and node when the add names either,
+// otherwise an item with no run and no node and the same normalized text. Oldest first.
+export function findDuplicateFeedback(items: FeedbackItem[], input: NewFeedbackInput): FeedbackItem | null {
+  const run = input.run_id || undefined;
+  const node = input.node_id || undefined;
+  const hasScope = run !== undefined && node !== undefined;
+  const key = normalizeFeedbackText(input.text);
+  const match = (item: FeedbackItem): boolean => {
+    if (!isOpenFeedback(item)) return false;
+    if (hasScope) return item.run_id === run && item.node_id === node;
+    if (run !== undefined || node !== undefined) return false;
+    return item.run_id === undefined && item.node_id === undefined && normalizeFeedbackText(item.text) === key;
+  };
+  return filterFeedback(items, {}).find(match) ?? null;
+}
+
+// Adds an item, or merges into an open duplicate (findDuplicateFeedback): the new text becomes a note
+// on the existing item and its id is kept. `merged` tells which happened.
+export function addOrMergeFeedback(home: string, input: NewFeedbackInput, nowIso: string): { item: FeedbackItem; merged: boolean } {
+  const probe = buildFeedback(input, "fb-00000000-0", nowIso);
+  const dup = findDuplicateFeedback(readFeedback(home), input);
+  if (!dup) return { item: addFeedback(home, input, nowIso, false), merged: false };
+  const next: FeedbackItem = {
+    ...dup,
+    notes: [...(dup.notes ?? []), { at: nowIso, text: probe.text, source: probe.source }],
+    updated: nowIso,
+  };
+  writeItem(home, next);
+  return { item: next, merged: true };
+}
+
 // Creates the file only if it does not exist (flag wx). On a clash with another writer, try the next number.
-export function addFeedback(home: string, input: NewFeedbackInput, nowIso: string): FeedbackItem {
+// With dedup (the default) an open duplicate gets the text as a note and is returned instead (addOrMergeFeedback).
+export function addFeedback(home: string, input: NewFeedbackInput, nowIso: string, dedup = true): FeedbackItem {
+  if (dedup) return addOrMergeFeedback(home, input, nowIso).item;
   const dir = feedbackDir(home);
   mkdirSync(dir, { recursive: true });
   const ids = readFeedback(home).map((i) => i.id);

@@ -22,4 +22,12 @@ export interface FeedbackItem {
   updated: string;
   work_run?: string;
   result?: string;
+  // Texts of later adds merged into this open item (same run+node, or same normalized text).
+  notes?: FeedbackNote[];
+}
+
+export interface FeedbackNote {
+  at: string;
+  text: string;
+  source: FeedbackSource;
 }

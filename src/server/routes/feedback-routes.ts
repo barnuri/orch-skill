@@ -6,7 +6,7 @@ import { dispatchPath } from "../dispatch-path";
 import { parseJsonStrict } from "../validation/strict-json";
 import { MAX_BODY_BYTES } from "./document-routes";
 import {
-  addFeedback, filterFeedback, getFeedback, isKind, isSource, isStatus, readFeedback, updateFeedback,
+  addOrMergeFeedback, filterFeedback, getFeedback, isKind, isSource, isStatus, readFeedback, updateFeedback,
   type FeedbackPatch,
 } from "../../../skills/orch/core/feedback.ts";
 
@@ -59,11 +59,12 @@ export function createFeedbackHandler(ctx: ServerContext): RouteHandler {
     const node_id = optionalString(o, "node_id");
     if ([chat_id, run_id, node_id].includes("bad")) return jsonResponse(400, { error: "chat_id, run_id and node_id must be strings" });
     try {
-      const item = addFeedback(ctx.paths.home, {
+      const { item, merged } = addOrMergeFeedback(ctx.paths.home, {
         text: o["text"] as string, source, kind,
         chat_id: chat_id as string | undefined, run_id: run_id as string | undefined, node_id: node_id as string | undefined,
       }, new Date().toISOString().replace(/\.\d+Z$/, "Z"));
-      return jsonResponse(201, { item });
+      // A merge into an open duplicate returns the existing item with 200; a new item is 201.
+      return jsonResponse(merged ? 200 : 201, { item });
     } catch (e) {
       return jsonResponse(400, { error: (e as Error).message });
     }

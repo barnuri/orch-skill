@@ -37,6 +37,11 @@ export class FeedbackItemDto extends ZodDto {
   @ZodField(z.string().optional(), { description: "The run that works on it." })
   work_run?: string;
 
+  @ZodField(z.array(z.object({ at: z.string(), text: z.string(), source: SOURCE })).optional(), {
+    description: "Texts of later adds merged into this open item (same run and node, or same normalized text).",
+  })
+  notes?: { at: string; text: string; source: "chat" | "cli" | "ui" }[];
+
   @ZodField(z.string().optional(), { description: "Creation time, ISO 8601 UTC." })
   created?: string;
 

@@ -43,9 +43,10 @@ export class FeedbackController {
 
   @Post("/feedback", {
     summary: "Add feedback",
-    description: "Adds one item with status `new`. Body: `text` (required), `kind` (bug|idea|ux|other), `source` (chat|cli|ui, default ui), optional `chat_id`, `run_id`, `node_id`.",
+    description: "Adds one item with status `new`. Body: `text` (required), `kind` (bug|idea|ux|other), `source` (chat|cli|ui, default ui), optional `chat_id`, `run_id`, `node_id`. When an open item already exists for the same run and node (or, with no run and no node, the same normalized text), the text is added to it as a note and that item is returned with 200.",
   })
   @ResponseSchema(FeedbackItemEnvelopeDto.schema, { status: 201, description: "The new item." })
+  @ResponseSchema(FeedbackItemEnvelopeDto.schema, { status: 200, description: "The existing open item, with the text added as a note." })
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Invalid body." })
   create(c: ApiContext): Promise<Response> {
     return call(this.create_, c);
