@@ -16,7 +16,7 @@ import { mutateRun } from "./node.ts";
 
 export const NODE_TELL_USAGE = 'dispatch.ts node tell <run-id> <node-id> "<text>" [--from NAME]';
 export const NODE_ASK_USAGE = 'dispatch.ts node ask <run-id> <node-id> "<question>" [--wait] [--timeout SECS]';
-export const NODE_INBOX_USAGE = "dispatch.ts node inbox <run-id> <node-id> [--json] [--peek] [--ack <id>] [--via NAME]";
+export const NODE_INBOX_USAGE = "dispatch.ts node inbox <run-id> <node-id> [--json] [--peek] [--unread] [--ack <id>] [--via NAME]";
 const INBOX_ASK_WAIT_SECS = 1800;
 const LOCK_TRIES = 600; // run_lock: 600 x 50 ms
 const LOCK_SLEEP_MS = 50;
@@ -165,6 +165,14 @@ async function nodePane(home: string, run: string, node: string): Promise<string
   return t.split("\n")[0]!.trim();
 }
 
+// True when the pane's input line still holds this message: typed, but not submitted as a turn.
+async function typedUnsubmitted(home: string, pane: string, id: string): Promise<boolean> {
+  const r = await herdrCli(home, ["pane", "read", pane, "--source", "visible", "--lines", "15"]);
+  if (!r.ok) return false;
+  const last = r.stdout.split("\n").filter((l) => /\S/.test(l)).pop() ?? "";
+  return last.includes(`[orch message ${id} `);
+}
+
 // One push attempt. Returns delivered | pending | failed.
 export async function inboxDeliver(home: string, run: string, node: string, path: string): Promise<string> {
   const m = await readMsg(path);
@@ -172,11 +180,21 @@ export async function inboxDeliver(home: string, run: string, node: string, path
   const pane = await nodePane(home, run, node);
   if (!pane || !(await herdrEnabled(home))) return "pending";
   const text = `[orch message ${m.id} from ${m.from}] ${m.text}`;
-  const a = await herdrCli(home, ["pane", "send-text", pane, text]);
+  const alreadyTyped = await typedUnsubmitted(home, pane, m.id);
+  const a = alreadyTyped ? { ok: true, stdout: "", stderr: "" } : await herdrCli(home, ["pane", "send-text", pane, text]);
   const b = a.ok ? await herdrCli(home, ["pane", "send-keys", pane, "Enter"]) : a;
   if (a.ok && b.ok) {
-    await markDelivered(path, "herdr");
-    return "delivered";
+    if (!(await typedUnsubmitted(home, pane, m.id))) {
+      await markDelivered(path, "herdr");
+      return "delivered";
+    }
+    const retry = await herdrCli(home, ["pane", "send-keys", pane, "Enter"]);
+    if (retry.ok && !(await typedUnsubmitted(home, pane, m.id))) {
+      await markDelivered(path, "herdr");
+      return "delivered";
+    }
+    await patchMsg(path, (x) => { x.last_error = "queued: the agent did not take the text as a turn; it stays in the pane input"; });
+    return "pending";
   }
   const tries = (m.tries ?? 0) + 1;
   const e = (b.stderr + b.stdout).trim() || "herdr send failed";
@@ -215,7 +233,11 @@ export async function cmdNodeTell(args: string[]): Promise<number> {
       return 0;
     }
     if (!requireNode(st, a.node)) return 2;
-    await inboxSend(home, a.run, a.node, a.from || "orch", "tell", a.text);
+    const result = await inboxSend(home, a.run, a.node, a.from || "orch", "tell", a.text);
+    if (a.from === "user") {
+      const note = await inboxNew(home, a.run, "orch", "user", "tell", `user -> ${a.node} (${result}): ${a.text}`);
+      await coordDeliver(home, a.run, note);
+    }
     return 0;
   } catch (e) {
     if (e instanceof LockBusy) return (lockMsg(a.run), 75);
@@ -353,6 +375,7 @@ export async function cmdNodeInbox(args: string[]): Promise<number> {
     const a = args[i] ?? "";
     if (a === "--json") json = true;
     else if (a === "--peek") peek = true;
+    else if (a === "--unread") continue;
     else if (a === "--ack") ack = args[++i] ?? "";
     else if (a === "--via") via = args[++i] || "inbox";
     else if (!runId) runId = a;
