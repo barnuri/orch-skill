@@ -86,7 +86,8 @@ export async function createRequirementGaps(home: string, runId: string, r: Req,
     const add = await cli(home, ["node", "add", runId, id, `Fix gap in ${r.id}: ${gap}`.slice(0, 120), "--role", "implementation"]);
     if (add.rc !== 0) continue;
     await reqLink([runId, r.id, "--node", id]);
-    await cli(home, ["node", "dispatch", runId, id, "--force", `Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`]);
+    const { AGENT_RULES_LINE } = await import("./gaps.ts");
+    await cli(home, ["node", "dispatch", runId, id, "--force", `${AGENT_RULES_LINE}Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`]);
     made.push(id);
   }
   return made;

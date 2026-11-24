@@ -23,6 +23,9 @@ function changesScope(planFile: string, outside: string[]): boolean {
 
 const gapNodeId = (g: Gap): string => `gap-${g.id}`.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 60);
 
+/** First line of every prompt orch writes itself: gap and repair nodes follow the shared node rules too. */
+export const AGENT_RULES_LINE = `Read ${join(import.meta.dir, "..", "..", "references", "agent-rules.md")} first and follow it (no git commit, merge, rebase, stash, checkout or reset in the shared checkout).\n`;
+
 export async function findGaps(home: string, runId: string): Promise<Gap[]> {
   const run = await loadRun(home, runId);
   if (!run) return [];
@@ -87,7 +90,7 @@ export async function createGapNodes(home: string, runId: string, gaps: Gap[]): 
     const add = Bun.spawn([process.execPath, BIN, "node", "add", runId, id, label, "--profile", "opencode-chip-exec", "--model", "hub-copilot-mai-code-2-flash", "--role", "implementation"], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: gapEnv });
     await add.exited;
     if (add.exitCode !== 0) continue;
-    const run2 = Bun.spawn([process.execPath, BIN, "node", "dispatch", runId, id, "--force", prompt], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: gapEnv });
+    const run2 = Bun.spawn([process.execPath, BIN, "node", "dispatch", runId, id, "--force", AGENT_RULES_LINE + prompt], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: gapEnv });
     await run2.exited;
     created.push(id);
   }

@@ -68,3 +68,10 @@ test("a done node whose owner stopped is a gap until a coordinator result is rec
   const after = await findGaps(home, R);
   expect(after.some((g) => g.kind === "no-result" && g.id === "n1")).toBe(false);
 });
+
+test("orch-written gap prompts start with the shared node rules", async () => {
+  const { AGENT_RULES_LINE } = await import("../../core/commands/gaps.ts");
+  const file = AGENT_RULES_LINE.match(/Read (\S+agent-rules\.md)/)?.[1] ?? "";
+  expect(require("node:fs").existsSync(file)).toBe(true);
+  expect(AGENT_RULES_LINE).toContain("merge");
+});

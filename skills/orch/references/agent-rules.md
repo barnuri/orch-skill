@@ -3,7 +3,7 @@
 A coordinator points each dispatched prompt at this file instead of repeating the rules.
 Every node agent follows all of them.
 
-1. Do not run `git commit`, `git push`, `git stash`, `git checkout` or `git reset`. The node implements and tests. The main orchestrator owns repository delivery and follows the target repo's instructions. A node handoff must state the branch, changed files and remaining delivery action.
+1. Do not run `git commit`, `git push`, `git stash`, `git checkout`, `git reset`, `git merge`, `git rebase` or `git cherry-pick`. Other nodes edit the same checkout: a merge there mixes their work with conflict markers. When a task needs a merge, do it in a separate worktree (`git worktree add`) and hand the branch to the orchestrator. The node implements and tests. The main orchestrator owns repository delivery and follows the target repo's instructions. A node handoff must state the branch, changed files and remaining delivery action.
 2. Do not delete with `rm`. Use `trash`.
 3. Use `ghx`, never `gh`.
 4. Never write under `~/.harness-orch` (the orch home). Change orch state only through `dispatch.ts`
