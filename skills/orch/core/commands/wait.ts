@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { nowIso } from "../state/clock.ts";
 import { loadRun } from "../state/store.ts";
+import { OrchLock, lockHolder } from "../state/lock.ts";
 import { runSync } from "./runs.ts";
 import { coordinatorAutoRecord, coordSweep } from "./inbox.ts";
 import { healthMonitorFind, healthMonitorStart } from "./health.ts";
@@ -169,6 +170,14 @@ export async function runWait(args: string[]): Promise<number> {
   if (stallArg !== "" && !(uint(stallArg) && stallMin > 0)) { process.stderr.write("run wait: --stall-min must be a positive whole number\n"); return 2; }
   if (!(await loadRun(home, runId))) { process.stderr.write(`run ${runId}: unknown run\n`); return 2; }
 
+  // --follow is single-instance per run: a second follower would repeat the same sync and health reads.
+  const followLock = follow ? new OrchLock(home, `run-follow-${runId}`) : null;
+  if (followLock && !(await followLock.acquire())) { process.stdout.write(`already watched by pid ${(await lockHolder(home, `run-follow-${runId}`)) ?? "?"}\n`); return 0; }
+  try { return await waitLoop(home, runId, { timeoutS, stallArg, stallMin, json, follow, notes }); } finally { await followLock?.release(); }
+}
+
+async function waitLoop(home: string, runId: string, o: { timeoutS: string; stallArg: string; stallMin: number; json: boolean; follow: boolean; notes: boolean }): Promise<number> {
+  const { timeoutS, stallMin, json, follow, notes } = o;
   const evf = paths.runEvents(home, runId);
   const sharedCursor = join(home, "runs", runId, "wait.cursor");
   const cursorFile = follow ? join(home, "runs", runId, "wait.follow.cursor") : sharedCursor;

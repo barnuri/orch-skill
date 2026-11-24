@@ -7,6 +7,7 @@ import type { RunHealth } from "../../shared/types/run-health";
 import { RECONCILE_MS, reconcileArgs } from "../runs/run-reconciler";
 import type { WatchdogAction, WatchdogCounters, WatchdogFlag, WatchdogRule, WatchdogStatus } from "../../shared/types/watchdog";
 import { isEngineNode, loopOfRun } from "../../shared/engine-node";
+import { serviceProblem } from "../../../skills/orch/core/adapters/opencode-service.ts";
 import { dispatchPath } from "../dispatch-path";
 import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
@@ -121,6 +122,8 @@ interface WatchRun {
 export interface WatchdogOptions {
   /** Spawns `dispatch.ts <args>` for the watchdog's own actions; exit code back. */
   run?: Starter;
+  /** Reads the stale-shared-service problem (tests). Default: opencode-service.ts serviceProblem. */
+  serviceProblem?: () => string | null;
   /** Passed to the RunEngine as its starter (tests). */
   engineStart?: Starter;
   now?: () => Date;
@@ -328,9 +331,11 @@ export class WatchdogService {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private stopDeployWatch: (() => void) | null = null;
   private cleanupBusy = false;
+  private readonly serviceProblemFn: () => string | null;
 
   constructor(readonly home: string, opts: WatchdogOptions = {}) {
     this.runDispatch = opts.run ?? spawnWatchdogDispatch;
+    this.serviceProblemFn = opts.serviceProblem ?? serviceProblem;
     this.now = opts.now ?? ((): Date => new Date());
     this.log = opts.log ?? ((line) => void process.stderr.write(`watchdog: ${line}\n`));
     this.pidAlive = opts.pidAlive ?? defaultPidAlive;
@@ -351,14 +356,32 @@ export class WatchdogService {
     this.loadLog();
   }
 
+  private serviceTimer: ReturnType<typeof setInterval> | null = null;
+  private lastServiceProblem: string | null = null;
+
+  /** Reports a stale shared opencode service once per distinct problem, with the fix. Never restarts it. */
+  checkService(): void {
+    let problem: string | null = null;
+    try { problem = this.serviceProblemFn(); } catch { return; }
+    if (problem === this.lastServiceProblem) return;
+    this.lastServiceProblem = problem;
+    if (problem) this.record({ at: this.now().toISOString(), run: "-", node: null, rule: "service", action: "report", detail: problem, rc: null });
+  }
+
   begin(): void {
     this.startedAt = this.now().toISOString();
+    if (process.env["ORCH_DEPLOY_WATCH"] !== "0") {
+      this.checkService();
+      this.serviceTimer = setInterval(() => this.checkService(), 600_000);
+    }
     this.engine.begin();
     this.cleanupTimer = setInterval(() => this.cleanupPass(), CLEANUP_EVERY_MS);
     if (process.env["ORCH_DEPLOY_WATCH"] !== "0") this.stopDeployWatch = startDeployWatch(this.home);
   }
 
   stop(): void {
+    if (this.serviceTimer !== null) clearInterval(this.serviceTimer);
+    this.serviceTimer = null;
     this.stopDeployWatch?.();
     this.stopDeployWatch = null;
     if (this.cleanupTimer !== null) {

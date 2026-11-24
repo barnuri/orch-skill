@@ -6,6 +6,7 @@ import { orchHome } from "../state/home.ts";
 import { BIN_ORCH } from "../state/proc.ts";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { OrchLock, lockHolder } from "../state/lock.ts";
 import { findNode } from "../runs/node.ts";
 
 export const RUN_WATCH_USAGE = "dispatch.ts run watch <run-id> [--json] [--stall-min N]";
@@ -82,6 +83,14 @@ export async function runWatch(args: string[]): Promise<number> {
   }
   if (!runId) return (process.stderr.write(`usage: ${RUN_WATCH_USAGE}\n`), 2);
 
+  if (!(await loadRun(home, runId))) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
+  // One watcher per run: it alone nudges and auto-retries. A second call exits at once.
+  const lock = new OrchLock(home, `run-watch-${runId}`);
+  if (!(await lock.acquire())) return (process.stdout.write(`already watched by pid ${(await lockHolder(home, `run-watch-${runId}`)) ?? "?"}\n`), 0);
+  try { return await watchLoop(home, runId, pass); } finally { await lock.release(); }
+}
+
+async function watchLoop(home: string, runId: string, pass: string[]): Promise<number> {
   let crashes = 0;
   for (;;) {
     await deliverMailbox(home, runId, pass);

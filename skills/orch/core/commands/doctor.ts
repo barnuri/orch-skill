@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { serviceProblem } from "../adapters/opencode-service.ts";
 
 export function orchHome(): string {
   return process.env.HARNESS_ORCH_HOME || join(homedir(), ".harness-orch");
@@ -12,7 +13,9 @@ export function orchHome(): string {
 export function doctorLines(): string[] {
   const home = orchHome();
   const herdr = Bun.which("herdr", { PATH: process.env.PATH ?? "" });
+  const stale = serviceProblem();
   return [
+    ...(stale ? [`opencode: ${stale}`] : []),
     `bun: ${Bun.version}`,
     "state: read by orch CLI, jq not required",
     `home: ${home}${existsSync(home) ? "" : " (missing, created on first use)"}`,

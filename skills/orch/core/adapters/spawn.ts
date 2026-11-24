@@ -17,6 +17,8 @@ import {
 } from "./routing.ts";
 import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { SMART_AUTO_TIERS } from "./hub.ts";
+import { sharedServiceUsable } from "./opencode-service.ts";
+import { loadProfilesDoc, settingFrom } from "../state/settings.ts";
 import { harnessFindBinary } from "./harness.ts";
 import { writeStatusSnapshot } from "../delivery/attribution.ts";
 
@@ -280,6 +282,11 @@ export function opencodeArgs(args: string[]): { server: string; rest: string[] }
   return { server, rest };
 }
 
+/** settings.opencode_shared_service: default on, "false" turns it off. */
+async function opencodeSharedWanted(): Promise<boolean> {
+  return settingFrom(await loadProfilesDoc(orchHome()), "opencode_shared_service", "true") !== "false";
+}
+
 async function adapterOpencode(prompt: string, args: string[], e: Env): Promise<number> {
   const bin = await resolveBin("adapter_opencode", "opencode", e);
   if (!bin) return 127;
@@ -287,7 +294,10 @@ async function adapterOpencode(prompt: string, args: string[], e: Env): Promise<
   let session: string[] = [];
   if ((e.ORCH_RESUME_SESSION ?? "").startsWith("ses")) session = ["--session", e.ORCH_RESUME_SESSION!];
   if (e.ORCH_SESSION_TITLE && session.length === 0) session = ["--title", e.ORCH_SESSION_TITLE];
-  const { server, rest } = opencodeArgs(args);
+  let { server, rest } = opencodeArgs(args);
+  // Shared service: no private server per node (measured: 96 MB and 6 s against 495 MB and 48 s with --standalone).
+  // OPENCODE_CONFIG_CONTENT is read by the server process, so a node that sets it keeps its own private server.
+  if (server === "--standalone" && !e.OPENCODE_CONFIG_CONTENT && (await opencodeSharedWanted()) && (await sharedServiceUsable())) server = "";
   return (await exec([bin, "run", prompt, "--auto", ...(server ? [server] : []), ...session, ...rest], e)).rc;
 }
 
