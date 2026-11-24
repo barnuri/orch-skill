@@ -217,7 +217,7 @@ function githubChecks(commit: string): { state: "success" | "pending" | "failure
   const url = git(REPO, "remote", "get-url", "origin").out.trim();
   const slug = url.replace(/\.git$/, "").match(/github\.com[:/]([^/]+\/[^/]+)$/)?.[1];
   if (!slug) return { state: "failure", detail: `origin is not a GitHub repo: ${url}` };
-  const r = run(["ghx", "api", `repos/${slug}/commits/${commit}/check-runs`, "--jq", '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion)"'], { cwd: REPO });
+  const r = run(["ghx", "api", `repos/${slug}/commits/${commit}/check-runs`, "--jq", '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv'], { cwd: REPO });
   if (r.code !== 0) return { state: "pending", detail: `check query failed: ${r.out.trim().slice(-200)}` };
   const runs = r.out.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
   if (runs.length === 0) return { state: "pending", detail: "no check runs yet" };
