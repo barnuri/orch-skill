@@ -20,6 +20,8 @@ bun <orch-skill repo>/scripts/unorch.ts [run-id]   # repo: /Users/barnu/sandbox/
   - `tasks.md`: one checkbox per node with its status, handoff link and a `| notes:` field (owner, branch, state). Done nodes are checked. A re-run keeps your checked boxes and notes.
   - `handoffs/<node>.md`: a copy of every node handoff, so the main session reads them in one place.
   - `asks.md`: every node ask and whether it is answered.
+  - `requirements.md`: every requirement with its lifecycle step (open, in_progress, implemented, verifying, done).
+  - `gaps.md`: what the run closed without proof: requirements closed by `run settle` or a person, handoffs that are only a commit list or generated text, results written by orch, handoffs about something else, linked nodes that never finished. Read it before you trust any "done", map each finding, then write your own report beside it.
 - Manage the work through these files: write the branch or subagent that owns a task in its `notes`, tick `[x]` when it is merged, and re-run the script to refresh statuses and handoffs.
 
 ## Step 2: Order the work
