@@ -175,7 +175,11 @@ ensureModules();
 const tc = sh(process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || `${BUN} scripts/typecheck.ts`, CHECKOUT);
 if (tc.code !== 0) restoreAndFail(`typecheck failed: ${tc.out.trim().split("\n").slice(-1)[0] ?? ""}`, "typecheck failed");
 const ts = sh(process.env["ORCH_DEPLOY_TEST_CMD"] || `${BUN} skills/orch/tests/run.ts`, CHECKOUT);
-if (ts.code !== 0) restoreAndFail(`tests failed: ${ts.out.trim().split("\n").slice(-1)[0] ?? ""}`, "failed");
+if (ts.code !== 0) {
+  // Name the files that failed or timed out: the last summary line alone can read "0 failed" when a file hit its time cap.
+  const bad = ts.out.split("\n").filter((l) => /^=== .* (TIMEOUT|FAILED|LEAK)/.test(l)).map((l) => l.replace(/^=== | ===$/g, ""));
+  restoreAndFail(`tests failed: ${[...bad, ts.out.trim().split("\n").slice(-1)[0] ?? ""].join("; ")}`, "failed");
+}
 
 // 3. switch the service
 const rs = restart();
