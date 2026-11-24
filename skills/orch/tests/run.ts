@@ -142,7 +142,8 @@ async function runOne(f: string): Promise<void> {
     leaks++;
     console.log(`=== ${id} LEAK: ${left.length} runner(s) alive after the file (reaped):\n` + left.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
   }
-  const out = o + e;
+  // FORCE_COLOR makes bun color its summary: strip ANSI codes before reading the counts.
+  const out = (o + e).replace(/\x1b\[[0-9;]*m/g, "");
   const pass = Number(out.match(/^\s*(\d+) pass/m)?.[1] ?? 0), fail = Number(out.match(/^\s*(\d+) fail/m)?.[1] ?? 0);
   if (why === "budget") { skipped.push(id); return; }
   let trace = "";
