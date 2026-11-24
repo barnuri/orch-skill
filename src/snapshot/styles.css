@@ -342,6 +342,14 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.error .mark { fill: var(--status-error); }
 .node.error .frame { stroke: var(--status-error); }
 .node.skipped .mark { fill: var(--status-skipped); }
+/* Covered: the work moved to another node or run. Purple bar and frame, settled, on every profile and when selected. */
+.node.covered .mark { fill: var(--status-covered); }
+.node.covered .frame, .node.has-profile.covered .frame,
+.node.covered:hover .frame, .node.has-profile.covered:hover .frame { stroke: var(--status-covered); }
+.node.covered.selected .frame, .node.has-profile.covered.selected .frame,
+.run-page .node.covered.selected .frame, .run-page .node.has-profile.covered.selected .frame { stroke: var(--status-covered); stroke-width: 2; }
+.node.covered .st { fill: var(--status-covered); }
+.node.stopped .mark { fill: var(--status-skipped); }
 /* Starting: dispatched, no real activity yet. Same pulse as running, in the starting colour. */
 .node.running.is-starting .mark { fill: var(--status-starting); }
 .node.running.is-starting .metric.dur { fill: var(--status-starting); }
