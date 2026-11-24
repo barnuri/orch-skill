@@ -228,10 +228,13 @@ export function nodeRow(run: RunState, node: RunNode, nowMs: number, harnessByPr
   };
 }
 
+/** Settled nodes the Hide done toggle hides in the graph and the table: done, skipped and covered. */
+export const hiddenByHideDone = (status: string): boolean => status === "done" || status === "skipped" || status === "covered";
+
 /** The node ids both views show: the filter, the Hide done toggle, and the selected node (always kept). */
 export function visibleNodes(run: RunState, filter: NodeFilter, harnessByProfile: Readonly<Record<string, string>>, hideDone: boolean, selectedId: string | null, active: boolean): RunNode[] {
   return run.nodes.filter(
-    (node) => node.id === selectedId || ((!hideDone || (node.status !== "done" && node.status !== "skipped")) && (!active || matchesFilter(run, node, filter, harnessByProfile))),
+    (node) => node.id === selectedId || ((!hideDone || !hiddenByHideDone(node.status)) && (!active || matchesFilter(run, node, filter, harnessByProfile))),
   );
 }
 

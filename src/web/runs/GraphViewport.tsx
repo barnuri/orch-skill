@@ -8,6 +8,7 @@ import { focusTarget } from "../lib/focus-target";
 import { GRAPH_SCALE_SAVE_MS, ZOOM_MAX, ZOOM_MIN } from "../lib/constants";
 import { clampZoom, loadGraphPrefs, saveGraphFollow, saveGraphHideDone, saveGraphMode, saveGraphScale } from "../lib/graph-prefs";
 import type { GraphViewMode } from "../lib/graph-prefs";
+import { hiddenByHideDone } from "../lib/run-table";
 import { GraphSvg } from "./GraphSvg";
 
 const ZOOM_STEP = 1.2;
@@ -63,7 +64,6 @@ function recordZoom(scale: number): void {
 }
 
 /** Nodes the Hide done toggle removes from the graph: finished and skipped ones. */
-const isHiddenByToggle = (status: string): boolean => status === "done" || status === "skipped";
 
 function fitScale(viewport: HTMLElement, w: number, h: number): number {
   if (w <= 0 || h <= 0) {
@@ -106,12 +106,12 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
       return run;
     }
     const nodes = run.nodes.filter(
-      (node) => node.id === selectedId || ((!view.hideDone || !isHiddenByToggle(node.status)) && (match === null || match(node))),
+      (node) => node.id === selectedId || ((!view.hideDone || !hiddenByHideDone(node.status)) && (match === null || match(node))),
     );
     const ids = new Set(nodes.map((node) => node.id));
     return { ...run, nodes, edges: run.edges.filter(([from, to]) => ids.has(from) && ids.has(to)) };
   }, [run, selectedId, view.hideDone, match]);
-  const hiddenCount = run.nodes.filter((node) => isHiddenByToggle(node.status)).length;
+  const hiddenCount = run.nodes.filter((node) => hiddenByHideDone(node.status)).length;
   const layout = useMemo(() => layoutDag(shown.nodes, shown.edges), [shown]);
   const target = useMemo(() => focusTarget(run), [run]);
   const w = layout.width;

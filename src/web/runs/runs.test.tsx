@@ -194,16 +194,17 @@ describe("graph viewport follow toggle", () => {
   const withQuery = (child: React.ReactElement) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{child}</QueryClientProvider>;
   const mount = () => render(withQuery(<GraphViewport run={run} selectedId={null} onSelect={() => undefined} harnessByProfile={{}} maxAttempts={5} />));
 
-  test("waiting nodes say what they wait on, and Hide done removes finished and skipped nodes", () => {
-    const r = runOf([node({ id: "a", status: "done" }), node({ id: "b", status: "running", started: iso(1000) }), node({ id: "c", status: "waiting" }), node({ id: "d", status: "skipped" })], [["a", "c"], ["b", "c"]]);
+  test("waiting nodes say what they wait on, and Hide done removes finished, skipped and covered nodes", () => {
+    const r = runOf([node({ id: "a", status: "done" }), node({ id: "b", status: "running", started: iso(1000) }), node({ id: "c", status: "waiting" }), node({ id: "d", status: "skipped" }), node({ id: "e", status: "covered" })], [["a", "c"], ["b", "c"]]);
     render(withQuery(<GraphViewport run={r} selectedId={null} onSelect={() => undefined} harnessByProfile={{}} maxAttempts={5} />));
     expect(screen.getByText("waiting on b")).toBeTruthy();
-    expect(document.querySelectorAll("[data-node-id]").length).toBe(4);
+    expect(document.querySelectorAll("[data-node-id]").length).toBe(5);
     fireEvent.click(screen.getByRole("button", { name: "Hide done nodes" }));
     expect(document.querySelectorAll("[data-node-id]").length).toBe(2);
     expect(document.querySelector('[data-node-id="a"]')).toBeNull();
     expect(document.querySelector('[data-node-id="d"]')).toBeNull();
-    expect(screen.getByRole("button", { name: "Hide done nodes" }).textContent).toBe("Show done (2)");
+    expect(document.querySelector('[data-node-id="e"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Hide done nodes" }).textContent).toBe("Show done (3)");
   });
 
   test("follow is on by default, zooming turns it off and the button turns it back on", () => {
