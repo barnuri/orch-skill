@@ -211,7 +211,7 @@ function bootstrapState(): boolean {
 }
 
 function linkConfig(): boolean {
-  const cfg = join(REPO_DIR, "config");
+  const cfg = process.env["ORCH_CONFIG_LINK"] || join(REPO_DIR, "config"); // tests point it away from the checkout
   if (isLink(cfg) && readlinkSync(cfg) === STATE_DIR) say(`config: ./config -> ${STATE_DIR} (unchanged)`);
   else {
     try {

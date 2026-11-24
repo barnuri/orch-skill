@@ -165,13 +165,15 @@ export async function runAdvance(args: string[]): Promise<number> {
       }
       return 0;
     }
-    if (rc === 3) {
-      if (stopOn === "blocked" || stopOn === "all") return 3;
-      if (!untilDone) return 0;
-      await Bun.sleep(Number(interval) * 1000);
-      elapsed += Number(interval);
-      continue;
+    // --stop-on: blocked stops when nothing can move (exit 3), error stops at the first errored node (exit 3,
+    // before an auto retry), timeout only at --timeout (exit 124), all at blocked or timeout (an errored node
+    // that is not retried blocks the run, so all still stops on it). --timeout applies also while blocked.
+    const errored = run.nodes.filter((n) => n.status === "error").map((n) => n.id);
+    if (errored.length > 0 && stopOn === "error") {
+      err(`advance: stopped on error: ${errored.join(",")}\n`);
+      return 3;
     }
+    if (rc === 3 && (stopOn === "blocked" || stopOn === "all")) return 3;
     if (!untilDone) return 0;
     if (Number(timeout) > 0 && elapsed >= Number(timeout)) {
       err(`advance: timed out after ${timeout}s (run still active)\n`);
