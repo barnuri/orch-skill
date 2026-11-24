@@ -147,6 +147,27 @@ describe("deploy.ts", () => {
     const empty = tmp("deploy-empty-");
     expect(await deployWatchTick(empty, () => void n++, repo)).toBe(false);
   });
+
+  test("the GitHub checks gate: pending waits, failure refuses, success deploys without local tests", async () => {
+    if (existsSync(join(repo, "BADHEALTH"))) git(repo, "rm", "-q", "BADHEALTH");
+    commit("FAILTEST", "local tests would fail");
+    const before = readCurrent(home)?.sha;
+    const checks = (word: string) => ({ ORCH_DEPLOY_CHECKS_CMD: `echo ${word}; true` });
+    const wait = await deploy(checks("pending"));
+    expect(wait.code).toBe(0);
+    expect(wait.out).toContain("waiting for GitHub checks");
+    expect(readCurrent(home)?.sha).toBe(before);
+    expect(git(join(deployDir(home), "orch-skill"), "rev-parse", "HEAD")).toBe(before!);
+    const red = await deploy(checks("failure"));
+    expect(red.code).toBe(1);
+    expect(red.err).toContain("GitHub checks failed");
+    expect(readCurrent(home)?.sha).toBe(before);
+    const green = await deploy(checks("success"));
+    expect(green.err).toBe("");
+    expect(green.code).toBe(0);
+    expect(readCurrent(home)?.sha).toBe(git(repo, "rev-parse", "HEAD"));
+    expect(readCurrent(home)?.tests).toBe("github checks green");
+  });
 });
 
 describe("dispatch path", () => {

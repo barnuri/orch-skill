@@ -1,10 +1,14 @@
 #!/usr/bin/env bun
 // Deploy a committed ref to the always-on service, from a deploy checkout that never holds edits.
 //
-//   deploy.ts [--ref REF] [--dry-run]   REF defaults to master
+//   deploy.ts [--ref REF] [--dry-run]   REF defaults to origin/master (master when there is no origin)
 //
+// Gate: for an origin/* ref the GitHub checks of the commit decide: all green deploys, any running waits (exit 0,
+// nothing recorded), any failed refuses. For a local ref (no origin) the local typecheck and fast tier decide.
+// ORCH_DEPLOY_LOCAL_CHECKS=1 runs the local checks too. ORCH_DEPLOY_CHECKS_CMD (sh -c "<cmd> <sha>", prints
+// success|pending|failure) replaces the GitHub query in tests.
 // Steps: update <home>/deploy/orch-skill (git worktree, detached) to REF, link or install node_modules,
-// run typecheck and the fast test tier there, point the service at the checkout and restart it, wait until
+// run the gate, point the service at the checkout and restart it, wait until
 // /api/build reports the sha. Any failure keeps (or restores) the previous sha and exits 1 with the reason.
 // Records <home>/deploy/current.json and history.jsonl. A lock stops two deploys at once.
 //
@@ -30,7 +34,9 @@ for (const k of Object.keys(process.env)) if (/^GIT_(DIR|INDEX_FILE|WORK_TREE|PR
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const refIdx = args.indexOf("--ref");
-const ref = refIdx >= 0 ? (args[refIdx + 1] ?? "master") : "master";
+const hasOrigin = (): boolean => run(["git", "remote", "get-url", "origin"], { cwd: REPO }).code === 0;
+const ref = refIdx >= 0 ? (args[refIdx + 1] ?? "master") : hasOrigin() ? "origin/master" : "master";
+const remoteRef = ref.startsWith("origin/");
 
 const log = (s: string): void => void process.stdout.write(`deploy: ${s}\n`);
 const git = (cwd: string, ...a: string[]) => run(["git", ...a], { cwd });
@@ -134,6 +140,7 @@ function restart(): { code: number; out: string } {
   return run([BUN, svc, "restart", "--root", CHECKOUT], { env: { HARNESS_ORCH_HOME: HOME } });
 }
 
+if (remoteRef && !process.env["ORCH_DEPLOY_NO_FETCH"]) git(REPO, "fetch", "-q", "origin");
 const sha = git(REPO, "rev-parse", "--verify", `${ref}^{commit}`);
 if (sha.code !== 0) {
   process.stderr.write(`deploy failed: cannot resolve ref ${ref}\n`);
@@ -148,7 +155,8 @@ if (dryRun) {
   log(`current: ${prev ? `${prev.sha} (${prev.deployed_at})` : "none"}`);
   log(`checkout: ${CHECKOUT} (${existsSync(CHECKOUT) ? "exists" : "git worktree add --detach"}), then git checkout --detach ${target.slice(0, 7)}`);
   log("node_modules: link the repo's when bun.lock is identical, else bun install --frozen-lockfile");
-  log(`checks in the checkout: ${process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || "bun scripts/typecheck.ts"}; ${process.env["ORCH_DEPLOY_TEST_CMD"] || "bun skills/orch/tests/run.ts"}`);
+  log(`gate: ${remoteRef || process.env["ORCH_DEPLOY_CHECKS_CMD"] ? "GitHub checks of the commit (pending waits, failure refuses)" : "local checks"}`);
+  log(`local checks in the checkout: ${process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || "bun scripts/typecheck.ts"}; ${process.env["ORCH_DEPLOY_TEST_CMD"] || "bun skills/orch/tests/run.ts"}`);
   log(`service: service.ts restart --root ${CHECKOUT}; wait for /api/build head = ${target.slice(0, 7)}`);
   log(`on failure: keep ${prev ? prev.sha.slice(0, 7) : "nothing (no previous deploy)"}, roll the service back, exit 1`);
   log(`record: ${join(DIR, "current.json")}, ${join(DIR, "history.jsonl")}; lock ${LOCK}`);
@@ -162,7 +170,16 @@ if (prev?.sha === target && (await healthy(target))) {
   process.exit(0);
 }
 
-// 1. checkout
+// 1. gate, before the checkout moves: GitHub checks for a pushed ref. Pending waits and records nothing.
+const gate = remoteRef || process.env["ORCH_DEPLOY_CHECKS_CMD"] ? githubChecks(target) : { state: "none", detail: "" };
+if (gate.state === "pending") {
+  log(`waiting for GitHub checks on ${target.slice(0, 7)}: ${gate.detail}`);
+  unlock();
+  process.exit(0);
+}
+if (gate.state === "failure") fail(`GitHub checks failed: ${gate.detail}`, "failed");
+
+// 2. checkout
 if (!existsSync(join(CHECKOUT, ".git"))) {
   git(REPO, "worktree", "prune");
   const w = git(REPO, "worktree", "add", "--detach", CHECKOUT, target);
@@ -174,7 +191,10 @@ if (!existsSync(join(CHECKOUT, ".git"))) {
 }
 ensureModules();
 
-// 2. checks
+// 3. local checks, in the checkout (a local ref, or when asked).
+if (gate.state === "none" || process.env["ORCH_DEPLOY_LOCAL_CHECKS"] === "1") localChecks();
+
+function localChecks(): void {
 const tc = sh(process.env["ORCH_DEPLOY_TYPECHECK_CMD"] || `${BUN} scripts/typecheck.ts`, CHECKOUT);
 if (tc.code !== 0) restoreAndFail(`typecheck failed: ${tc.out.trim().split("\n").slice(-1)[0] ?? ""}`, "typecheck failed");
 // Deploy checks correctness, not speed: a loaded machine must not block a deploy on the fast tier's time cap.
@@ -184,8 +204,30 @@ if (ts.code !== 0) {
   const bad = ts.out.split("\n").filter((l) => /^=== .* (TIMEOUT|FAILED|LEAK)/.test(l)).map((l) => l.replace(/^=== | ===$/g, ""));
   restoreAndFail(`tests failed: ${[...bad, ts.out.trim().split("\n").slice(-1)[0] ?? ""].join("; ")}`, "failed");
 }
+}
 
-// 3. switch the service
+/** success when every check run of the commit passed, pending while any runs or none exist yet, failure otherwise. */
+function githubChecks(commit: string): { state: "success" | "pending" | "failure" | "none"; detail: string } {
+  const cmd = process.env["ORCH_DEPLOY_CHECKS_CMD"];
+  if (cmd) {
+    const r = sh(`${cmd} ${commit}`, REPO);
+    const word = r.out.trim().split(/\s+/)[0] ?? "";
+    return { state: word === "success" || word === "failure" ? word : "pending", detail: r.out.trim() };
+  }
+  const url = git(REPO, "remote", "get-url", "origin").out.trim();
+  const slug = url.replace(/\.git$/, "").match(/github\.com[:/]([^/]+\/[^/]+)$/)?.[1];
+  if (!slug) return { state: "failure", detail: `origin is not a GitHub repo: ${url}` };
+  const r = run(["ghx", "api", `repos/${slug}/commits/${commit}/check-runs`, "--jq", '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion)"'], { cwd: REPO });
+  if (r.code !== 0) return { state: "pending", detail: `check query failed: ${r.out.trim().slice(-200)}` };
+  const runs = r.out.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+  if (runs.length === 0) return { state: "pending", detail: "no check runs yet" };
+  const open = runs.filter(([, status]) => status !== "completed").map(([n]) => n);
+  if (open.length) return { state: "pending", detail: `running: ${open.join(", ")}` };
+  const bad = runs.filter(([, , c]) => !["success", "skipped", "neutral"].includes(c ?? "")).map(([n, , c]) => `${n}=${c}`);
+  return bad.length ? { state: "failure", detail: bad.join(", ") } : { state: "success", detail: `${runs.length} checks green` };
+}
+
+// 4. switch the service
 const rs = restart();
 if (rs.code !== 0 || !(await healthy(target))) {
   if (prev) {
@@ -194,7 +236,7 @@ if (rs.code !== 0 || !(await healthy(target))) {
   }
   fail(`service did not report ${target.slice(0, 7)} after restart${prev ? `; rolled back to ${prev.sha.slice(0, 7)}` : ""}`, "passed");
 }
-const cur: DeployCurrent = { sha: target, ref, deployed_at: new Date().toISOString(), tests: "passed" };
+const cur: DeployCurrent = { sha: target, ref, deployed_at: new Date().toISOString(), tests: gate.state === "success" ? "github checks green" : "passed" };
 writeFileSync(join(DIR, "current.json"), JSON.stringify(cur, null, 2) + "\n");
 history({ ok: true, sha: target, tests: "passed" });
 log(`deployed ${target.slice(0, 7)} (${ref})`);

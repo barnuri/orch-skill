@@ -1,9 +1,0 @@
-#!/bin/sh
-# Enable once: git config core.hooksPath .githooks
-# After a commit on master, deploy it in the background (log: ~/.harness-orch/deploy/log).
-[ "$(git rev-parse --abbrev-ref HEAD)" = "master" ] || exit 0
-home="${HARNESS_ORCH_HOME:-$HOME/.harness-orch}"
-mkdir -p "$home/deploy"
-root="$(git rev-parse --show-toplevel)"
-nohup bun "$root/scripts/deploy.ts" >> "$home/deploy/log" 2>&1 &
-exit 0

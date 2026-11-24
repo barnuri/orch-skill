@@ -144,15 +144,18 @@ that never holds edits), not the working tree, so it shows only committed, teste
 
 - The orchestrator commits only after the touched tests and `bun scripts/typecheck.ts` pass. Stage your
   own task's files by path (never `git add -A`, never another session's files such as `mods/orch-graph/**`
-  unless the user asked), no co-author, never push, never rewrite history. No commit permission means no commit.
-- Deploy through `bun scripts/deploy.ts [--ref REF] [--dry-run]` (default ref `master`). It updates the
-  checkout, links or installs `node_modules`, runs typecheck and the fast test tier there, points the service
-  at the checkout (`service.ts restart --root`), waits for `/api/build` to report the sha, and on any failure
-  keeps or restores the previous sha and exits 1. State: `deploy/current.json`, `deploy/history.jsonl`,
+  unless the user asked), no co-author, never rewrite history. No commit permission means no commit.
+- Push tested master commits to `origin` right after the commit (the user allowed it, 2026-11-24). GitHub
+  Actions (`.github/workflows/ci.yml`: typecheck and the fast tier) is the gate. There are no local git hooks.
+- Deploy through `bun scripts/deploy.ts [--ref REF] [--dry-run]` (default ref `origin/master`). It fetches,
+  then reads the commit's GitHub checks: all green deploys, any running waits (exit 0, nothing recorded), any
+  failed refuses. Then it updates the checkout, links or installs `node_modules`, points the service at the
+  checkout (`service.ts restart --root`), waits for `/api/build` to report the sha, and on any failure keeps or
+  restores the previous sha and exits 1. A local ref (no origin) runs the local typecheck and fast tier instead;
+  `ORCH_DEPLOY_LOCAL_CHECKS=1` adds them to the GitHub gate. State: `deploy/current.json`, `deploy/history.jsonl`,
   `deploy/lock.d`. Never run `service.ts restart` on the working tree.
-- Enable the hook once per clone: `git config core.hooksPath .githooks`. `.githooks/post-commit` starts
-  `deploy.ts` in the background after a commit on master (log `~/.harness-orch/deploy/log`). The watchdog also
-  checks every 5 minutes (`ORCH_DEPLOY_WATCH=0` turns it off) and deploys when master is past `current.json`.
+- The watchdog checks every 2 minutes (`ORCH_DEPLOY_WATCH=0` turns it off) and starts `deploy.ts` when
+  `origin/master` is past `current.json`.
 - The header shows `deployed <sha>`, `N commits behind master` and `deploy failed: <reason>` (from `/api/build` `deploy`).
 - A restart is safe while a run is active: the service pauses running runs on SIGTERM and resumes
   `auto_resume` runs at boot (stopped runs stay stopped).
@@ -274,5 +277,5 @@ Keep new instructions harness-neutral and state the fallback explicitly.
 ## Service restart after every change
 
 Do not restart the service from the working tree. After a change is committed and tested, the deploy
-(`bun scripts/deploy.ts`, run by the post-commit hook or the watchdog) restarts it. Confirm `/api/build`
+(`bun scripts/deploy.ts`, run by the watchdog once the pushed commit's GitHub checks are green) restarts it. Confirm `/api/build`
 reports the deployed sha before reporting the task done.
