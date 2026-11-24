@@ -225,6 +225,9 @@ function chatSettingsIssues(settings: Record<string, unknown>): Issue[] {
   if ("coordinator_rotate_tokens" in settings && !isIntegerInRange(settings["coordinator_rotate_tokens"], 1, Number.MAX_SAFE_INTEGER)) {
     issues.push({ path: "settings.coordinator_rotate_tokens", reason: "must be an integer >= 1" });
   }
+  if ("coordinator_allow_1m" in settings && typeof settings["coordinator_allow_1m"] !== "boolean") {
+    issues.push({ path: "settings.coordinator_allow_1m", reason: MUST_BE_BOOLEAN });
+  }
   if ("chat_roots" in settings) {
     const roots = settings["chat_roots"];
     if (!Array.isArray(roots)) {

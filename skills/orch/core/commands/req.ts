@@ -10,11 +10,12 @@ import { resolveRun, errLine } from "./node.ts";
 import { handoffProblem } from "../runs/node.ts";
 
 // Lifecycle: open -> in_progress -> implemented -> verifying -> done. `done` needs a verifier that is not the implementer.
-// superseded and waived close a requirement without work. The old names stay accepted: not, partly, handled.
+// superseded and waived close a requirement without work. The old names are mapped on read, never rewritten: not -> open,
+// partly -> in_progress, handled -> implemented (handled was never proof of a verifier pass).
 export const REQ_STATUSES = ["open", "in_progress", "implemented", "verifying", "done", "superseded", "waived"];
-export const REQ_LEGACY: Record<string, string> = { not: "open", partly: "in_progress", handled: "done" };
+export const REQ_LEGACY: Record<string, string> = { not: "open", partly: "in_progress", handled: "implemented" };
 export const normReq = (status: string): string => REQ_LEGACY[status] ?? status;
-export const REQ_OK = ["done", "superseded", "waived", "handled"];
+export const REQ_OK = ["done", "superseded", "waived"];
 export const REQ_USAGE = {
   add: 'dispatch.ts req add <run-id> "<user ask>" [--id R1] [--node n1,n2]',
   link: "dispatch.ts req link <run-id> <req-id> --node n",

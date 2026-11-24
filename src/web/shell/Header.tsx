@@ -5,6 +5,7 @@ import { NAV_LINKS, SECTION_HREF } from "../router/route";
 import type { Route } from "../router/route";
 import { BugReportLink, RepoLink } from "./BugReportLink";
 import { BuildBanner } from "./BuildBanner";
+import { DeployBadge } from "./DeployBadge";
 import { HealthPill } from "../runs/RunHealth";
 import { HerdrChip } from "./HerdrChip";
 import { useHealthSummary } from "../runs/queries";
@@ -26,6 +27,7 @@ export function Header({ route }: { route: Route }) {
     <header className="topbar">
       <h1 className="topbar-title">{TITLES[route.kind]}</h1>
       <div className="spacer" />
+      <DeployBadge />
       <BuildBanner />
       <HealthPill summary={healthSummary} />
       <HerdrChip health={healthSummary?.herdr} />

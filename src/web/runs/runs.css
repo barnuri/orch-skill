@@ -201,22 +201,6 @@ main:has(.run-page) { max-width: none; }
 .node-terminal-prompt { color: var(--tx2); margin-right: var(--s2); }
 .node-terminal .panel-grid { grid-template-columns: minmax(0, 1fr); padding: var(--s4) var(--s4) 0; }
 .node-terminal .node-messages { margin: 0 var(--s4) var(--s3); }
-.node-terminal .node-output, .node-terminal .job-transcript, .node-terminal .chat-turns { background: var(--bg); }
-/* The status line is the last row of the terminal: the composer sits above it and it stays at the bottom. */
-.node-statusline {
-  margin-top: auto; flex: none;
-  display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; padding: var(--s2) var(--s4);
-  border-top: 1px solid var(--s2); background: var(--s1); color: var(--tx2); font-size: var(--fs-meta);
-}
-.node-statusline-state { color: var(--tx); font-weight: 600; }
-.node-statusline-state.is-error { color: var(--status-error); }
-.node-statusline-state.is-waiting { color: var(--status-waiting); }
-.node-statusline-state.is-stale { color: var(--status-stale); }
-.node-statusline-result { font-weight: 600; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); }
-.node-statusline-result.result-full { color: var(--status-full); border-color: var(--status-full-bd); background: var(--status-full-bg); }
-.node-statusline-result.result-partial { color: var(--status-partial); border-color: var(--status-partial-bd); background: var(--status-partial-bg); }
-.node-statusline-result.result-blocked { color: var(--status-blocked); border-color: var(--status-blocked-bd); background: var(--status-blocked-bg); }
-.node-statusline-result.result-unknown { color: var(--tx2); }
 
 /* ---- Filters and activity share one row: activity sits at the right of the filters ---- */
 .run-page .run-filter-row {
@@ -269,3 +253,154 @@ main:has(.run-page) { max-width: none; }
 .run-summary-item.is-covered { color: var(--status-covered); border-color: var(--status-covered-bd); background: var(--status-covered-bg); }
 .run-summary-item.is-covered b { color: var(--status-covered); }
 .run-summary-item.is-skipped b { color: var(--status-skipped, var(--tx3, #8a93a3)); }
+
+.node-warnings { list-style: none; margin: 0; padding: 4px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.node-warning { color: var(--status-partial, var(--wa)); }
+.node-warning.is-error { color: var(--status-error, var(--er)); }
+.node-warning.is-info { color: var(--status-skipped, var(--muted)); }
+.node-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 12px; }
+.node-tell { display: flex; gap: 6px; flex: 1 1 100%; }
+.node-tell input { flex: 1; min-width: 0; }
+
+/* ---- Node markers: icon + short word on the graph card edge and in the table row ---- */
+.node-markers, .rt-marks { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: var(--s2); vertical-align: middle; }
+.node-marker {
+  display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 999px;
+  font: 600 10.5px var(--font-mono); border: 1px solid var(--status-stale-bd); background: var(--status-stale-bg); color: var(--status-stale);
+}
+.node-marker.is-ok { border-color: var(--status-done-bd); background: var(--status-done-bg); color: var(--status-done); }
+.node-marker.is-info { border-color: var(--status-skipped-bd); background: var(--status-skipped-bg); color: var(--status-skipped); }
+.card-marker rect { fill: var(--panel); stroke: var(--status-stale); stroke-opacity: .55; }
+.card-marker text { fill: var(--status-stale); font: 600 10px var(--font-mono); pointer-events: none; }
+.card-marker.is-ok rect { stroke: var(--status-done); }
+.card-marker.is-ok text { fill: var(--status-done); }
+.card-marker.is-info rect { stroke: var(--status-skipped); }
+.card-marker.is-info text { fill: var(--status-skipped); }
+.card-menu { overflow: visible; pointer-events: none; }
+.card-menu .node-menu { pointer-events: auto; }
+
+/* ---- Node action menu ("⋯"): hover/focus reveals the button, click opens the list ---- */
+.node-menu { position: relative; display: inline-block; }
+.node-menu-btn {
+  min-width: 24px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  color: var(--tx2); font: 700 13px/1 var(--font-mono); cursor: pointer;
+}
+.node-menu-btn:hover, .node-menu.is-open .node-menu-btn { color: var(--tx); border-color: var(--border-strong); }
+.node-menu-btn:focus-visible, .node-menu-item:focus-visible, .marker-summary-btn:focus-visible, .sl-chip.is-copy:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.node-menu-list {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; display: grid; gap: 1px; min-width: 150px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 6px 20px var(--shadow);
+}
+.node-menu-item { text-align: left; min-height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--tx); font: 500 12.5px var(--font-sans); cursor: pointer; }
+.node-menu-item:hover:not(:disabled) { background: var(--hover); }
+.node-menu-item.is-warn { color: var(--wa); }
+.node-menu-tell input { width: 100%; box-sizing: border-box; margin-top: 4px; min-height: 30px; }
+/* Hidden until the card or row is hovered, focused or selected, or a menu is open. No layout change: opacity only. */
+.run-page .task-node .card-menu .node-menu-btn, .run-table .rt-row .node-menu-btn { opacity: 0; transition: opacity .12s ease; }
+.run-page .task-node:hover .node-menu-btn, .run-page .task-node:focus-within .node-menu-btn, .run-page .task-node.selected .node-menu-btn,
+.rt-row:hover .node-menu-btn, .rt-row:focus-within .node-menu-btn, .rt-row.selected .node-menu-btn, .node-menu.is-open .node-menu-btn { opacity: 1; }
+@media (pointer: coarse), (max-width: 600px) {
+  .run-page .task-node .card-menu .node-menu-btn, .run-table .rt-row .node-menu-btn { opacity: 1; }
+  .node-menu-btn { min-height: 36px; min-width: 36px; }
+  .node-menu-item { min-height: 44px; }
+}
+
+/* ---- The one summary line above the graph ---- */
+.marker-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 28px; margin: 0 0 var(--s2); font: 500 12px var(--font-mono); color: var(--tx2); }
+.marker-sep { color: var(--tx3); }
+.marker-summary-btn, .marker-summary-clear { min-height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--status-stale); font: inherit; cursor: pointer; }
+.marker-summary-btn:hover, .marker-summary-clear:hover { background: var(--hover); }
+.marker-summary-btn.is-on { background: var(--status-stale-bg); box-shadow: inset 0 0 0 1px var(--status-stale-bd); }
+.marker-summary-clear { color: var(--tx2); }
+
+/* ---- Disclosures: Details and Selections, closed by default ---- */
+.disclosure { border-top: 1px solid var(--border); padding: 0; }
+.disclosure > summary { display: flex; align-items: center; gap: var(--s3); min-height: 36px; cursor: pointer; list-style: none; color: var(--tx2); font-size: 12px; }
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before { content: "▸"; color: var(--tx3); width: 10px; transition: transform .12s ease; }
+.disclosure[open] > summary::before { transform: rotate(90deg); }
+.disclosure > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.disclosure-title { font-weight: 600; color: var(--tx); }
+.disclosure-sum { color: var(--tx3); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disclosure[open] { padding-bottom: var(--s3); }
+.node-terminal .panel-grid { padding-top: 0; }
+
+/* ---- Terminal: monospace on a near-black surface, no row borders ---- */
+.node-terminal { background: var(--term-bg); }
+.node-terminal .node-panel-head { border-bottom: 0; padding-bottom: var(--s1); }
+.node-terminal .node-session.term { border: 0; margin: 0; padding: 0; gap: var(--s2); }
+.node-terminal .node-session-head { padding: 0 var(--s4); }
+.node-terminal .panel-log-title { font: 500 11.5px var(--font-mono); text-transform: none; letter-spacing: 0; color: var(--tx3); }
+.node-terminal .node-messages { margin: 0; padding: var(--s3) 0 0; display: grid; gap: 0; }
+.term-stream { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s3); min-width: 0; }
+.node-terminal .job-transcript, .node-terminal .chat-turns, .node-terminal .node-output {
+  background: none; border: 0; border-radius: 0; max-height: 420px; padding: 0 var(--s4);
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--tx1);
+}
+.node-terminal .job-message { padding: 0; border: 0; background: none; }
+.node-terminal .job-message.is-tool { color: var(--tx3); }
+.node-terminal .job-message.is-tool::before { content: "→ "; }
+.node-terminal .chat-turns { gap: var(--s3); }
+.node-terminal .chat-turn { padding: 0; border: 0; box-shadow: none; background: none; gap: 2px; }
+.node-terminal .chat-turn:first-of-type { box-shadow: none; }
+.node-terminal .chat-tool { gap: var(--s2); }
+.node-terminal .chat-tool-name { background: none; padding: 0; color: var(--status-starting); font-weight: 500; }
+.node-terminal .chat-tool-name::before { content: "⚙ "; }
+.node-terminal .chat-tool-summary { color: var(--tx3); }
+.term-user {
+  border-left: 3px solid var(--status-running); background: var(--term-user-bg); padding: var(--s2) var(--s3); white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--tx); font: 12.5px/1.55 var(--font-mono);
+}
+.node-terminal .term-user p { margin: 0; }
+.term-meta, .term-dim { color: var(--tx3); font: 11.5px/1.5 var(--font-mono); margin: 0; }
+.term-tokens { padding: 0 var(--s4); }
+.term-empty { padding: 0 var(--s4); }
+.term-ask { display: flex; align-items: center; gap: var(--s3); border-left: 3px solid var(--status-stale); padding: var(--s2) var(--s3); background: var(--status-stale-bg); }
+.term-ask-mark { color: var(--status-stale); font-weight: 700; }
+.term-error { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s2) var(--s3); margin: 0 var(--s4); border-left: 3px solid var(--status-error); background: var(--status-error-bg); color: var(--status-error); }
+.term-skeleton { display: grid; gap: 8px; padding: var(--s2) var(--s4); }
+.term-skel-line { display: block; height: 10px; border-radius: 3px; background: var(--term-bar); opacity: .6; animation: term-pulse 1.2s ease-in-out infinite; }
+@keyframes term-pulse { 50% { opacity: .25; } }
+
+/* Composer: an opencode-style prompt box with a left bar. */
+.term-composer { margin: 0 var(--s4); border-left: 3px solid var(--status-running); background: var(--term-user-bg); padding: var(--s2) var(--s3); align-items: flex-end; }
+.term-composer textarea {
+  border: 0; outline: 0; background: none; color: var(--tx); resize: none; min-height: 44px; padding: 0;
+  font: 12.5px/1.55 var(--font-mono);
+}
+.term-composer:focus-within { border-left-color: var(--focus); }
+.term-composer .btn { min-height: 28px; }
+
+/* Status line: rounded solid chips from the status tokens, wrapping to a second row (and at 375px). */
+.node-statusline {
+  margin-top: 0; flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: var(--s3) var(--s4);
+  border: 0; background: none; font: 600 11px var(--font-mono);
+}
+.sl-chip {
+  display: inline-flex; align-items: center; max-width: 100%; height: 22px; padding: 0 10px; border: 0; border-radius: 999px;
+  background: var(--term-bar); color: var(--tx); font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sl-chip.is-copy { cursor: pointer; }
+.sl-chip.is-copy:hover { filter: brightness(1.15); }
+.node-statusline-state::before { content: "● "; white-space: pre; }
+.node-statusline-result.result-full { background: var(--status-full); color: var(--onacc); }
+.node-statusline-result.result-partial { background: var(--status-partial); color: var(--onacc); }
+.node-statusline-result.result-blocked { background: var(--status-blocked); color: var(--onacc); }
+.sl-chip.st-running, .sl-chip.st-starting, .sl-chip.o-running { background: var(--status-running); color: var(--onacc); }
+.sl-chip.st-done, .sl-chip.rs-full, .sl-chip.t-cost, .sl-chip.o-ok { background: var(--status-done); color: var(--onacc); }
+.sl-chip.st-error, .sl-chip.rs-blocked, .sl-chip.o-error { background: var(--status-error); color: var(--onacc); }
+.sl-chip.st-waiting, .sl-chip.st-skipped, .sl-chip.st-stopped, .sl-chip.o-waiting, .sl-chip.o-none { background: var(--status-waiting); color: var(--onacc); }
+.sl-chip.st-blocked-user, .sl-chip.rs-partial, .sl-chip.o-stale { background: var(--status-stale); color: var(--onacc); }
+.sl-chip.t-profile { background: var(--status-covered); color: var(--onacc); }
+.sl-chip.t-model { background: var(--status-starting); color: var(--onacc); }
+.sl-chip.t-tokens { background: var(--status-running-bg); box-shadow: inset 0 0 0 1px var(--status-running-bd); color: var(--status-running); }
+.sl-chip.t-muted, .sl-chip.t-id { background: var(--term-bar); color: var(--tx1); }
+@media (max-width: 600px) { .sl-chip { min-height: 26px; height: auto; padding: 3px 10px; white-space: normal; overflow-wrap: anywhere; } .node-statusline { gap: 6px; } }
+@media (prefers-reduced-motion: reduce) { .term-skel-line, .disclosure > summary::before, .node-menu-btn { animation: none; transition: none; } }
+.node-terminal .node-panel-head { gap: var(--s2); flex-wrap: wrap; }
+.marker-summary-btn[data-code="ready"] { color: var(--status-done); }
+.marker-summary-btn[data-code="ready"].is-on { background: var(--status-done-bg); box-shadow: inset 0 0 0 1px var(--status-done-bd); }
+
+/* Node ids in the review banner: inline links that select the node. */
+.run-stale-banner .link-btn { background: none; border: 0; padding: 0; color: var(--acct); font: inherit; cursor: pointer; text-decoration: underline; }
+.run-stale-banner .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

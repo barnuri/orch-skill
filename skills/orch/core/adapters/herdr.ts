@@ -289,9 +289,16 @@ async function runWorkspace(home: string, label: string, cwd: string): Promise<{
   return ws ? { ws, rootTab: created?.result?.tab?.tab_id ?? "" } : null;
 }
 
+// True when the job that owns this tab is still running.
+export function tabBusy(home: string, tab: string): boolean {
+  const owner = readTrim(ownerFile(home, tab));
+  return owner !== "" && jobRunning(owner);
+}
+
 async function findNodeTab(home: string, ws: string, title: string): Promise<string> {
   const list = await cliJson(home, ["tab", "list", "--workspace", ws]);
-  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/-attempt-\d+$/, "") === title);
+  // A tab whose owner job still runs is busy: a new job there would be typed into the old job's terminal and never start.
+  const t = (list?.result?.tabs ?? []).find((x: any) => stripPrefix(x.label ?? "").replace(/-attempt-\d+$/, "") === title && !tabBusy(home, x.tab_id));
   return t?.tab_id ?? "";
 }
 
@@ -335,8 +342,10 @@ function writeLauncher(file: string, jobDir: string, launcherTs: string, close: 
   s += `cd -- ${shq(process.cwd())} || exit 1\n`;
   s += `me=$$\nprintf %s "$me" > ${shq(join(jobDir, "pid"))}\n`;
   if (close) {
+    // herdr-launch.ts runs `herdr close-ended` when the job ends, which closes the tab. This watcher is only the
+    // fallback for a launcher killed without that call, so it polls every 15 s (one process start per 15 s per job).
     // Success and stop signals close the tab at once; a failed job keeps its tab for the linger first.
-    s += `( while kill -0 "$me" 2>/dev/null; do sleep 1; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n`;
+    s += `( while kill -0 "$me" 2>/dev/null; do sleep 15; done\n  exit_code=$(cat ${shq(join(jobDir, "exit_code"))} 2>/dev/null || true)\n`;
     s += `  case "$exit_code" in 0|129|130|143|"") ;; *) sleep ${close.linger} ;; esac\n`;
     s += `  [ "$(cat ${shq(close.owner)} 2>/dev/null)" = ${shq(jobDir)} ] || exit 0\n`;
     s += `  env -i PATH=${shq(process.env.PATH ?? "")} HOME=${shq(close.inst)} herdr tab close ${shq(close.tab)} >/dev/null 2>&1\n`;

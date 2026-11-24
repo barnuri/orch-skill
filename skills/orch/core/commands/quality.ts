@@ -1,8 +1,10 @@
 // `node quality <append|show|list|export> ...`: generic quality reports per run/node/model.
 // Writes go through mutateRun (the dispatcher owns state.json); reads only load the run.
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { orchHome } from "../state/home.ts";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { orchHome, paths } from "../state/home.ts";
+import { deriveReports, type HandoffKind } from "../quality/derive.ts";
+import { loadLedger } from "./req.ts";
 import { loadRun } from "../state/store.ts";
 import { ADAPTERS, adapterNames } from "../quality/adapters.ts";
 import { finalizeQualityReport, type QualityReport } from "../quality/contract.ts";
@@ -14,7 +16,7 @@ export const QUALITY_USAGE = [
   "node quality append <run> <node> --file <path> --stage <implementation|review|final-review> --skill <id> [--adapter generic|cr-markdown] [--model-requested M] [--model-actual M] [--reviewer-model M] [--started-at T] [--finished-at T] [--source <path>]",
   "node quality show <run> <node> [--id qN]",
   "node quality list <run> [--node N] [--model M]",
-  "node quality export <run> [--node N] [--model M]",
+  "node quality export <run> [--node N] [--model M] [--recorded only]   (recorded reports plus one derived report per finished node attempt)",
 ].join("\n  ");
 
 type Flags = Record<string, string>;
@@ -45,7 +47,7 @@ function matchesModel(r: QualityReport, m: string): boolean {
   return r.model.actual === m || r.model.requested === m;
 }
 
-function filterReports(reports: QualityReport[], flags: Flags): QualityReport[] {
+function filterReports<T extends QualityReport>(reports: T[], flags: Flags): T[] {
   return reports.filter((r) => (!flags.node || r.node_id === flags.node) && (!flags.model || matchesModel(r, flags.model)));
 }
 
@@ -137,14 +139,30 @@ async function qualityList(home: string, args: string[]): Promise<number> {
 }
 
 async function qualityExport(home: string, args: string[]): Promise<number> {
-  const { pos, flags } = parseQualityArgs(args, FILTER_FLAGS);
+  const { pos, flags } = parseQualityArgs(args, [...FILTER_FLAGS, "recorded"]);
   const runArg = pos[0] ?? "";
-  if (!runArg) throw new Error("usage: node quality export <run> [--node N] [--model M]");
+  if (!runArg) throw new Error("usage: node quality export <run> [--node N] [--model M] [--recorded only]");
+  if (flags.recorded !== undefined && flags.recorded !== "only") throw new Error("node quality export: --recorded takes only the value only");
   const runId = await resolveRun(home, runArg);
   if (runId === null) return 1;
   const run = await loadRun(home, runId);
   if (!run) throw new Error(`run ${runId}: unknown run`);
-  const reports = filterReports((run.quality as QualityReport[] | undefined) ?? [], flags);
-  process.stdout.write(JSON.stringify({ run_id: runId, ...exportReports(reports, process.env.HOME ?? "") }, null, 2) + "\n");
+  const recorded = ((run.quality as QualityReport[] | undefined) ?? []).map((r) => ({ ...r, source: "recorded" as const }));
+  const derived = flags.recorded === "only" ? [] : deriveReports({ runId, nodes: run.nodes as Array<Record<string, any>>, reqs: (await loadLedger(home, runId)).requirements, handoff: (n) => handoffKind(home, runId, n) });
+  const reports = filterReports([...recorded, ...derived], flags);
+  const exported = exportReports(reports, process.env.HOME ?? "");
+  process.stdout.write(JSON.stringify({ run_id: runId, ...exported, counts: { recorded: reports.filter((r) => r.source === "recorded").length, derived: reports.filter((r) => r.source === "derived").length } }, null, 2) + "\n");
   return 0;
+}
+
+/** own: the agent wrote handoff.md; generated: orch wrote it from the transcript; missing: absent or empty. */
+function handoffKind(home: string, runId: string, n: Record<string, any>): HandoffKind {
+  const dir = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : paths.runOutDir(home, runId, String(n.id));
+  const file = join(dir, "handoff.md");
+  try {
+    if (!existsSync(file) || statSync(file).size === 0) return "missing";
+    return readFileSync(file, "utf8").slice(0, 40).startsWith("# Generated") ? "generated" : "own";
+  } catch {
+    return "missing";
+  }
 }

@@ -4,7 +4,7 @@
 
 ## What it does
 
-It reads orch state directly (`runs/*/state.json` with status `running`, `loops/*/state.json`, `watches/*/state.json`; loops and watches count only when their pid is alive). It builds one short summary, for example `orch: 3 running, 2/16 done · 1 loop · 2 monitors`, capped at 120 characters. With nothing running it clears what it set.
+It reads orch state through the shared run projection (`core/runs/projection.ts`, the same source as `run status` and the run page) for every running run this session is attributed to. Node counts: `running` is the projection's running nodes; `done` is done plus covered plus skipped nodes (all settled); `total` is every node; a gate is a waiting `after_all` node the projection marks ready. It also reads `loops/*/state.json` and `watches/*/state.json`; loops and watches count only when their pid is alive. It builds one short summary, for example `orch: 3 running, 2/16 done · 1 loop · 2 monitors`, capped at 120 characters. With nothing running it clears what it set.
 
 Flags: `--run <id>` (one run), `--ttl-sec N` (default 120), `--dry-run` (print commands and file contents, send nothing), `--clear`, `--quiet`. It always exits 0.
 

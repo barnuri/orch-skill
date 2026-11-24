@@ -13,8 +13,9 @@ const BIN = join(import.meta.dir, "..", "..", "scripts", "dispatch.ts");
 const safe = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 50);
 export const verifierNodeId = (reqId: string): string => `verify-${safe(reqId)}`;
 
-async function cli(home: string, args: string[]): Promise<{ rc: number; out: string }> {
-  const p = Bun.spawn([process.execPath, BIN, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, HARNESS_ORCH_HOME: home } });
+// Orch dispatches these itself, often from the service: ORCH_AUTO_DISPATCH makes the job run in the node's, its relatives' or the run's repo, never this process's cwd.
+async function cli(home: string, args: string[], repoHint: string[] = []): Promise<{ rc: number; out: string }> {
+  const p = Bun.spawn([process.execPath, BIN, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_AUTO_DISPATCH: "1", ORCH_DISPATCH_REPO_HINT: repoHint.join(",") } });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { rc: await p.exited, out: out + err };
 }
@@ -60,15 +61,18 @@ export async function reqVerify(args: string[]): Promise<number> {
   if (r.status !== "implemented") return (errLine(`req verify: ${id} is ${r.status}; only an implemented requirement is verified (dispatch.ts req status ${runId} ${id} implemented)`), 2);
   const profile = await pickVerifierProfile(home, run, r, wanted);
   if (!profile) return (errLine(`req verify: no profile differs from the implementers' ${(r.implemented_by ?? []).join(", ")}; pass --profile`), 2);
-  const node = verifierNodeId(id);
+  // A finished verifier from an earlier round holds an old verdict: each round gets a fresh node.
+  const ids = new Set((run.nodes as any[]).map((n) => n.id));
+  let node = verifierNodeId(id);
+  for (let k = 2; ids.has(node) && (run.nodes as any[]).find((n) => n.id === node)?.status !== "waiting"; k++) node = `${verifierNodeId(id)}-${k}`;
   const handoffs = (r.implemented_by ?? []).map((n) => join(paths.runOutDir(home, runId, n), "handoff.md"));
-  if (!(run.nodes as any[]).some((n) => n.id === node)) {
+  if (!ids.has(node)) {
     const add = await cli(home, ["node", "add", runId, node, `Verify ${id}: ${r.text}`.slice(0, 120), "--profile", profile, "--role", "validation", "--acceptance", `requirement ${id} verified by someone other than its implementer`]);
     if (add.rc !== 0) return (errLine(`req verify: node add failed: ${add.out.trim()}`), 2);
   }
   const st = await reqStatus([runId, id, "verifying", "--verifier", node]);
   if (st !== 0) return st;
-  const dispatch = await cli(home, ["node", "dispatch", runId, node, "--force", "--profile", profile, verifierPrompt(runId, r, handoffs, node)]);
+  const dispatch = await cli(home, ["node", "dispatch", runId, node, "--force", "--profile", profile, verifierPrompt(runId, r, handoffs, node)], r.implemented_by ?? []);
   process.stdout.write(`${id} verifying by ${node} (${profile})${dispatch.rc === 0 ? "" : `; dispatch failed: ${dispatch.out.trim().split("\n").pop()}`}\n`);
   return 0;
 }
@@ -87,7 +91,7 @@ export async function createRequirementGaps(home: string, runId: string, r: Req,
     if (add.rc !== 0) continue;
     await reqLink([runId, r.id, "--node", id]);
     const { AGENT_RULES_LINE } = await import("./gaps.ts");
-    await cli(home, ["node", "dispatch", runId, id, "--force", `${AGENT_RULES_LINE}Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`]);
+    await cli(home, ["node", "dispatch", runId, id, "--force", `${AGENT_RULES_LINE}Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`], r.nodes ?? []);
     made.push(id);
   }
   return made;
@@ -121,7 +125,10 @@ export async function reqVerdict(args: string[]): Promise<number> {
   if ((await reqEvidence([runId, id, "--note", `verifier ${node} ${verdict}: ${text}`])) !== 0) return 2;
   if (verdict === "pass") {
     const rc = await reqStatus([runId, id, "done", "--force", "--reason", `independent verifier ${node} passed it`]);
-    if (rc === 0) await markNotForced(home, runId, id);
+    if (rc === 0) {
+      await markNotForced(home, runId, id);
+      await queueDelivery(home, runId, id);
+    }
     return rc;
   }
   const rc = await reqStatus([runId, id, "in_progress", "--reason", `verifier ${node} found gaps`]);
@@ -129,6 +136,18 @@ export async function reqVerdict(args: string[]): Promise<number> {
   const made = await createRequirementGaps(home, runId, r, gaps.length ? gaps : [text]);
   process.stdout.write(`${id}: gap nodes ${made.join(", ") || "none created"}\n`);
   return 0;
+}
+
+// A verified requirement goes to the delivery queue (`delivery run` commits or opens a PR). Never fails the verdict.
+async function queueDelivery(home: string, runId: string, id: string): Promise<string[]> {
+  try {
+    const { enqueueVerifiedReq } = await import("../delivery/req-delivery.ts");
+    const added = await enqueueVerifiedReq(home, runId, id);
+    if (added.length) await reqEvidence([runId, id, "--note", `delivery queued: ${added.join(", ")}`]);
+    return added;
+  } catch {
+    return [];
+  }
 }
 
 // The verifier's own pass is the independent check, so the close is not a person's override.
@@ -168,7 +187,11 @@ export async function advanceRequirements(home: string, runId: string): Promise<
         await reqStatus([runId, r.id, "implemented"]);
         did.push(`${r.id} verifier lost`);
       } else if (v.status === "done" && v.result?.verdict === "full") {
-        if ((await reqStatus([runId, r.id, "done"])) === 0) did.push(`${r.id} done`);
+        if ((await reqStatus([runId, r.id, "done"])) === 0) {
+          did.push(`${r.id} done`);
+          const q = await queueDelivery(home, runId, r.id);
+          if (q.length) did.push(`${r.id} delivery queued`);
+        }
       } else if (v.status === "done") {
         const gaps = String(v.result?.follow_up ?? "").trim();
         await reqEvidence([runId, r.id, "--note", `verifier ${v.id} finished ${v.result?.verdict ?? "without a verdict"}: ${gaps || "no detail"}`]);

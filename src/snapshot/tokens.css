@@ -24,6 +24,10 @@
   --acc: light-dark(#1857c4, #3d8bfd);
   --acct: light-dark(#195fcd, #7ab0ff);
   --onacc: light-dark(#ffffff, #0b0d10);
+  /* Terminal surface of the node session: near-black in dark, a cool paper grey in light. */
+  --term-bg: light-dark(#eef0f3, #07090c);
+  --term-bar: light-dark(#c9ced6, #2a303a);
+  --term-user-bg: light-dark(#e2e6ec, #12161c);
   --focus: light-dark(#1f3fb0, #b3c7ff);
 
   /* Status palette (the pre-makeover colours). The accent (--acc, blue) is brand/UI state only and never means a status.

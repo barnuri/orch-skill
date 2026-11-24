@@ -77,3 +77,15 @@ test("legacy names still work: not, partly, handled", () => {
   expect(o("req", "status", run, "R1", "not").rc).toBe(0);
   expect(ledger().status).toBe("open");
 });
+
+test("a second verify round gets a fresh verifier node, not the finished one", () => {
+  const { home, o, run, ledger } = setup();
+  o("req", "evidence", run, "R1", "--note", "built");
+  o("req", "status", run, "R1", "implemented");
+  o("node", "add", run, "verify-R1", "old verifier", "--profile", "local-llm-fast");
+  o("node", "update", run, "verify-R1", "done", "--force");
+  const v = o("req", "verify", run, "R1", "--profile", "local-llm-fast");
+  expect(v.all).toMatch(/verify-R1-2/);
+  expect(ledger().verifier).toBe("verify-R1-2");
+  void home;
+}, 30_000);

@@ -22,7 +22,7 @@ exec sleep 30`,
 
 test("serve and ui lifecycle against a fake server", async () => {
   const home = seedHome();
-  const listener = Bun.spawn(["bun", "-e", "console.log(Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('ok') }).port)"], { stdout: "pipe", stderr: "ignore" });
+  const listener = Bun.spawn(["bun", "-e", "const __pp = process.ppid; setInterval(() => { if (process.ppid !== __pp) process.exit(0); }, 1000); console.log(Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('ok') }).port)"], { stdout: "pipe", stderr: "ignore" });
   const PORT = Number((await listener.stdout.getReader().read().then((r) => new TextDecoder().decode(r.value))).trim());
   const shims = fakeServe(PORT);
   const srcfix = tempDir(); writeFileSync(join(srcfix, "main.ts"), "x\n"); utimesSync(join(srcfix, "main.ts"), new Date(2010, 0, 1), new Date(2010, 0, 1));
@@ -91,4 +91,5 @@ test("serve and ui lifecycle against a fake server", async () => {
   expect(statSync(join(home, "serve/log")).size).toBe(logBefore);
   fo("serve", "--stop");
   await fg.exited.catch(() => {});
+  listener.kill();
 }, 180000);

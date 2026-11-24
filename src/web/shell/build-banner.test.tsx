@@ -29,6 +29,7 @@ const info = (over: Partial<BuildInfo> = {}): BuildInfo => ({
   missing_total: 1,
   changed_files: { count: 2, newest: [{ path: "src/server/x.ts", mtime: "2026-11-15T11:00:00Z" }, { path: "src/web/y.tsx", mtime: "2026-11-15T11:01:00Z" }] },
   uncommitted: { count: 3 },
+  deploy: null,
   busy: { chats_streaming: 2, runs_running: 1 },
   error: null,
   ...over,

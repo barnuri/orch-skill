@@ -8,6 +8,7 @@ import { paths, orchHome } from "../state/home.ts";
 import { loadLedger } from "./req.ts";
 import { mutateRun } from "./node.ts";
 import { planTasks } from "./conform.ts";
+import { loadProfilesDoc, settingFrom } from "../state/settings.ts";
 
 export interface Gap { kind: "request" | "errored-node" | "no-result" | "deviation" | "handoff-missing"; id: string; detail: string; scope?: boolean }
 
@@ -26,11 +27,20 @@ const gapNodeId = (g: Gap): string => `gap-${g.id}`.replace(/[^a-zA-Z0-9_-]/g, "
 /** First line of every prompt orch writes itself: gap and repair nodes follow the shared node rules too. */
 export const AGENT_RULES_LINE = `Read ${join(import.meta.dir, "..", "..", "references", "agent-rules.md")} first and follow it (no git commit, merge, rebase, stash, checkout or reset in the shared checkout).\n`;
 
+/** An errored node with a prompt and attempts left will be retried by the auto retry: it still owns its work, so no gap node is made for it. */
+export function retryPending(n: any, max: number): boolean {
+  if (n.status !== "error" || String(n.prompt ?? "") === "") return false;
+  return max === -1 || (n.attempts ?? []).length + 1 < max;
+}
+
 export async function findGaps(home: string, runId: string): Promise<Gap[]> {
   const run = await loadRun(home, runId);
   if (!run) return [];
+  const maxRaw = settingFrom(await loadProfilesDoc(home), "max_attempts", "5");
+  const max = /^-?[0-9]+$/.test(maxRaw) ? Number(maxRaw) : 5;
   const gaps: Gap[] = [];
-  const statusOf = new Map((run.nodes ?? []).map((n: any) => [n.id, String(n.status ?? "")]));
+  // A node that will be retried counts as working.
+  const statusOf = new Map((run.nodes ?? []).map((n: any) => [n.id, retryPending(n, max) ? "waiting" : String(n.status ?? "")]));
   for (const r of (await loadLedger(home, runId)).requirements ?? []) {
     // Only open and in-progress requirements need implementation work; implemented and verifying ones are in the verification flow.
     if (!["open", "in_progress"].includes(String(r.status))) continue;
@@ -86,7 +96,9 @@ export async function createGapNodes(home: string, runId: string, gaps: Gap[]): 
       : g.kind === "handoff-missing"
       ? `Recover node ${g.id}: inspect its final job transcript and result, write the missing $ORCH_NODE_OUT/handoff.md, then continue every verified gap as separate orch nodes. Record ${g.id} as partial when the original work is incomplete, and never claim a full result from chat text alone.`
       : `Node ${g.id} finished without a verified result. Check its work, fix anything missing, write handoff.md into $ORCH_NODE_OUT, then record a result for ${g.id} with dispatch.ts node result.`;
-    const gapEnv = { ...process.env, HARNESS_ORCH_HOME: home };
+    // Orch dispatches this itself from the service: the job runs in the repo of the nodes this gap belongs to, never the service cwd.
+    const related = g.kind === "request" ? ((await loadLedger(home, runId)).requirements.find((r) => String(r.id) === g.id)?.nodes ?? []) : [g.id];
+    const gapEnv = { ...process.env, HARNESS_ORCH_HOME: home, ORCH_AUTO_DISPATCH: "1", ORCH_DISPATCH_REPO_HINT: related.join(",") };
     const add = Bun.spawn([process.execPath, BIN, "node", "add", runId, id, label, "--profile", "opencode-chip-exec", "--model", "hub-copilot-mai-code-2-flash", "--role", "implementation"], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: gapEnv });
     await add.exited;
     if (add.exitCode !== 0) continue;

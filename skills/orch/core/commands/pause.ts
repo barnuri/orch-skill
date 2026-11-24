@@ -3,12 +3,12 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
-import { pidAlive, sleep } from "../state/proc.ts";
+import { descendants, pidAlive, signalTree, sleep } from "../state/proc.ts";
 import { closeJobTab } from "../adapters/herdr.ts";
 import { ev, findNode, segClose, setStatus } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
 import { dispatchNodeJob } from "./dispatch.ts";
-import { coordinatorRecord, coordinatorAutoRecord, coordSweep } from "./inbox.ts";
+import { coordinatorRecord, coordinatorAutoRecord, coordSweep, coordinatorStarter } from "./inbox.ts";
 import { healthMonitorAutostart } from "./health.ts";
 
 const RUN_PAUSE_USAGE = "dispatch.ts run pause <run-id>";
@@ -61,10 +61,25 @@ export async function coordinatorRegister(args: string[]): Promise<number> {
   if (!run) return (err("usage: dispatch.ts orchestrator register <run-id> [--session <opencode-session-id>]\n\ncoordinator register <run-id> is an alias.\n"), 2);
   // --session states the coordinator's session when herdr does not know it: the status line matches on it.
   const si = args.indexOf("--session");
-  if (si !== -1 && args[si + 1]) process.env.ORCH_COORD_SESSION = args[si + 1];
+  const session = si !== -1 ? args[si + 1] ?? "" : "";
+  if (session) process.env.ORCH_COORD_SESSION = session;
   const home = orchHome();
   if (!(await requireRun(home, run))) return 2;
+  const terminal = (!!process.env.HERDR_PANE_ID && !!process.env.HERDR_SOCKET_PATH) || !!process.env.HC_TERMINAL_ID;
+  if (!terminal && session) return coordinatorRegisterSession(home, run, session);
   return coordinatorRecord(home, run);
+}
+
+// No terminal, only a session id: record the session as the run's orchestrator (harness_session too), so
+// the supervisor does not take over while that session is alive. Messages stay in the inbox (no pane to type into).
+async function coordinatorRegisterSession(home: string, run: string, session: string): Promise<number> {
+  const rc = await mutateRun(home, run, (r, ctx) => {
+    r.harness_session = session;
+    r.coordinator = { transport: "session", pane_id: "", socket_path: "", workspace_id: "", session_id: session, at: ctx.now, unreachable: null, candidates: null, backlog_pending: false, started_by: coordinatorStarter() };
+    note(ctx, `coordinator set: session ${session} (no terminal)`);
+  });
+  if (rc === 0) out(`coordinator: ${run} session ${session}\n`);
+  return rc;
 }
 
 export async function runSet(args: string[]): Promise<number> {
@@ -100,11 +115,13 @@ function jobPid(home: string, job: string): number {
 export async function stopKillJob(home: string, job: string): Promise<boolean> {
   const pid = job ? jobPid(home, job) : 0;
   if (!pid || !pidAlive(pid)) return false;
-  const sig = (s: NodeJS.Signals) => { try { process.kill(-pid, s); } catch { try { process.kill(pid, s); } catch { /* gone */ } } };
-  sig("SIGTERM");
-  for (let i = 0; pidAlive(pid) && i < STOP_GRACE() * 10; i++) await sleep(100);
+  // The tree is read once: after the wrapper dies its children are re-parented and no longer found from it.
+  const tree = descendants(pid);
+  const alive = () => pidAlive(pid) || tree.some((p) => pidAlive(p));
+  signalTree(pid, "SIGTERM", tree);
+  for (let i = 0; alive() && i < STOP_GRACE() * 10; i++) await sleep(100);
   let code = 143;
-  if (pidAlive(pid)) { sig("SIGKILL"); code = 137; }
+  if (alive()) { signalTree(pid, "SIGKILL", tree); code = 137; }
   // A job killed before its wrapper installed the signal handler leaves no exit code: record the one the signal gives.
   const ec = join(paths.jobs(home), job, "exit_code");
   if (!existsSync(ec)) { try { writeFileSync(ec, `${code}\n`); } catch { /* job dir gone */ } }

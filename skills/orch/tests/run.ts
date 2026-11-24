@@ -63,7 +63,9 @@ const jobsEnv = process.env.ORCH_TEST_JOBS;
 const ncpu = cpus().length;
 // Files wait on process starts more than they use the CPU, so a loaded machine still gets half the cores; never more than cores minus 2.
 const jobs = jobsEnv ? Number(jobsEnv) : Math.max(Math.min(Math.ceil(ncpu / 2), ncpu - 2), Math.min(ncpu - 2, Math.ceil(ncpu - loadavg()[0])));
-const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? (mode === "fast" ? 15 : 240));
+// The per-file cap stretches with the load: at load 2x the cores a file gets 2x the time, so a busy machine reports slowness, not failures.
+const loadFactor = Math.min(4, Math.max(1, loadavg()[0] / ncpu));
+const cap = Number(process.env.ORCH_TEST_FILE_CAP ?? Math.round((mode === "fast" ? 15 : 240) * loadFactor));
 
 const idOf = (f: string) => `${basename(dirname(f))}/${basename(f).replace(/\.test\.ts$/, "")}`;
 const fileOf = (id: string) => join(TESTS_DIR, `${id}.test.ts`);
@@ -142,7 +144,8 @@ async function runOne(f: string): Promise<void> {
     leaks++;
     console.log(`=== ${id} LEAK: ${left.length} runner(s) alive after the file (reaped):\n` + left.map((p) => `  pid ${p.pid}  ${p.home}`).join("\n"));
   }
-  const out = o + e;
+  // FORCE_COLOR makes bun color its summary: strip ANSI codes before reading the counts.
+  const out = (o + e).replace(/\x1b\[[0-9;]*m/g, "");
   const pass = Number(out.match(/^\s*(\d+) pass/m)?.[1] ?? 0), fail = Number(out.match(/^\s*(\d+) fail/m)?.[1] ?? 0);
   if (why === "budget") { skipped.push(id); return; }
   let trace = "";

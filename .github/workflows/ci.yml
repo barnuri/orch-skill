@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: typecheck
+        run: bun scripts/typecheck.ts
+      - name: fast test tier
+        run: bun skills/orch/tests/run.ts
+        env:
+          ORCH_TEST_FILE_CAP: "180"

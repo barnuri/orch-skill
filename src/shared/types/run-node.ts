@@ -72,6 +72,8 @@ export interface RunNode {
   attempts?: RunNodeAttempt[];
   /** Earliest automatic retry time for an errored node. Optional for older runs. */
   next_retry_at?: string | null;
+  /** Repo the node's last job ran in (git toplevel). Optional for older runs. */
+  repo?: string | null;
   usage?: NodeUsage;
   /**
    * What the dispatch cost, when the harness reported it. Optional and nullable: most adapters
@@ -138,6 +140,12 @@ export interface RunNode {
   owner_checked?: string | null;
   /** The owner said it finished; nobody reviewed the result yet. */
   unverified?: boolean | null;
+  /** True once a result was recorded for the node (`node result`): it was reviewed. */
+  reviewed?: boolean | null;
+  /** Why the node has no result yet, e.g. "node result was not recorded". */
+  result_reason?: string | null;
+  /** Why the node's handoff does not count, e.g. "handoff.md is missing". */
+  handoff_reason?: string | null;
   /** When the node was added. Optional for older runs. */
   created?: string | null;
   /** Last heartbeat: any status change, ping, report or usage write. Optional for older runs. */

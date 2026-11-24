@@ -20,6 +20,6 @@ export function nodeThread(messages: readonly RunMessage[], nodeId: string, limi
 /** One line for the thread: `user → a: text` with the delivery state for pending ones. */
 export function messageLine(m: RunMessage): string {
   const head = m.kind === "ask" ? `${m.from} asks` : `${m.from} → ${m.to}`;
-  const tail = m.kind === "ask" && typeof m.answer === "string" ? ` (answered: ${m.answer})` : m.status === "delivered" ? "" : ` (${m.status})`;
+  const tail = m.kind === "ask" && typeof m.answer === "string" ? ` (answered: ${m.answer})` : ` (${m.status})`;
   return `${head}: ${m.text}${tail}`;
 }

@@ -11,6 +11,8 @@ import { viewStateFor } from "./GraphViewport";
 import { saveGraphHideDone } from "../lib/graph-prefs";
 import { RetryNodeButton } from "./NodePanel";
 import { coveredHref, coveredTarget } from "../lib/covered-node";
+import { NodeMarkerList, NodeMenu } from "./NodeMarkers";
+import { useNodeMarkers } from "./node-marker-context";
 
 /** Graph | Table switch. */
 export function ViewSwitch({ view, onChange }: { view: RunView; onChange: (view: RunView) => void }) {
@@ -32,6 +34,16 @@ function download(name: string, text: string): void {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function RowMarkers({ runId, node }: { runId: string; node: NonNullable<TableRow["node"]> }) {
+  const markers = useNodeMarkers(node.id);
+  return (
+    <span className="rt-marks">
+      <NodeMarkerList markers={markers} />
+      <NodeMenu runId={runId} node={node} markers={markers} />
+    </span>
+  );
 }
 
 function Cell({ row, col, nowMs, runId }: { row: TableRow; col: string; nowMs: number; runId: string }) {
@@ -66,6 +78,7 @@ function Cell({ row, col, nowMs, runId }: { row: TableRow; col: string; nowMs: n
           <span className="mono rt-id">{row.idText}</span>
           {row.kind === "main" ? <span className="rt-badge">orchestrator</span> : null}
           <span className="rt-goal" title={row.node?.label ?? row.goal}>{row.goal}</span>
+          {row.node === null ? null : <RowMarkers runId={runId} node={row.node} />}
         </>
       );
     case "result":
@@ -112,10 +125,12 @@ interface Props {
   harnessByProfile: Readonly<Record<string, string>>;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Marker filter from the summary line: only these node ids are listed. */
+  only?: ReadonlySet<string> | null;
 }
 
 /** One row per node plus the pinned main-session row. Same filter and Hide done as the graph. */
-export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect }: Props) {
+export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect, only = null }: Props) {
   const nowMs = useNow(run.status === "running" || run.nodes.some((n) => n.status === "running"));
   const phone = typeof window !== "undefined" && window.matchMedia?.("(max-width: 640px)").matches === true;
   const [cols, setCols] = useState<string[]>(() => effectiveCols(phone));
@@ -123,7 +138,7 @@ export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect }
   const [, redraw] = useState(0);
   const [note, setNote] = useState("");
   const view = viewStateFor(run.run_id);
-  const nodes = visibleNodes(run, filter, harnessByProfile, view.hideDone, selectedId, isFilterActive(filter));
+  const nodes = visibleNodes(run, filter, harnessByProfile, view.hideDone, selectedId, isFilterActive(filter)).filter((n) => only === null || only.has(n.id));
   const rows = useMemo(
     () => sortRows([mainRow(run), ...nodes.map((n) => nodeRow(run, n, nowMs, harnessByProfile))], sort),
     // eslint-disable-next-line react-hooks/exhaustive-deps

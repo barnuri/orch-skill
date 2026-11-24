@@ -3,7 +3,10 @@
 import { profileAllowedFor, usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { loadHold, waitForLoad } from "../state/load.ts";
 import { spawnNode } from "../adapters/spawn.ts";
+import { gitToplevel, resolveNodeRepo } from "../runs/repo.ts";
 import { hubNodeExpect } from "../adapters/hub.ts";
 import { nodeModelOverride } from "../adapters/routing.ts";
 import { orchHome, paths } from "../state/home.ts";
@@ -15,6 +18,7 @@ import { archiveAttempt, ev, findNode, OpError, setStatus, SMART_AUTO_TIERS } fr
 import { errLine, mutateRun, resolveRun } from "./node.ts";
 import { inboxFiles, markDelivered, readMsg } from "./inbox.ts";
 import { pauseGuard } from "./pause.ts";
+import { closureProblems } from "../runs/closure.ts";
 import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
@@ -122,11 +126,22 @@ export interface DispatchOpts {
   resume?: string;
   /** The caller already holds the node lock (retry). */
   locked?: boolean;
+  /** Repo a person dispatches from (git toplevel of their cwd). Recorded on the node. Orch's own dispatches leave it unset. */
+  repo?: string;
+  /** Nodes whose repo may stand in for this node's (a requirement's implementers) when the node has none yet. */
+  repoHint?: string[];
 }
 
 // Starts a waiting node. rest = (--profile P | adapter) <prompt> [args...], or <prompt> alone (the node's profile).
 export async function dispatchNodeJob(home: string, runId: string, nodeId: string, restIn: string[], o: DispatchOpts = {}): Promise<{ rc: number; jobId: string }> {
   if (o.locked) return dispatchNodeJobLocked(home, runId, nodeId, restIn, o);
+  if (process.env.ORCH_LOAD_GATE === "1") {
+    const held = await waitForLoad(home);
+    if (held) return (errLine(`node dispatch: ${nodeId} held: ${held}`), { rc: 75, jobId: "" });
+  } else {
+    const h = await loadHold(home);
+    if (h) errLine(`warning: ${h}: starting ${nodeId} anyway (manual dispatch)`);
+  }
   try {
     return await withNodeLock(home, runId, nodeId, () => dispatchNodeJobLocked(home, runId, nodeId, restIn, { ...o, locked: true }));
   } catch (e) {
@@ -168,7 +183,22 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   }
   const passArgs = rest.slice(promptIdx + 1);
 
+  // The job runs in the node's repo, never in the cwd of whichever process dispatches (the dashboard service for heal, retry and advance).
+  const found = o.repo ? { repo: o.repo, from: "caller" } : await resolveNodeRepo(home, runId, run, nodeId, o.repoHint ?? []);
+  if (!found.repo || !existsSync(found.repo)) {
+    const why = found.repo ? `repo ${found.repo} does not exist` : "no repo is known for this node, its parent or linked nodes, or the run";
+    const reason = `dispatch refused: ${why}. Set it: run the dispatch from the repo, or dispatch.ts node dispatch ${runId} ${nodeId} ... from its checkout`;
+    await mutateRun(home, runId, (r) => { const x = findNode(r, nodeId); if (x) x.needs_user = reason; });
+    return fail(`node dispatch: ${nodeId}: ${reason}`);
+  }
+
   const outDir = await nodeOutDir(home, runId, nodeId, run);
+  if (prompt.startsWith("@")) {
+    const text = await Bun.file(prompt.slice(1)).text().catch(() => null);
+    if (text !== null) prompt = withHandoffFooter(text, outDir, runId, nodeId);
+  } else {
+    prompt = withHandoffFooter(prompt, outDir, runId, nodeId);
+  }
   try {
     await mkdir(outDir, { recursive: true });
     await Bun.write(join(outDir, "goal.md"), `${nodeGoal}\n`);
@@ -206,7 +236,7 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
   await hubNodeExpect(runId, nodeId, tier, String(node.role ?? ""), `${runId}/${nodeId}/${attempt}`).catch(() => 0);
   let jobId: string;
   try {
-    ({ jobId } = await spawnNode({ home, runId, nodeId, target: { kind: isProfile ? "profile" : "adapter", name: targetName }, prompt, args: passArgs, env, resumeSession: o.resume || process.env.ORCH_RESUME_SESSION || undefined }));
+    ({ jobId } = await spawnNode({ home, runId, nodeId, target: { kind: isProfile ? "profile" : "adapter", name: targetName }, prompt, args: passArgs, env, repo: found.repo, resumeSession: o.resume || process.env.ORCH_RESUME_SESSION || undefined }));
   } catch (e) {
     return { rc: Number((e as any).code) || 1, jobId: "" };
   }
@@ -219,6 +249,8 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
     const n = findNode(r, nodeId);
     if (!n) throw new OpError(`node ${nodeId}: not in this run`);
     if (newTier) n.tier = newTier;
+    n.repo = found.repo;
+    if (String(n.needs_user ?? "").startsWith("dispatch refused:")) n.needs_user = null;
     n.metadata_transport = transport || null;
     n.worker_identity = transport === "headers" ? `${runId}/${nodeId}/${attempt}` : null;
     setStatus(r, nodeId, "running", jobId, "", "", "", ctx, true);
@@ -256,7 +288,12 @@ export async function nodeDispatch(args: string[]): Promise<number> {
     errLine(`usage: ${NODE_DISPATCH_USAGE}`);
     return 2;
   }
-  const { rc, jobId } = await dispatchNodeJob(home, runId, nodeId, rest, { force });
+  // A person dispatches from the repo they work in. Orch's own dispatches (heal, gap and verifier nodes) set ORCH_AUTO_DISPATCH=1
+  // and may pass ORCH_DISPATCH_REPO_HINT (node ids): they run in the node's own repo, its relatives' or the run's, never the caller's cwd.
+  const auto = process.env.ORCH_AUTO_DISPATCH === "1";
+  const repo = auto ? "" : gitToplevel(process.cwd()) ?? "";
+  const repoHint = (process.env.ORCH_DISPATCH_REPO_HINT ?? "").split(",").filter(Boolean);
+  const { rc, jobId } = await dispatchNodeJob(home, runId, nodeId, rest, { force, repo, repoHint });
   if (rc === 0) process.stdout.write(jobId + "\n");
   return rc;
 }
@@ -290,6 +327,12 @@ export function resumeSessionOf(n: Record<string, any>, adapter: string): string
   return own;
 }
 
+// Every node prompt ends with where its handoff goes. A prompt that already names ORCH_NODE_OUT (the footer does too) is left as is, so a retry or resume never adds a second footer.
+export function withHandoffFooter(prompt: string, outDir: string, runId: string, nodeId: string): string {
+  if (prompt.includes("ORCH_NODE_OUT")) return prompt;
+  return `${prompt.trimEnd()}\n\n---\nHandoff: write ${outDir}/handoff.md ($ORCH_NODE_OUT/handoff.md). agent-spec/ is not the handoff.\nThen record: dispatch.ts node result ${runId} ${nodeId} --verdict full|partial|blocked --summary "<one sentence>" --follow-up "<findings or none>"\n`;
+}
+
 // A prompt that only points at the node goal gets the goal text appended, so the agent does not need a lookup.
 const SEE_GOAL_ONLY = /^\s*see (?:the )?node goal\.?\s*$/i;
 export function appendNodeGoal(prompt: string, goal: string): string {
@@ -320,6 +363,10 @@ export async function profileRequire(home: string, name: string): Promise<boolea
 }
 
 export async function retryDispatch(home: string, runId: string, nodeId: string, override: string, noDispatch: boolean, reason: string, supplied: string, force: boolean, earlyEnd = false): Promise<{ rc: number; jobId: string; out?: string }> {
+  if (process.env.ORCH_LOAD_GATE === "1") {
+    const held = await waitForLoad(home);
+    if (held) return (errLine(`node retry: ${nodeId} held: ${held}`), { rc: 75, jobId: "" });
+  }
   try {
     return await withNodeLock(home, runId, nodeId, () => retryDispatchLocked(home, runId, nodeId, override, noDispatch, reason, supplied, force, earlyEnd));
   } catch (e) {
@@ -336,9 +383,13 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
   if (!run || !n) return fail(`node ${nodeId}: not in this run`);
   const retryable = earlyEnd ? ["done", "error", "skipped", "stopped"] : ["error", "skipped", "stopped"];
   if (!retryable.includes(n.status)) return fail(`node retry: ${nodeId} is ${n.status}, not error or skipped`);
-  if (!force) {
-    const live = await nodeLiveJob(home, runId, nodeId);
-    if (live) return fail(`node retry: ${nodeId} already has live job ${live}; pass --force to start another`);
+  const live = await nodeLiveJob(home, runId, nodeId);
+  if (live) {
+    if (!force) return fail(`node retry: ${nodeId} already has live job ${live}; pass --force to stop it and start another`);
+    // The old process tree must be gone first: the new job never shares a pane or a process with it.
+    const { stopKillJob } = await import("./pause.ts");
+    await stopKillJob(home, live);
+    if ((await nodeLiveJob(home, runId, nodeId)) === live) return fail(`node retry: could not stop the old job ${live} of ${nodeId}`);
   }
   const resumesSoFar = Number(n.resumes ?? 0);
   if (earlyEnd && resumesSoFar >= MAX_EARLY_END_RESUMES && !force) {
@@ -386,8 +437,8 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
       original = await f.text();
     }
     dispatchPrompt = earlyEnd
-      ? `${supplied || EARLY_END_MESSAGE}\nThe previous attempt on ${oldProfile || "unknown profile"} ended without a handoff. Partial work may already exist in the repo and in $ORCH_NODE_OUT.\n\n${original}\n`
-      : `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${original}\n`;
+      ? `${supplied || EARLY_END_MESSAGE}\nThe previous attempt on ${oldProfile || "unknown profile"} ended without a handoff. Partial work may already exist in the repo and in $ORCH_NODE_OUT.\n\n${withHandoffFooter(original, await nodeOutDir(home, runId, nodeId, run), runId, nodeId)}\n`
+      : `Previous attempt on ${oldProfile || "unknown profile"} failed with: ${summary || "unknown error"}.\nPartial work may already exist in the repo and in $ORCH_NODE_OUT. Inspect before changing files and continue carefully.\n\n${withHandoffFooter(original, await nodeOutDir(home, runId, nodeId, run), runId, nodeId)}\n`;
   }
   const now = nowIso();
   await mutateRun(home, runId, (r, ctx) => {
@@ -481,6 +532,12 @@ export async function runFinish(args: string[]): Promise<number> {
   if (runId === null) return 1;
   const pre = await loadRun(home, runId);
   if (!pre) return (errLine(`run ${runId}: unknown run`), 2);
+  // The closure gate holds even with --force: a run never becomes done while work is open or the done-gate has not run.
+  const closing = status === "" ? !pre.nodes.some((n) => n.status === "error") : status === "done";
+  if (closing && pre.status !== "covered") {
+    const open = closureProblems(pre);
+    if (open.length > 0) return (errLine(`run finish refused: ${open.join("; ")}\n  fix: dispatch.ts run advance ${runId}, or skip each node with a reason: dispatch.ts node update ${runId} <node> skipped --force --reason "<why>"`), 1);
+  }
   if (!force && status !== "cancelled") {
     const { verifyRun, formatFailures } = await import("./verify.ts");
     const fails = await verifyRun(home, runId, pre);

@@ -5,6 +5,7 @@ import { orchHome, paths } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
 import { dispatchSh } from "../state/proc.ts";
 import { mutateRun } from "./node.ts";
+import { closureProblems } from "../runs/closure.ts";
 
 export const RUN_CARRY_USAGE = "dispatch.ts run carry <run-id> [--title T] [--id NEW-ID] [--keep-skipped] [--keep-open]";
 
@@ -55,10 +56,15 @@ export async function runCarry(args: string[]): Promise<number> {
       if (!moves(n)) continue;
       n.status = "skipped";
       n.error = `moved to run ${newRun}`;
+      n.skip_reason = `moved to run ${newRun}`;
       n.finished = n.finished ?? ts;
     }
     run.continued_to = newRun;
-    if (!keepOpen) { run.status = "done"; run.finished = run.finished ?? ts; }
+    if (!keepOpen) {
+      const open = closureProblems(run);
+      if (open.length === 0) { run.status = "done"; run.finished = run.finished ?? ts; }
+      else process.stderr.write(`run ${runId} stays ${run.status}: ${open.join("; ")}\n`);
+    }
   });
   if (code !== 0) return code;
   process.stdout.write(`${newRun}\n`);

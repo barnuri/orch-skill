@@ -9,6 +9,8 @@ export interface SpawnJob {
   prompt: string;
   args: string[];
   env: Record<string, string>;
+  /** Working directory of the job: the node's repo. */
+  repo?: string;
   resumeSession?: string;
 }
 

@@ -106,6 +106,30 @@ describe("/api/feedback", () => {
     expect((await post(srv, "/api/feedback/work", { ids: ["../x"] })).status).toBe(400);
   });
 
+  test("POST for an open run+node merges the text as a note (200, same id); another node gets a new item", async () => {
+    const srv = start();
+    const first = await post(srv, "/api/feedback", { text: "one", run_id: "r1", node_id: "n1" });
+    expect(first.status).toBe(201);
+    const { item: a } = (await first.json()) as { item: Item };
+    const second = await post(srv, "/api/feedback", { text: "two", run_id: "r1", node_id: "n1" });
+    expect(second.status).toBe(200);
+    const { item: b } = (await second.json()) as { item: Item & { notes?: { text: string }[] } };
+    expect(b.id).toBe(a.id);
+    expect(b.notes?.map((n) => n.text)).toEqual(["two"]);
+    const other = await post(srv, "/api/feedback", { text: "two", run_id: "r1", node_id: "n2" });
+    expect(other.status).toBe(201);
+    const list = (await (await srv.api("/api/feedback")).json()) as { items: Item[] };
+    expect(list.items).toHaveLength(2);
+  });
+
+  test("POST without run or node merges the same normalized text", async () => {
+    const srv = start();
+    const { item: a } = (await (await post(srv, "/api/feedback", { text: "Slow  list" })).json()) as { item: Item };
+    const again = await post(srv, "/api/feedback", { text: " slow LIST " });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { item: Item }).item.id).toBe(a.id);
+  });
+
   test("POST rejects text over 8000 characters and accepts exactly 8000", async () => {
     const srv = start();
     const long = await post(srv, "/api/feedback", { text: "x".repeat(8001) });

@@ -1932,6 +1932,34 @@
             "type": "string",
             "description": "The run that works on it."
           },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "chat",
+                    "cli",
+                    "ui"
+                  ]
+                }
+              },
+              "required": [
+                "at",
+                "text",
+                "source"
+              ]
+            },
+            "description": "Texts of later adds merged into this open item (same run and node, or same normalized text)."
+          },
           "created": {
             "type": "string",
             "description": "Creation time, ISO 8601 UTC."
@@ -2013,6 +2041,34 @@
               "work_run": {
                 "type": "string",
                 "description": "The run that works on it."
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "chat",
+                        "cli",
+                        "ui"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "text",
+                    "source"
+                  ]
+                },
+                "description": "Texts of later adds merged into this open item (same run and node, or same normalized text)."
               },
               "created": {
                 "type": "string",
@@ -9252,11 +9308,21 @@
       },
       "post": {
         "summary": "Add feedback",
-        "description": "Adds one item with status `new`. Body: `text` (required), `kind` (bug|idea|ux|other), `source` (chat|cli|ui, default ui), optional `chat_id`, `run_id`, `node_id`.",
+        "description": "Adds one item with status `new`. Body: `text` (required), `kind` (bug|idea|ux|other), `source` (chat|cli|ui, default ui), optional `chat_id`, `run_id`, `node_id`. When an open item already exists for the same run and node (or, with no run and no node, the same normalized text), the text is added to it as a note and that item is returned with 200.",
         "tags": [
           "feedback"
         ],
         "responses": {
+          "200": {
+            "description": "The existing open item, with the text added as a note.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackItemEnvelopeDto"
+                }
+              }
+            }
+          },
           "201": {
             "description": "The new item.",
             "content": {

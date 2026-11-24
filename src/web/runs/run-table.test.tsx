@@ -30,6 +30,11 @@ describe("run table", () => {
     expect(T.visibleNodes(run, EMPTY_FILTER, {}, true, null, false).map((n) => n.id)).toEqual(["a", "c"]);
     expect(T.visibleNodes(run, EMPTY_FILTER, {}, true, "b", false).map((n) => n.id)).toEqual(["b", "a", "c"]);
   });
+
+  test("Hide done also hides covered nodes, in the table as in the graph", () => {
+    expect(["done", "skipped", "covered"].every(T.hiddenByHideDone)).toBe(true);
+    expect(["running", "waiting", "error", "stopped", "blocked-user"].some(T.hiddenByHideDone)).toBe(false);
+  });
   test("verdict filter treats no result as unknown and round-trips the hash with view", () => {
     expect(matchesFilter(run, NODES[1] as RunNode, { ...EMPTY_FILTER, verdict: "unknown" }, {})).toBe(true);
     const hash = T.hashWithView(hashWithFilter("#/run/r1", { ...EMPTY_FILTER, verdict: "partial" }), "table");

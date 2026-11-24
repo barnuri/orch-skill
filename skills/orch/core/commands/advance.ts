@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { orchHome } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
+import { loadHold } from "../state/load.ts";
 import { loadProfilesDoc, maxParallelCapFrom, runCapFrom } from "../state/settings.ts";
 import { findNode } from "../runs/node.ts";
 import { nodeReady } from "./run.ts";
@@ -85,6 +86,8 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
   const queued: string[] = [];
   const manual: string[] = [];
   const gated: string[] = [];
+  const loadHeld = await loadHold(home);
+  const held: string[] = [];
   for (const n of run.nodes.filter((x) => nodeReady(run, x))) {
     if (n.id === GATE_ID) {
       if ((await runGate(home, runId)) !== 0) return 1;
@@ -97,6 +100,10 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
       manual.push(n.id);
       continue;
     }
+    if (loadHeld) {
+      held.push(n.id);
+      continue;
+    }
     if (slots <= 0) {
       queued.push(n.id);
       continue;
@@ -107,6 +114,7 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
   }
   run = (await loadRun(home, runId))!;
   out(`dispatched: ${dispatched.join(",")}\nqueued: ${queued.join(",")}\n`);
+  if (held.length) out(`held: ${loadHeld}: ${held.join(",")}\n`);
   if (gated.length) out(`gate run by scheduler: ${gated.join(",")}\n`);
   if (manual.length) out(`needs-prompt: ${manual.join(",")}\n`);
   out(`running: ${count(run, "running")}  waiting: ${count(run, "waiting")}  done: ${count(run, "done", "skipped")}  error: ${count(run, "error")}\n`);
@@ -165,13 +173,15 @@ export async function runAdvance(args: string[]): Promise<number> {
       }
       return 0;
     }
-    if (rc === 3) {
-      if (stopOn === "blocked" || stopOn === "all") return 3;
-      if (!untilDone) return 0;
-      await Bun.sleep(Number(interval) * 1000);
-      elapsed += Number(interval);
-      continue;
+    // --stop-on: blocked stops when nothing can move (exit 3), error stops at the first errored node (exit 3,
+    // before an auto retry), timeout only at --timeout (exit 124), all at blocked or timeout (an errored node
+    // that is not retried blocks the run, so all still stops on it). --timeout applies also while blocked.
+    const errored = run.nodes.filter((n) => n.status === "error").map((n) => n.id);
+    if (errored.length > 0 && stopOn === "error") {
+      err(`advance: stopped on error: ${errored.join(",")}\n`);
+      return 3;
     }
+    if (rc === 3 && (stopOn === "blocked" || stopOn === "all")) return 3;
     if (!untilDone) return 0;
     if (Number(timeout) > 0 && elapsed >= Number(timeout)) {
       err(`advance: timed out after ${timeout}s (run still active)\n`);

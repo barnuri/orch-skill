@@ -53,7 +53,7 @@ const DROP = [
 // record the real herdr pane or hc terminal as a coordinator and type its asks into the live session.
 for (const k of DROP) if (k.startsWith("HERDR_") || k.startsWith("HC_")) delete process.env[k];
 export function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string, string> {
-  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_TRASH_MOVE: "1", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db") };
+  const env: Record<string, string | undefined> = { ...process.env, ORCH_NO_ANNOUNCE: "1", ORCH_HERDR: "0", ORCH_TRASH_MOVE: "1", ORCH_OWNER_CALL_TIMEOUT: "1", ORCH_OPENCODE_DB: join(tmpdir(), "orch-test-no-opencode.db"), ORCH_OPENCODE_SERVICE_JSON: join(tmpdir(), "orch-test-no-service.json"), ORCH_OPENCODE_LOG: join(tmpdir(), "orch-test-no-opencode.log") };
   for (const k of DROP) delete env[k];
   Object.assign(env, extra);
   return Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined)) as Record<string, string>;
@@ -191,7 +191,7 @@ export const events = (home: string, run: string) =>
 export async function opencodeFixture() {
   const { Database } = await import("bun:sqlite");
   const dir = tempDir("orch-oc-");
-  const bin = fakeBin({ opencode: `echo "$*" >> "${dir}/calls"\necho '{"data":{"id":"msg_1"}}'` });
+  const bin = fakeBin({ opencode: `echo "$*" >> "${dir}/calls"\n[ -n "$OC_FAIL" ] && exit 1\necho '{"data":{"id":"msg_1"}}'` });
   const db = join(dir, "opencode.db");
   const now = Date.now(), old = now - 40 * 60 * 1000;
   const d = new Database(db);
@@ -204,7 +204,7 @@ export async function opencodeFixture() {
   ins.run("ses_stall1", "stalled", old, old, old, null);
   ins.run("ses_idle1", "idle", old, now, now - 5000, now);
   d.close();
-  const env = { PATH: `${bin}:${process.env.PATH}`, ORCH_OPENCODE_DB: db, ORCH_OWNER_CACHE_SECS: "0", ORCH_HEALTH_MONITOR: "0" };
+  const env = { PATH: `${bin}:${process.env.PATH}`, ORCH_OPENCODE_DB: db, ORCH_OWNER_CACHE_SECS: "0", ORCH_HEALTH_MONITOR: "0", ORCH_OPENCODE_SERVICE_JSON: join(dir, "no-service.json"), ORCH_OPENCODE_LOG: join(dir, "no.log") };
   return { dir, bin, db, env, calls: () => readText(join(dir, "calls")) };
 }
 export const ndjson = (rows: object[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";

@@ -89,3 +89,9 @@ export async function acquireLock(home: string, name: string, tries: number, sle
   }
   return null;
 }
+
+/** The live pid that holds the lock, or null. */
+export async function lockHolder(home: string, name: string): Promise<number | null> {
+  const pid = await readPid(lockFile(home, name));
+  return pid !== null && alive(pid) ? pid : null;
+}

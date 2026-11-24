@@ -12,6 +12,8 @@ allowed-tools: Read, Bash
 
 Use the orch run ledger as the source of truth. Use `dispatch.ts` for every state change.
 
+Known failure patterns from the last 7 days, with evidence and fix commits: [docs/learnings/2026-11-24-runs-7d.md](../../docs/learnings/2026-11-24-runs-7d.md) (refresh with `dispatch.ts suggest learn --days 7 --out <file>`).
+
 ## Inspect
 
 1. Find active runs with `run list`.

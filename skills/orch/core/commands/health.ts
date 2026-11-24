@@ -1,6 +1,7 @@
 // `run health`: classifies every non-terminal node of a run, lists ready nodes and free slots, records
 // what changed since the last pass, and nudges stalled opencode sessions. Port of lib/runs/health.sh.
 // The last pass lives in <home>/health/<run>.json (+ .key).
+import { nudgeViaService } from "../adapters/opencode-service.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
@@ -170,16 +171,23 @@ async function appendHealthEvents(home: string, run: string, evs: Array<[string,
 
 async function sendNudges(home: string, run: string, line: Snap): Promise<string[]> {
   const bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" });
-  if (!bin) return (err("health: opencode not found, no nudge sent\n"), []);
   const sent: string[] = [];
   for (const n of line._nudge as any[]) {
-    const body = JSON.stringify({ text: n.text, delivery: "queue" });
-    const r = await runLimited(Number(process.env.ORCH_NUDGE_TIMEOUT ?? 10), [bin, "api", "POST", `/api/session/${n.session}/prompt`, "--data", body]);
-    if (r.code === 0) {
+    const body = { text: n.text, delivery: "queue" };
+    // Shared service first: an HTTP POST from this process. The CLI (a full opencode process) only when the service is not healthy.
+    let ok: boolean, detail: string;
+    const via = await nudgeViaService(n.session, body);
+    if (via) ({ ok, detail } = via);
+    else if (!bin) { err("health: opencode not found, no nudge sent\n"); continue; }
+    else {
+      const r = await runLimited(Number(process.env.ORCH_NUDGE_TIMEOUT ?? 10), [bin, "api", "POST", `/api/session/${n.session}/prompt`, "--data", JSON.stringify(body)]);
+      ok = r.code === 0; detail = r.out.slice(0, 200);
+    }
+    if (ok) {
       await appendHealthEvents(home, run, [["nudge", n.node, "", "", `nudged ${n.session}: ${n.text}`]]);
       err(`health: nudged ${n.node} (${n.session})\n`);
       sent.push(n.node);
-    } else err(`health: nudge ${n.node} (${n.session}) failed: ${r.out.slice(0, 200)}\n`);
+    } else err(`health: nudge ${n.node} (${n.session}) failed: ${detail}\n`);
   }
   return sent;
 }
@@ -210,14 +218,17 @@ export async function healthPass(home: string, run: string, nudge: boolean): Pro
   if (!r) return null;
   const line = classify(r, run, now, stallMin * 60, gap, sessionIndex(), prevSnap ?? {}, await maxParallel(home));
   let sent: string[] = [];
-  if (nudge && line._nudge.length > 0) {
+  // One nudger per run: a second process (a watch and the monitor tick at once) skips and leaves the gap untouched.
+  const nudgeLock = nudge && line._nudge.length > 0 ? await acquireLock(home, `nudge-${run}`, 0, 0) : null;
+  if (nudgeLock) try {
+    // Every attempt counts against the gap, sent or not: a failing `opencode api` call (busy port, dead server) was
+    // retried on every pass, about 20 opencode processes a minute (measured 2026-11-24).
+    const tried = (line._nudge as any[]).map((x) => x.node as string);
     sent = await sendNudges(home, run, line);
-    if (sent.length) {
-      for (const n of sent) line._nudged[n] = now;
-      line.nudged = sent;
-      line._nudge = line._nudge.filter((x: any) => !sent.includes(x.node));
-    }
-  }
+    for (const n of tried) line._nudged[n] = now;
+    if (sent.length) line.nudged = sent;
+    line._nudge = [];
+  } finally { await nudgeLock.release(); }
   if (line.changes.length > 0) await appendHealthEvents(home, run, line.changes.map((c: any) => ["health", c.node ?? "", c.from ?? "", c.to ?? "", c.note]));
   await Bun.write(`${snapF}.tmp.${process.pid}`, JSON.stringify(line) + "\n");
   await Bun.$`mv -f ${snapF}.tmp.${process.pid} ${snapF}`.quiet();

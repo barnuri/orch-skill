@@ -15,19 +15,21 @@ import type { RunEvent } from "../../shared/types/run-event";
 import type { Metric } from "../lib/node-metrics";
 import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
-import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
-import { ActivityFeed, Ago, StaleBanner } from "./RunActivity";
+import { hasUnreviewed, unreviewedNodes } from "../lib/node-flags";
+import { ActivityFeed, Ago } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunProjection, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
 import { LiveIndicator, NodeFilterBar, RunSummaryBar } from "./RunToolbar";
 import { CoordinatorBlock } from "./CoordinatorBlock";
-import { NodeHealthStrip, ReadyNotice } from "./RunHealth";
+import { MarkerSummary } from "./NodeMarkers";
+import { NodeMarkerContext } from "./node-marker-context";
+import { idsWithMarker, markerMap, type MarkerCode } from "../lib/node-markers";
 import { RequirementsPanel } from "./RunRequirements";
 import { NextActions } from "./RunNextActions";
 import { RunOverview } from "./RunOverview";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
-import { FailureBanner, LongRunningBanner, RunStateNotice } from "./RunAttention";
+import { FailureBanner, RunStateNotice } from "./RunAttention";
 import { useNow } from "./use-now";
 import { RunTable, ViewSwitch } from "./RunTable";
 import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
@@ -204,11 +206,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const summary = useMemo(() => runSummary(run), [run]);
   const harnessKey = JSON.stringify(facts.harnessByProfile);
   const harnessByProfile = useMemo(() => JSON.parse(harnessKey) as Record<string, string>, [harnessKey]);
-  const match = useMemo(
-    () => (isFilterActive(filter) ? (node: RunNode) => matchesFilter(run, node, filter, harnessByProfile) : null),
-    [run, filter, harnessByProfile],
-  );
-  const shownCount = match === null ? run.nodes.length : run.nodes.filter(match).length;
+  const [markerFilter, setMarkerFilter] = useState<MarkerCode | "">("");
   const [selected, setSelected] = useState<string | null>(() => parseNodeParam(location.hash));
   const [runView, setRunView] = useState<RunView>(() => parseViewParam(location.hash) ?? loadRunView());
   useEffect(() => {
@@ -241,6 +239,20 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const toast = useToast();
   const lastSnapshot = useRef<RunSnapshot | null>(null);
   const nowMs = useNow(run.nodes.some((node) => node.status === "running"));
+  const readyKey = (projection?.ready ?? []).join("|");
+  const markers = useMemo(
+    () => markerMap(run, { nowMs, ready: new Set(readyKey === "" ? [] : readyKey.split("|")) }, health?.nodes ?? []),
+    [run, nowMs, readyKey, health],
+  );
+  const markerIds = useMemo(() => (markerFilter === "" ? null : idsWithMarker(markers, markerFilter)), [markers, markerFilter]);
+  const match = useMemo(
+    () =>
+      isFilterActive(filter) || markerIds !== null
+        ? (node: RunNode) => (markerIds === null || markerIds.has(node.id)) && (!isFilterActive(filter) || matchesFilter(run, node, filter, harnessByProfile))
+        : null,
+    [run, filter, harnessByProfile, markerIds],
+  );
+  const shownCount = match === null ? run.nodes.length : run.nodes.filter(match).length;
   useEffect(() => {
     const next = snapshotRun(run);
     for (const change of describeChanges(lastSnapshot.current, next)) {
@@ -249,6 +261,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
     lastSnapshot.current = next;
   }, [run, toast]);
   return (
+    <NodeMarkerContext.Provider value={markers}>
     <div className="run-page">
       <div className="run-page-header">
         <div className="run-head">
@@ -274,31 +287,18 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         <CoordinatorBlock runId={run.run_id} state={run.orchestrator_state ?? run.coordinator_state} />
         <RunStateNotice run={run} />
         <FailureBanner run={run} />
-        <LongRunningBanner run={run} nowMs={nowMs} />
-        <StaleBanner run={run} />
-        <ReadyNotice ready={projection?.ready ?? []} />
-        <NodeHealthStrip
-          health={health}
-          onSelect={(id) => {
-            setSelected(id);
-            setFlash((n) => n + 1);
-          }}
-        />
+        <MarkerSummary map={markers} active={markerFilter} onPick={setMarkerFilter} />
         <RequirementsPanel requirements={projection?.requirements ?? []} onSelect={setSelected} />
         <NextActions actions={projection?.next_actions ?? []} onSelect={setSelected} />
         <RunOverview runId={run.run_id} onSelect={setSelected} />
-        {hasUnreviewed(run.nodes) ? (
-          <div className="notice warn run-stale-banner" role="status">
-            <b>{FINISHED_BY_OWNER}</b>
-            <span>One or more nodes are done only because their owner stopped. Review them before relying on the result.</span>
-          </div>
-        ) : null}
+        {hasUnreviewed(run.nodes) ? <UnreviewedBanner nodes={unreviewedNodes(run.nodes)} onSelect={setSelected} /> : null}
       </div>
       <div className="layout run-layout">
         {runView === "table" ? (
           <RunTable
             run={run}
             filter={filter}
+            only={markerIds}
             harnessByProfile={facts.harnessByProfile}
             selectedId={selected}
             onSelect={(id) => {
@@ -325,6 +325,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
       ) : null}
       <CoversBlock runId={run.run_id} runs={allRuns} />
     </div>
+    </NodeMarkerContext.Provider>
   );
 }
 
@@ -351,4 +352,22 @@ export function RunPage({ runId }: { runId: string }) {
     );
   }
   return <RunBody key={run.run_id} run={run} live={query.isError ? "offline" : query.live} />;
+}
+
+/** One line naming the done nodes that need a review and why; a click selects the node. */
+function UnreviewedBanner({ nodes, onSelect }: { nodes: Array<{ id: string; reason: string }>; onSelect: (id: string) => void }) {
+  return (
+    <div className="notice warn run-stale-banner" role="status">
+      <b>{nodes.length === 1 ? "1 node needs review" : `${nodes.length} nodes need review`}</b>
+      <span>
+        {nodes.slice(0, 5).map((n, i) => (
+          <span key={n.id}>
+            {i > 0 ? ", " : ""}
+            <button type="button" className="link-btn" onClick={() => onSelect(n.id)}>{n.id}</button> ({n.reason})
+          </span>
+        ))}
+        {nodes.length > 5 ? `, ${nodes.length - 5} more` : ""}. A recorded result (`node result`) clears it.
+      </span>
+    </div>
+  );
 }

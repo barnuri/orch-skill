@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { orchHome } from "../state/home.ts";
 import { pidAlive, psCommand, sleep, spawnOrch } from "../state/proc.ts";
-import { nodeReady } from "./run.ts";
+import { loadRunProjection } from "../runs/projection.ts";
 
 const LOG_CAP = 102400;
 
@@ -31,7 +31,7 @@ export function attributed(s: any, id: string, runId: string, sid: string, pane:
   return (s.nodes ?? []).some((n: any) => sid !== "" && (n.session === sid || n.owner_id === sid));
 }
 
-export function scan(home: string, runId: string, sid = "", pane = "") {
+export async function scan(home: string, runId: string, sid = "", pane = "") {
   let running = 0, gates = 0, done = 0, total = 0, loops = 0, watches = 0;
   const each = (kind: string) => {
     const root = join(home, kind);
@@ -48,12 +48,17 @@ export function scan(home: string, runId: string, sid = "", pane = "") {
   for (const [id, s] of each("runs")) {
     if (s.status !== "running" || !attributed(s, id, runId, sid, pane)) continue;
     mine.add(id);
-    const nodes: any[] = s.nodes ?? [];
-    running += nodes.filter((n) => n.status === "running").length;
+    // Node states come from the canonical projection, the same source as `run status` and the run page.
+    // covered and skipped nodes count as settled, like the UI.
+    const p = await loadRunProjection(home, id);
+    if (p === null) continue;
+    const c = p.counts.nodes;
+    const raw: any[] = s.nodes ?? [];
+    running += c.running ?? 0;
     // A gate that is ready (every other node terminal) is work too: the run waits on it, so it is not idle.
-    gates += nodes.filter((n) => n.after_all === true && n.status === "waiting" && nodeReady(s, n)).length;
-    done += nodes.filter((n) => n.status === "done").length;
-    total += nodes.length;
+    gates += p.nodes.filter((n) => n.state === "ready" && raw.some((r) => r.id === n.id && r.after_all === true)).length;
+    done += (c.done ?? 0) + (c.covered ?? 0) + (c.skipped ?? 0);
+    total += c.total ?? 0;
   }
   // Loops and monitors count only when they belong to one of this session's runs and the run has work running.
   const own = (s: any): boolean => mine.has(String(s.run_id ?? s.run ?? "")) && running + gates > 0;
@@ -91,7 +96,7 @@ async function announceOnce(o: Opts, env: NodeJS.ProcessEnv): Promise<number> {
   let sid = env.ANNOUNCE_SID || agentSessionId();
   if (!sid || sid === "unknown") sid = `pid-${process.ppid}`;
   const pane = env.HERDR_PANE_ID ?? "";
-  const { running, gates, done, total, loops, watches } = scan(home, o.runId, sid, pane);
+  const { running, gates, done, total, loops, watches } = await scan(home, o.runId, sid, pane);
   const busy = running + gates + loops + watches;
   let summary = "";
   let active = false;

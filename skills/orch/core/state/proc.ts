@@ -154,3 +154,29 @@ export function jobStatus(jobsHome: string, id: string): string | null {
   }
   return "done exit=unknown (job process gone without an exit code: killed?)";
 }
+
+// Every descendant pid of `pid` (children first found first), read from `ps`. A job's real process (opencode, claude)
+// is often a child outside the job pid's process group, so a group kill alone leaves it running.
+export function descendants(pid: number): number[] {
+  const r = Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
+  if (r.exitCode !== 0) return [];
+  const kids = new Map<number, number[]>();
+  for (const line of r.stdout.toString().split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (!m) continue;
+    const [p, pp] = [Number(m[1]), Number(m[2])];
+    kids.set(pp, [...(kids.get(pp) ?? []), p]);
+  }
+  const all: number[] = [];
+  const queue = [pid];
+  while (queue.length) for (const k of kids.get(queue.shift()!) ?? []) if (!all.includes(k)) (all.push(k), queue.push(k));
+  return all;
+}
+
+// Signals the pid, its process group and the given descendants. Returns the pids it signalled.
+export function signalTree(pid: number, sig: NodeJS.Signals, tree: number[] = descendants(pid)): number[] {
+  try { process.kill(-pid, sig); } catch { /* not a group leader */ }
+  const hit: number[] = [];
+  for (const p of [...tree].reverse().concat(pid)) { try { process.kill(p, sig); hit.push(p); } catch { /* gone */ } }
+  return hit;
+}
