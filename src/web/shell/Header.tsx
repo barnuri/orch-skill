@@ -3,7 +3,7 @@ import { IconButton } from "../components/IconButton";
 import { refreshPage } from "../api/queries";
 import { NAV_LINKS, SECTION_HREF } from "../router/route";
 import type { Route } from "../router/route";
-import { BugReportLink } from "./BugReportLink";
+import { BugReportLink, RepoLink } from "./BugReportLink";
 import { BuildBanner } from "./BuildBanner";
 import { HealthPill } from "../runs/RunHealth";
 import { HerdrChip } from "./HerdrChip";
@@ -59,6 +59,7 @@ export function Header({ route }: { route: Route }) {
           </svg>
         )}
       </IconButton>
+      <RepoLink />
       <BugReportLink />
     </header>
   );

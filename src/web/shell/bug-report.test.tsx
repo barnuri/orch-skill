@@ -1,25 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import repoPackage from "../../../package.json";
-import { bugReportUrl, parseRepoRef } from "./bug-report";
-import { BugReportLink } from "./BugReportLink";
+import { bugReportUrl, parseRepoRef, repoUrl } from "./bug-report";
+import { BugReportLink, RepoLink } from "./BugReportLink";
 
-const ISSUES = "https://github.com/barnuri/orch-skill/issues/new";
+const ISSUES = "https://github.com/barnuri/orch-skill/issues";
 
 describe("bugReportUrl derivation", () => {
-  test("https repository URL with .git gives the new-issue URL", () => {
+  test("https repository URL with .git gives the issues URL", () => {
     expect(bugReportUrl({ repository: "https://github.com/barnuri/orch-skill.git" })).toBe(ISSUES);
   });
 
-  test("git+https object form (package.json style) gives the new-issue URL", () => {
+  test("git+https object form (package.json style) gives the issues URL", () => {
     expect(bugReportUrl({ repository: { type: "git", url: "git+https://github.com/barnuri/orch-skill.git" } })).toBe(ISSUES);
   });
 
-  test("scp-style ssh remote gives the new-issue URL", () => {
+  test("scp-style ssh remote gives the issues URL", () => {
     expect(bugReportUrl({ repository: "git@github.com:barnuri/orch-skill.git" })).toBe(ISSUES);
   });
 
-  test("github: shorthand gives the new-issue URL", () => {
+  test("github: shorthand gives the issues URL", () => {
     expect(bugReportUrl({ repository: "github:barnuri/orch-skill" })).toBe(ISSUES);
   });
 
@@ -67,14 +67,28 @@ describe("parseRepoRef", () => {
   });
 });
 
+describe("RepoLink", () => {
+  test("renders a new-tab anchor to the GitHub repo", () => {
+    const html = renderToStaticMarkup(<RepoLink />);
+    expect(html).toContain('href="https://github.com/barnuri/orch-skill"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('aria-label="Open the GitHub repo in a new tab"');
+    expect(repoUrl(repoPackage)).toBe("https://github.com/barnuri/orch-skill");
+  });
+
+  test("renders nothing when no URL resolves", () => {
+    expect(renderToStaticMarkup(<RepoLink meta={{}} />)).toBe("");
+  });
+});
+
 describe("BugReportLink", () => {
   test("renders a new-tab anchor with rel, aria-label and title for this repo", () => {
     const html = renderToStaticMarkup(<BugReportLink />);
     expect(html).toContain(`href="${ISSUES}"`);
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain('aria-label="Report a bug in a new tab"');
-    expect(html).toContain('title="Report a bug"');
+    expect(html).toContain('aria-label="Open the issues in a new tab"');
+    expect(html).toContain('title="Issues"');
     expect(html).toContain("bug-report");
   });
 
@@ -82,7 +96,7 @@ describe("BugReportLink", () => {
     expect(renderToStaticMarkup(<BugReportLink meta={{}} />)).toBe("");
   });
 
-  test("the package metadata resolves to the GitHub new-issue URL", () => {
+  test("the package metadata resolves to the GitHub issues URL", () => {
     expect(bugReportUrl(repoPackage)).toBe(ISSUES);
   });
 });
