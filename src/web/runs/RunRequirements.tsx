@@ -34,6 +34,20 @@ const TONE: Record<string, string> = {
   not: "err",
 };
 
+const STEPS: ReadonlyArray<[string, string]> = [
+  ["open", "open"],
+  ["in_progress", "in progress"],
+  ["implemented", "implemented"],
+  ["verifying", "verifying"],
+  ["done", "done"],
+];
+
+/** "2 open · 1 in progress · 1 verifying · 20 done": one count per lifecycle step that has any. */
+export function lifecycleSummary(requirements: readonly ProjectionRequirement[]): string {
+  const counts = STEPS.map(([bucket, label]) => [label, requirements.filter((r) => r.bucket === bucket).length] as const).filter(([, n]) => n > 0);
+  return counts.map(([label, n]) => `${n} ${label}`).join(" · ");
+}
+
 /** Run page: one row per requirement with a status chip, linked nodes (done / handoff / unverified) and evidence. Nothing when there is no ledger. */
 export function RequirementsPanel({
   requirements,
@@ -59,7 +73,7 @@ export function RequirementsPanel({
         <button type="button" className="requirements-toggle" aria-expanded={expanded} onClick={toggle}>
           <span aria-hidden="true">{expanded ? "▾" : "▸"}</span> Requirements{" "}
           <span className="muted" aria-live="polite">
-            {open === 0 ? "all closed" : `${open} of ${requirements.length} open`}
+            {open === 0 ? "all closed" : `${open} of ${requirements.length} open (${lifecycleSummary(requirements)})`}
           </span>
         </button>
       </h2>

@@ -60,6 +60,13 @@ async function runGate(home: string, runId: string): Promise<number> {
 
 async function advanceOnce(home: string, runId: string): Promise<number> {
   if (!(await syncQuiet(runId))) return 1;
+  // Requirements move along every pass: finished work -> implemented -> independent verifier -> done, or gap nodes.
+  try {
+    const { advanceRequirements } = await import("./req-flow.ts");
+    await advanceRequirements(home, runId);
+  } catch {
+    // A failed requirement step never stops the scheduler; the next pass retries it.
+  }
   let run = (await loadRun(home, runId))!;
   const planNode = run.plan?.node ?? "";
   if (planNode !== "" && !run.plan?.applied) {

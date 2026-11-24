@@ -54,3 +54,9 @@ describe("RequirementsPanel", () => {
     expect(html).toContain('data-testid="req-status-R2"');
   });
 });
+
+test("lifecycleSummary counts one number per lifecycle step", async () => {
+  const { lifecycleSummary } = await import("./RunRequirements");
+  const rows = [req({ bucket: "open" }), req({ id: "R2", bucket: "verifying" }), req({ id: "R3", bucket: "done" }), req({ id: "R4", bucket: "done" })] as never;
+  expect(lifecycleSummary(rows)).toBe("1 open · 1 verifying · 2 done");
+});

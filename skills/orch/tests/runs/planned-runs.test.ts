@@ -68,12 +68,12 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   o("node", "update", "plan-1", "plan", "done"); // re-check: clears unverified now that the handoff exists
   // The run needs a recorded request, and the merge node's handoff must be newer than its latest attempt.
   o("req", "add", "plan-1", "Integrate the three parts", "--node", "merge", "--id", "R1");
+  // Waived, so the lifecycle does not add a verifier node to this scheduling test.
+  o("req", "status", "plan-1", "R1", "waived", "--reason", "scheduling test");
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--no-finish", "--interval", "1", "--timeout", "60");
   expect(r.rc).toBe(0);
   handoff(home, "plan-1", "merge");
   o("node", "update", "plan-1", "merge", "done");
-  o("req", "evidence", "plan-1", "R1", "--note", "merge handoff written");
-  o("req", "status", "plan-1", "R1", "done", "--force", "--reason", "closed by the test");
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--interval", "1", "--timeout", "60");
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^finished: done$/m);
