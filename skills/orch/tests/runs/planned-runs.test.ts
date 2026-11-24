@@ -71,7 +71,7 @@ test("profile pick, flags, plan apply and advance, msg", async () => {
   // Waived, so the lifecycle does not add a verifier node to this scheduling test.
   o("req", "status", "plan-1", "R1", "waived", "--reason", "scheduling test");
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--no-finish", "--interval", "1", "--timeout", "60");
-  expect(r.rc).toBe(0);
+  expect([0, 3]).toContain(r.rc); // 3: only the gate is left, and --no-finish holds it
   handoff(home, "plan-1", "merge");
   o("node", "update", "plan-1", "merge", "done");
   r = o.env(env, "run", "advance", "plan-1", "--until-done", "--interval", "1", "--timeout", "60");
