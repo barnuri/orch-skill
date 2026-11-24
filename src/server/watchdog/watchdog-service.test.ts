@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import type { RunHealth } from "../../shared/types/run-health";
 import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
+import { ensureMonitors } from "../health/health-watcher";
 import { actionsLog, EARLY_END_MESSAGE, isCliSourceError, isInfraError, orchestratorAbsent, WatchdogService } from "./watchdog-service";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
@@ -483,6 +484,42 @@ describe("watchdog", () => {
     f.set([{ id: "a", status: "done" }]);
     await f.tick();
     expect(f.actions()).toEqual([]);
+    f.home.dispose();
+  });
+
+  test("restart: a new service on the same home re-attaches to the running run, keeps its jobs, restores monitors and repeats no retry", async () => {
+    const f = fixture({ alive: true });
+    f.home.write("jobs/j1/pid", "4242\n");
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [] }, { id: "b", status: "running", attempts: [] }]);
+    await f.tick();
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [] }, { id: "b", status: "error", error: "exit=unknown", attempts: [] }]);
+    await f.tick();
+    expect(f.actions()).toEqual(["node retry r1 b"]);
+    f.dog.stop();
+
+    // The dashboard restarts: a fresh service, the same home, the job still alive.
+    const monitors: string[][] = [];
+    expect(await ensureMonitors(async (args) => (monitors.push([...args]), { code: 0, stdout: "", stderr: "" }), () => undefined)).toBe(true);
+    expect(monitors).toEqual([["run", "health", "--ensure-monitors"]]);
+    const dog2 = new WatchdogService(f.home.path, { now: () => new Date(f.clock.ms), log: () => undefined, health: () => null, pidAlive: (pid) => pid === 4242 });
+    const tick2 = async (): Promise<void> => {
+      dog2.engine.evaluate("r1");
+      await Promise.all([...dog2.inflight, ...dog2.engine.inflight]);
+    };
+    await tick2();
+    // The retry did not land yet: b is still error. The claim from before the restart stops a second retry.
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [] }, { id: "b", status: "running", attempts: [{}] }]);
+    await tick2();
+    f.set([{ id: "a", status: "running", job_id: "j1", owner_kind: "job", attempts: [] }, { id: "b", status: "error", error: "exit=unknown", attempts: [{}] }]);
+    await tick2();
+    f.clock.ms += 300_000;
+    await tick2();
+    expect(f.actions()).toEqual(["node retry r1 b"]);
+    // The running job is never marked lost or stopped, and the counters carry over.
+    expect(f.log().some((x) => x.node === "a")).toBe(false);
+    expect(dog2.status().runs["r1"]?.retried).toBe(1);
+    expect(dog2.status().flags.map((x) => `${x.node}:${x.rule}`)).toEqual(["b:infra-retry"]);
+    dog2.stop();
     f.home.dispose();
   });
 

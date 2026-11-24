@@ -27,6 +27,8 @@ export interface ProfilesSettings {
   coordinator_model?: string;
   /** Tokens after which a coordinator session rotates. Default 200000. */
   coordinator_rotate_tokens?: number;
+  /** Lets an orchestrator start on a `[1m]` model id. Default false: such starts are refused. */
+  coordinator_allow_1m?: boolean;
   /** `sync` and the watchdog kill unambiguous ghost jobs. Default false. */
   auto_kill_ghosts?: boolean;
   /** Folders a chat may run in (absolute, or `~/…`). Default `["~/sandbox/private"]`. */

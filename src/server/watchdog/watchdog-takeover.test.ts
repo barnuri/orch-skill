@@ -1,11 +1,11 @@
 // test-tier: slow (fake-dispatch processes)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { WatchdogAction } from "../../shared/types/watchdog";
 import { TempHome } from "../test-support/temp-home";
-import { actionsLog, orchestratorAbsent, TAKEOVER_EVERY_MS, TAKEOVER_MAX_ATTEMPTS, WatchdogService } from "./watchdog-service";
+import { actionsLog, isReplacement, orchestratorAbsent, TAKEOVER_EVERY_MS, TAKEOVER_MAX_ATTEMPTS, WatchdogService } from "./watchdog-service";
 
 const FAKE = resolve(import.meta.dir, "../test-support/fake-dispatch.ts");
 let prevDispatch: string | undefined;
@@ -66,6 +66,28 @@ describe("orchestrator absence: who may take over", () => {
     expect(orchestratorAbsent({})).toBe(true);
     expect(orchestratorAbsent({ coordinator: { unreachable: { reason: "pane gone", at: "x" } } })).toBe(true);
     expect(orchestratorAbsent({ coordinator: reachable })).toBe(false);
+  });
+
+  test("a session-only orchestrator (register --session) is present while its session is alive", () => {
+    const state = { harness_session: "ses_a", coordinator: { transport: "session", session_id: "ses_a", unreachable: null } };
+    expect(orchestratorAbsent(state, (sid) => sid === "ses_a")).toBe(false);
+    expect(orchestratorAbsent(state, () => false)).toBe(true);
+    expect(orchestratorAbsent(state)).toBe(true);
+  });
+
+  test("a session-only orchestrator: alive means a fresh activity file, so no takeover", async () => {
+    const f = fixture();
+    const coord = { coordinator: { transport: "session", session_id: "ses_a", unreachable: null }, harness_session: "ses_a" };
+    f.home.write("activity/ses_a.json", "{}\n");
+    utimesSync(f.home.resolve("activity/ses_a.json"), new Date(T0), new Date(T0));
+    f.set([{ id: "a", status: "error", error: "boom", attempts: [] }], coord);
+    await f.tick();
+    expect(f.takeover()).toEqual([]);
+    // The session stops writing its activity file: after 2 minutes the supervisor takes over.
+    f.clock.ms = T0 + 121_000;
+    f.set([{ id: "a", status: "error", error: "boom", attempts: [] }], coord);
+    await f.tick();
+    expect(f.takeover().map((a) => a.action)).toContain("run heal");
   });
 
   test("a reachable orchestrator gets no takeover action", async () => {
@@ -135,6 +157,35 @@ describe("takeover: blocked-user, retry, replace and routing", () => {
     const actions = f.takeover().map((a) => `${a.action} ${a.node ?? ""}`.trim());
     expect(actions).toContain("node replace a");
     expect(actions).not.toContain("node retry a");
+  });
+
+  test("a replacement that fails again is not replaced: it waits for the user and the orchestrator is told", async () => {
+    expect(isReplacement("a-r2")).toBe(true);
+    expect(isReplacement("a-r2-r3")).toBe(true);
+    expect(isReplacement("a")).toBe(false);
+    expect(isReplacement("build-run")).toBe(false);
+    const f = fixture();
+    const attempts = Array.from({ length: TAKEOVER_MAX_ATTEMPTS }, () => ({ error: "boom" }));
+    f.set([{ id: "a-r2", status: "error", error: "boom", attempts }], absent);
+    await f.tick();
+    await f.tick();
+    const calls = f.calls();
+    expect(calls.some((c) => c.startsWith("node replace"))).toBe(false);
+    expect(calls).toContain(`node update ${RUN} a-r2 blocked-user --needs-user replacement a-r2 failed after ${TAKEOVER_MAX_ATTEMPTS} attempts: boom`);
+    const tells = calls.filter((c) => c.startsWith(`node tell ${RUN} coordinator`));
+    expect(tells).toHaveLength(1);
+    expect(tells[0]).toContain("Node a-r2 is blocked-user: replacement a-r2 failed");
+    // The node is now blocked-user with that reason: the takeover does not queue the same question twice.
+    f.set([{ id: "a-r2", status: "blocked-user", needs_user: `replacement a-r2 failed after ${TAKEOVER_MAX_ATTEMPTS} attempts: boom`, attempts }], absent);
+    await f.tick();
+    expect(f.calls().filter((c) => c.startsWith(`node tell ${RUN} coordinator`))).toHaveLength(1);
+  });
+
+  test("a replacement with attempts left is still retried", async () => {
+    const f = fixture();
+    f.set([{ id: "a-r2", status: "error", error: "boom", attempts: [] }], absent);
+    await f.tick();
+    expect(f.calls()).toContain(`node retry ${RUN} a-r2`);
   });
 
   test("heal runs at most once per takeover interval", async () => {

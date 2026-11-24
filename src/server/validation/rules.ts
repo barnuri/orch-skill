@@ -34,6 +34,7 @@ export const SETTINGS_KEYS = [
   "auto_kill_ghosts",
   "coordinator_model",
   "coordinator_rotate_tokens",
+  "coordinator_allow_1m",
 ] as const;
 export const LEARNING_KEYS = [
   "auto_record_memory",

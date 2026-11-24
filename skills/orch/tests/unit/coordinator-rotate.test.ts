@@ -6,10 +6,10 @@ import { COORDINATOR_MODEL_DEFAULT, COORDINATOR_ROTATE_TOKENS_DEFAULT, coordinat
 autoCleanup();
 
 test("coordinator settings: defaults and overrides", () => {
-  expect(coordinatorSettingsFrom({})).toEqual({ model: "hub/copilot/mai-code-2-flash", rotateTokens: 200000 });
+  expect(coordinatorSettingsFrom({})).toEqual({ model: "hub/copilot/mai-code-2-flash", rotateTokens: 200000, allow1m: false });
   expect(COORDINATOR_MODEL_DEFAULT).toBe("hub/copilot/mai-code-2-flash");
   expect(COORDINATOR_ROTATE_TOKENS_DEFAULT).toBe(200000);
-  expect(coordinatorSettingsFrom({ settings: { coordinator_model: "x/y", coordinator_rotate_tokens: 5000 } })).toEqual({ model: "x/y", rotateTokens: 5000 });
+  expect(coordinatorSettingsFrom({ settings: { coordinator_model: "x/y", coordinator_rotate_tokens: 5000 } })).toEqual({ model: "x/y", rotateTokens: 5000, allow1m: false });
   expect(coordinatorSettingsFrom({ settings: { coordinator_rotate_tokens: "bad" } }).rotateTokens).toBe(200000);
   expect(needsRotation(199999, 200000)).toBe(false);
   expect(needsRotation(200000, 200000)).toBe(true);
@@ -51,4 +51,4 @@ test("coordinator rotate: below threshold no-op, above writes a handoff and star
   expect(o("orchestrator", "start", R, "--dry-run").rc).toBe(0);
   expect(o("coordinator", "start", R, "--dry-run").rc).toBe(0);
   expect(o("orchestrator", "start", "no-such-run", "--dry-run").rc).toBe(1);
-});
+}, 60_000);

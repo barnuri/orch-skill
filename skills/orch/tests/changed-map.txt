@@ -26,3 +26,6 @@ dispatch.ts     run-lifecycle classify-adapters
 announce        announce
 plan            planned-runs
 inbox           inbox coordinator
+advance         goal-stop-on
+goal            goal-stop-on
+install         install-cli

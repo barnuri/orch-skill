@@ -133,16 +133,26 @@ export interface WatchdogOptions {
   startingAfterMs?: number;
   /** Least time between two `node bind-owners` calls for one run; default OWNERS_EVERY_MS. */
   ownersEveryMs?: number;
+  /** Whether a session-only orchestrator (`orchestrator register --session`) is alive; default: its announce activity file is fresh. */
+  sessionAlive?: (sessionId: string) => boolean;
 }
+
+/** A session counts as alive while its `<home>/activity/<sid>.json` was written in the last SESSION_ALIVE_MS (as `coordSessionAlive`). */
+export const SESSION_ALIVE_MS: number = 120_000;
 
 /**
  * True when the run has no reachable orchestrator: none was ever registered (`coordinator` null), or the
  * registered one is unreachable. Only then does the supervisor take over.
  */
-export function orchestratorAbsent(state: { coordinator?: { session_id?: unknown; unreachable?: unknown } | null; harness_session?: string | null }): boolean {
+export function orchestratorAbsent(
+  state: { coordinator?: { session_id?: unknown; unreachable?: unknown; transport?: unknown } | null; harness_session?: string | null },
+  sessionAlive: (sessionId: string) => boolean = () => false,
+): boolean {
   const coord = state.coordinator;
   if (coord === undefined || coord === null) return true;
   const registered = typeof coord.session_id === "string" ? coord.session_id : "";
+  // Registered with `--session` only (no terminal): present while that session is alive.
+  if (coord.transport === "session") return registered === "" || !sessionAlive(registered);
   const active = typeof state.harness_session === "string" ? state.harness_session : "";
   if (registered !== "" && registered === active) return false;
   return (coord.unreachable ?? null) !== null;
@@ -177,6 +187,11 @@ function defaultPidAlive(pid: number): boolean {
   } catch (err) {
     return err instanceof Error && "code" in err && err.code === "EPERM";
   }
+}
+
+/** True for a node made by `node replace` (id ends in `-r<N>`). */
+export function isReplacement(nodeId: string): boolean {
+  return /-r\d+$/.test(nodeId);
 }
 
 function readText(path: string): string | null {
@@ -289,6 +304,7 @@ export class WatchdogService {
   private readonly lostAfterMs: number;
   private readonly startingAfterMs: number;
   private readonly ownersEveryMs: number;
+  private readonly sessionAlive: (sessionId: string) => boolean;
   private readonly reconciledAt = new Map<string, number>();
   private readonly reconcileBusy = new Set<string>();
   private readonly coordAt = new Map<string, number>();
@@ -319,6 +335,10 @@ export class WatchdogService {
     this.lostAfterMs = opts.lostAfterMs ?? LOST_AFTER_MS;
     this.startingAfterMs = opts.startingAfterMs ?? STARTING_AFTER_MS;
     this.ownersEveryMs = opts.ownersEveryMs ?? OWNERS_EVERY_MS;
+    this.sessionAlive = opts.sessionAlive ?? ((sid): boolean => {
+      const at = mtimeMs(join(home, "activity", `${sid}.json`));
+      return at !== null && this.now().getTime() - at < SESSION_ALIVE_MS;
+    });
     const paths = orchPaths(home);
     this.health = opts.health ?? ((runId): RunHealth | null => healthWatcherFor(paths).latest(runId)?.health ?? null);
     this.engine = new RunEngine(home, {
@@ -409,7 +429,7 @@ export class WatchdogService {
       }
     }
     this.checkFinish(runId, state, nodes);
-    if (orchestratorAbsent(state)) {
+    if (orchestratorAbsent(state, (sid) => this.sessionAlive(sid))) {
       this.takeover(runId, state, nodes);
     }
     this.syncRun(runId);
@@ -464,6 +484,17 @@ export class WatchdogService {
       return;
     }
     const replace = attempts >= TAKEOVER_MAX_ATTEMPTS;
+    // A replacement that fails again is not replaced: that grew chains like x-r2-r2-r2-r2. The user decides.
+    if (replace && isReplacement(node.id)) {
+      const reason = `replacement ${node.id} failed after ${attempts} attempts: ${error || "no error text"}`;
+      // queueQuestion would tell the same question again once the node is blocked-user: claim its key now.
+      this.claim(runId, `blocked-${node.id}@${createHash("sha1").update(reason).digest("hex").slice(0, 12)}`);
+      this.chain(runId, node.id, async () => {
+        await this.act(runId, node.id, "takeover", ["node", "update", runId, node.id, "blocked-user", "--needs-user", reason], "replacement failed again: needs the user");
+        await this.act(runId, node.id, "takeover", ["node", "tell", runId, "coordinator", `Node ${node.id} is blocked-user: ${reason}`, "--from", "watchdog"], "orchestrator told");
+      });
+      return;
+    }
     this.chain(runId, node.id, async () => {
       if (replace) {
         await this.act(runId, node.id, "takeover", ["node", "replace", runId, node.id], `${attempts} attempts used: same goal and profile in a new node`);
