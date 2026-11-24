@@ -6,7 +6,10 @@ import { jsonResponse, notFound } from "../http/responses";
 import type { ServerContext } from "../types/server-context";
 import { readRun } from "./runs-reader";
 
-const OK = ["done", "handled", "superseded", "waived"];
+const OK = ["done", "superseded", "waived"];
+// Same mapping as `normReq` in skills/orch/core/commands/req.ts: old statuses are read as their new names, never rewritten.
+const LEGACY: Record<string, string> = { not: "open", partly: "in_progress", handled: "implemented" };
+const normStatus = (s: unknown): string => LEGACY[String(s ?? "not")] ?? String(s ?? "not");
 
 function handoffExists(dir: string): boolean {
   try {
@@ -39,9 +42,9 @@ export function readRequirementsHandler(ctx: ServerContext): RouteHandler {
     const requirements: RequirementView[] = raw.map((r) => ({
       id: String(r.id),
       text: String(r.text ?? ""),
-      status: String(r.status ?? "not"),
+      status: normStatus(r.status),
       reason: r.reason ?? null,
-      ok: OK.includes(r.status),
+      ok: OK.includes(normStatus(r.status)),
       evidence: Array.isArray(r.evidence) ? r.evidence : [],
       nodes: (Array.isArray(r.nodes) ? r.nodes : []).map((nid: string) => {
         const n = nodes.find((x) => x.id === nid);

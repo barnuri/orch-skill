@@ -3,6 +3,8 @@
 // Every finding names its rule, the requirement or node, and the fact that triggered it.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { closureProblems } from "../skills/orch/core/runs/closure.ts";
+import { REQ_LEGACY, normReq } from "../skills/orch/core/commands/req.ts";
 
 interface Node { id: string; status?: string; label?: string; role?: string; profile?: string; error?: string; unverified?: boolean; covered_by?: string; result?: { verdict?: string; summary?: string; follow_up?: string; settled?: string; settled_follow_up?: string | null } }
 interface Req { id: string; text: string; status: string; reason?: string | null; nodes: string[]; evidence: Array<{ note: string }>; implemented_by?: string[]; verifier?: string | null; forced?: string | null }
@@ -34,19 +36,33 @@ export function overlap(requirement: string, handoff: string): number {
 
 export function auditRun(home: string, run: string): { findings: Finding[]; reqs: Req[]; nodes: Node[] } {
   const dir = join(home, "runs", run);
-  const state = JSON.parse(readFileSync(join(dir, "state.json"), "utf8")) as { nodes: Node[] };
+  const state = JSON.parse(readFileSync(join(dir, "state.json"), "utf8")) as { status?: string; nodes: Node[] };
   const ledgerFile = join(dir, "requirements.json");
-  const reqs = existsSync(ledgerFile) ? (JSON.parse(readFileSync(ledgerFile, "utf8")) as { requirements: Req[] }).requirements : [];
+  const rawReqs = existsSync(ledgerFile) ? (JSON.parse(readFileSync(ledgerFile, "utf8")) as { requirements: Req[] }).requirements : [];
+  const out: Finding[] = [];
+  const add = (f: Finding): void => void out.push(f);
+
+  // Read through the same mapping as `req list`: the stored value is reported, the read value is judged.
+  for (const r of rawReqs) {
+    if (Object.hasOwn(REQ_LEGACY, r.status)) {
+      add({ rule: "legacy-requirement-status", severity: "medium", subject: r.id, fact: `${r.id} is stored as "${r.status}" and is read as "${normReq(r.status)}"`, action: `restate it: dispatch.ts req status ${run} ${r.id} ${normReq(r.status)}` });
+    }
+  }
+  const reqs = rawReqs.map((r) => ({ ...r, status: normReq(r.status) }));
+
+  if (state.status === "done") {
+    const open = closureProblems(state);
+    if (open.length > 0) add({ rule: "run-closed-with-open-nodes", severity: "high", subject: run, fact: `run ${run} is done while ${open.join("; ")}`, action: `reopen it or finish the open nodes: dispatch.ts node update ${run} <node> waiting --force` });
+  }
+
   const nodeById = new Map(state.nodes.map((n) => [n.id, n]));
   const handoff = (id: string): string => {
     const f = join(dir, "out", id, "handoff.md");
     return existsSync(f) ? readFileSync(f, "utf8") : "";
   };
-  const out: Finding[] = [];
-  const add = (f: Finding): void => void out.push(f);
 
   for (const r of reqs) {
-    const closed = ["done", "handled", "superseded", "waived"].includes(r.status);
+    const closed = ["done", "superseded", "waived"].includes(r.status);
     const linked = r.nodes.map((id) => nodeById.get(id)).filter((n): n is Node => n !== undefined);
     if (closed && (r.forced || /settled|takeover|settle/i.test(String(r.reason ?? "")) || r.evidence.every((e) => /settled|takeover|settle|routine evidence/i.test(e.note)))) {
       add({ rule: "closed-without-check", severity: "high", subject: r.id, fact: `${r.id} "${r.text}" is ${r.status} only because a person or \`run settle\` closed it (${String(r.forced ?? r.reason ?? "").slice(0, 100)}); no independent verifier passed it`, action: `check the work yourself, then \`req verify\` it, or reopen it: req status ${run} ${r.id} in_progress` });
