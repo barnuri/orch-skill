@@ -674,7 +674,7 @@ export async function coordinatorRecord(home: string, run: string): Promise<numb
     sid = coordinatorSessionId(coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout), process.env);
   }
   const rc = await mutateRun(home, run, (r, ctx) => {
-    r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true };
+    r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true, started_by: coordinatorStarter() };
     ctx.events.push({ at: ctx.now, kind: "note", node: null, from: null, to: null, note: `coordinator set: pane ${pane}`, by: ctx.by });
   });
   if (rc !== 0) return rc;
@@ -685,9 +685,22 @@ export async function coordinatorRecord(home: string, run: string): Promise<numb
 
 // Records the coordinator when the calling env has one; silent otherwise.
 export async function coordinatorAutoRecord(home: string, run: string): Promise<void> {
-  if (!herdrEnvPresent() && !process.env.HC_TERMINAL_ID) return;
-  const state = await loadRun(home, run);
-  if (!state) return;
+  const state0 = await loadRun(home, run);
+  if (!state0) return;
+  if (!herdrEnvPresent() && !process.env.HC_TERMINAL_ID) {
+    // No terminal, only a harness session: record it so watchdog messages have an orchestrator and queue in the inbox instead of going to "none".
+    const sid = process.env.OPENCODE_SESSION_ID || process.env.CLAUDE_CODE_SESSION_ID || "";
+    const have = state0.coordinator;
+    if (sid && !have?.session_id && !process.env.ORCH_NODE_ID) {
+      await mutateRun(home, run, (r, ctx) => {
+        r.harness_session = sid;
+        r.coordinator = { transport: "session", pane_id: "", socket_path: "", workspace_id: "", session_id: sid, at: ctx.now, unreachable: null, candidates: null, backlog_pending: false, started_by: coordinatorStarter() };
+        ctx.events.push({ at: ctx.now, kind: "note", node: null, from: null, to: null, note: `coordinator set: session ${sid} (no terminal)`, by: ctx.by });
+      });
+    }
+    return;
+  }
+  const state = state0;
   const c = state.coordinator;
   if (c?.session_id && (await coordSessionAlive(home, c.session_id, c.socket_path ?? (herdrEnvPresent() ? process.env.HERDR_SOCKET_PATH! : HC_SOCK)))) return;
   const w = process.stdout.write;
@@ -864,6 +877,8 @@ export async function coordDeliver(home: string, run: string, path: string): Pro
   if (!c) return "none";
   const m = await readMsg(path);
   if (m.delivered_at) return "delivered";
+  // A session-only coordinator has no pane to type into: the message waits in the inbox for the session to read.
+  if (c.transport === "session") return coordCountTry(path, "coordinator is a session without a terminal; read the inbox");
   let status = await coordPaneStatus(c);
   if (status === "gone" && (await coordTryRepoint(home, run))) {
     c = await coordOf(home, run);
@@ -921,4 +936,8 @@ export async function cmdRunRepoint(args: string[]): Promise<number> {
   if ((await coordRepoint(home, run, row, "chosen by user")) !== 0) return 1;
   out(`repointed: ${run} ${pane}\n`);
   return 0;
+}
+/** Who registers the coordinator: "orch" inside a job that orch launched as the orchestrator, else "person". */
+export function coordinatorStarter(env: Record<string, string | undefined> = process.env): "orch" | "person" {
+  return env.ORCH_NODE_ID === "coordinator" && (env.ORCH_COORDINATOR_JOB ?? "") !== "" ? "orch" : "person";
 }

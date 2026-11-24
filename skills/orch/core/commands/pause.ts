@@ -3,12 +3,12 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { orchHome, paths } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
-import { pidAlive, sleep } from "../state/proc.ts";
+import { descendants, pidAlive, signalTree, sleep } from "../state/proc.ts";
 import { closeJobTab } from "../adapters/herdr.ts";
 import { ev, findNode, segClose, setStatus } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
 import { dispatchNodeJob } from "./dispatch.ts";
-import { coordinatorRecord, coordinatorAutoRecord, coordSweep } from "./inbox.ts";
+import { coordinatorRecord, coordinatorAutoRecord, coordSweep, coordinatorStarter } from "./inbox.ts";
 import { healthMonitorAutostart } from "./health.ts";
 
 const RUN_PAUSE_USAGE = "dispatch.ts run pause <run-id>";
@@ -75,7 +75,7 @@ export async function coordinatorRegister(args: string[]): Promise<number> {
 async function coordinatorRegisterSession(home: string, run: string, session: string): Promise<number> {
   const rc = await mutateRun(home, run, (r, ctx) => {
     r.harness_session = session;
-    r.coordinator = { transport: "session", pane_id: "", socket_path: "", workspace_id: "", session_id: session, at: ctx.now, unreachable: null, candidates: null, backlog_pending: false };
+    r.coordinator = { transport: "session", pane_id: "", socket_path: "", workspace_id: "", session_id: session, at: ctx.now, unreachable: null, candidates: null, backlog_pending: false, started_by: coordinatorStarter() };
     note(ctx, `coordinator set: session ${session} (no terminal)`);
   });
   if (rc === 0) out(`coordinator: ${run} session ${session}\n`);
@@ -115,11 +115,13 @@ function jobPid(home: string, job: string): number {
 export async function stopKillJob(home: string, job: string): Promise<boolean> {
   const pid = job ? jobPid(home, job) : 0;
   if (!pid || !pidAlive(pid)) return false;
-  const sig = (s: NodeJS.Signals) => { try { process.kill(-pid, s); } catch { try { process.kill(pid, s); } catch { /* gone */ } } };
-  sig("SIGTERM");
-  for (let i = 0; pidAlive(pid) && i < STOP_GRACE() * 10; i++) await sleep(100);
+  // The tree is read once: after the wrapper dies its children are re-parented and no longer found from it.
+  const tree = descendants(pid);
+  const alive = () => pidAlive(pid) || tree.some((p) => pidAlive(p));
+  signalTree(pid, "SIGTERM", tree);
+  for (let i = 0; alive() && i < STOP_GRACE() * 10; i++) await sleep(100);
   let code = 143;
-  if (pidAlive(pid)) { sig("SIGKILL"); code = 137; }
+  if (alive()) { signalTree(pid, "SIGKILL", tree); code = 137; }
   // A job killed before its wrapper installed the signal handler leaves no exit code: record the one the signal gives.
   const ec = join(paths.jobs(home), job, "exit_code");
   if (!existsSync(ec)) { try { writeFileSync(ec, `${code}\n`); } catch { /* job dir gone */ } }

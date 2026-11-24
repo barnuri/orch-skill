@@ -64,6 +64,14 @@ test("health classes, text, events, nudge", () => {
   expect(fx.calls().match(/prompt/g)!.length).toBe(2);
 });
 
+test("a failed nudge still waits the gap before the next try", () => {
+  const { o, R } = setup();
+  o.in(ndjson([{ op: "add", id: "stall", label: "S" }, { op: "update", id: "stall", status: "running", owner: "ses_stall1" }]), "node", "batch", R);
+  writeFileSync(join(fx.dir, "calls"), "");
+  for (let i = 0; i < 3; i++) o.env({ OC_FAIL: "1" }, "run", "health", R, "--nudge");
+  expect(fx.calls().match(/prompt/g)!.length).toBe(1);
+});
+
 test("ready set and slots", () => {
   const { o, hj, hOf, R } = setup();
   o.in(ndjson([

@@ -52,7 +52,10 @@ test("orchestrator check: rotates at the threshold, refuses [1m] without the set
   expect(o(db, "orchestrator", "check", R).out).toBe("no session\n");
 
   // Register a coordinator session in state.
-  editJson(join(home, "runs", R, "state.json"), (s) => { s.coordinator = { transport: "session", pane_id: "", session_id: "ses_coord1", unreachable: null }; });
+  // A person's own session is never rotated: rotation would start a second orchestrator beside it.
+  editJson(join(home, "runs", R, "state.json"), (s) => { s.coordinator = { transport: "session", pane_id: "", session_id: "ses_coord1", unreachable: null, started_by: "person" }; });
+  expect(o(db, "orchestrator", "check", R).out).toBe("not orch-started: no rotation\n");
+  editJson(join(home, "runs", R, "state.json"), (s) => { s.coordinator = { transport: "session", pane_id: "", session_id: "ses_coord1", unreachable: null, started_by: "orch" }; });
   expect(o(db, "orchestrator", "check", R).out).toBe("ok: 900 < 1000\n");
 
   // Above the threshold: handoff written, fresh orchestrator started (dry run prints argv).
@@ -122,4 +125,11 @@ test("rotation timer runs one check per candidate and does not stack a busy run"
   stop();
   release();
   expect(calls).toEqual([["orchestrator", "check", "r1"]]);
+});
+
+test("coordinatorStarter: orch only inside an orch-launched coordinator job", async () => {
+  const { coordinatorStarter } = await import("../../core/commands/inbox.ts");
+  expect(coordinatorStarter({})).toBe("person");
+  expect(coordinatorStarter({ ORCH_NODE_ID: "coordinator" })).toBe("person");
+  expect(coordinatorStarter({ ORCH_NODE_ID: "coordinator", ORCH_COORDINATOR_JOB: "/j" })).toBe("orch");
 });

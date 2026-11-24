@@ -98,6 +98,7 @@ async function launch(home: string, run: string, handoff: string | null, dry: bo
   mkdirSync(jobDir, { recursive: true });
   process.env.ORCH_RUN_ID = run;
   process.env.ORCH_NODE_ID = "coordinator";
+  process.env.ORCH_COORDINATOR_JOB = jobDir;
   // The coordinator needs the provider definition that the chip profile carries, or its model is unknown.
   // The job's launcher exports whatever env.json holds, so the config reaches opencode.
   const cfg = ((await loadProfilesDoc(home)) as any)?.profiles?.["opencode-chip-exec"]?.env?.OPENCODE_CONFIG_CONTENT;
@@ -146,8 +147,12 @@ export async function coordinatorCheck(args: string[]): Promise<number> {
   const home = orchHome();
   const st = await loadRun(home, run);
   if (!st) return err(`orchestrator check: no run ${run}\n`, 1);
-  const session = (st.coordinator as { session_id?: unknown } | null | undefined)?.session_id;
+  const coord = st.coordinator as { session_id?: unknown; started_by?: unknown } | null | undefined;
+  const session = coord?.session_id;
   if (typeof session !== "string" || !session) return out("no session\n");
+  // Only an orchestrator that orch launched is rotated. A person's own session (interactive, registered by hand) is never
+  // replaced: a rotation there starts a second orchestrator beside a live one.
+  if (coord?.started_by !== "orch") return out("not orch-started: no rotation\n");
   const { rotateTokens } = coordinatorSettingsFrom(await loadProfilesDoc(home));
   const tokens = latestPromptTokens(session);
   if (tokens === null) return out("unknown\n");

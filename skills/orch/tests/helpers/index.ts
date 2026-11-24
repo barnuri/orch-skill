@@ -191,7 +191,7 @@ export const events = (home: string, run: string) =>
 export async function opencodeFixture() {
   const { Database } = await import("bun:sqlite");
   const dir = tempDir("orch-oc-");
-  const bin = fakeBin({ opencode: `echo "$*" >> "${dir}/calls"\necho '{"data":{"id":"msg_1"}}'` });
+  const bin = fakeBin({ opencode: `echo "$*" >> "${dir}/calls"\n[ -n "$OC_FAIL" ] && exit 1\necho '{"data":{"id":"msg_1"}}'` });
   const db = join(dir, "opencode.db");
   const now = Date.now(), old = now - 40 * 60 * 1000;
   const d = new Database(db);

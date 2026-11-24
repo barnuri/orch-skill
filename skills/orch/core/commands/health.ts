@@ -211,12 +211,13 @@ export async function healthPass(home: string, run: string, nudge: boolean): Pro
   const line = classify(r, run, now, stallMin * 60, gap, sessionIndex(), prevSnap ?? {}, await maxParallel(home));
   let sent: string[] = [];
   if (nudge && line._nudge.length > 0) {
+    // Every attempt counts against the gap, sent or not: a failing `opencode api` call (busy port, dead server) was
+    // retried on every pass, about 20 opencode processes a minute (measured 2026-11-24).
+    const tried = (line._nudge as any[]).map((x) => x.node as string);
     sent = await sendNudges(home, run, line);
-    if (sent.length) {
-      for (const n of sent) line._nudged[n] = now;
-      line.nudged = sent;
-      line._nudge = line._nudge.filter((x: any) => !sent.includes(x.node));
-    }
+    for (const n of tried) line._nudged[n] = now;
+    if (sent.length) line.nudged = sent;
+    line._nudge = [];
   }
   if (line.changes.length > 0) await appendHealthEvents(home, run, line.changes.map((c: any) => ["health", c.node ?? "", c.from ?? "", c.to ?? "", c.note]));
   await Bun.write(`${snapF}.tmp.${process.pid}`, JSON.stringify(line) + "\n");
