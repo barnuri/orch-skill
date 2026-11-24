@@ -73,12 +73,12 @@ function SuggestionCard({
           <Chip status={item.kind} />
           <Chip status={item.status} />
         </div>
-        <h2 className="suggestion-title">{item.title}</h2>
+        <h2 className="suggestion-title">{item.title ?? `${item.kind}: ${String((item as { signature?: string }).signature ?? item.id)}`}</h2>
       </div>
-      <p className="suggestion-reason">{item.reason}</p>
+      <p className="suggestion-reason">{item.reason ?? learnedReason(item)}</p>
       {preview === null ? null : <p className="suggestion-preview muted">{preview}</p>}
       <div className="suggestion-evidence">
-        {item.evidence
+        {runRefs(item)
           .filter((ref) => ref.type === "run" && ref.id !== undefined)
           .map((ref) => (
             <a key={ref.id} className="text-link" href={`#/run/${encodeURIComponent(ref.id ?? "")}`}>
@@ -107,6 +107,17 @@ function SuggestionCard({
 }
 
 /** The `#/suggestions` page: what the learning scan proposes, with filters, apply and dismiss. */
+/** Learned `orch-fix` entries carry `runs` and `count` instead of `reason` and `evidence`. */
+function learnedReason(item: Suggestion): string {
+  const learned = item as unknown as { count?: number; runs?: string[] };
+  return learned.count === undefined ? "" : `Seen ${learned.count} times in ${learned.runs?.length ?? 0} runs.`;
+}
+
+function runRefs(item: Suggestion): ReadonlyArray<{ type: string; id?: string }> {
+  const learned = item as unknown as { runs?: string[] };
+  return item.evidence ?? (learned.runs ?? []).map((id) => ({ type: "run", id }));
+}
+
 export function SuggestionsPage() {
   const toast = useToast();
   const query = useDocument("suggestions");
