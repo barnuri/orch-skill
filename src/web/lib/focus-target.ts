@@ -30,7 +30,7 @@ export function focusTarget(run: RunState): FocusTarget | null {
     return { nodeIds: failed.map((node) => node.id), primary: (latest ?? failed[0]!).id, reason: "failed" };
   }
 
-  const settled = new Set(run.nodes.filter((node) => node.status === "done" || node.status === "skipped").map((node) => node.id));
+  const settled = new Set(run.nodes.filter((node) => node.status === "done" || node.status === "skipped" || node.status === "covered").map((node) => node.id));
   const needs = new Map<string, string[]>();
   for (const [from, to] of run.edges) {
     needs.set(to, [...(needs.get(to) ?? []), from]);

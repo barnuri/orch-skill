@@ -63,7 +63,7 @@ function recordZoom(scale: number): void {
 }
 
 /** Nodes the Hide done toggle removes from the graph: finished and skipped ones. */
-const isHiddenByToggle = (status: string): boolean => status === "done" || status === "skipped";
+const isHiddenByToggle = (status: string): boolean => status === "done" || status === "skipped" || status === "covered";
 
 function fitScale(viewport: HTMLElement, w: number, h: number): number {
   if (w <= 0 || h <= 0) {
@@ -424,7 +424,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
           className={`btn graph-tool${view.hideDone ? " is-on" : ""}`}
           type="button"
           aria-pressed={view.hideDone}
-          title="Hide the nodes that are done or skipped"
+          title="Hide the nodes that are done, covered or skipped"
           aria-label="Hide done nodes"
           onClick={() => {
             view.hideDone = !view.hideDone;

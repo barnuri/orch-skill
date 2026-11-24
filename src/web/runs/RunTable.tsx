@@ -10,6 +10,7 @@ import { useNow } from "./use-now";
 import { viewStateFor } from "./GraphViewport";
 import { saveGraphHideDone } from "../lib/graph-prefs";
 import { RetryNodeButton } from "./NodePanel";
+import { coveredHref, coveredTarget } from "../lib/covered-node";
 
 /** Graph | Table switch. */
 export function ViewSwitch({ view, onChange }: { view: RunView; onChange: (view: RunView) => void }) {
@@ -36,6 +37,17 @@ function download(name: string, text: string): void {
 function Cell({ row, col, nowMs, runId }: { row: TableRow; col: string; nowMs: number; runId: string }) {
   switch (col) {
     case "status":
+      if (row.node?.status === "covered") {
+        const target = coveredTarget(runId, row.node);
+        if (target !== null) {
+          return (
+            <span>
+              <Chip status="covered">covered</Chip>{" "}
+              <a className="covered-link" href={coveredHref(runId, row.node) ?? undefined}>covered by {target.nodeId}</a>
+            </span>
+          );
+        }
+      }
       return <Chip status={row.status} />;
     case "warn":
       return row.node === null || row.warnings.length === 0 ? <span className="muted">—</span> : (
