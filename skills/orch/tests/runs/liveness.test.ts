@@ -62,6 +62,8 @@ test("verify-owners classifies and applies", () => {
   expect(evs).toMatch(/"to":"error".*owner ses_gone is gone/);
   expect(evs).toMatch(/"kind":"owner"/);
   writeFileSync(join(o("node", "out", R, "idle").out.trim(), "handoff.md"), "handoff\n");
+  // A done node needs a recorded result too, or it is flagged unverified.
+  o("node", "result", R, "idle", "--verdict", "full", "--summary", "ok", "--follow-up", "none");
   o("node", "update", R, "idle", "done");
   expect([nd("idle").status, nd("idle").unverified ?? null]).toEqual(["done", null]);
   const b = o("node", "brief", R, "busy").out;

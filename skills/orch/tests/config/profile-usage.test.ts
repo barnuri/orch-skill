@@ -11,10 +11,10 @@ function setup() {
     p.settings.disabled_harnesses = [];
     p.models = { "m-s": { slug: "sonnet", harnesses: ["claude", "opencode"] } };
     p.profiles = {
-      "p-both": { harness: "claude", model: "m-s", priority: 5 },
+      "p-both": { harness: "claude", model: "m-s", priority: 5, usage: ["chat", "runs"] },
       "p-chat": { harness: "claude", model: "m-s", priority: 9, usage: ["chat"] },
       "p-runs": { harness: "claude", model: "m-s", priority: 1, usage: ["runs"] },
-      "p-oc": { harness: "opencode", model: "m-s" },
+      "p-oc": { harness: "opencode", model: "m-s", usage: ["chat", "runs"] },
     };
   });
   const bin = fakeBin({ claude: `printf '{"result":"OK","is_error":false,"total_cost_usd":0}'`, opencode: "echo hi" });
@@ -45,7 +45,8 @@ test("set-usage commands write through the state writer and validate", () => {
   expect(o("profile", "set-usage", "p-both", "runs").out).toContain("usage = runs");
   expect(readJson(file).profiles["p-both"].usage).toEqual(["runs"]);
   expect(o("profile", "set-usage", "p-both", "both").rc).toBe(0);
-  expect(readJson(file).profiles["p-both"].usage).toBeUndefined();
+  // "both" is stored as an explicit list: a profile with no usage field defaults to orch runs only.
+  expect(readJson(file).profiles["p-both"].usage).toEqual(["chat", "runs"]);
   expect(o("profile", "set-usage", "nope", "chat").rc).toBe(2);
   expect(o("profile", "set-usage", "p-both", "sometimes").rc).toBe(2);
   expect(o("harness", "set-usage", "nope", "chat").rc).toBe(2);
@@ -57,7 +58,7 @@ test("set-usage commands write through the state writer and validate", () => {
 test("defaults.usage is inherited, and both stays explicit when the default narrows it", () => {
   const { home, o } = setup();
   const file = join(home, "profiles.json");
-  editJson(file, (p) => { p.defaults = { ...(p.defaults ?? {}), usage: ["runs"] }; });
+  editJson(file, (p) => { p.defaults = { ...(p.defaults ?? {}), usage: ["runs"] }; delete p.profiles["p-both"].usage; });
   expect(o("profile", "list", "--for", "chat").out).toContain("p-chat");
   expect(o("profile", "list", "--for", "chat").out).not.toContain("p-both");
   o("profile", "set-usage", "p-both", "both");
@@ -125,8 +126,8 @@ test("harness list --json carries usage", () => {
   expect(out.harnesses.find((h: any) => h.id === "claude").usage).toEqual(["chat", "runs"]);
 });
 
-test("the committed template stays generic: no usage limits", () => {
+test("the committed template stays generic: valid per-profile usage, no harness usage limits", () => {
   const tpl = readJson(join(import.meta.dir, "../../templates/profiles.json"));
-  expect(JSON.stringify(tpl)).not.toContain('"usage"');
+  for (const p of Object.values<any>(tpl.profiles)) expect(["chat", "runs"].filter((u) => (p.usage ?? []).includes(u)).length).toBe((p.usage ?? []).length);
   expect(JSON.stringify(tpl)).not.toContain("harness_usage");
 });
