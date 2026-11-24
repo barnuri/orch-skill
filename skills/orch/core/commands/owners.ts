@@ -336,7 +336,8 @@ export function applyOwnerState(run: RunState, ctx: Ctx, node: string, state: st
       ctx.by = by;
       setStatus(run, node, "done", "", "", "", "", ctx);
       n.auto = true;
-      n.unverified = true;
+      // A node whose agent already recorded its own result was reviewed; the owner stopping adds nothing to check.
+      n.unverified = n.reviewed === true && n.result != null && n.result.verdict !== "unknown" ? null : true;
       ensureResult(run, node, ctx);
       n.owner_state = "finished";
       n.owner_checked = now;

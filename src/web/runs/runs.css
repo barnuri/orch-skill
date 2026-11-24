@@ -396,3 +396,7 @@ main:has(.run-page) { max-width: none; }
 .node-terminal .node-panel-head { gap: var(--s2); flex-wrap: wrap; }
 .marker-summary-btn[data-code="ready"] { color: var(--status-done); }
 .marker-summary-btn[data-code="ready"].is-on { background: var(--status-done-bg); box-shadow: inset 0 0 0 1px var(--status-done-bd); }
+
+/* Node ids in the review banner: inline links that select the node. */
+.run-stale-banner .link-btn { background: none; border: 0; padding: 0; color: var(--acct); font: inherit; cursor: pointer; text-decoration: underline; }
+.run-stale-banner .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

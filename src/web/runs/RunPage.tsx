@@ -15,7 +15,7 @@ import type { RunEvent } from "../../shared/types/run-event";
 import type { Metric } from "../lib/node-metrics";
 import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
-import { FINISHED_BY_OWNER, hasUnreviewed } from "../lib/node-flags";
+import { hasUnreviewed, unreviewedNodes } from "../lib/node-flags";
 import { ActivityFeed, Ago } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunProjection, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
@@ -286,12 +286,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         <RequirementsPanel requirements={projection?.requirements ?? []} onSelect={setSelected} />
         <NextActions actions={projection?.next_actions ?? []} onSelect={setSelected} />
         <RunOverview runId={run.run_id} onSelect={setSelected} />
-        {hasUnreviewed(run.nodes) ? (
-          <div className="notice warn run-stale-banner" role="status">
-            <b>{FINISHED_BY_OWNER}</b>
-            <span>One or more nodes are done only because their owner stopped. Review them before relying on the result.</span>
-          </div>
-        ) : null}
+        {hasUnreviewed(run.nodes) ? <UnreviewedBanner nodes={unreviewedNodes(run.nodes)} onSelect={setSelected} /> : null}
       </div>
       <div className="layout run-layout">
         {runView === "table" ? (
@@ -352,4 +347,22 @@ export function RunPage({ runId }: { runId: string }) {
     );
   }
   return <RunBody key={run.run_id} run={run} live={query.isError ? "offline" : query.live} />;
+}
+
+/** One line naming the done nodes that need a review and why; a click selects the node. */
+function UnreviewedBanner({ nodes, onSelect }: { nodes: Array<{ id: string; reason: string }>; onSelect: (id: string) => void }) {
+  return (
+    <div className="notice warn run-stale-banner" role="status">
+      <b>{nodes.length === 1 ? "1 node needs review" : `${nodes.length} nodes need review`}</b>
+      <span>
+        {nodes.slice(0, 5).map((n, i) => (
+          <span key={n.id}>
+            {i > 0 ? ", " : ""}
+            <button type="button" className="link-btn" onClick={() => onSelect(n.id)}>{n.id}</button> ({n.reason})
+          </span>
+        ))}
+        {nodes.length > 5 ? `, ${nodes.length - 5} more` : ""}. A recorded result (`node result`) clears it.
+      </span>
+    </div>
+  );
 }

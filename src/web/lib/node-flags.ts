@@ -69,10 +69,21 @@ export interface OwnerChip {
 
 export const FINISHED_BY_OWNER = "finished by owner, unreviewed";
 
+/** Why a done node still needs a review, or null when it does not (not flagged, or already reviewed). */
+export function reviewReason(node: RunNode): string | null {
+  if (node.status !== "done" || node.unverified !== true || node.reviewed === true) return null;
+  if (node.owner_state === "finished") return "finished by owner";
+  if (typeof node.result_reason === "string" && node.result_reason !== "") return "no result recorded";
+  if (typeof node.handoff_reason === "string" && node.handoff_reason !== "") return "no handoff";
+  return "not reviewed";
+}
+
 /** A words-only chip for the owner's state; existing chip classes only. Null when there is nothing to say. */
 export function ownerChip(node: RunNode): OwnerChip | null {
-  if (node.status === "done" && node.unverified === true) {
-    return { cls: "stale", text: FINISHED_BY_OWNER, title: "The owner stopped and said it was done. Nobody has reviewed the result." };
+  const why = reviewReason(node);
+  if (why !== null) {
+    const detail = node.result_reason ?? node.handoff_reason ?? "The owner stopped and said it was done.";
+    return { cls: "stale", text: `${why}, unreviewed`, title: `${detail} Nobody has reviewed the result.` };
   }
   if (node.status === "error" && node.owner_state === "gone") {
     return { cls: "error", text: "owner gone", title: "The owner no longer exists" };
@@ -146,9 +157,17 @@ export function holdReason(node: RunNode): string | null {
   return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : null;
 }
 
-/** True when any node is done only because its owner said so. */
+/** Done nodes that still need a review, each with its reason. */
+export function unreviewedNodes(nodes: readonly RunNode[]): Array<{ id: string; reason: string }> {
+  return nodes.flatMap((n) => {
+    const reason = reviewReason(n);
+    return reason === null ? [] : [{ id: n.id, reason }];
+  });
+}
+
+/** True when any done node still needs a review. */
 export function hasUnreviewed(nodes: readonly RunNode[]): boolean {
-  return nodes.some((n) => n.status === "done" && n.unverified === true);
+  return unreviewedNodes(nodes).length > 0;
 }
 
 export interface ResultChip {
