@@ -67,3 +67,20 @@ test("dispatch/start segments, pauses, backfill", () => {
   expect(nd("nolog", "legacy-1").run_segments.length).toBe(1);
   expect(o("run", "backfill-timing", "legacy-1").all).toMatch(/legacy-1 0 node/);
 }, 240000);
+
+test("run sync stamps started_at for a job that ended before any sync saw it running", () => {
+  const home = seedHome(), o = orch(home);
+  o("run", "start", "Fast", "--id", "fast-1");
+  o("node", "add", "fast-1", "a", "fast node");
+  const job = join(home, "jobs", "fastjob");
+  mkdirSync(job, { recursive: true });
+  writeFileSync(join(job, "log"), "output\n");
+  writeFileSync(join(job, "exit_code"), "0\n");
+  editJson(join(home, "runs/fast-1/state.json"), (s) => {
+    Object.assign(s.nodes.find((n: any) => n.id === "a"), { status: "running", job_id: "fastjob", adapter: "claude-native", dispatched_at: "2000-01-01T00:00:00Z", seg_open: true, started_at: null });
+  });
+  o("run", "sync", "fast-1", "--no-retry");
+  const n = nodeOf(home, "fast-1", "a");
+  expect(n.dispatched_at).toBe("2000-01-01T00:00:00Z");
+  expect(n.started_at).toMatch(/^20[0-9-]+T/);
+});

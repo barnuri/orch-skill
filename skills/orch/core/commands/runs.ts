@@ -333,6 +333,15 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
     } catch {
       /* no cost sidecar */
     }
+    if (st !== "running") {
+      // A job that ended before any sync saw it running still gets a start time: the log's creation time.
+      try {
+        const ls = statSync(log);
+        if (ls.size > 0) await markStarted(home, runId, node, nowIso(new Date(Math.floor((ls.birthtimeMs || ls.mtimeMs) / 1000) * 1000)), "job-log-birth");
+      } catch {
+        /* no log */
+      }
+    }
     if (st === "running") {
       let size = 0;
       try {
