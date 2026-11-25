@@ -106,6 +106,8 @@ interface WatchNode {
   needs_user?: string | null;
   /** Set by `node update done --force`: a person closed the node, so a missing handoff never resumes it. */
   forced_done?: string | null;
+  /** Set by `run sync`: the node's result is recorded but its job still lives with an idle log (`node reap`). */
+  stuck_after_result?: { job?: string; since?: string; idle_min?: number } | null;
 }
 
 interface JobEvidence {
@@ -470,6 +472,7 @@ export class WatchdogService {
         const ev = this.jobEvidence(runId, node);
         this.checkLiveness(runId, node, verdict, ev);
         this.checkStall(runId, node, verdict, healthById.get(node.id)?.idle_min ?? null, ev);
+        this.checkStuckAfterResult(runId, node);
         continue;
       }
       this.deadSince.delete(`${runId}/${node.id}`);
@@ -851,6 +854,20 @@ export class WatchdogService {
       return;
     }
     this.flag(runId, node.id, "stalled", `idle ${idle ?? "?"} min`, "running");
+  }
+
+  /** Reports a node `run sync` marked finished-but-alive (`stuck_after_result`); only `node reap` or the user ends it. */
+  private checkStuckAfterResult(runId: string, node: WatchNode): void {
+    const key = `${runId}/${node.id}/stuck-after-result`;
+    const mark = node.stuck_after_result;
+    if (!mark) {
+      if (this.flags.delete(key)) this.persistFlags();
+      return;
+    }
+    if (this.flags.has(key)) {
+      return;
+    }
+    this.flag(runId, node.id, "stuck-after-result", `result recorded, job ${mark.job ?? node.job_id ?? "?"} alive, log idle ${mark.idle_min ?? "?"} min: dispatch.ts node reap ${runId} ${node.id}`, "running");
   }
 
   private checkHandoff(runId: string, node: WatchNode): void {

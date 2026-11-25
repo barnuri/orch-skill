@@ -1,7 +1,7 @@
 import { ZodDto, ZodField, ZodObject } from "@barnuri/zod-decorators";
 import { z } from "zod";
 
-const RULES = ["lost", "stalled", "unverified", "infra-retry", "cli-source", "starting", "finish", "gate", "coordinator"] as const;
+const RULES = ["lost", "stalled", "unverified", "infra-retry", "cli-source", "starting", "finish", "gate", "coordinator", "stuck-after-result"] as const;
 
 @ZodObject({ description: "One watchdog action, as one line of `<home>/watchdog/actions.log`." })
 export class WatchdogActionDto extends ZodDto {
@@ -15,7 +15,7 @@ export class WatchdogActionDto extends ZodDto {
   node!: string | null;
 
   @ZodField(z.enum(RULES), {
-    description: "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done.",
+    description: "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done; `stuck-after-result`: a node recorded its result but its job still lives with an idle log (`node reap`).",
   })
   rule!: (typeof RULES)[number];
 

@@ -24,6 +24,7 @@ import { ownerReportLines, ownersVerifyRun } from "./owners.ts";
 import { loopCommands } from "./loops.ts";
 import { captured } from "../io.ts";
 import { addFeedback, readFeedback } from "../feedback.ts";
+import { syncStuckAfterResult } from "./reap.ts";
 
 const RUN_STATUSES = ["done", "error", "cancelled"];
 const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>] [--description "<text>"]';
@@ -412,6 +413,7 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
     });
   }
   const ownerLines = ownerReportLines(await ownersVerifyRun(home, runId, true));
+  const stuckLines = await syncStuckAfterResult(home, runId).catch((e) => (errLine(`stuck-after-result: ${(e as Error).message}`), [] as string[]));
   if (retry) {
     const rc = await autoRetryErrors(home, runId);
     if (rc !== 0) return rc;
@@ -434,6 +436,7 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
   if (stalled.length) lines.push("stalled: " + stalled.join(","));
   const unowned = running.filter((n) => !n.owner && !n.job_id).map((n) => n.id);
   if (unowned.length) lines.push("unowned: " + unowned.join(","));
+  lines.push(...stuckLines);
   for (const n of run.nodes) {
     if (n.report == null) continue;
     const p = n.report;

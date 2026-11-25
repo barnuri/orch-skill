@@ -1671,9 +1671,10 @@
               "starting",
               "finish",
               "gate",
-              "coordinator"
+              "coordinator",
+              "stuck-after-result"
             ],
-            "description": "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done."
+            "description": "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done; `stuck-after-result`: a node recorded its result but its job still lives with an idle log (`node reap`)."
           },
           "action": {
             "type": "string",
@@ -1765,7 +1766,8 @@
               "starting",
               "finish",
               "gate",
-              "coordinator"
+              "coordinator",
+              "stuck-after-result"
             ],
             "description": "The rule that flagged it."
           },
@@ -7011,6 +7013,89 @@
         "responses": {
           "200": {
             "description": "Cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run or node.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/nodes/{node}/reap": {
+      "post": {
+        "summary": "Reap a finished-but-alive node",
+        "description": "Runs `node reap <id> <node>`: kills only the node's job process tree, keeps its recorded result and handoff, and sets the node `done`. The CLI refuses (409) a node that is not running or has no result or handoff for this attempt.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id."
+            },
+            "required": true,
+            "description": "Run id.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Node id within the run."
+            },
+            "required": true,
+            "description": "Node id within the run.",
+            "name": "node",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reaped.",
             "content": {
               "application/json": {
                 "schema": {

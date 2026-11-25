@@ -238,6 +238,20 @@ One file per item, written only by `dispatch.ts feedback …` and the `/api/feed
   done->waiting only with `--force`. `waiting` clears started, finished, error, owner and job_id.
   `settings.stale_minutes` (default 10) marks a quiet running node stale. `run sync` prints `stale:`
   and `unowned:` lines.
+- Finished-but-alive: a running node whose `node result` (or own `handoff.md`) is recorded for this
+  attempt, whose job process still lives, and whose job log has not grown for
+  `settings.stuck_after_result_min` minutes (default 5, 0 = off). Usual cause: the agent left a
+  background shell job (`--watch`), and the harness does not exit while it lives. `run sync` prints
+  `stuck-after-result: <node> idle <N> min (job <J>): dispatch.ts node reap <run> <node>`. The first
+  sighting of a job sets `stuck_after_result: {job, since, idle_min, evidence, noted_at}` on the node
+  (cleared when the log grows again) and sends one `msg send --to orch` naming the node, the idle
+  minutes and the reap command. The watchdog flags it (rule `stuck-after-result`) and the dashboard
+  shows a "stuck after result" marker with a Reap menu item.
+- `node reap <run> <node> [--reason T] [--force]` kills only that node's job process tree, keeps the
+  recorded result and handoff, sets the node `done` and stores `reaped: {at, job, reason, killed}`.
+  It refuses (exit 1, `refused`; the API answers 409) a node with no result or handoff for this attempt unless `--force`.
+  `settings.reap_after_result_min` (default 0 = off, report only) makes `run sync` reap a
+  finished-but-alive node idle that long by itself and print `reaped-after-result: <node>`.
 - `node report` stores `report: {reported_by: "inline", model, input_tokens, output_tokens,
   cache_read_tokens, usd, note, at}` on the node (and `model`). An omitted flag keeps the earlier
   value, else `null`; nothing is estimated. `run sync` prints one `reported:` line per such node
@@ -373,6 +387,7 @@ hostname nor `localhost` is refused with 400.
 | `/api/runs/:id` | GET | `{generated_at, run:<state.json>}`; 404 for an id outside `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` |
 | `/api/runs/:id/retry` | POST | dispatches `run retry <id>` |
 | `/api/runs/:id/nodes/:node/retry` | POST | dispatches `node retry <id> <node>` |
+| `/api/runs/:id/nodes/:node/reap` | POST | dispatches `node reap <id> <node>` (finished-but-alive node) |
 | `/api/profiles` | GET, PUT | envelope adds `harnesses`, `issues`, `limits`; PUT validates before writing |
 | `/api/profiles/{id}/usage`, `/api/harnesses/{id}/usage` | PATCH | body `{"usage":"chat\|runs\|both"}`; runs `dispatch.ts profile\|harness set-usage` |
 | `/api/chat-options?use=runs` | GET | chat pickers list only chat-allowed profiles (`not_for_chat` names the left-out ones with the reason); `use=runs` lists the runs side (Schedules page) |
@@ -405,6 +420,7 @@ dispatch.ts node report <run-id> <node-id> [--model M] [--input-tokens N] [--out
 dispatch.ts node selections <run-id> <node-id>
 dispatch.ts node dispatch <run-id> <node-id> [--profile <name> | <adapter>] <prompt|@file> [args…]
 dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [<prompt|@file>]
+dispatch.ts node reap <run-id> <node-id> [--reason "<text>"] [--force]   # finished-but-alive: kill the job tree, keep the result, node done
 dispatch.ts node update <run-id> <node-id> [<status>] [--job J] [--error "msg"] [--at <iso>] [--owner <text>] [--force] [--after a,b|'*'|""] [--needs-user "reason"|--clear-needs-user] [--hold "reason"|--clear-hold]
 dispatch.ts node ping <run-id> <node-id> [--note "text"] [--progress "3/10"]
 dispatch.ts node batch <run-id> [--file F] [--dry-run]   # NDJSON ops on stdin or in F, one per line:

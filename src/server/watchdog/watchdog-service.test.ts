@@ -290,6 +290,23 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
+  test("stuck-after-result: a node run sync marked is flagged once, and the flag clears with the mark", async () => {
+    const f = fixture();
+    const mark = { job: "j1", since: new Date(T0 - 9 * 60_000).toISOString(), idle_min: 9 };
+    f.set([{ id: "a", status: "running", owner_kind: "session", owner_id: "ses_1", updated: new Date(T0).toISOString(), stuck_after_result: mark }]);
+    await f.tick();
+    await f.tick();
+    const flags = f.log().filter((a) => a.rule === "stuck-after-result");
+    expect(flags).toHaveLength(1);
+    expect(flags[0]?.detail).toBe("result recorded, job j1 alive, log idle 9 min: dispatch.ts node reap r1 a");
+    expect(f.dog.status().flags.map((x) => x.rule)).toContain("stuck-after-result");
+    f.set([{ id: "a", status: "running", owner_kind: "session", owner_id: "ses_1", updated: new Date(T0).toISOString(), stuck_after_result: null }]);
+    await f.tick();
+    expect(f.dog.status().flags.map((x) => x.rule)).not.toContain("stuck-after-result");
+    expect(f.actions()).toEqual([]);
+    f.home.dispose();
+  });
+
   test("rule 3: done without handoff.md resumes the same session twice, then errors and flags; a handoff means nothing happens", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "running" }, { id: "b", status: "running" }]);

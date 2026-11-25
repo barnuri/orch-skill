@@ -31,11 +31,14 @@ export function NodeMarkerList({ markers }: { markers: readonly NodeMarker[] }) 
   );
 }
 
-export type NodeAction = "cancel" | "restart" | "start" | "tell" | "done" | "reviewed";
+export type NodeAction = "reap" | "cancel" | "restart" | "start" | "tell" | "done" | "reviewed";
 
 /** Which menu items apply to a node. Start uses the retry route: it re-queues a ready node. */
 export function menuActions(node: RunNode, markers: readonly NodeMarker[]): Array<NodeAction> {
   const out: NodeAction[] = [];
+  if (node.status === "running" && markers.some((m) => m.code === "stuck-after-result")) {
+    out.push("reap");
+  }
   if (node.status === "running") {
     out.push("cancel", "restart");
   }
@@ -55,7 +58,7 @@ export function menuActions(node: RunNode, markers: readonly NodeMarker[]): Arra
   return out;
 }
 
-const LABEL = { cancel: "Cancel", restart: "Restart", start: "Start", tell: "Tell", done: "Mark done", reviewed: "Mark reviewed" } as const;
+const LABEL = { reap: "Reap (keep result)", cancel: "Cancel", restart: "Restart", start: "Start", tell: "Tell", done: "Mark done", reviewed: "Mark reviewed" } as const;
 
 /** Compact "⋯" action menu for one node: Cancel, Restart, Start, Tell. Cancel asks once more inline. */
 export function NodeMenu({ runId, node, markers, className = "" }: { runId: string; node: RunNode; markers: readonly NodeMarker[]; className?: string }) {
@@ -90,6 +93,8 @@ export function NodeMenu({ runId, node, markers, className = "" }: { runId: stri
       setOpen(false);
     } else if (action === "tell") {
       setTelling(true);
+    } else if (action === "reap") {
+      run(() => api.reapNode(runId, node.id), `${node.id} reaped: job killed, result kept`, `Reap ${node.id} failed`);
     } else if (action === "cancel") {
       if (!confirm) {
         setConfirm(true);

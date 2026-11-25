@@ -221,6 +221,18 @@ export function cancelNodeHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
+/** Ends a finished-but-alive node: `node reap <id> <node>` kills its job tree, keeps the result, sets it done. */
+export function reapNodeHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> | Response => {
+    const runId = params.id ?? "";
+    const nodeId = params.node ?? "";
+    if (runId === "" || nodeId === "") {
+      return jsonResponse(400, { error: "missing run or node id" });
+    }
+    return dispatchSubcommand(ctx, ["node", "reap", runId, nodeId]);
+  };
+}
+
 /** Sets the run's own parallel cap: `run set <id> max_parallel <n|-1>`. The global cap still bounds it. */
 export function setMaxParallelRun(ctx: ServerContext, runId: string, value: number): Promise<Response> {
   return dispatchSubcommand(ctx, ["run", "set", runId, "max_parallel", String(value)]);

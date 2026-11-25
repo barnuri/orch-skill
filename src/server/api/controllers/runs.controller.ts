@@ -7,6 +7,7 @@ import { runLiveStream } from "../../runs/run-live-sse";
 import {
   answerNode,
   cancelNodeHandler,
+  reapNodeHandler,
   listRunsHandler,
   readJobChatHandler,
   readJobLogHandler,
@@ -41,6 +42,7 @@ export class RunsController {
   private readonly stop: RouteHandler;
   private readonly pause: RouteHandler;
   private readonly cancelNode: RouteHandler;
+  private readonly reapNode: RouteHandler;
   private readonly resume: RouteHandler;
   private readonly retryNode: RouteHandler;
   private readonly jobLog: RouteHandler;
@@ -58,6 +60,7 @@ export class RunsController {
     this.stop = stopRunHandler(ctx);
     this.pause = pauseRunHandler(ctx);
     this.cancelNode = cancelNodeHandler(ctx);
+    this.reapNode = reapNodeHandler(ctx);
     this.resume = resumeRunHandler(ctx);
     this.retryNode = retryNodeHandler(ctx);
     this.jobLog = readJobLogHandler(ctx);
@@ -243,6 +246,17 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node." })
   cancelNode_(c: ApiContext): Promise<Response> {
     return call(this.cancelNode, c);
+  }
+
+  @Post("/runs/{id}/nodes/{node}/reap", {
+    summary: "Reap a finished-but-alive node",
+    description: "Runs `node reap <id> <node>`: kills only the node's job process tree, keeps its recorded result and handoff, and sets the node `done`. The CLI refuses (409) a node that is not running or has no result or handoff for this attempt.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Reaped." })
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node." })
+  reapNode_(c: ApiContext): Promise<Response> {
+    return call(this.reapNode, c);
   }
 
   @Get("/runs/{id}/messages", {

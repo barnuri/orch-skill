@@ -38,6 +38,16 @@ describe("node markers", () => {
     expect(markerCounts(map).map((c) => `${c.count} ${c.code}`)).toEqual(["1 stalled", "1 long", "1 ready", "1 unowned"]);
     expect([...idsWithMarker(map, "ready")]).toEqual(["c"]);
   });
+  test("a finished-but-alive node shows the stuck-after-result marker and a Reap menu item", () => {
+    const stuck = node({ id: "s", status: "running", owner: "agent", job_id: "j9", started: "2026-11-24T11:58:00Z", stuck_after_result: { job: "j9", since: "2026-11-24T11:48:00Z", idle_min: 5 } });
+    const markers = nodeMarkers(stuck, { nowMs: now, ready: new Set() });
+    expect(markers.map((m) => `${m.code}:${m.tone}`)).toEqual(["stuck-after-result:warn"]);
+    expect(markers[0]?.title).toContain("idle log for 12 min");
+    expect(menuActions(stuck, markers)[0]).toBe("reap");
+    const done = node({ id: "s", status: "done", stuck_after_result: { job: "j9" } });
+    expect(nodeMarkers(done, { nowMs: now, ready: new Set() }).map((m) => m.code)).not.toContain("stuck-after-result");
+    expect(menuActions(node({ status: "running", job_id: "j" }), [])).not.toContain("reap");
+  });
   test("failed and needs-review nodes carry markers instead of run-level boxes", () => {
     const failed = node({ id: "f", status: "error", error: "exit=1" });
     const review = node({ id: "r", status: "done", finished: "x", unverified: true, result_reason: "node result was not recorded" } as Partial<RunNode>);

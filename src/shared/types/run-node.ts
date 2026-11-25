@@ -140,6 +140,10 @@ export interface RunNode {
   owner_checked?: string | null;
   /** The owner said it finished; nobody reviewed the result yet. */
   unverified?: boolean | null;
+  /** Set by `run sync`: the result is recorded but the job still lives with an idle log. `node reap` ends it. */
+  stuck_after_result?: { job?: string; since?: string; idle_min?: number; evidence?: string; noted_at?: string } | null;
+  /** Set by `node reap`: the job tree was killed after the node finished. */
+  reaped?: { at?: string; job?: string; reason?: string; killed?: boolean } | null;
   /** True once a result was recorded for the node (`node result`): it was reviewed. */
   reviewed?: boolean | null;
   /** Why the node has no result yet, e.g. "node result was not recorded". */

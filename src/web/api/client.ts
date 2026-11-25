@@ -160,6 +160,11 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/cancel`, okSchema);
   }
 
+  /** `node reap`: kill a finished-but-alive node's job tree, keep its result, set it done. */
+  reapNode(runId: string, nodeId: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/reap`, okSchema);
+  }
+
   retryRun(id: string): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/retry`, okSchema);
   }

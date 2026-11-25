@@ -4,7 +4,7 @@ import type { RunState } from "../../shared/types/run-state";
 import { isLongRunning, LONG_RUNNING_MS, runningMinutes } from "../runs/run-attention";
 import { handoffText, nodeFlags, reviewReason } from "./node-flags";
 
-export const MARKER_CODES = ["failed", "review", "stalled", "long", "ready", "no-handoff", "unowned"] as const;
+export const MARKER_CODES = ["failed", "review", "stuck-after-result", "stalled", "long", "ready", "no-handoff", "unowned"] as const;
 export type MarkerCode = (typeof MARKER_CODES)[number];
 
 /** A short per-node state flag: icon and word come from the code, colour from the tone's status tokens. */
@@ -15,7 +15,7 @@ export interface NodeMarker {
   title: string;
 }
 
-export const MARKER_ICON: Readonly<Record<MarkerCode, string>> = { failed: "✕", review: "?", stalled: "◔", long: "⏱", ready: "▷", "no-handoff": "▫", unowned: "○" };
+export const MARKER_ICON: Readonly<Record<MarkerCode, string>> = { failed: "✕", review: "?", "stuck-after-result": "⏸", stalled: "◔", long: "⏱", ready: "▷", "no-handoff": "▫", unowned: "○" };
 
 export interface MarkerContext {
   nowMs: number;
@@ -40,6 +40,12 @@ export function nodeMarkers(node: RunNode, ctx: MarkerContext): NodeMarker[] {
     out.push({ code: "review", word: "review", tone: "warn", title: `${review}: record a result (dispatch.ts node result) after you check it` });
   }
   const idle = ctx.health?.idle_min ?? null;
+  const stuck = node.status === "running" ? node.stuck_after_result : null;
+  if (stuck) {
+    const since = stuck.since ? Date.parse(stuck.since) : Number.NaN;
+    const minutes = Number.isFinite(since) ? Math.max(0, Math.floor((ctx.nowMs - since) / 60_000)) : (stuck.idle_min ?? null);
+    out.push({ code: "stuck-after-result", word: "stuck after result", tone: "warn", title: `Result recorded, but job ${stuck.job ?? "?"} still runs${minutes === null ? "" : ` with an idle log for ${minutes} min`}. Reap it: dispatch.ts node reap` });
+  }
   if (flags.stale || ctx.health?.health === "stalled") {
     out.push({ code: "stalled", word: "stalled", tone: "warn", title: idle === null ? "No activity for a while" : `No activity for ${idle} min` });
   }

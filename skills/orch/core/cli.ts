@@ -87,6 +87,7 @@ export const COMMANDS: Record<string, Handler> = {
   "node inbox": L(inbox, (m) => m.cmdNodeInbox),
   "node answer": L(inbox, (m) => m.cmdNodeAnswer),
   "node cancel": L(pause, (m) => m.nodeCancel),
+  "node reap": L(() => import("./commands/reap.ts"), (m) => m.nodeReap),
   "run messages": L(inbox, (m) => m.cmdRunMessages),
   "run broadcast": L(inbox, (m) => m.cmdRunBroadcast),
   "run rule": L(inbox, (m) => m.cmdRunRule),
