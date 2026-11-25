@@ -63,7 +63,7 @@ export function ReasonDialog({ title, intro, confirmLabel, reasonRequired, child
       {children}
       <label className="reason-field">
         <span>{reasonRequired ? "Reason (required)" : "Reason (optional)"}</span>
-        <textarea rows={2} value={reason} onChange={(event) => setReason(event.target.value)} aria-required={reasonRequired} placeholder="Why is this done?" />
+        <textarea rows={2} value={reason} onChange={(event) => setReason(event.target.value)} aria-required={reasonRequired} placeholder={reasonRequired ? "Why is this done?" : "Optional message"} />
       </label>
       {error === "" ? null : (
         <p className="reason-error" role="alert">

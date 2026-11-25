@@ -146,7 +146,7 @@ export function NodeMenu({ runId, node, markers, className = "" }: { runId: stri
           title={marking === "done" ? `Mark ${node.id} done?` : `Mark ${node.id} reviewed?`}
           intro={marking === "done" ? "Sets the node done without running it." : "Records a full result: you checked this node."}
           confirmLabel="Confirm"
-          reasonRequired
+          reasonRequired={marking === "reviewed"}
           runId={runId}
           call={(reason) => (marking === "done" ? api.markNodeDone(runId, node.id, reason) : api.markNodeReviewed(runId, node.id, reason))}
           done={marking === "done" ? `${node.id} marked done` : `${node.id} marked reviewed`}

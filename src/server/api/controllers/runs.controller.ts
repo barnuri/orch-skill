@@ -188,7 +188,7 @@ export class RunsController {
   @ResponseSchema(OkDto.schema, { description: "Marked done." })
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "No reason, or no such run or node." })
   nodeDone_(c: ApiContext): Promise<Response> {
-    return this.withReason(c, markNodeDone);
+    return markNodeDone(this.ctx, c.req.param("id") ?? "", c.req.param("node") ?? "", (valid<{ reason?: string }>(c, "json").reason ?? "").trim());
   }
 
   @Post("/runs/{id}/nodes/{node}/reviewed", {

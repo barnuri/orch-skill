@@ -36,34 +36,26 @@ const settle = () => act(async () => { await new Promise((done) => setTimeout(do
 const click = (el: HTMLElement) => act(async () => { fireEvent.click(el); });
 
 describe("Mark done (run)", () => {
-  test("verify failing: lists failures, needs a reason, then finishes with it", async () => {
-    const calls = serve({ ok: false, failures: [{ nodes: ["done-gate"], msg: "the done-gate was skipped", hint: "" }] });
+  test("opens at once, runs no verify, and finishes without a message", async () => {
+    const calls = serve({ ok: false, failures: [{ nodes: ["done-gate"], msg: "x", hint: "" }] });
     render(<ToastProvider><MarkDone run={run} /></ToastProvider>);
     await click(screen.getByRole("button", { name: "Mark done" }));
-    await settle();
-    expect(screen.getByRole("list", { name: "Verify failures" }).textContent).toContain("the done-gate was skipped");
     const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
-    expect(confirm.disabled).toBe(true);
-    fireEvent.change(screen.getByPlaceholderText("Why is this done?"), { target: { value: "checked by hand" } });
     expect(confirm.disabled).toBe(false);
     await click(confirm);
     await settle();
-    const finish = calls.find((c) => c.url.endsWith("/runs/r1/finish"));
-    expect(finish?.method).toBe("POST");
-    expect(finish?.body).toEqual({ reason: "checked by hand" });
+    expect(calls.some((c) => c.url.endsWith("/verify"))).toBe(false);
+    expect(calls.find((c) => c.url.endsWith("/runs/r1/finish"))?.body).toEqual({ reason: "" });
   });
 
-  test("verify passing: Confirm works without a reason", async () => {
+  test("sends the optional message", async () => {
     const calls = serve({ ok: true, failures: [] });
     render(<ToastProvider><MarkDone run={run} /></ToastProvider>);
     await click(screen.getByRole("button", { name: "Mark done" }));
+    fireEvent.change(screen.getByPlaceholderText("Optional message"), { target: { value: "checked by hand" } });
+    await click(screen.getByRole("button", { name: "Confirm" }));
     await settle();
-    expect(screen.queryByRole("list", { name: "Verify failures" })).toBeNull();
-    const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
-    expect(confirm.disabled).toBe(false);
-    await click(confirm);
-    await settle();
-    expect(calls.some((c) => c.url.endsWith("/runs/r1/finish") && (c.body as { reason: string }).reason === "")).toBe(true);
+    expect(calls.find((c) => c.url.endsWith("/runs/r1/finish"))?.body).toEqual({ reason: "checked by hand" });
   });
 });
 
@@ -79,15 +71,15 @@ describe("Mark done and reviewed (node)", () => {
     expect(menuActions(node({ status: "done" }), [])).not.toContain("reviewed");
   });
 
-  test("Mark done on an error node asks a reason and posts it", async () => {
+  test("Mark done on an error node takes an optional message and posts it", async () => {
     const calls = serve({ ok: true, failures: [] });
     const n = node({ status: "error" });
     render(<ToastProvider><NodeMenu runId="r1" node={n} markers={[]} /></ToastProvider>);
     await click(screen.getByRole("button", { name: "Actions for n1" }));
     await click(screen.getByRole("menuitem", { name: "Mark done" }));
     const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
-    expect(confirm.disabled).toBe(true);
-    fireEvent.change(screen.getByPlaceholderText("Why is this done?"), { target: { value: "did it by hand" } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.change(screen.getByPlaceholderText("Optional message"), { target: { value: "did it by hand" } });
     await click(confirm);
     await settle();
     const call = calls.find((c) => c.url.endsWith("/nodes/n1/done"));

@@ -362,39 +362,27 @@ describe.concurrent("run finish by hand", () => {
     expect(await (await srv.api(`/api/runs/${RUN_ID}/verify`)).json()).toEqual({ ok: true, failures: [] });
   });
 
-  test("finish with verify passing needs no reason", async () => {
-    const srv = server();
-    seed(srv, RUN_ID, runState({ nodes: [], edges: [] }));
-    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, {});
-    expect(res.status).toBe(200);
-    expect(read(srv).status).toBe("done");
-  });
-
-  test("finish with verify failing refuses without a reason", async () => {
+  test("finish needs no reason, no verify, and skips the closure gate", async () => {
     const srv = server();
     seed(srv, RUN_ID, settled());
     const res = await post(srv, `/api/runs/${RUN_ID}/finish`, {});
-    expect(res.status).toBe(400);
-    expect(read(srv).status).toBe("running");
-  });
-
-  test("finish with verify failing stores the reason and reads an old unrun gate as skipped", async () => {
-    const srv = server();
-    seed(srv, RUN_ID, settled());
-    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "checked by hand" });
     expect(res.status).toBe(200);
     const state = read(srv);
     expect(state.status).toBe("done");
-    expect(state.force_finish_reason).toBe("checked by hand");
-    const gate = state.nodes.find((item) => item.id === "done-gate") as { status: string; skip_reason?: string };
-    expect(gate.status).toBe("skipped");
-    expect(gate.skip_reason).toBe("replaced by the orchestrator's verify and finish");
+    expect(state.force_finish_reason).toBe("marked done by hand");
   });
 
-  test("node done needs a reason and then marks the node done", async () => {
+  test("finish stores the message", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, settled());
+    expect((await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "checked by hand" })).status).toBe(200);
+    expect(read(srv).force_finish_reason).toBe("checked by hand");
+  });
+
+  test("node done takes an optional reason", async () => {
     const srv = server();
     seed(srv, RUN_ID, runState({ nodes: [node("a", "waiting")], edges: [] }));
-    expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/done`, {})).status).toBe(400);
+    expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/done`, {})).status).toBe(200);
     expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/done`, { reason: "did it myself" })).status).toBe(200);
     expect(read(srv).nodes[0]?.status).toBe("done");
   });

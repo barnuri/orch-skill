@@ -23,7 +23,7 @@ import { learningAfterFinish } from "./suggest.ts";
 
 export const NODE_DISPATCH_USAGE = "dispatch.ts node dispatch <run-id> <node-id> (--profile <name> | <adapter>) <prompt|@file> [args...]";
 export const NODE_RETRY_USAGE = "dispatch.ts node retry <run-id> <node-id> [--profile P | <adapter>] [--no-dispatch] [--force] [--early-end] [<prompt|@file>]";
-export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled] [--force --reason T]";
+export const RUN_FINISH_USAGE = "dispatch.ts run finish <run-id> [--status done|error|cancelled] [--force --reason T] [--no-gate]";
 export const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
 const RUN_STATUSES = ["done", "error", "cancelled"];
 export const VALID_HARNESSES = ["claude", "cursor-agent", "opencode", "local-llm", "copilot", "pi"];
@@ -519,11 +519,13 @@ export async function runFinish(args: string[]): Promise<number> {
   if (!runArg) return (errLine(`usage: ${RUN_FINISH_USAGE}`), 2);
   let status = "";
   let force = false;
+  let noGate = false;
   let reason = "";
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--status") status = rest[++i] ?? "";
     else if (rest[i] === "--force") force = true;
+    else if (rest[i] === "--no-gate") noGate = true;
     else if (rest[i] === "--reason") {
       reason = rest[i + 1] ?? "";
       if (reason === "" || reason.startsWith("--")) return (errLine(`run finish: --reason expects a text, not a flag\n  usage: ${RUN_FINISH_USAGE}`), 2);
@@ -537,9 +539,9 @@ export async function runFinish(args: string[]): Promise<number> {
   if (runId === null) return 1;
   const pre = await loadRun(home, runId);
   if (!pre) return (errLine(`run ${runId}: unknown run`), 2);
-  // The closure gate holds even with --force: a run never becomes done while work is open.
+  // The closure gate holds even with --force (only --no-gate, used by the UI's Mark done, skips it): a run never becomes done while work is open.
   const closing = status === "" ? !pre.nodes.some((n) => n.status === "error") : status === "done";
-  if (closing && pre.status !== "covered") {
+  if (closing && !noGate && pre.status !== "covered") {
     const open = closureProblems(pre);
     if (open.length > 0) return (errLine(`run finish refused: ${open.join("; ")}\n  fix: dispatch.ts run advance ${runId}, or skip each node with a reason: dispatch.ts node update ${runId} <node> skipped --force --reason "<why>"`), 1);
   }

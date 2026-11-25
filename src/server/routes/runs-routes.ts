@@ -163,27 +163,15 @@ export async function verifyRun(ctx: ServerContext, runId: string): Promise<Resp
   return jsonResponse(200, { ok: false, failures: parseVerifyOutput(result.out) });
 }
 
-/**
- * Finishes a run by hand. Verify passes: `run finish`. Verify fails: a reason is required, then `run finish --force --reason`. Open nodes still refuse (the CLI closure gate).
- */
-export async function finishRun(ctx: ServerContext, runId: string, reasonInput: string | undefined): Promise<Response> {
-  const reason = (reasonInput ?? "").trim();
-  const check = await spawnDispatch(ctx, ["run", "verify", runId]);
-  if (check.code === 0) {
-    return dispatchSubcommand(ctx, ["run", "finish", runId]);
-  }
-  if (check.code !== 1 || !check.out.startsWith("verify FAILED")) {
-    return dispatchFailure(check);
-  }
-  if (reason === "") {
-    return jsonResponse(400, { error: "run verify fails: a reason is required to finish the run by hand" });
-  }
-  return dispatchSubcommand(ctx, ["run", "finish", runId, "--force", "--reason", reason]);
+/** Finishes a run by hand: no verify, no closure gate, an optional reason (`run finish --force --no-gate --reason T`). */
+export function finishRun(ctx: ServerContext, runId: string, reasonInput: string | undefined): Promise<Response> {
+  const reason = (reasonInput ?? "").trim() || "marked done by hand";
+  return dispatchSubcommand(ctx, ["run", "finish", runId, "--force", "--no-gate", "--reason", reason]);
 }
 
 /** Marks one node done by hand: `node update <run> <node> done --force --reason T`. */
 export function markNodeDone(ctx: ServerContext, runId: string, nodeId: string, reason: string): Promise<Response> {
-  return dispatchSubcommand(ctx, ["node", "update", runId, nodeId, "done", "--force", "--reason", reason]);
+  return dispatchSubcommand(ctx, ["node", "update", runId, nodeId, "done", "--force", "--reason", reason.trim() || "marked done by hand"]);
 }
 
 /** Marks a done node reviewed: `node result <run> <node> --verdict full --summary T`. */
