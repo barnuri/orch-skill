@@ -80,6 +80,8 @@ describe.concurrent("node message routes (real dispatch.ts)", () => {
     const list = await messages(srv);
     expect(list.map((m) => [m.id, m.from, m.to, m.kind, m.text, m.status])).toEqual([
       ["m1", "user", "a", "tell", "use sqlite", "pending"],
+      // Since fa337cd the coordinator inbox also gets a note of every user tell.
+      ["m2", "user", "orch", "tell", "user -> a (pending): use sqlite", "pending"],
     ]);
   }, 60_000);
 

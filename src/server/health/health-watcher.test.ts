@@ -169,7 +169,7 @@ describe("health helpers", () => {
     expect(lines.join("")).toContain("unavailable");
   });
 
-  test("findHealthMonitor finds the run's live monitor and its newest output", () => {
+  test("findHealthMonitor finds the run's live monitor and its newest output", async () => {
     const home = TempHome.create();
     try {
       const write = (id: string, name: string, pid: number, text: string): void => {
@@ -184,6 +184,9 @@ describe("health helpers", () => {
         expect(findHealthMonitor(home.path, RUN)).toEqual({ alive: false, text: null });
         // A pid that answers but is not this watch (reused by another process) is not alive.
         write("watch-2", `health:${RUN}`, process.pid, report());
+        // The first call starts an async `ps` and trusts the pid; once ps answers, the reused pid is rejected.
+        findHealthMonitor(home.path, RUN);
+        await Bun.sleep(300);
         expect(findHealthMonitor(home.path, RUN).alive).toBe(false);
         write("watch-2", `health:${RUN}`, proc.pid, report());
         const found = findHealthMonitor(home.path, RUN);

@@ -69,8 +69,12 @@ export function watchProcessAlive(pid: unknown, id: string): boolean {
     return false;
   }
   const cmd = commandLine(pid);
-  // Without a way to read the command line, fall back to the pid check alone.
-  const alive = cmd === null || cmd.includes(`watch_run ${id}`) || cmd.includes(`watch __run ${id}`);
+  // The command line is not known yet (first async ps still running): trust the pid for now, cache nothing,
+  // so the next call decides from the ps result.
+  if (cmd === null) {
+    return true;
+  }
+  const alive = cmd.includes(`watch_run ${id}`) || cmd.includes(`watch __run ${id}`);
   if (alive) {
     if (confirmed.size > 256) {
       confirmed.clear();
