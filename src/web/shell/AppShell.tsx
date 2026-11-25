@@ -2,15 +2,6 @@ import { SecureLinkHint } from "./SecureLinkHint";
 import { Suspense, lazy, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRoute } from "../router/use-route";
-import { RunPage } from "../runs/RunPage";
-import { RunsPage } from "../runs/RunsPage";
-import { HarnessesPage } from "../pages/HarnessesPage";
-import { MemoryPage } from "../pages/MemoryPage";
-import { ProfilesPage } from "../pages/ProfilesPage";
-import { SchedulesPage } from "../pages/SchedulesPage";
-import { FeedbackPage } from "../pages/FeedbackPage";
-import { HowPage } from "../pages/HowPage";
-import { SuggestionsPage } from "../pages/SuggestionsPage";
 import type { Route } from "../router/route";
 import { SECTION_HREF } from "../router/route";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -20,6 +11,16 @@ import { Rail, TabBar } from "./Rail";
 import { TokenGate } from "./TokenGate";
 import { useAuthRequired } from "./use-connection";
 
+// Each page is its own chunk: the first load pays only for the page it opens.
+const RunPage = lazy(() => import("../runs/RunPage").then((m) => ({ default: m.RunPage })));
+const RunsPage = lazy(() => import("../runs/RunsPage").then((m) => ({ default: m.RunsPage })));
+const HarnessesPage = lazy(() => import("../pages/HarnessesPage").then((m) => ({ default: m.HarnessesPage })));
+const MemoryPage = lazy(() => import("../pages/MemoryPage").then((m) => ({ default: m.MemoryPage })));
+const ProfilesPage = lazy(() => import("../pages/ProfilesPage").then((m) => ({ default: m.ProfilesPage })));
+const SchedulesPage = lazy(() => import("../pages/SchedulesPage").then((m) => ({ default: m.SchedulesPage })));
+const FeedbackPage = lazy(() => import("../pages/FeedbackPage").then((m) => ({ default: m.FeedbackPage })));
+const HowPage = lazy(() => import("../pages/HowPage").then((m) => ({ default: m.HowPage })));
+const SuggestionsPage = lazy(() => import("../pages/SuggestionsPage").then((m) => ({ default: m.SuggestionsPage })));
 const ChatsPage = lazy(() => import("../chats/ChatsPage").then((m) => ({ default: m.ChatsPage })));
 
 const RAIL_KEY = "orch-rail";

@@ -5,6 +5,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { ServerContext } from "../types/server-context";
 import { hostAllowed } from "../http/host-policy";
+import { compressJsonResponse } from "../http/compress";
 import { authorized, logError, logRequest } from "../http/route";
 import { badHost, jsonResponse, methodNotAllowed, notFound, unauthorized } from "../http/responses";
 
@@ -32,6 +33,7 @@ export function guard(ctx: ServerContext): MiddlewareHandler<ApiEnv> {
       return unauthorized();
     }
     await next();
+    c.res = await compressJsonResponse(req, c.res);
     logRequest(req, c.res.status);
     return undefined;
   };
