@@ -175,6 +175,17 @@ describe("firing a schedule", () => {
     expect(s.pushes.some((p) => p.category === "schedules" && p.body.includes("Scheduled result: Morning news") && p.tag === `chat:${s.chat.id}`)).toBe(true);
   });
 
+  test("a muted chat schedule still posts into the chat but sends no push", async () => {
+    const s = setup();
+    const { id } = await create(s);
+    expect((await s.cli(["schedule", "mute", id])).code).toBe(0);
+    s.clock.set(s.schedule(id).next_at * 1000 + 2000);
+    await s.auto.evaluate();
+    await s.auto.idle();
+    expect(s.messages()).toHaveLength(2);
+    expect(s.pushes).toHaveLength(0);
+  });
+
   test("two ticks claim the fire once", async () => {
     const s = setup();
     const { id } = await create(s);

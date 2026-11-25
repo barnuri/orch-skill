@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import type { BuildCommit, BuildInfo } from "../../shared/types/build-info";
 
@@ -25,6 +26,39 @@ export function isTracked(path: string): boolean {
 
 class Timeout extends Error {}
 
+const SHA = /^[0-9a-f]{40,64}$/;
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Reads HEAD from the .git files, so no git process can time out under load. Null when the root is not a repo. */
+export function readHeadSha(root: string): string | null {
+  const dotGit = join(root, ".git");
+  const pointer = readText(dotGit)?.match(/^gitdir:\s*(.+)$/)?.[1];
+  const gitDir = pointer ? resolve(root, pointer.trim()) : dotGit;
+  const head = readText(join(gitDir, "HEAD"));
+  if (head === null) return null;
+  if (!head.startsWith("ref: ")) return SHA.test(head) ? head : null;
+  const ref = head.slice(5).trim();
+  const common = readText(join(gitDir, "commondir"));
+  const commonDir = common ? resolve(gitDir, common) : gitDir;
+  for (const dir of [gitDir, commonDir]) {
+    const sha = readText(join(dir, ref));
+    if (sha !== null && SHA.test(sha)) return sha;
+  }
+  const packed = readText(join(commonDir, "packed-refs")) ?? "";
+  for (const line of packed.split("\n")) {
+    const [sha, name] = line.split(" ");
+    if (name === ref && sha !== undefined && SHA.test(sha)) return sha;
+  }
+  return null;
+}
+
 /** Records what this process booted with, and answers "does the code on disk differ?" without blocking the event loop. */
 export class BuildService {
   readonly bootAt: string;
@@ -41,7 +75,7 @@ export class BuildService {
     this.timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     this.gitBin = options.gitBin ?? "git";
     this.bootAt = new Date().toISOString();
-    this.bootHead = this.headSync();
+    this.bootHead = readHeadSha(this.root) ?? this.headSync();
   }
 
   private headSync(): string | null {
@@ -65,11 +99,11 @@ export class BuildService {
     return value;
   }
 
-  private empty(error: string | null): Core {
+  private empty(error: string | null, head: string | null = null): Core {
     return {
       boot_at: this.bootAt,
       boot_head: this.bootHead,
-      head: null,
+      head,
       branch: null,
       stale: false,
       reasons: [],
@@ -81,9 +115,10 @@ export class BuildService {
     };
   }
 
+  /** A failed probe still reports the HEAD read from the files, so a deploy can see the sha it switched to. */
   private failed(err: unknown): Core {
     const text = err instanceof Timeout ? `timed out after ${this.timeoutMs} ms` : err instanceof Error ? err.message : String(err);
-    return this.empty(text);
+    return this.empty(text, readHeadSha(this.root));
   }
 
   private async git(args: string[], deadline: number): Promise<string> {
@@ -137,13 +172,12 @@ export class BuildService {
 
   private async compute(): Promise<Core> {
     const deadline = Date.now() + this.timeoutMs;
-    const [head, branch, status, files] = await Promise.all([
-      this.git(["rev-parse", "HEAD"], deadline),
+    const sha = readHeadSha(this.root) ?? (await this.git(["rev-parse", "HEAD"], deadline)).trim();
+    const [branch, status, files] = await Promise.all([
       this.git(["rev-parse", "--abbrev-ref", "HEAD"], deadline),
       this.git(["status", "--porcelain"], deadline),
       this.changedFiles(Date.parse(this.bootAt), deadline),
     ]);
-    const sha = head.trim();
     let commits: BuildCommit[] = [];
     let total = 0;
     if (this.bootHead !== null && sha !== this.bootHead) {

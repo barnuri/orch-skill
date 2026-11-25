@@ -158,9 +158,9 @@ export class ChatAutomation {
   }
 
   private tell(chatId: string, body: string, key: string, category: PushCategory = "schedules"): void {
+    if (readSchedules(this.home).some((x) => x.id === key && x.muted === true)) return;
     const title = this.service.store.getChat(chatId)?.title || "Orch";
     void this.notify(category, { title, body: notificationBody(redactSecrets(body)), tag: `chat:${chatId}`, url: chatUrl(chatId), chatId, waiting: true }).catch(() => {});
-    void key;
   }
 
   // ---------------------------------------------------------------- schedules

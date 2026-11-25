@@ -65,4 +65,28 @@ describe("RunWatcher", () => {
       home.dispose();
     }
   });
+
+  test("a watchdog flag of a muted run sends nothing", () => {
+    const home = TempHome.create();
+    try {
+      writeRun(home, "running");
+      home.write("watchdog/actions.log", "");
+      const sent: Array<[PushCategory, NotifyInput]> = [];
+      const watcher = new RunWatcher(home.path, (category, input) => {
+        sent.push([category, input]);
+        return undefined;
+      });
+      watcher.scan();
+      const flag = (run: string) => JSON.stringify({ run, node: "n1", rule: "stalled", action: "flag" }) + "\n";
+      home.write("runs/muted-run/state.json", JSON.stringify({ run_id: "muted-run", title: "t", status: "running", muted: true, nodes: [] }));
+      home.write("watchdog/actions.log", flag("muted-run"));
+      watcher.scan();
+      expect(sent).toHaveLength(0);
+      home.write("watchdog/actions.log", flag("muted-run") + flag(RUN));
+      watcher.scan();
+      expect(sent.map(([c, i]) => [c, i.runId])).toEqual([["failures", RUN]]);
+    } finally {
+      home.dispose();
+    }
+  });
 });

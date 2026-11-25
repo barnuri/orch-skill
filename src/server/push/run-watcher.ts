@@ -113,6 +113,7 @@ export class RunWatcher {
       try {
         const a = JSON.parse(line) as { run?: string; node?: string | null; rule?: string; action?: string; detail?: string };
         if (a.action !== "flag" || a.run === undefined) continue;
+        if (this.runMuted(a.run)) continue;
         const rule = a.rule ?? "flag";
         this.notify("failures", {
           title: "Orch watchdog",
@@ -124,6 +125,14 @@ export class RunWatcher {
       } catch {
         // a torn line: skipped
       }
+    }
+  }
+
+  private runMuted(id: string): boolean {
+    try {
+      return (JSON.parse(readFileSync(join(this.home, "runs", id, "state.json"), "utf8")) as { muted?: boolean }).muted === true;
+    } catch {
+      return false;
     }
   }
 

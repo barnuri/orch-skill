@@ -116,7 +116,7 @@ async function healthy(sha: string): Promise<boolean> {
   const deadline = Date.now() + Number(process.env["ORCH_DEPLOY_HEALTH_TIMEOUT_MS"] || 90_000);
   while (Date.now() < deadline) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (r.ok) {
         const b = (await r.json()) as { head?: string | null };
         if (b.head === sha) return true;

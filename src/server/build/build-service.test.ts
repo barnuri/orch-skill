@@ -4,15 +4,16 @@ import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { BuildService, isTracked } from "./build-service";
+import { BuildService, isTracked, readHeadSha } from "./build-service";
 
 setDefaultTimeout(60_000);
 const dirs: string[] = [];
-const git = (cwd: string, ...args: string[]): void => {
+const git = (cwd: string, ...args: string[]): string => {
   const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args], { cwd });
   if (r.exitCode !== 0) {
     throw new Error(r.stderr.toString());
   }
+  return r.stdout.toString().trim();
 };
 
 function repo(): string {
@@ -113,6 +114,32 @@ describe("BuildService", () => {
     expect(Date.now() - started).toBeLessThan(3000);
     expect(r.stale).toBe(false);
     expect(r.error).toContain("timed out");
+  });
+
+  test("git probe timeout still reports head from the .git files (deploy health depends on it)", async () => {
+    const dir = repo();
+    const head = git(dir, "rev-parse", "HEAD");
+    const slow = join(dir, "slow-git");
+    writeFileSync(slow, "#!/bin/sh\nsleep 5\n");
+    chmodSync(slow, 0o755);
+    const svc = new BuildService({ root: dir, cacheMs: 0, gitBin: slow, timeoutMs: 300 });
+    const r = await svc.check();
+    expect(r.error).toContain("timed out");
+    expect(r.head).toBe(head);
+    expect(r.boot_head).toBe(head);
+  });
+
+  test("readHeadSha: detached HEAD, branch ref, packed ref, and a non-repo", () => {
+    const dir = repo();
+    const head = git(dir, "rev-parse", "HEAD");
+    expect(readHeadSha(dir)).toBe(head);
+    git(dir, "checkout", "-q", "--detach", head);
+    expect(readHeadSha(dir)).toBe(head);
+    git(dir, "checkout", "-q", "-B", "feature");
+    expect(readHeadSha(dir)).toBe(head);
+    git(dir, "pack-refs", "--all");
+    expect(readHeadSha(dir)).toBe(head);
+    expect(readHeadSha(mkdtempSync(join(tmpdir(), "orch-nogit-")))).toBeNull();
   });
 
   test("results are cached and concurrent callers share one run", async () => {
