@@ -299,7 +299,7 @@ async function runningRuns(home: string): Promise<string[]> {
   const root = paths.runs(home);
   for (const d of existsSync(root) ? readdirSync(root).sort() : []) {
     const r = await Bun.file(join(root, d, "state.json")).json().catch(() => null);
-    if (r && r.status === "running" && !String(r.run_id ?? "").startsWith("loop-")) ids.push(r.run_id);
+    if (r && r.status === "running" && r.paused !== true && r.stopped !== true && !String(r.run_id ?? "").startsWith("loop-")) ids.push(r.run_id);
   }
   return ids;
 }
@@ -314,7 +314,7 @@ async function ensureMonitors(home: string): Promise<void> {
 
 async function monitorTick(home: string, run: string): Promise<number> {
   const r = await loadRun(home, run);
-  if (!r || r.status !== "running") {
+  if (!r || r.status !== "running" || r.paused === true || r.stopped === true) {
     if (r) await appendHealthEvents(home, run, [["health", "", "", "", `monitor stopped (run ${r.status || "gone"})`]]);
     out(`health: run ${run} ended (${r?.status || "gone"})\n`);
     return 0;

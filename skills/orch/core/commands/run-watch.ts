@@ -96,7 +96,7 @@ async function watchLoop(home: string, runId: string, pass: string[]): Promise<n
     await deliverMailbox(home, runId, pass);
     const before = await loadRun(home, runId);
     if (!before) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
-    if (before.status !== "running") return 0;
+    if (before.status !== "running" || before.paused === true || before.stopped === true) return 0;
 
     const proc = Bun.spawn([process.execPath, BIN_ORCH, "run", "wait", runId, ...pass], { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
     const code = await proc.exited;
@@ -104,7 +104,7 @@ async function watchLoop(home: string, runId: string, pass: string[]): Promise<n
 
     const after = await loadRun(home, runId);
     if (!after) return (process.stderr.write(`run ${runId}: unknown run\n`), 2);
-    if (after.status !== "running") return 0;
+    if (after.status !== "running" || after.paused === true || after.stopped === true) return 0;
     await deliverMailbox(home, runId, pass);
     await keepGreen(home, runId, pass);
 
