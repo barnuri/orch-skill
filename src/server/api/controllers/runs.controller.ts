@@ -15,6 +15,7 @@ import {
   readRunMessagesHandler,
   pauseRunHandler,
   readRunHandler,
+  liveRunDocument,
   readRunNodeHandler,
   retryNodeHandler,
   resumeRunHandler,
@@ -102,13 +103,13 @@ export class RunsController {
 
   @Get("/runs/{id}/live", {
     summary: "Follow a run live (Server-Sent Events)",
-    description: "A `text/event-stream` with one `node` event (`{run, node, from, to, at}`) each time a node of the run turns done or error. The server's run engine sends it within about 200 ms of the state.json write. No replay: refetch the run after a reconnect.",
+    description: "A `text/event-stream` with a `node` event (`{run, node, from, to, at}`) each time a node of the run turns done or error, and a `patch` event (`{run, fields, unset?, nodes: [{id, changed, unset?}], removed, edges?}`) with the changed run and node fields (checked every 2 s). The client applies patches to its copy and fetches the run only on connect and reconnect. The server's run engine sends it within about 200 ms of the state.json write. No replay: refetch the run after a reconnect.",
   })
   @Param(RunIdParamsDto.schema)
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "Malformed run id." })
   live_(c: ApiContext): Response {
     const id = c.req.param("id") ?? "";
-    return isRunId(id) ? runLiveStream(id, c.req.raw.signal) : jsonResponse(404, { error: "no such run" });
+    return isRunId(id) ? runLiveStream(id, c.req.raw.signal, () => liveRunDocument(this.ctx, id)) : jsonResponse(404, { error: "no such run" });
   }
 
   @Get("/runs/{id}/nodes/{node}", {

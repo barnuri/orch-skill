@@ -11,9 +11,10 @@ import { eventsSchema, healthSummarySchema, runHealthSchema, runOverviewSchema, 
 import type { WatchdogStatus } from "../../shared/types/watchdog";
 import type { ProfilesDocument } from "../../shared/types/profiles-document";
 import { api } from "../api/client";
-import { ApiFailure, conditionalGet, queryClient, useDocument } from "../api/queries";
+import { ApiFailure, conditionalGet, dropEtag, queryClient, useDocument } from "../api/queries";
 import type { NonOk } from "../api/result";
 import { asProfilesDocument } from "../lib/documents";
+import { applyRunPatch, type RunPatch } from "../../shared/run-patch";
 import { API_BASE, POLL_MS } from "../lib/constants";
 
 export const runKeys = {
@@ -51,16 +52,16 @@ export function liveStateOf(conn: ConnState): LiveState {
   return conn === "open" ? "live" : conn === "connecting" ? "connecting" : "offline";
 }
 
-/** While the stream is up the poll is only a safety net for a missed event. */
-export const LIVE_SAFETY_POLL_MS = 30_000;
+/** While the stream is up the run is not polled: patches keep it current and a drop refetches it. */
+export const LIVE_SAFETY_POLL_MS = false;
 
 /** SSE events invalidate the run queries at most once per this window. */
 export const SSE_REFRESH_DEBOUNCE_MS = 2000;
 
 export const NODE_DETAIL_POLL_MS = 10_000;
 
-/** The poll interval for a run: LIVE_SAFETY_POLL_MS while the stream is up, else OFFLINE_POLL_MS. */
-export function runPollMs(live: LiveState): number {
+/** The poll interval for a run: none while the stream is up, else OFFLINE_POLL_MS. */
+export function runPollMs(live: LiveState): number | false {
   return live === "live" ? LIVE_SAFETY_POLL_MS : OFFLINE_POLL_MS;
 }
 
@@ -94,6 +95,27 @@ export function throttle(fn: () => void, ms: number): { call: () => void; cancel
   };
 }
 
+/** Applies one `patch` event to the cached run (no fetch). A malformed event is ignored. */
+export function applyPatchEvent(runId: string, data: string): void {
+  let patch: RunPatch;
+  try {
+    patch = JSON.parse(data) as RunPatch;
+  } catch {
+    return;
+  }
+  if (patch.run !== runId) {
+    return;
+  }
+  const key = runKeys.run(runId);
+  const held = queryClient.getQueryData<{ run: Record<string, unknown> }>([key]);
+  if (held === undefined) {
+    return;
+  }
+  // The stored ETag describes the old body: drop it so the next fetch cannot return a stale copy.
+  dropEtag(key);
+  queryClient.setQueryData([key], { ...held, run: applyRunPatch(held.run, patch) });
+}
+
 /** A 404 is "pruned", not a failure to retry: the page shows its own notice. */
 export function useRun(runId: string) {
   const [live, setLive] = useState<LiveState>("connecting");
@@ -102,14 +124,15 @@ export function useRun(runId: string) {
   // so a reconnect refetches too.
   useEffect(() => {
     const abort = new AbortController();
-    const refresh = (): void => {
-      void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
+    const refresh = (full: boolean): void => {
+      if (full) {
+        void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
+      }
       void queryClient.invalidateQueries({ queryKey: [runKeys.events(runId)] });
       void queryClient.invalidateQueries({ queryKey: [runKeys.runs] });
       void queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith(`run-node:${runId}:`) });
     };
-    const throttled = throttle(refresh, SSE_REFRESH_DEBOUNCE_MS);
-    let wasDown = false;
+    const throttled = throttle(() => refresh(false), SSE_REFRESH_DEBOUNCE_MS);
     void followSse({
       url: `${API_BASE}/runs/${encodeURIComponent(runId)}/live`,
       headers: authHeaders,
@@ -120,13 +143,21 @@ export function useRun(runId: string) {
           return;
         }
         const next = liveStateOf(conn);
-        if (next === "live" && wasDown) {
-          refresh();
+        // Full fetch on connect and reconnect only: the stream has no replay.
+        if (next === "live") {
+          refresh(true);
         }
-        wasDown = next === "offline";
         setLive(next);
       },
-      onEvents: throttled.call,
+      onEvents: (events) => {
+        for (const e of events) {
+          if (e.event === "patch") {
+            applyPatchEvent(runId, e.data);
+          } else if (e.event === "node") {
+            throttled.call();
+          }
+        }
+      },
     });
     return () => {
       throttled.cancel();

@@ -85,6 +85,18 @@ export function readRunNodeHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
+/** The run document the API serves: coordinator state added, per-node history slimmed. */
+export function shapeRun<T extends { nodes?: unknown }>(ctx: ServerContext, run: T): T {
+  const orchestrator = coordinatorState(ctx.paths.runs, run as unknown as Record<string, unknown>);
+  return slimRun(orchestrator === null ? run : { ...run, orchestrator_state: orchestrator, coordinator_state: orchestrator });
+}
+
+/** The current run document for the live stream's diffs, or null when the run cannot be read. */
+export function liveRunDocument(ctx: ServerContext, id: string): Record<string, unknown> | null {
+  const result = readRunCached(ctx.paths, id).result;
+  return result.kind === "ok" ? (shapeRun(ctx, result.run) as unknown as Record<string, unknown>) : null;
+}
+
 // `params.id` arrives percent-decoded from Bun; `readRun` rejects anything outside the id alphabet.
 export function readRunHandler(ctx: ServerContext): RouteHandler {
   return (req: Request, params: Readonly<Record<string, string>>): Response => {
@@ -98,9 +110,7 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
       const error: ApiError = { error: CORRUPT_STATE };
       return jsonResponse(500, error);
     }
-    const orchestrator = coordinatorState(ctx.paths.runs, result.run as unknown as Record<string, unknown>);
-    const full = orchestrator === null ? result.run : { ...result.run, orchestrator_state: orchestrator, coordinator_state: orchestrator };
-    const run = slimRun(full);
+    const run = shapeRun(ctx, result.run);
     const etag = payloadEtag(run);
     if (req.headers.get(IF_NONE_MATCH) === etag) {
       return notModified(etag);

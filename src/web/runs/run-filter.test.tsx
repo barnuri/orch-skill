@@ -105,14 +105,25 @@ describe("live updates", () => {
   });
 });
 
-test("live runs poll only as a 30 s safety net; SSE refreshes are throttled to one per window", async () => {
+test("a live run is not polled; SSE refreshes are throttled to one per window", async () => {
   const { LIVE_SAFETY_POLL_MS, throttle } = await import("./queries");
   expect(runPollMs("live")).toBe(LIVE_SAFETY_POLL_MS);
-  expect(LIVE_SAFETY_POLL_MS).toBe(30_000);
+  expect(LIVE_SAFETY_POLL_MS).toBe(false);
   let calls = 0;
   const t = throttle(() => { calls += 1; }, 40);
   for (let i = 0; i < 10; i += 1) t.call();
   expect(calls).toBe(1);
   await new Promise((r) => setTimeout(r, 80));
   expect(calls).toBe(2);
+});
+
+test("a patch event changes the cached run node without a fetch", async () => {
+  const { applyPatchEvent, runKeys } = await import("./queries");
+  const { queryClient } = await import("../api/queries");
+  queryClient.setQueryData([runKeys.run("r9")], { generated_at: "t", run: { run_id: "r9", status: "running", edges: [], nodes: [{ id: "a", status: "running" }, { id: "b", status: "waiting" }] } });
+  applyPatchEvent("r9", JSON.stringify({ run: "r9", fields: {}, nodes: [{ id: "a", changed: { status: "done" } }], removed: [] }));
+  applyPatchEvent("r9", "not json");
+  applyPatchEvent("other", JSON.stringify({ run: "other", fields: {}, nodes: [{ id: "a", changed: { status: "error" } }], removed: [] }));
+  const held = queryClient.getQueryData<{ run: { nodes: Array<{ id: string; status: string }> } }>([runKeys.run("r9")]);
+  expect(held?.run.nodes.map((n) => n.status)).toEqual(["done", "waiting"]);
 });
