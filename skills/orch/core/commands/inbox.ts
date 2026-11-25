@@ -941,6 +941,24 @@ async function coordViaTerminal(home: string, run: string, c: any, line: string)
   return { why };
 }
 
+// Types one line (a TUI slash command such as `/compact`) into the coordinator's terminal: the recorded pane when it is
+// idle and quiet, else the recorded terminal or the session's TUI process. Returns the route or the reason it was not sent.
+export async function coordTypeLine(home: string, run: string, line: string): Promise<{ via: string } | { why: string }> {
+  const c = await coordOf(home, run);
+  if (!c) return { why: "no coordinator" };
+  const sessionOnly = c.transport === "session" || (String(c.pane_id ?? "") === "" && String(c.session_id ?? "") !== "");
+  if (!sessionOnly) {
+    const status = await coordPaneStatus(c);
+    if (status === "working") return { why: "coordinator pane is working" };
+    if (status !== "gone") {
+      if (!(await coordPaneQuiet(c))) return { why: "coordinator is typing or the screen is changing" };
+      const b = await coordSend(c, line);
+      return b.ok ? { via: isHc(c) ? "hc-coordinator" : "herdr-coordinator" } : { why: (b.stderr + b.stdout).trim() || "send failed" };
+    }
+  }
+  return coordViaTerminal(home, run, c, line);
+}
+
 // One attempt to reach the coordinator: delivered | pending | unreachable | none.
 // Order: (1) shared opencode service, (2) the recorded pane or terminal, (3) the session's TUI process terminal, (4) pending with the reason.
 export async function coordDeliver(home: string, run: string, path: string): Promise<string> {

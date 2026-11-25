@@ -19,6 +19,7 @@
     "planner_profile": "claude-planner",
     "coordinator_model": "llm-hub/copilot/claude-sonnet-5-5",
     "coordinator_rotate_tokens": 200000,
+    "coordinator_autocompact": true,
     "herdr": false,
     "learning": {
       "auto_record_memory": true,

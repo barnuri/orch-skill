@@ -228,6 +228,9 @@ function chatSettingsIssues(settings: Record<string, unknown>): Issue[] {
   if ("coordinator_allow_1m" in settings && typeof settings["coordinator_allow_1m"] !== "boolean") {
     issues.push({ path: "settings.coordinator_allow_1m", reason: MUST_BE_BOOLEAN });
   }
+  if ("coordinator_autocompact" in settings && typeof settings["coordinator_autocompact"] !== "boolean") {
+    issues.push({ path: "settings.coordinator_autocompact", reason: MUST_BE_BOOLEAN });
+  }
   if ("chat_roots" in settings) {
     const roots = settings["chat_roots"];
     if (!Array.isArray(roots)) {

@@ -50,6 +50,13 @@ export async function nudgeViaService(session: string, body: unknown): Promise<{
   return servicePost(s, `/api/session/${session}/prompt`, body);
 }
 
+/** Ask the service to compact the session (it answers on acceptance). null means "service not usable". */
+export async function compactViaService(session: string, idempotencyId: string): Promise<{ ok: boolean; detail: string } | null> {
+  const s = readService();
+  if (!s || !(await serviceHealthy(s))) return null;
+  return servicePost(s, `/api/session/${session}/compact`, { id: idempotencyId });
+}
+
 /** `opencode --version` without colour codes ("2.4.1"), or null. */
 export function cliVersion(bin = Bun.which("opencode", { PATH: process.env.PATH ?? "" })): string | null {
   if (process.env.ORCH_OPENCODE_CLI_VERSION) return process.env.ORCH_OPENCODE_CLI_VERSION;

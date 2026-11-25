@@ -381,7 +381,7 @@ A run cannot end on a false done. The ledger `<run>/requirements.json` holds eve
 3. Add a delivery requirement for every repo feature. The implementation node writes code, tests and its handoff. A delivery node, or the orchestrator after the implementation passes, completes the repository's required commit, push, pull request or merge evidence. A commit alone is not delivery when the repo requires a PR.
 4. Read the target repo's `CLAUDE.md`/`AGENTS.md` and the active harness rules before delivery. Repo instructions and explicit user rules take precedence. Follow the required path for that repo: commit locally, push a branch, open a PR, or complete a work-repo ticket and PR flow. Never rebase, force-push, stash, or rewrite another session's work. Use the repository's approved Git and PR command.
 5. Record delivery evidence before marking the feature requirement implemented: commit SHA, branch name, PR URL/number and check state, or the exact documented reason delivery is blocked. A partial handoff never closes the requirement.
-6. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> implemented`. Never mark it done yourself: `req verify <run> <id>` creates a verifier node on another profile; its `req verdict <run> <id> pass|fail --node <verifier> [--gap "<missing>" ...]` closes it (done) or reopens it (in_progress) and creates one gap node per gap. Lifecycle: open -> in_progress -> implemented -> verifying -> done (superseded|waived close without work). `run heal` runs this flow for every requirement. Only a person closes one without a verifier: `req status <run> <id> done --force --reason "<why>"`.
+6. When a node finishes, record evidence: `req evidence <run> <id> --note "<what>" [--file path] [--test "<cmd>"]`, then `req status <run> <id> implemented`. Never mark it done yourself: `req verify <run> <id>` creates a verifier node on another profile; its `req verdict <run> <id> pass|fail --node <verifier> [--test "<cmd>" ...] [--gap "<missing>" ...]` closes it (each `--test` becomes delivery evidence; a pass with no test command anywhere is refused by the delivery queue, loudly) (done) or reopens it (in_progress) and creates one gap node per gap. Lifecycle: open -> in_progress -> implemented -> verifying -> done (superseded|waived close without work). `run heal` runs this flow for every requirement. Only a person closes one without a verifier: `req status <run> <id> done --force --reason "<why>"`.
 7. After each user message, run `req check <run>`. It exits non-zero while any requirement is not done, superseded or waived.
 8. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure, including missing delivery evidence.
 9. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
@@ -458,6 +458,10 @@ Keep the orchestrator context small. After each wake, check your context size. W
 It writes a handoff to `runs/<run>/coordinator-handoffs/`, starts a fresh orchestrator with that handoff,
 and you end your session after the current turn. Below the threshold it prints `ok` and does nothing.
 
+A session a person started is never rotated. Past the same threshold, the watchdog compacts it instead (`/compact`,
+through the shared opencode service or the session's terminal), at most once per 30 min, and tells the session.
+Set `settings.coordinator_autocompact` to `false` to turn this off.
+
 ## Keep the prompt free
 
 The user must be able to keep typing while a run works. Never wait for a node in the foreground. Start the watch in the background (`run wait <run> --follow`, in a loop that restarts it) with the harness's background command, and act when it reports. In opencode use a background shell command: it notifies the session when it ends, so the user can send new questions and tasks in the meantime. The dashboard watchdog (`GET /api/watchdog`) does the deterministic work (start ready nodes, liveness, done checks, retries) without any session.
@@ -492,6 +496,8 @@ Pick the form by what this session can do:
 - **Neither** (pi and similar): call `orch run wait <run> --timeout 600` once per turn.
 
 After each wake, handle every event (start ready nodes, respawn dead or stalled ones, ask about needs-user), then restart the wait. Stop when it reports `run ended`.
+
+Never watch a run with a harness `prompt` automation that wakes a large session every N minutes (an opencode automation, a cron prompt). Each wake re-reads the whole context: 106 wakes of a 500-790k-token session cost $62 in one day. Use `orch run watch` or `orch run wait` instead; they run no model.
 
 Block in the foreground when the next event is a short wait you own: a service restart, or one test file under 2 minutes. Use `service.ts status` or `run wait <run> --timeout 120`. End the turn only while node work runs.
 

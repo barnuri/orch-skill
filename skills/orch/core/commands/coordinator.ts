@@ -1,9 +1,10 @@
 // Orchestrator sessions orch starts itself: model setting, start and rotation at a context limit.
 //   orchestrator start  <run> [--handoff FILE] [--dry-run]
 //   orchestrator rotate <run> --tokens N [--summary TEXT] [--dry-run]
-//   orchestrator check  <run> [--dry-run]   reads the coordinator session's prompt size and rotates at the limit
+//   orchestrator check  <run> [--dry-run]   reads the coordinator session's prompt size; at the limit it rotates an
+//                                           orch-started session and compacts a person-started one (coordinator-compact.ts)
 // `coordinator` remains an alias.
-// Settings (profiles.json `settings`): coordinator_model, coordinator_rotate_tokens, coordinator_allow_1m.
+// Settings (profiles.json `settings`): coordinator_model, coordinator_rotate_tokens, coordinator_allow_1m, coordinator_autocompact.
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -12,6 +13,7 @@ import { loadProfilesDoc, settingFrom, settingUintFrom } from "../state/settings
 import { appendEvents, loadRun } from "../state/store.ts";
 import { nowIso } from "../state/clock.ts";
 import { opencodeDbPath } from "./owners.ts";
+import { autocompactCheck, autocompactEnabledFrom, type AutocompactRecord } from "./coordinator-compact.ts";
 
 export const COORDINATOR_MODEL_DEFAULT = "hub/copilot/mai-code-2-flash";
 export const COORDINATOR_ROTATE_TOKENS_DEFAULT = 200000;
@@ -140,19 +142,30 @@ export async function coordinatorRotate(args: string[]): Promise<number> {
 }
 
 // The check the watchdog runs on a timer: reads the coordinator session's prompt size from opencode.db, and rotates
-// when it reaches settings.coordinator_rotate_tokens. Prints one line: `ok`, `no session`, `unknown`, `cooldown`, or `rotate`.
+// when it reaches settings.coordinator_rotate_tokens. Prints one line: `ok`, `no session`, `unknown`, `cooldown`, `rotate`,
+// or `person-started: …` for a session a person started.
 export async function coordinatorCheck(args: string[]): Promise<number> {
   const run = args[0] ?? "";
   if (!run || run.startsWith("--")) return err(`usage: ${ORCHESTRATOR_USAGE}\n`, 2);
   const home = orchHome();
   const st = await loadRun(home, run);
   if (!st) return err(`orchestrator check: no run ${run}\n`, 1);
-  const coord = st.coordinator as { session_id?: unknown; started_by?: unknown } | null | undefined;
+  const coord = st.coordinator as { session_id?: unknown; started_by?: unknown; autocompact?: AutocompactRecord } | null | undefined;
   const session = coord?.session_id;
   if (typeof session !== "string" || !session) return out("no session\n");
   // Only an orchestrator that orch launched is rotated. A person's own session (interactive, registered by hand) is never
-  // replaced: a rotation there starts a second orchestrator beside a live one.
-  if (coord?.started_by !== "orch") return out("not orch-started: no rotation\n");
+  // replaced: a rotation there starts a second orchestrator beside a live one. It is compacted instead.
+  if (coord?.started_by !== "orch") {
+    const doc = await loadProfilesDoc(home);
+    if (!autocompactEnabledFrom(doc)) return out("not orch-started: no rotation, autocompact off\n");
+    const tokens = latestPromptTokens(session);
+    if (tokens === null) return out("person-started: unknown\n");
+    const line = await autocompactCheck({
+      home, run, sessionId: session, tokens, threshold: coordinatorSettingsFrom(doc).rotateTokens,
+      last: coord?.autocompact ?? null, dry: args.includes("--dry-run"), nowMs: Date.now(),
+    });
+    return out(`${line}\n`);
+  }
   const { rotateTokens } = coordinatorSettingsFrom(await loadProfilesDoc(home));
   const tokens = latestPromptTokens(session);
   if (tokens === null) return out("unknown\n");

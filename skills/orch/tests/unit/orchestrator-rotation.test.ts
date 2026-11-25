@@ -54,7 +54,7 @@ test("orchestrator check: rotates at the threshold, refuses [1m] without the set
   // Register a coordinator session in state.
   // A person's own session is never rotated: rotation would start a second orchestrator beside it.
   editJson(join(home, "runs", R, "state.json"), (s) => { s.coordinator = { transport: "session", pane_id: "", session_id: "ses_coord1", unreachable: null, started_by: "person" }; });
-  expect(o(db, "orchestrator", "check", R).out).toBe("not orch-started: no rotation\n");
+  expect(o(db, "orchestrator", "check", R).out).toBe("person-started: ok: 900 < 1000\n");
   editJson(join(home, "runs", R, "state.json"), (s) => { s.coordinator = { transport: "session", pane_id: "", session_id: "ses_coord1", unreachable: null, started_by: "orch" }; });
   expect(o(db, "orchestrator", "check", R).out).toBe("ok: 900 < 1000\n");
 

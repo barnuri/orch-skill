@@ -35,6 +35,7 @@ export const SETTINGS_KEYS = [
   "coordinator_model",
   "coordinator_rotate_tokens",
   "coordinator_allow_1m",
+  "coordinator_autocompact",
 ] as const;
 export const LEARNING_KEYS = [
   "auto_record_memory",
