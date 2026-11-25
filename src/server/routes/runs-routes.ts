@@ -120,7 +120,7 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
-interface DispatchResult {
+export interface DispatchResult {
   code: number;
   out: string;
   err: string;
@@ -141,9 +141,16 @@ async function spawnDispatch(ctx: ServerContext, args: readonly string[]): Promi
   return { code: exitCode, out: new TextDecoder().decode(stdoutBytes).trim(), err: new TextDecoder().decode(stderrBytes).trim() };
 }
 
+/** HTTP status for a failed dispatch: exit 2 (usage, unknown run) is 400, a refusal (exit 1, "... refused") is 409, anything else 500. */
+export function dispatchFailureStatus(result: DispatchResult): number {
+  if (result.code === 2) return 400;
+  if (result.code === 1 && /\brefused\b/.test(result.err || result.out)) return 409;
+  return 500;
+}
+
 function dispatchFailure(result: DispatchResult): Response {
   const error: ApiError = { error: result.err || result.out || `dispatch exited ${result.code}` };
-  return jsonResponse(result.code === 2 ? 400 : 500, error);
+  return jsonResponse(dispatchFailureStatus(result), error);
 }
 
 async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {

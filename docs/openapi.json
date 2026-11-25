@@ -6590,7 +6590,7 @@
     "/api/runs/{id}/finish": {
       "post": {
         "summary": "Finish a run by hand",
-        "description": "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+        "description": "Runs `run finish <id> --force --no-gate --reason <reason>`: no verify, no closure gate. `reason` is optional (default \"marked done by hand\") and is stored on the run.",
         "tags": [
           "runs"
         ],
@@ -6627,7 +6627,7 @@
             }
           },
           "400": {
-            "description": "Verify fails and no reason, or no such run.",
+            "description": "No such run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6638,6 +6638,16 @@
           },
           "401": {
             "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The CLI refused (message in `error`).",
             "content": {
               "application/json": {
                 "schema": {

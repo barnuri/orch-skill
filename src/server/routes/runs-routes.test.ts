@@ -13,7 +13,7 @@ import { SessionChatReader } from "../runs/session-chat-reader";
 import { TempHome } from "../test-support/temp-home";
 import { startTestServer } from "../test-support/test-server";
 import type { ServerContext } from "../types/server-context";
-import { readJobChatHandler } from "./runs-routes";
+import { dispatchFailureStatus, readJobChatHandler } from "./runs-routes";
 import type { TestServerHandle } from "../types/test-server-handle";
 
 const RUN_ID: string = "20260903-120000-abcd";
@@ -377,6 +377,27 @@ describe.concurrent("run finish by hand", () => {
     seed(srv, RUN_ID, settled());
     expect((await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "checked by hand" })).status).toBe(200);
     expect(read(srv).force_finish_reason).toBe("checked by hand");
+  });
+
+  // Regression: run 20261124-150659-6541 (six waiting nodes behind a skipped done-gate) got a 500 on every
+  // Mark done, because the closure gate refused (exit 1) and the route mapped any exit 1 to 500.
+  test("finish closes a run with open waiting work", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({
+      nodes: [node("a", "done"), node("open-pr", "waiting"), node("verify-dev", "waiting"), node("done-gate", "skipped")],
+      edges: [["a", "open-pr"], ["open-pr", "verify-dev"], ["verify-dev", "done-gate"]],
+    }));
+    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "abandoned" });
+    expect(res.status).toBe(200);
+    expect(read(srv).status).toBe("done");
+  });
+
+  test("a CLI refusal is 409, a usage error 400, anything else 500", () => {
+    const refused = "run finish refused: node a5-open-pr is waiting";
+    expect(dispatchFailureStatus({ code: 1, out: "", err: refused })).toBe(409);
+    expect(dispatchFailureStatus({ code: 1, out: refused, err: "" })).toBe(409);
+    expect(dispatchFailureStatus({ code: 2, out: "", err: "run x: unknown run" })).toBe(400);
+    expect(dispatchFailureStatus({ code: 1, out: "", err: "boom" })).toBe(500);
   });
 
   test("node done takes an optional reason", async () => {

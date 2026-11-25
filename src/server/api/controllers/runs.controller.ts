@@ -169,12 +169,13 @@ export class RunsController {
 
   @Post("/runs/{id}/finish", {
     summary: "Finish a run by hand",
-    description: "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+    description: "Runs `run finish <id> --force --no-gate --reason <reason>`: no verify, no closure gate. `reason` is optional (default \"marked done by hand\") and is stored on the run.",
   })
   @Param(RunIdParamsDto.schema)
   @Body(ReasonInputDto.schema)
   @ResponseSchema(OkDto.schema, { description: "Finished." })
-  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Verify fails and no reason, or no such run." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No such run." })
+  @ResponseSchema(ErrorDto.schema, { status: 409, description: "The CLI refused (message in `error`)." })
   finish_(c: ApiContext): Promise<Response> {
     return finishRun(this.ctx, c.req.param("id") ?? "", valid<{ reason?: string }>(c, "json").reason);
   }
