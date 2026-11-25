@@ -104,6 +104,8 @@ interface WatchNode {
   resumes?: number | null;
   /** The open question for the user (`node update --needs-user`); set on a blocked-user node. */
   needs_user?: string | null;
+  /** Set by `node update done --force`: a person closed the node, so a missing handoff never resumes it. */
+  forced_done?: string | null;
 }
 
 interface JobEvidence {
@@ -852,7 +854,7 @@ export class WatchdogService {
   }
 
   private checkHandoff(runId: string, node: WatchNode): void {
-    if (handoffPresent(this.home, runId, node)) {
+    if (handoffPresent(this.home, runId, node) || (node.status === "done" && node.forced_done)) {
       return;
     }
     const dir = nodeOutDir(this.home, runId, node);

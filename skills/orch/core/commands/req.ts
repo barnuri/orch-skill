@@ -17,7 +17,8 @@ export const REQ_LEGACY: Record<string, string> = { not: "open", partly: "in_pro
 export const normReq = (status: string): string => REQ_LEGACY[status] ?? status;
 export const REQ_OK = ["done", "superseded", "waived"];
 export const REQ_USAGE = {
-  add: 'dispatch.ts req add <run-id> "<user ask>" [--id R1] [--node n1,n2]',
+  add: 'dispatch.ts req add <run-id> "<user ask>" [--id R1] [--node n1,n2] [--repo <path>]',
+  setRepo: "dispatch.ts req set-repo <run-id> <req-id> <path>   (the repo of verifier and gap nodes; '' clears it)",
   link: "dispatch.ts req link <run-id> <req-id> --node n",
   evidence: 'dispatch.ts req evidence <run-id> <req-id> --note "<text>" [--file path] [--test "bun test ..."]',
   status: `dispatch.ts req status <run-id> <req-id> ${REQ_STATUSES.join("|")} [--reason T] [--verifier <node>] [--by n1,n2] [--force]`,
@@ -40,6 +41,8 @@ export interface Req {
   verifier?: string | null;
   /** Set when a person closed it without the independent check (`--force --reason`). */
   forced?: string | null;
+  /** The repo this requirement is about; verifier and gap nodes run there. Absent: the run's repo. */
+  repo?: string;
   created: string;
   updated: string;
 }
@@ -131,7 +134,7 @@ async function prep(args: string[], usage: string, valued: string[], bools: stri
 }
 
 export async function reqAdd(args: string[]): Promise<number> {
-  const c = await prep(args, REQ_USAGE.add, ["--id", "--node"]);
+  const c = await prep(args, REQ_USAGE.add, ["--id", "--node", "--repo"]);
   if (!c) return 2;
   const text = c.p.pos[1];
   if (!text || c.p.pos.length > 2) return (errLine(`usage: ${REQ_USAGE.add}`), 2);
@@ -141,8 +144,22 @@ export async function reqAdd(args: string[]): Promise<number> {
     if (l.requirements.some((r) => r.id === id)) fail(`req add: ${id} already exists`);
     const nodes = csv(c.p.f["--node"] ?? "");
     needNodes(run, nodes);
-    l.requirements.push({ id, text, status: "open", reason: null, nodes, evidence: [], created: now, updated: now });
+    l.requirements.push({ id, text, status: "open", reason: null, nodes, evidence: [], ...(c.p.f["--repo"] ? { repo: c.p.f["--repo"] } : {}), created: now, updated: now });
     return id;
+  });
+}
+
+export async function reqSetRepo(args: string[]): Promise<number> {
+  const c = await prep(args, REQ_USAGE.setRepo, []);
+  if (!c) return 2;
+  const [, id, repo] = c.p.pos;
+  if (!id || repo === undefined || c.p.pos.length > 3) return (errLine(`usage: ${REQ_USAGE.setRepo}`), 2);
+  return mutateLedger(c.home, c.runId, (l, _run, now) => {
+    const r = need(l, id);
+    if (repo) r.repo = repo;
+    else delete r.repo;
+    r.updated = now;
+    return `${id} repo ${repo || "cleared"}`;
   });
 }
 
@@ -238,7 +255,7 @@ export async function reqList(args: string[]): Promise<number> {
   if (!c) return 2;
   const l = await loadLedger(c.home, c.runId);
   if (c.p.b.has("--json")) return (out(JSON.stringify(l, null, 2) + "\n"), 0);
-  for (const r of l.requirements) out(`${r.id}\t${r.status}\t${r.nodes.join(",") || "-"}\t${r.text}\n`);
+  for (const r of l.requirements) out(`${r.id}\t${r.status}\t${r.nodes.join(",") || "-"}\t${r.repo ?? "-"}\t${r.text}\n`);
   return 0;
 }
 

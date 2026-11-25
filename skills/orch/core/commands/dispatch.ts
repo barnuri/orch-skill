@@ -292,7 +292,7 @@ export async function nodeDispatch(args: string[]): Promise<number> {
   // A person dispatches from the repo they work in. Orch's own dispatches (heal, gap and verifier nodes) set ORCH_AUTO_DISPATCH=1
   // and may pass ORCH_DISPATCH_REPO_HINT (node ids): they run in the node's own repo, its relatives' or the run's, never the caller's cwd.
   const auto = process.env.ORCH_AUTO_DISPATCH === "1";
-  const repo = auto ? "" : gitToplevel(process.cwd()) ?? "";
+  const repo = auto ? process.env.ORCH_DISPATCH_REPO ?? "" : gitToplevel(process.cwd()) ?? "";
   const repoHint = (process.env.ORCH_DISPATCH_REPO_HINT ?? "").split(",").filter(Boolean);
   const { rc, jobId } = await dispatchNodeJob(home, runId, nodeId, rest, { force, repo, repoHint });
   if (rc === 0) process.stdout.write(jobId + "\n");

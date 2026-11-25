@@ -71,6 +71,7 @@ export const COMMANDS: Record<string, Handler> = {
   "run finish": L(dispatchCmds, (m) => m.runFinish),
   "run verify": L(() => import("./commands/verify.ts"), (m) => m.runVerify),
   "req add": L(() => import("./commands/req.ts"), (m) => m.reqAdd),
+  "req set-repo": L(() => import("./commands/req.ts"), (m) => m.reqSetRepo),
   "req link": L(() => import("./commands/req.ts"), (m) => m.reqLink),
   "req evidence": L(() => import("./commands/req.ts"), (m) => m.reqEvidence),
   "req status": L(() => import("./commands/req.ts"), (m) => m.reqStatus),

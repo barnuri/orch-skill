@@ -89,3 +89,19 @@ test("a second verify round gets a fresh verifier node, not the finished one", (
   expect(ledger().verifier).toBe("verify-R1-2");
   void home;
 }, 30_000);
+
+test("req add --repo is listed, and gap nodes dispatch in that repo, not the run's", () => {
+  const { home, o, run, ledger } = setup();
+  const other = join(home, "other-repo");
+  mkdirSync(other, { recursive: true });
+  expect(o("req", "add", run, "Other repo work", "--id", "R2", "--node", "impl", "--repo", other).rc).toBe(0);
+  expect(o("req", "list", run).out).toContain(other);
+  expect(o("req", "set-repo", run, "R1", other).rc).toBe(0);
+  expect(ledger().repo).toBe(other);
+  o("req", "evidence", run, "R1", "--note", "x");
+  o("req", "status", run, "R1", "implemented");
+  o("req", "status", run, "R1", "verifying", "--verifier", "v1");
+  o("req", "verdict", run, "R1", "fail", "--node", "v1", "--gap", "missing piece");
+  const gap = readJson(join(home, "runs", run, "state.json")).nodes.find((n: any) => n.id === "gap-R1-1");
+  expect(gap.repo).toBe(other);
+});

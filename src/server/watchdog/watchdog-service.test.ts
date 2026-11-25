@@ -114,6 +114,16 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
+  test("a forced done without handoff is final: the watchdog does not resume it", async () => {
+    const f = fixture();
+    f.set([{ id: "a", status: "running" }]);
+    await f.tick();
+    f.set([{ id: "a", status: "done", attempts: [], forced_done: "checked by hand" }]);
+    await f.tick();
+    expect(f.actions().filter((x) => x.startsWith("node retry"))).toEqual([]);
+    f.home.dispose();
+  });
+
   test("an unverified flag clears once handoff.md exists, without a new state change", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "running" }]);

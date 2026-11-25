@@ -752,6 +752,9 @@ export function applyUpdate(run: RunState, a: UpdateArgs, ctx: Ctx): string {
   if (old === "blocked-user" && status !== "blocked-user" && !a.needsSet) n.needs_user = null;
   if (a.status === "skipped" && a.reason) n.skip_reason = a.reason;
   else if (old === "skipped" && a.status !== "skipped") n.skip_reason = null;
+  // A forced done is a person's final decision: the watchdog must not resume the node for a missing handoff.
+  if (status === "done" && a.force) n.forced_done = a.reason || "forced";
+  else if (status !== "done") n.forced_done = null;
   if (status === "done" && old !== "done") {
     if (ctx.batch) ctx.verify.push(a.id);
     else doneVerify(run, a.id, ctx);
