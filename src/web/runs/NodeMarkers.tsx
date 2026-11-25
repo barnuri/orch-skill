@@ -144,7 +144,7 @@ export function MarkerSummary({ map, active, onPick }: { map: ReadonlyMap<string
         <span key={code}>
           {i === 0 ? null : <span className="marker-sep" aria-hidden="true"> · </span>}
           <button type="button" data-code={code} className={`marker-summary-btn${active === code ? " is-on" : ""}`} aria-pressed={active === code} onClick={() => onPick(active === code ? "" : code)}>
-            <span aria-hidden="true">{MARKER_ICON[code]}</span> {count} {code === "long" ? "long-running" : code}
+            <span aria-hidden="true">{MARKER_ICON[code]}</span> {count} {code === "long" ? "long-running" : code === "review" ? "need review" : code}
           </button>
         </span>
       ))}

@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { useToast } from "../components/Toast";
 import { fmtTime } from "../lib/format";
-import { failedNodes, isLongRunning, LONG_RUNNING_MS, pausedNodes, runningMinutes } from "./run-attention";
+import { isLongRunning, LONG_RUNNING_MS, pausedNodes, runningMinutes } from "./run-attention";
 import { refetchRun } from "./run-actions";
 
 /** Paused or stopped state of the run, with the running nodes it holds. */
@@ -36,28 +36,6 @@ export function RunStateNotice({ run }: { run: RunState }) {
 }
 
 /** Error nodes with their message. Shown above the graph, so a failure is not missed. */
-export function FailureBanner({ run }: { run: RunState }) {
-  const failed = failedNodes(run);
-  if (failed.length === 0) {
-    return null;
-  }
-  return (
-    <div className="notice run-banner-error" role="alert">
-      <b>
-        {failed.length} node{failed.length === 1 ? "" : "s"} failed
-      </b>
-      <ul className="run-banner-list">
-        {failed.map((node) => (
-          <li key={node.id}>
-            <span className="mono">{node.id}</span>
-            {node.error === "" ? null : <span> {node.error}</span>}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function LongRunningRow({ runId, node, nowMs }: { runId: string; node: RunNode; nowMs: number }) {
   const toast = useToast();
   const [busy, setBusy] = useState<"cancel" | "restart" | null>(null);

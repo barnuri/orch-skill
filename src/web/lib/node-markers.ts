@@ -2,20 +2,20 @@ import type { NodeHealth } from "../../shared/types/run-health";
 import type { RunNode } from "../../shared/types/run-node";
 import type { RunState } from "../../shared/types/run-state";
 import { isLongRunning, LONG_RUNNING_MS, runningMinutes } from "../runs/run-attention";
-import { handoffText, nodeFlags } from "./node-flags";
+import { handoffText, nodeFlags, reviewReason } from "./node-flags";
 
-export const MARKER_CODES = ["stalled", "long", "ready", "no-handoff", "unowned"] as const;
+export const MARKER_CODES = ["failed", "review", "stalled", "long", "ready", "no-handoff", "unowned"] as const;
 export type MarkerCode = (typeof MARKER_CODES)[number];
 
 /** A short per-node state flag: icon and word come from the code, colour from the tone's status tokens. */
 export interface NodeMarker {
   code: MarkerCode;
   word: string;
-  tone: "warn" | "ok" | "info";
+  tone: "error" | "warn" | "ok" | "info";
   title: string;
 }
 
-export const MARKER_ICON: Readonly<Record<MarkerCode, string>> = { stalled: "◔", long: "⏱", ready: "▷", "no-handoff": "▫", unowned: "○" };
+export const MARKER_ICON: Readonly<Record<MarkerCode, string>> = { failed: "✕", review: "?", stalled: "◔", long: "⏱", ready: "▷", "no-handoff": "▫", unowned: "○" };
 
 export interface MarkerContext {
   nowMs: number;
@@ -30,6 +30,15 @@ export interface MarkerContext {
 export function nodeMarkers(node: RunNode, ctx: MarkerContext): NodeMarker[] {
   const out: NodeMarker[] = [];
   const flags = nodeFlags(node);
+  // Run-level boxes ("N nodes failed", "N nodes need review") became these markers: the node carries its own flag.
+  if (node.status === "error") {
+    const why = typeof node.error === "string" && node.error !== "" ? node.error : "the job failed";
+    out.push({ code: "failed", word: "failed", tone: "error", title: why });
+  }
+  const review = reviewReason(node);
+  if (review !== null) {
+    out.push({ code: "review", word: "review", tone: "warn", title: `${review}: record a result (dispatch.ts node result) after you check it` });
+  }
   const idle = ctx.health?.idle_min ?? null;
   if (flags.stale || ctx.health?.health === "stalled") {
     out.push({ code: "stalled", word: "stalled", tone: "warn", title: idle === null ? "No activity for a while" : `No activity for ${idle} min` });

@@ -209,3 +209,15 @@ test("node dispatch CLI: a person's cwd repo wins, ORCH_AUTO_DISPATCH ignores th
   expect(run({ ORCH_AUTO_DISPATCH: "1", ORCH_DISPATCH_REPO_HINT: "src" }, "hinted", caller).exitCode).toBe(0);
   expect(await cwdOf("hinted")).toBe(realpathSync(hintRepo));
 });
+
+test("an old run with no repo on its nodes uses the repo its linked nodes' jobs recorded", async () => {
+  const { resolveNodeRepo } = await import("../../core/runs/repo.ts");
+  const home = seedHome();
+  mkdirSync(join(home, "jobs", "old-job"), { recursive: true });
+  writeFileSync(join(home, "jobs", "old-job", "repo"), "/repos/orch-skill\n");
+  const run = { nodes: [{ id: "impl", status: "done", job_id: "old-job" }, { id: "verify-R1", status: "waiting" }], edges: [] };
+  const r = await resolveNodeRepo(home, "no-such-run", run, "verify-R1", ["impl"]);
+  expect(r).toEqual({ repo: "/repos/orch-skill", from: "job of impl" });
+  const none = await resolveNodeRepo(home, "no-such-run", { nodes: [{ id: "x" }], edges: [] }, "x");
+  expect(none.repo).toBe("");
+});

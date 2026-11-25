@@ -176,7 +176,7 @@ export function isInfraError(error: string | null | undefined): boolean {
 
 export const spawnWatchdogDispatch: Starter = async (args, home) => {
   const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
-    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "watchdog", ORCH_NO_ANNOUNCE: "1", ORCH_LOAD_GATE: "1" },
+    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "watchdog", ORCH_NO_ANNOUNCE: "1", ORCH_LOAD_GATE: "1", ORCH_AUTO_DISPATCH: "1" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",

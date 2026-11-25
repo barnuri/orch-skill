@@ -15,7 +15,6 @@ import type { RunEvent } from "../../shared/types/run-event";
 import type { Metric } from "../lib/node-metrics";
 import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
-import { hasUnreviewed, unreviewedNodes } from "../lib/node-flags";
 import { ActivityFeed, Ago } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunProjection, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
@@ -29,7 +28,7 @@ import { NextActions } from "./RunNextActions";
 import { RunOverview } from "./RunOverview";
 import { refetchRun } from "./run-actions";
 import { describeChanges, snapshotRun, type RunSnapshot } from "./run-attention";
-import { FailureBanner, RunStateNotice } from "./RunAttention";
+import { RunStateNotice } from "./RunAttention";
 import { useNow } from "./use-now";
 import { RunTable, ViewSwitch } from "./RunTable";
 import { hashWithView, loadRunView, parseViewParam, saveRunView, type RunView } from "../lib/run-table";
@@ -286,12 +285,10 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         </div>
         <CoordinatorBlock runId={run.run_id} state={run.orchestrator_state ?? run.coordinator_state} />
         <RunStateNotice run={run} />
-        <FailureBanner run={run} />
         <MarkerSummary map={markers} active={markerFilter} onPick={setMarkerFilter} />
         <RequirementsPanel requirements={projection?.requirements ?? []} onSelect={setSelected} />
         <NextActions actions={projection?.next_actions ?? []} onSelect={setSelected} />
         <RunOverview runId={run.run_id} onSelect={setSelected} />
-        {hasUnreviewed(run.nodes) ? <UnreviewedBanner nodes={unreviewedNodes(run.nodes)} onSelect={setSelected} /> : null}
       </div>
       <div className="layout run-layout">
         {runView === "table" ? (
@@ -354,20 +351,3 @@ export function RunPage({ runId }: { runId: string }) {
   return <RunBody key={run.run_id} run={run} live={query.isError ? "offline" : query.live} />;
 }
 
-/** One line naming the done nodes that need a review and why; a click selects the node. */
-function UnreviewedBanner({ nodes, onSelect }: { nodes: Array<{ id: string; reason: string }>; onSelect: (id: string) => void }) {
-  return (
-    <div className="notice warn run-stale-banner" role="status">
-      <b>{nodes.length === 1 ? "1 node needs review" : `${nodes.length} nodes need review`}</b>
-      <span>
-        {nodes.slice(0, 5).map((n, i) => (
-          <span key={n.id}>
-            {i > 0 ? ", " : ""}
-            <button type="button" className="link-btn" onClick={() => onSelect(n.id)}>{n.id}</button> ({n.reason})
-          </span>
-        ))}
-        {nodes.length > 5 ? `, ${nodes.length - 5} more` : ""}. A recorded result (`node result`) clears it.
-      </span>
-    </div>
-  );
-}

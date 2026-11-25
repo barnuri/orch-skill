@@ -268,10 +268,13 @@ main:has(.run-page) { max-width: none; }
   display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 999px;
   font: 600 10.5px var(--font-mono); border: 1px solid var(--status-stale-bd); background: var(--status-stale-bg); color: var(--status-stale);
 }
+.node-marker.is-error { border-color: var(--status-error-bd); background: var(--status-error-bg); color: var(--status-error); }
 .node-marker.is-ok { border-color: var(--status-done-bd); background: var(--status-done-bg); color: var(--status-done); }
 .node-marker.is-info { border-color: var(--status-skipped-bd); background: var(--status-skipped-bg); color: var(--status-skipped); }
 .card-marker rect { fill: var(--panel); stroke: var(--status-stale); stroke-opacity: .55; }
 .card-marker text { fill: var(--status-stale); font: 600 10px var(--font-mono); pointer-events: none; }
+.card-marker.is-error rect { stroke: var(--status-error); }
+.card-marker.is-error text { fill: var(--status-error); }
 .card-marker.is-ok rect { stroke: var(--status-done); }
 .card-marker.is-ok text { fill: var(--status-done); }
 .card-marker.is-info rect { stroke: var(--status-skipped); }

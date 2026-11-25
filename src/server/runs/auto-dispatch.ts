@@ -77,7 +77,9 @@ export type Logger = (line: string) => void;
 
 export const spawnDispatch: Starter = async (args, home) => {
   const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
-    env: { ...process.env, HARNESS_ORCH_HOME: home },
+    // The service dispatches nodes itself: ORCH_AUTO_DISPATCH makes the job use the node's, its relatives' or the run's repo,
+    // never the service's own cwd (verify-G17 found jobs started in the orch-skill checkout).
+    env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_AUTO_DISPATCH: "1" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",

@@ -1,6 +1,7 @@
 // Which repo a node's job runs in. The job's cwd is the repo, so a dispatch that orch starts itself (heal, gap nodes,
 // verifiers, retries, advance) must never fall back to the cwd of the service process.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadLedger } from "../commands/req.ts";
 
 /** Git toplevel of a directory, or null when it is not inside a git work tree. */
@@ -11,6 +12,19 @@ export function gitToplevel(dir: string): string | null {
 }
 
 const repoOf = (run: any, id: string): string => String((run.nodes ?? []).find((n: any) => n.id === id)?.repo ?? "");
+
+/** The repo a node's last job recorded in its job dir (`jobs/<id>/repo`): nodes dispatched before `repo` was kept on the node have only this. */
+function jobRepoOf(home: string, run: any, id: string): string {
+  const n = (run.nodes ?? []).find((x: any) => x.id === id);
+  const jobs = [n?.job_id, ...((n?.attempts ?? []) as any[]).map((a) => a?.job_id)].filter((j): j is string => typeof j === "string" && j !== "");
+  for (const job of jobs.reverse()) {
+    try {
+      const repo = readFileSync(join(home, "jobs", job, "repo"), "utf8").trim();
+      if (repo) return repo;
+    } catch { /* no repo file for this job */ }
+  }
+  return "";
+}
 
 /**
  * Order: the node's own last repo, then its parent (`after`) nodes and the nodes linked to it through a requirement
@@ -30,6 +44,11 @@ export async function resolveNodeRepo(home: string, runId: string, run: any, nod
   for (const id of related) {
     const r = repoOf(run, id);
     if (r) return { repo: r, from: `node ${id}` };
+  }
+  // Older runs: the jobs of the same nodes recorded their cwd. A run whose nodes all worked in one repo uses it.
+  for (const id of [nodeId, ...related]) {
+    const r = jobRepoOf(home, run, id);
+    if (r) return { repo: r, from: `job of ${id}` };
   }
   const runRepo = String(run.repo ?? "");
   return runRepo ? { repo: runRepo, from: "run" } : { repo: "", from: "" };

@@ -349,7 +349,7 @@ export function healthEverySec(paths: OrchPaths, env: Record<string, string | un
 export function homeHealthSpawner(home: string): HealthSpawner {
   return async (args, timeoutMs) => {
     const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
-      env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "health", ORCH_NO_ANNOUNCE: "1" },
+      env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_EVENT_BY: "health", ORCH_NO_ANNOUNCE: "1", ORCH_AUTO_DISPATCH: "1" },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",

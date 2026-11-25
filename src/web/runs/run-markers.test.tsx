@@ -38,6 +38,16 @@ describe("node markers", () => {
     expect(markerCounts(map).map((c) => `${c.count} ${c.code}`)).toEqual(["1 stalled", "1 long", "1 ready", "1 unowned"]);
     expect([...idsWithMarker(map, "ready")]).toEqual(["c"]);
   });
+  test("failed and needs-review nodes carry markers instead of run-level boxes", () => {
+    const failed = node({ id: "f", status: "error", error: "exit=1" });
+    const review = node({ id: "r", status: "done", finished: "x", unverified: true, result_reason: "node result was not recorded" } as Partial<RunNode>);
+    const reviewed = node({ id: "ok", status: "done", finished: "x", unverified: true, reviewed: true } as Partial<RunNode>);
+    const map = markerMap(run([failed, review, reviewed]), { nowMs: now, ready: new Set() }, []);
+    expect(map.get("f")?.map((m) => `${m.code}:${m.tone}:${m.title}`)).toEqual(["failed:error:exit=1"]);
+    expect(map.get("r")?.map((m) => m.code)).toEqual(["review"]);
+    expect(map.has("ok")).toBe(false);
+    expect(markerCounts(map).map((c) => `${c.count} ${c.code}`)).toEqual(["1 failed", "1 review"]);
+  });
   test("a healthy node has no marker", () => {
     expect(nodeMarkers(node({ status: "done", finished: "x" }), { nowMs: now, ready: new Set() })).toEqual([]);
   });
