@@ -382,6 +382,8 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
   const run = await loadRun(home, runId);
   const n = run ? findNode(run, nodeId) : undefined;
   if (!run || !n) return fail(`node ${nodeId}: not in this run`);
+  // The repo of the attempt being retried, read before the attempt is archived (its job id leaves the node then).
+  const retryRepo = (await resolveNodeRepo(home, runId, run, nodeId)).repo;
   const retryable = earlyEnd ? ["done", "error", "skipped", "stopped"] : ["error", "skipped", "stopped"];
   if (!retryable.includes(n.status)) return fail(`node retry: ${nodeId} is ${n.status}, not error or skipped`);
   const live = await nodeLiveJob(home, runId, nodeId);
@@ -450,6 +452,8 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
       x.unverified = null;
       ev(ctx, "resumed", nodeId, String(x.status ?? ""), "waiting", `early end, ${mode === "resumed" ? `resumed session ${resume}` : "restarted (no resumable session)"}, ${x.resumes} of ${MAX_EARLY_END_RESUMES}`);
     }
+    // Keep the repo of the archived attempt on the node: its job id is cleared here, and any later dispatch needs it.
+    if (retryRepo && !x.repo) x.repo = retryRepo;
     Object.assign(x, { status: "waiting", job_id: null, adapter: adapter || null, profile: profile || null, session: null, started: null, finished: null, error: null, log_tail: [], cost: null, actual_model: null, updated: now, next_retry_at: null });
     ev(ctx, "retry", nodeId, "", "waiting", "");
     if (r.finished != null && r.status !== "covered") {
@@ -462,7 +466,7 @@ async function retryDispatchLocked(home: string, runId: string, nodeId: string, 
   const target2 = targetArgs(override, profile, adapter);
   if (!target2) return fail(`node retry: ${nodeId} has no profile or adapter; pass --profile or an adapter`);
   const extra = ((n.dispatch_args ?? []) as string[]).filter((a) => a !== "");
-  const res = await dispatchNodeJob(home, runId, nodeId, [...target2, dispatchPrompt, ...extra], { force, resume, locked: true });
+  const res = await dispatchNodeJob(home, runId, nodeId, [...target2, dispatchPrompt, ...extra], { force, resume, locked: true, ...(retryRepo ? { repo: retryRepo } : {}) });
   if (res.rc !== 0) return res;
   await mutateRun(home, runId, (r) => {
     findNode(r, nodeId)!.prompt = prompt;

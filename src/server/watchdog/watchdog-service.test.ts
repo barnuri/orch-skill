@@ -479,11 +479,11 @@ describe("watchdog", () => {
     f.home.dispose();
   });
 
-  test("rule 5: a run without auto_dispatch is not finished", async () => {
+  test("rule 5: a run without auto_dispatch is not finished; its orchestrator is told to verify and finish", async () => {
     const f = fixture();
     f.set([{ id: "a", status: "done" }]);
     await f.tick();
-    expect(f.actions()).toEqual([]);
+    expect(f.actions()).toEqual(["node tell r1 coordinator all nodes settled: run verify and finish --from watchdog"]);
     f.home.dispose();
   });
 

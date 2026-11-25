@@ -1,3 +1,4 @@
+import { readNodeField } from "../../../skills/orch/core/state/node-files";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { NodeStatus } from "../../shared/types/node-status";
@@ -303,7 +304,9 @@ describe("POST retry routes (real dispatch.ts smoke)", () => {
     expect(state.finished).toBeNull();
     const retried = state.nodes.find((item) => item.id === "a");
     expect(retried?.status).toBe("running");
-    expect(retried?.attempts?.[0]?.job_id).toBe("old-job");
+    // Attempts live in runs/<id>/nodes/<node>/ since the state split.
+    const attempts = readNodeField(srv.home.path, RUN_ID, "a", "attempts") as Array<{ job_id?: string }>;
+    expect(attempts[0]?.job_id).toBe("old-job");
   }, 600_000);
 });
 

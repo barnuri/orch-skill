@@ -59,6 +59,12 @@ export class HerdrWatcher {
     return this.latestEntry;
   }
 
+  /** Stores a check made by the background worker, so the API process answers from it without running one. */
+  setRemote(health: HerdrHealth | null): void {
+    this.latestEntry = health;
+    this.tried = true;
+  }
+
   /** The cached check, or the first one when none has run yet (never nudges; waits at most `waitMs`). */
   async read(waitMs: number = 5_000): Promise<HerdrHealth | null> {
     if (this.latestEntry !== null || (this.tried && this.inFlight === null)) {

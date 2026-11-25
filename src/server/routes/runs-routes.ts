@@ -1,3 +1,5 @@
+import { dirname } from "node:path";
+import { nodeFromFiles } from "../../../skills/orch/core/state/node-files";
 import { dispatchPath } from "../dispatch-path";
 
 import type { ApiError } from "../../shared/types/api-error";
@@ -73,8 +75,13 @@ export function readRunNodeHandler(ctx: ServerContext): RouteHandler {
     if (result.kind !== "ok") {
       return notFound();
     }
-    const node = (result.run.nodes as unknown as NodeDoc[]).find((candidate) => candidate.id === params.node);
-    return node === undefined ? notFound() : jsonResponse(200, { node });
+    const slim = (result.run.nodes as unknown as NodeDoc[]).find((candidate) => candidate.id === params.node);
+    if (slim === undefined) {
+      return notFound();
+    }
+    // The run document holds the slim node; the files hold the full selection history, log tail and attempts.
+    const node = nodeFromFiles(dirname(ctx.paths.runs), params.id ?? "", slim);
+    return jsonResponse(200, { node });
   };
 }
 

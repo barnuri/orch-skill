@@ -8,6 +8,7 @@ import { acquireLock } from "../state/lock.ts";
 import { orchHome } from "../state/home.ts";
 import { enqueueNode } from "../delivery/enqueue-node.ts";
 import { appendEvents, loadRun, saveRun, type RunState } from "../state/store.ts";
+import { cloneRunForDryRun } from "../state/node-files.ts";
 import {
   applyAdd,
   applyReport,
@@ -66,7 +67,7 @@ export async function mutateRun(
   // Dry run on a copy before the lock: bash rejects a bad op before run_lock, so it creates no lock file.
   const dry = newCtx(home, runId, { hub: await loadHub(home), chain: await loadChain(home, pre) });
   try {
-    mutate(structuredClone(pre), dry);
+    mutate(cloneRunForDryRun(pre), dry);
   } catch (e) {
     if (!(e instanceof OpError)) throw e;
     flushStderr(dry);

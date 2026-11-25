@@ -4,6 +4,7 @@ import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { dispatchPath } from "../dispatch-path";
+import { attemptCount } from "../../shared/attempt-count";
 import { BUILTIN_DEFAULTS, effectiveProfile, type ProfileDefaults } from "../../shared/profile-effective";
 import { blockersOf, type ProjectionNodeInput } from "../../../skills/orch/core/runs/projection";
 
@@ -29,6 +30,7 @@ interface NodeState {
   prompt?: string | null;
   profile?: string | null;
   attempts?: unknown[] | null;
+  attempt_count?: number | null;
   needs_user?: string | null;
 }
 
@@ -347,7 +349,7 @@ export class RunEngine {
       const node = (state.nodes ?? []).find((n) => n.id === d.node);
       const claims = join(engineDir(this.home, runId), "claims");
       mkdirSync(claims, { recursive: true });
-      const claim = join(claims, `${d.node}@${(node?.attempts ?? []).length}`);
+      const claim = join(claims, `${d.node}@${attemptCount(node)}`);
       const updated = String((node as { updated?: string } | undefined)?.updated ?? "");
       if (!claimOnce(claim, { run: runId, node: d.node, profile: d.profile, claimed_at: this.now().toISOString(), node_updated: updated })) {
         if (!this.releaseReset(claim, updated) || !claimOnce(claim, { run: runId, node: d.node, profile: d.profile, claimed_at: this.now().toISOString(), node_updated: updated })) {

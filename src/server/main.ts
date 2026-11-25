@@ -12,17 +12,12 @@ import { SERVE_USAGE, parseServeArgs, urlsFor } from "./cli";
 import { ensureHome } from "./files/ensure-home";
 import { clearPidMarker, writeServeMarkers } from "./files/marker-files";
 import { ensureToken } from "./files/token-file";
-import { startHerdrWatcher } from "./health/herdr-watcher";
 import { digestToken } from "./http/auth";
 import { orchPaths } from "./files/paths";
-import { startBootResume } from "./runs/boot-resume";
 import { pauseRunsOnShutdown } from "./runs/shutdown-pause";
-import { startTicker } from "./schedules/ticker";
+import { startBackground, type Background } from "./background/supervisor";
+import { startBackgroundWatchers } from "./background/worker";
 import { pushHubFor } from "./push/hub";
-import { startRunWatcher } from "./push/run-watcher";
-import { startWatchdog } from "./watchdog/watchdog-service";
-import { startOrchestratorRotation } from "./watchdog/orchestrator-rotation";
-import { startHubModelSync } from "./models/hub-sync";
 
 export const MIN_BUN: string = ">=1.3.0";
 export const EXIT_OK: number = 0;
@@ -81,11 +76,13 @@ function reachSummary(requireToken: boolean, requireRemoteToken: boolean): strin
   return "every request needs the bearer token";
 }
 
-function onShutdown(server: Server<undefined>, home: string): void {
+function onShutdown(server: Server<undefined>, home: string, background: () => Background | null): void {
   for (const signal of SHUTDOWN_SIGNALS) {
     process.on(signal, () => {
       // SIGTERM is a PC restart or logout: pause each running run with auto_resume so boot-resume
       // picks it up on the next start. Node jobs are left alone. Bounded and never rejects.
+      // The watchers stop first: a live watchdog would resume or re-dispatch the runs this handler pauses.
+      background()?.stop();
       const paused = signal === "SIGTERM" ? pauseRunsOnShutdown(home) : Promise.resolve([]);
       void Promise.all([paused, server.stop(true)]).finally(() => {
         // Truncated only when it still holds our pid, so a restart that already claimed the
@@ -179,7 +176,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   // `server.port` is undefined only for a unix-socket bind, which this server never does.
   const port = server.port ?? args.port;
   // Handlers first: a SIGTERM that lands while the background workers start must still stop cleanly.
-  onShutdown(server, args.home);
+  let background: Background | null = null;
+  onShutdown(server, args.home, () => background);
   // pid lands last: bash treats a pid marker as proof the port is already bound.
   writeServeMarkers(args.home, { host: args.host, port, pid: process.pid });
 
@@ -210,19 +208,19 @@ export async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write(`serve: HTTPS is off: ${err instanceof Error ? err.message : String(err)}\n`);
     }
   }
-  startTicker(args.home);
-  startHerdrWatcher(args.home);
-  // Event-driven watchdog: owns the auto-dispatch engine (ready nodes, done/error pushes) and the
-  // lost, stalled, unverified, infra-retry and finish rules.
-  startWatchdog(args.home);
-  // Rotates a coordinator session at settings.coordinator_rotate_tokens (reads its prompt size from opencode.db).
-  startOrchestratorRotation(args.home);
-  // Run, watchdog and schedule notifications: read-only on orch state, sent only to the browser push services of subscriptions.
-  startRunWatcher(args.home, (category, input) => void pushHubFor(args.home).notify(category, input).catch(() => {}));
-  // A run paused with auto_resume (a PC restart) resumes by itself; never blocks or crashes boot.
-  startBootResume(args.home);
-  // Refreshes the llm-hub model list in the catalog at every start. Background, never blocks boot.
-  startHubModelSync(args.home);
+  // Every watcher (schedule ticker, herdr health, watchdog with auto-dispatch, reconcile/sync, deploy and llm-hub watch,
+  // coordinator rotation, run/schedule push notifications, boot-resume, hub model sync) runs in one Bun Worker, so the
+  // API loop only serves requests. ORCH_BACKGROUND=inline keeps them on the API loop and off starts none (debugging only).
+  if (process.env["ORCH_BACKGROUND"] === "off") {
+    // API only: no watcher runs. For a second, read-only server on a live home (measurements, never the service).
+  } else if (process.env["ORCH_BACKGROUND"] === "inline") {
+    const stop = startBackgroundWatchers(args.home, (m) => {
+      if (m.type === "notify") void pushHubFor(args.home).notify(m.category as never, m.input as never).catch(() => {});
+    });
+    background = { stop };
+  } else {
+    background = startBackground(args.home);
+  }
   // Resolves only on an unhandled fault; the signal handlers exit the process.
   await new Promise<never>(() => {});
   return EXIT_OK;

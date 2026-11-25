@@ -62,7 +62,7 @@ export const LOOP_KEYS = ["loop start", "loop list", "loop stop", "loop resume",
 export const SCHEDULE_KEYS = ["schedule add", "schedule edit", "schedule list", "schedule show", "schedule enable", "schedule disable", "schedule mute", "schedule unmute", "schedule remove", "schedule run", "schedule log", "schedule tick", "schedule next", "schedule record", "schedule pause", "schedule __runcmd", "schedule"];
 
 export const COMMANDS: Record<string, Handler> = {
-  "run start": withMonitor(L(runs, (m) => m.runStart)), "run describe": L(() => import("./commands/overview.ts"), (m) => m.runDescribe), "run overview": L(() => import("./commands/overview.ts"), (m) => m.runOverview), "run list": L(runs, (m) => m.runList), "run retry": L(runs, (m) => m.runRetry), "run sync": L(runs, (m) => m.runSync),
+  "run start": withMonitor(L(runs, (m) => m.runStart)), "run describe": L(() => import("./commands/overview.ts"), (m) => m.runDescribe), "run overview": L(() => import("./commands/overview.ts"), (m) => m.runOverview), "run list": L(runs, (m) => m.runList), "run retry": L(runs, (m) => m.runRetry), "run sync": L(runs, (m) => m.runSync), "run sync-batch": L(() => import("./commands/sync-batch.ts"), (m) => m.runSyncBatch),
   "__run-cancel": L(runs, (m) => m.runCancel), prune: L(runs, (m) => (a) => m.prune(a)),
   "node usage": L(nodeOps, (m) => m.nodeUsage), "node cost": L(nodeOps, (m) => m.nodeCost), "node out": L(nodeOps, (m) => m.nodeOut), "node digest": L(nodeOps, (m) => m.nodeDigest),
   "node remove": L(nodeOps, (m) => m.nodeRemove), "node ping": L(nodeOps, (m) => m.nodePing),

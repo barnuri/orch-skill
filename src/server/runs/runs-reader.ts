@@ -1,5 +1,6 @@
 import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { slimNodeFromSummary } from "../../../skills/orch/core/state/node-files";
 
 import { NODE_STATUSES } from "../../shared/types/node-status";
 import type { NodeStatus } from "../../shared/types/node-status";
@@ -342,6 +343,9 @@ export function readRun(paths: OrchPaths, id: string, fresh = false): RunReadRes
   if (!loaded.ok) {
     return { kind: "corrupt", reason: loaded.reason };
   }
+  // state.json keeps a summary per node: put back the newest selection and the attempts (no log tails).
+  const home = dirname(paths.runs);
+  loaded.state.nodes = loaded.state.nodes.map((node) => slimNodeFromSummary(home, id, node as unknown as Record<string, unknown>) as unknown as typeof node);
   annotateActivity(paths, loaded.state, Date.now(), fresh);
   annotateTiming(loaded.state);
   return { kind: "ok", run: loaded.state };

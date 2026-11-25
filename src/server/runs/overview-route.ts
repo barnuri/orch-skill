@@ -5,6 +5,7 @@ import type { RunOverview } from "../../shared/types/run-overview";
 import type { RouteHandler } from "../http/route";
 import { jsonResponse, notFound } from "../http/responses";
 import { dispatchPath } from "../dispatch-path";
+import { buildRunOverview } from "../../../skills/orch/core/commands/overview.ts";
 import { readRun } from "./runs-reader";
 import type { ServerContext } from "../types/server-context";
 
@@ -34,6 +35,21 @@ export const spawnOverview: OverviewSpawner = async (home, args) => {
   }
 };
 
+/**
+ * Default spawner: `--json` is a read, so it runs in-process (no CLI start, no second parse of the run state).
+ * Anything else writes overview.html and goes through `dispatch.ts`, which owns every write.
+ */
+export const inProcessOverview: OverviewSpawner = async (home, args) => {
+  if (!args.includes("--json")) return spawnOverview(home, args);
+  const id = args.find((a) => !a.startsWith("--")) ?? "";
+  try {
+    const overview = await buildRunOverview(home, id);
+    return overview === null ? { code: 1, stdout: "" } : { code: 0, stdout: JSON.stringify(overview) };
+  } catch {
+    return { code: 1, stdout: "" };
+  }
+};
+
 function parseOverview(text: string, runId: string): RunOverview | null {
   try {
     const parsed = JSON.parse(text);
@@ -45,7 +61,7 @@ function parseOverview(text: string, runId: string): RunOverview | null {
 
 export const OVERVIEW_CACHE_MS: number = 15_000;
 
-interface OverviewCacheEntry { at: number; stateMtime: number; value: RunOverview | null; pending: Promise<RunOverview | null> | null }
+interface OverviewCacheEntry { at: number; value: RunOverview | null; pending: Promise<RunOverview | null> | null }
 const overviewCache = new Map<string, OverviewCacheEntry>();
 
 /** Test hook: forget every cached overview. */
@@ -54,35 +70,41 @@ export function resetOverviewCache(): void {
 }
 
 /**
- * One overview per run at a time. A request inside OVERVIEW_CACHE_MS of the last build, with an unchanged state file, gets the
- * cached value; concurrent requests share the build in flight, so a busy page never starts a second `dispatch.ts` process.
+ * One overview per run at a time, served stale-while-revalidate: a value younger than OVERVIEW_CACHE_MS is returned as is
+ * (whatever the state file mtime does); an older value is returned at once while one background build refreshes it. Only
+ * the first request for a run waits for a build. Concurrent requests share the build in flight, so a busy page never
+ * starts a second `dispatch.ts` process.
  */
 async function cachedOverview(ctx: ServerContext, id: string, spawn: OverviewSpawner): Promise<RunOverview | null> {
   const key = `${ctx.paths.home}:${id}`;
-  const stateMtime = mtimeOf(join(ctx.paths.runs, id, "state.json"));
   const hit = overviewCache.get(key);
   if (hit !== undefined) {
+    if (hit.value !== null && (hit.pending !== null || Date.now() - hit.at < OVERVIEW_CACHE_MS)) return hit.value;
     if (hit.pending !== null) return hit.pending;
-    if (hit.value !== null && hit.stateMtime === stateMtime && Date.now() - hit.at < OVERVIEW_CACHE_MS) return hit.value;
   }
-  const entry: OverviewCacheEntry = { at: 0, stateMtime, value: hit?.value ?? null, pending: null };
-  entry.pending = (async () => {
-    const result = await spawn(ctx.paths.home, [id, "--json"]);
-    return result.code === 0 ? parseOverview(result.stdout, id) : null;
-  })();
-  overviewCache.set(key, entry);
-  try {
-    const built = await entry.pending;
+  const entry: OverviewCacheEntry = { at: 0, value: hit?.value ?? null, pending: null };
+  const build = (async () => {
+    try {
+      const result = await spawn(ctx.paths.home, [id, "--json"]);
+      return result.code === 0 ? parseOverview(result.stdout, id) : null;
+    } catch {
+      return null;
+    }
+  })().then((built) => {
     entry.at = Date.now();
     entry.value = built ?? entry.value;
     return built;
-  } finally {
+  }).finally(() => {
     entry.pending = null;
-  }
+  });
+  entry.pending = build;
+  overviewCache.set(key, entry);
+  // A stale value is served now; the build refreshes it in the background.
+  return entry.value !== null ? entry.value : build;
 }
 
 /** `GET /api/runs/{id}/overview`: the run overview built by `dispatch.ts run overview <id> --json`. 404 for an unknown run, 502 when dispatch fails. */
-export function readRunOverviewHandler(ctx: ServerContext, spawn: OverviewSpawner = spawnOverview): RouteHandler {
+export function readRunOverviewHandler(ctx: ServerContext, spawn: OverviewSpawner = inProcessOverview): RouteHandler {
   return async (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> => {
     const id = params.id ?? "";
     if (readRun(ctx.paths, id).kind === "missing") {
@@ -105,7 +127,7 @@ function mtimeOf(file: string): number {
 }
 
 /** `GET /api/runs/{id}/overview.html`: the page `<run>/overview.html`. Regenerated when it is missing or older than the run state; otherwise served as is. 404 for an unknown run. */
-export function readRunOverviewHtmlHandler(ctx: ServerContext, spawn: OverviewSpawner = spawnOverview): RouteHandler {
+export function readRunOverviewHtmlHandler(ctx: ServerContext, spawn: OverviewSpawner = inProcessOverview): RouteHandler {
   return async (_req: Request, params: Readonly<Record<string, string>>): Promise<Response> => {
     const id = params.id ?? "";
     if (readRun(ctx.paths, id).kind === "missing") {

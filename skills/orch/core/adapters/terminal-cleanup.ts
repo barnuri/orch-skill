@@ -164,7 +164,7 @@ export async function snapshotCleanup(home: string, panes?: HerdrPane[] | null):
         covered_by: typeof n.covered_by === "string" && n.covered_by !== "" ? n.covered_by : null,
         needs_user: typeof n.needs_user === "string" && n.needs_user.trim() !== "" ? n.needs_user : null,
         handoff: handoffPresent(typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : paths.runOutDir(home, id, String(n.id))),
-        attempts: Array.isArray(n.attempts) ? n.attempts.length : 0,
+        attempts: Array.isArray(n.attempts) ? n.attempts.length : Number(n.attempt_count ?? 0) || 0,
         engine: Boolean(n.origin || n.loop_id),
       })),
     });

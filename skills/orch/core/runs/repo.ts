@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadLedger } from "../commands/req.ts";
+import { readNodeField } from "../state/node-files.ts";
 
 /** Git toplevel of a directory, or null when it is not inside a git work tree. */
 export function gitToplevel(dir: string): string | null {
@@ -14,9 +15,17 @@ export function gitToplevel(dir: string): string | null {
 const repoOf = (run: any, id: string): string => String((run.nodes ?? []).find((n: any) => n.id === id)?.repo ?? "");
 
 /** The repo a node's last job recorded in its job dir (`jobs/<id>/repo`): nodes dispatched before `repo` was kept on the node have only this. */
-function jobRepoOf(home: string, run: any, id: string): string {
+function jobRepoOf(home: string, run: any, id: string, runId = ""): string {
   const n = (run.nodes ?? []).find((x: any) => x.id === id);
-  const jobs = [n?.job_id, ...((n?.attempts ?? []) as any[]).map((a) => a?.job_id)].filter((j): j is string => typeof j === "string" && j !== "");
+  // attempts live in runs/<id>/nodes/<node>/ since the state split; older runs keep them in state.json.
+  let attempts: any[] = Array.isArray(n?.attempts) ? n.attempts : [];
+  if (attempts.length === 0 && runId) {
+    try {
+      const stored = readNodeField(home, runId, id, "attempts");
+      if (Array.isArray(stored)) attempts = stored as any[];
+    } catch { /* no node files */ }
+  }
+  const jobs = [n?.job_id, ...attempts.map((a) => a?.job_id)].filter((j): j is string => typeof j === "string" && j !== "");
   for (const job of jobs.reverse()) {
     try {
       const repo = readFileSync(join(home, "jobs", job, "repo"), "utf8").trim();
@@ -47,7 +56,7 @@ export async function resolveNodeRepo(home: string, runId: string, run: any, nod
   }
   // Older runs: the jobs of the same nodes recorded their cwd. A run whose nodes all worked in one repo uses it.
   for (const id of [nodeId, ...related]) {
-    const r = jobRepoOf(home, run, id);
+    const r = jobRepoOf(home, run, id, runId);
     if (r) return { repo: r, from: `job of ${id}` };
   }
   const runRepo = String(run.repo ?? "");

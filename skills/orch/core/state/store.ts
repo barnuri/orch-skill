@@ -2,6 +2,7 @@
 import { appendFile, rename } from "node:fs/promises";
 import { paths } from "./home.ts";
 import { retireLegacyGate } from "../runs/legacy-gate.ts";
+import { attachLazyFields, splitRunForSave } from "./node-files.ts";
 
 export async function readJson<T = unknown>(file: string): Promise<T> {
   return (await Bun.file(file).json()) as T;
@@ -19,11 +20,13 @@ export type RunState = Record<string, any> & { nodes: Array<Record<string, any>>
 export async function loadRun(home: string, runId: string): Promise<RunState | null> {
   const f = paths.runState(home, runId);
   if (!(await Bun.file(f).exists())) return null;
-  return retireLegacyGate(await readJson<RunState>(f));
+  const run = retireLegacyGate(await readJson<RunState>(f));
+  attachLazyFields(home, runId, run);
+  return run;
 }
 
 export async function saveRun(home: string, runId: string, run: RunState): Promise<void> {
-  await writeJsonAtomic(paths.runState(home, runId), run);
+  await writeJsonAtomic(paths.runState(home, runId), splitRunForSave(home, runId, run));
 }
 
 // One JSON line per event, appended to the run's events.jsonl. Never throws (run_event semantics).

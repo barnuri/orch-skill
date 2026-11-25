@@ -14,41 +14,51 @@ beforeAll(() => { prev = process.env["ORCH_DISPATCH"]; process.env["ORCH_DISPATC
 afterAll(() => { if (prev === undefined) delete process.env["ORCH_DISPATCH"]; else process.env["ORCH_DISPATCH"] = prev; });
 
 const RUN = "gt1";
-const nodes = (gate: Record<string, unknown>, a = "done") => [{ id: "a", status: a }, { id: "done-gate", ...gate }];
+const nodes = (a = "done") => [{ id: "a", status: a }];
 
-function fixture() {
+function fixture(idle = false) {
   const home = TempHome.create();
-  const dog = new WatchdogService(home.path, { now: () => new Date(), log: () => undefined, health: () => null, pidAlive: () => true, sessionIdle: () => false });
+  const dog = new WatchdogService(home.path, { now: () => new Date(), log: () => undefined, health: () => null, pidAlive: () => true, sessionIdle: () => idle });
   const set = (ns: unknown[], patch: Record<string, unknown> = {}) => home.write(`runs/${RUN}/state.json`, JSON.stringify({ run_id: RUN, status: "running", nodes: ns, edges: [], coordinator: { session_id: "s", transport: "herdr" }, harness_session: "s", ...patch }));
   const tick = async () => { dog.engine.evaluate(RUN); await Promise.all([...dog.inflight, ...dog.engine.inflight]); };
-  const gateCalls = () => (existsSync(home.resolve("fake-dispatch.actions")) ? readFileSync(home.resolve("fake-dispatch.actions"), "utf8").split("\n") : []).filter((l) => l.startsWith("run gate"));
-  return { home, set, tick, gateCalls };
+  const calls = (prefix: string) => (existsSync(home.resolve("fake-dispatch.actions")) ? readFileSync(home.resolve("fake-dispatch.actions"), "utf8").split("\n") : []).filter((l) => l.startsWith(prefix));
+  return { home, set, tick, gateCalls: () => calls("run gate"), tellCalls: () => calls("node tell") };
 }
 
-describe("watchdog done gate", () => {
-  test("runs `run gate` once when every other node is settled and the gate waits", async () => {
-    const f = fixture();
-    f.set(nodes({ status: "waiting" }));
+describe("watchdog close step without a gate node", () => {
+  test("a present orchestrator gets one message when every node is settled, not a verify run", async () => {
+    const f = fixture(false);
+    f.set(nodes());
+    await f.tick();
+    await f.tick();
+    expect(f.gateCalls()).toEqual([]);
+    expect(f.tellCalls().length).toBe(1);
+    expect(f.tellCalls()[0]).toMatch(/all nodes settled: run verify and finish/);
+  });
+  test("an absent orchestrator (closed session) gets `run gate` once: the watchdog verifies and finishes itself", async () => {
+    const f = fixture(true);
+    f.set(nodes());
     await f.tick();
     await f.tick();
     expect(f.gateCalls()).toEqual([`run gate ${RUN}`]);
+    expect(f.tellCalls()).toEqual([]);
   });
-  test("does not run while another node is open or the gate is not waiting", async () => {
-    const f = fixture();
-    f.set(nodes({ status: "waiting" }, "running"));
+  test("does nothing while a node is open or the run is not running", async () => {
+    const f = fixture(true);
+    f.set(nodes("running"));
     await f.tick();
-    f.set(nodes({ status: "done" }));
+    f.set(nodes(), { status: "done" });
     await f.tick();
     expect(f.gateCalls()).toEqual([]);
+    expect(f.tellCalls()).toEqual([]);
   });
-  test("reruns after a failed gate only when a node changed", async () => {
-    const f = fixture();
-    const blocked = { status: "blocked-user", needs_user: "verify FAILED: 1 failure(s)" };
-    f.set(nodes(blocked));
+  test("repeats only when the settled nodes changed", async () => {
+    const f = fixture(true);
+    f.set(nodes());
     await f.tick();
     await f.tick();
     expect(f.gateCalls().length).toBe(1);
-    f.set(nodes(blocked), { nodes: [{ id: "a", status: "done", result: "x" }, { id: "done-gate", ...blocked }] });
+    f.set([{ id: "a", status: "done", result: "x" }]);
     await f.tick();
     expect(f.gateCalls().length).toBe(2);
   });

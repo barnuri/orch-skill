@@ -1,5 +1,6 @@
 // Shared helpers for tests/**/*.test.ts. Bun built-ins only.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, chmodSync, readdirSync, appendFileSync, renameSync, utimesSync } from "node:fs";
+import { nodeFromFiles } from "../../core/state/node-files.ts";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterAll } from "bun:test";
@@ -182,7 +183,11 @@ export function orch(home: string, env: Record<string, string | undefined> = {})
   return o;
 }
 export const runState = (home: string, run: string) => readJson(join(home, "runs", run, "state.json"));
-export const nodeOf = (home: string, run: string, id: string) => runState(home, run).nodes.find((n: any) => n.id === id);
+// The node with its selection_history, log_tail and attempts read back from runs/<id>/nodes/<node>/ (state.json keeps a summary).
+export const nodeOf = (home: string, run: string, id: string) => {
+  const n = runState(home, run).nodes.find((x: any) => x.id === id);
+  return n ? nodeFromFiles(home, run, n) : n;
+};
 export const readText = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : "");
 export const events = (home: string, run: string) =>
   readText(join(home, "runs", run, "events.jsonl")).split("\n").filter(Boolean).map((l) => JSON.parse(l));

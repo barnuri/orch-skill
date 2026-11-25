@@ -68,11 +68,38 @@ export function skillsInLog(log: string): string[] {
   return [...names].sort();
 }
 
-function gitLog(repo: string, start: string): string[] {
+/** Runs a command without blocking the event loop (the dashboard builds overviews in-process). */
+async function runAsync(cmd: string[], opts: { cwd?: string; timeout?: number } = {}): Promise<{ code: number; stdout: string }> {
+  const proc = Bun.spawn(cmd, { cwd: opts.cwd, env: process.env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const timer = opts.timeout ? setTimeout(() => proc.kill(), opts.timeout) : null;
+  try {
+    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    return { code, stdout };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+const PULL_PARALLEL = 8;
+let pullActive = 0;
+const pullWaiting: Array<() => void> = [];
+/** Runs `job` once fewer than PULL_PARALLEL others run (process-wide, so concurrent overviews share the limit). */
+async function pullGate<T>(job: () => Promise<T>): Promise<T> {
+  while (pullActive >= PULL_PARALLEL) await new Promise<void>((resolve) => pullWaiting.push(resolve));
+  pullActive++;
+  try {
+    return await job();
+  } finally {
+    pullActive--;
+    pullWaiting.shift()?.();
+  }
+}
+
+async function gitLog(repo: string, start: string): Promise<string[]> {
   if (!repo || !start) return [];
-  const r = Bun.spawnSync(["git", "-C", repo, "log", "--format=%h %s", `${start}..HEAD`]);
-  if (r.exitCode !== 0) return [];
-  return new TextDecoder().decode(r.stdout).split("\n").filter((l) => l.trim() !== "");
+  const r = await runAsync(["git", "-C", repo, "log", "--format=%h %s", `${start}..HEAD`]);
+  if (r.code !== 0) return [];
+  return r.stdout.split("\n").filter((l) => l.trim() !== "");
 }
 
 /** `owner/repo` of a GitHub origin remote, or "" when the repo has no GitHub origin. */
@@ -82,16 +109,10 @@ export function githubSlug(remote: string): string {
 }
 
 /** Pull request URLs that contain a commit, from `gh api`. `null` when gh cannot answer (no gh, no auth, offline). */
-export function pullsForCommit(repo: string, slug: string, sha: string): string[] | null {
-  const r = Bun.spawnSync(["gh", "api", `repos/${slug}/commits/${sha}/pulls`, "--jq", ".[].html_url"], {
-    cwd: repo,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "ignore",
-    timeout: 10_000,
-  });
-  if (r.exitCode !== 0) return null;
-  return new TextDecoder().decode(r.stdout).split("\n").map((l) => l.trim()).filter((l) => l !== "");
+export async function pullsForCommit(repo: string, slug: string, sha: string): Promise<string[] | null> {
+  const r = await runAsync(["gh", "api", `repos/${slug}/commits/${sha}/pulls`, "--jq", ".[].html_url"], { cwd: repo, timeout: 10_000 }).catch(() => null);
+  if (r === null || r.code !== 0) return null;
+  return r.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
 }
 
 /** Handoff state of one node from its out dir: `yes` with bytes, `empty` or `missing`. */
@@ -144,7 +165,7 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
   const repoRows: OverviewRepo[] = [];
   const commits: OverviewCommit[] = [];
   for (const [repo, r] of repos) {
-    r.commits = gitLog(repo, r.start);
+    r.commits = await gitLog(repo, r.start);
     repoRows.push({ repo, nodes: r.nodes, commits: r.commits.length });
     for (const c of r.commits.slice(0, COMMIT_CAP)) {
       const sp = c.indexOf(" ");
@@ -152,23 +173,22 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
     }
   }
 
+  // Every repo and every commit is asked at once, at most PULL_PARALLEL `gh` processes together: the calls are network waits.
   const pulls: OverviewPull[] = [];
   const pullsUnavailable: string[] = [];
-  for (const [repo, r] of repos) {
-    const origin = Bun.spawnSync(["git", "-C", repo, "remote", "get-url", "origin"], { stderr: "ignore" });
-    const slug = githubSlug(new TextDecoder().decode(origin.stdout));
-    if (slug === "") continue;
-    const seen = new Set<string>();
-    for (const c of r.commits.slice(0, COMMIT_CAP)) {
-      const sha = c.split(" ")[0] ?? "";
-      const urls = sha === "" ? [] : pullsForCommit(repo, slug, sha);
-      if (urls === null) {
-        pullsUnavailable.push(repo);
-        break;
-      }
-      for (const u of urls) seen.add(u);
-    }
-    for (const u of seen) pulls.push({ repo, url: u });
+  const perRepo = await Promise.all([...repos].map(async ([repo, r]) => {
+    const origin = await runAsync(["git", "-C", repo, "remote", "get-url", "origin"]);
+    const slug = githubSlug(origin.stdout);
+    if (slug === "") return null;
+    const shas = r.commits.slice(0, COMMIT_CAP).map((c) => c.split(" ")[0] ?? "").filter((sha) => sha !== "");
+    const found = await Promise.all(shas.map((sha) => pullGate(() => pullsForCommit(repo, slug, sha))));
+    if (found.some((urls) => urls === null)) return { repo, urls: [] as string[], unavailable: true };
+    return { repo, urls: [...new Set(found.flatMap((urls) => urls ?? []))], unavailable: false };
+  }));
+  for (const row of perRepo) {
+    if (row === null) continue;
+    if (row.unavailable) pullsUnavailable.push(row.repo);
+    for (const u of row.urls) pulls.push({ repo: row.repo, url: u });
   }
 
   return {

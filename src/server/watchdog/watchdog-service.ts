@@ -6,13 +6,17 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import type { RunHealth } from "../../shared/types/run-health";
-import { RECONCILE_MS, reconcileArgs } from "../runs/run-reconciler";
+import { RECONCILE_MS } from "../runs/run-reconciler";
+
+/** Wait before a batch of due `run sync` runs starts, so runs inspected in the same sweep share one process. */
+export const SYNC_BATCH_WAIT_MS: number = 200;
 import type { WatchdogAction, WatchdogCounters, WatchdogFlag, WatchdogRule, WatchdogStatus } from "../../shared/types/watchdog";
 import { isEngineNode, loopOfRun } from "../../shared/engine-node";
 import { serviceProblem } from "../../../skills/orch/core/adapters/opencode-service.ts";
 import { dispatchPath } from "../dispatch-path";
 import { orchPaths } from "../files/paths";
 import { healthWatcherFor } from "../health/health-watcher";
+import { attemptCount } from "../../shared/attempt-count";
 import { countPendingAsks } from "../runs/coordinator-state";
 import { RunEngine, type Starter } from "../runs/auto-dispatch";
 import { listRuns } from "../runs/runs-reader";
@@ -92,6 +96,7 @@ interface WatchNode {
   out_dir?: string | null;
   updated?: string | null;
   attempts?: unknown[] | null;
+  attempt_count?: number | null;
   /** Set when the loop or watch engine made the node (`node add --origin`), or the loop that owns it. */
   origin?: string | null;
   loop_id?: string | null;
@@ -316,7 +321,7 @@ export class WatchdogService {
   private readonly ownersEveryMs: number;
   private readonly sessionAlive: (sessionId: string) => boolean;
   private readonly sessionIdle: (sessionId: string) => boolean;
-  /** Last done-gate signature per run: the gate step reruns only when the run changed. */
+  /** Last settled-run signature per run: the close step reruns only when the run changed. */
   private readonly gateSig = new Map<string, string>();
   private readonly reconciledAt = new Map<string, number>();
   private readonly reconcileBusy = new Set<string>();
@@ -404,6 +409,9 @@ export class WatchdogService {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+    if (this.syncFlushTimer !== null) clearTimeout(this.syncFlushTimer);
+    this.syncFlushTimer = null;
+    this.syncQueue.clear();
     this.engine.stop();
   }
 
@@ -473,7 +481,7 @@ export class WatchdogService {
       }
     }
     this.checkFinish(runId, state, nodes);
-    this.checkGate(runId, nodes);
+    this.checkSettled(runId, state, nodes);
     if (orchestratorAbsent(state, (sid) => this.sessionAlive(sid), (sid) => this.sessionIdle(sid))) {
       this.takeover(runId, state, nodes);
     }
@@ -502,7 +510,7 @@ export class WatchdogService {
 
   private queueQuestion(runId: string, node: WatchNode): void {
     const question = (node.needs_user ?? "").trim();
-    if (question === "" || (node.id === "done-gate" && question.startsWith("verify FAILED"))) {
+    if (question === "") {
       return;
     }
     const digest = createHash("sha1").update(question).digest("hex").slice(0, 12);
@@ -524,7 +532,7 @@ export class WatchdogService {
     if (this.busy.has(`${runId}/${node.id}`)) {
       return;
     }
-    const attempts = (node.attempts ?? []).length;
+    const attempts = attemptCount(node);
     if (!this.claim(runId, `takeover-${node.id}@${attempts}`)) {
       return;
     }
@@ -625,16 +633,29 @@ export class WatchdogService {
     this.inflight.add(p);
   }
 
+  /** Runs due a `run sync`, flushed together: one `run sync-batch` process for every due run, not one process per run. */
+  private readonly syncQueue = new Set<string>();
+  private syncFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
   private syncRun(runId: string): void {
     const now = this.now().getTime();
     const last = this.reconciledAt.get(runId) ?? 0;
-    if (this.reconcileBusy.has(runId) || now - last < RECONCILE_MS) return;
+    if (this.reconcileBusy.has(runId) || this.syncQueue.has(runId) || now - last < RECONCILE_MS) return;
     this.reconciledAt.set(runId, now);
-    this.reconcileBusy.add(runId);
-    const p = this.runDispatch(reconcileArgs(runId).slice(2), this.home)
-      .then((rc) => { if (rc !== 0) this.log(`run sync ${runId} rc=${rc}`); })
-      .catch((err: unknown) => this.log(`run sync ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
-      .finally(() => { this.reconcileBusy.delete(runId); this.inflight.delete(p); });
+    this.syncQueue.add(runId);
+    if (this.syncFlushTimer === null) this.syncFlushTimer = setTimeout(() => this.flushSync(), SYNC_BATCH_WAIT_MS);
+  }
+
+  private flushSync(): void {
+    this.syncFlushTimer = null;
+    const ids = [...this.syncQueue];
+    this.syncQueue.clear();
+    if (ids.length === 0) return;
+    for (const id of ids) this.reconcileBusy.add(id);
+    const p = this.runDispatch(["run", "sync-batch", ...ids, "--no-retry", "--verify-owners", "--lock"], this.home)
+      .then((rc) => { if (rc !== 0) this.log(`run sync-batch ${ids.join(",")} rc=${rc}`); })
+      .catch((err: unknown) => this.log(`run sync-batch ${ids.join(",")} failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => { for (const id of ids) this.reconcileBusy.delete(id); this.inflight.delete(p); });
     this.inflight.add(p);
   }
 
@@ -683,7 +704,7 @@ export class WatchdogService {
     // node is running, not stuck. Stamp started_at through `node started` instead of calling it an error.
     const ev = this.jobEvidence(runId, node);
     if (ev.pidAlive === true || this.logActive(ev, 120_000)) {
-      const stamp = this.claim(runId, `started-${node.id}@${(node.attempts ?? []).length}`);
+      const stamp = this.claim(runId, `started-${node.id}@${attemptCount(node)}`);
       if (stamp) {
         this.chain(runId, node.id, async () => {
           await this.act(runId, node.id, "starting", ["node", "started", runId, node.id], "job alive, stamped started_at");
@@ -905,33 +926,35 @@ export class WatchdogService {
   }
 
   /**
-   * The done gate is deterministic: when every node but the gate is settled and the gate waits (or is blocked by an
-   * earlier failed gate step), run `run gate`. It reruns only when the settled nodes changed, never on a timer.
+   * Closing is the orchestrator's step, not a node. When every node is settled: a present orchestrator gets one
+   * message ("run verify and finish"), an absent one (closed session) gets `run gate`, which runs verify and
+   * finishes the run on pass or marks it blocked on fail. It repeats only when the settled nodes changed.
    */
-  private checkGate(runId: string, nodes: WatchNode[]): void {
-    const gate = nodes.find((n) => n.id === "done-gate");
-    if (gate === undefined) {
-      return;
-    }
-    const retry = gate.status === "blocked-user" && (gate.needs_user ?? "").startsWith("verify FAILED");
-    if (gate.status !== "waiting" && !retry) {
+  private checkSettled(runId: string, state: WatchRun, nodes: WatchNode[]): void {
+    const settled = nodes.length > 0 && nodes.every((n) => n.status === "done" || n.status === "skipped" || n.status === "covered");
+    if (!settled || state.status !== "running" || state.paused === true || state.stopped === true) {
       this.gateSig.delete(runId);
-      return;
-    }
-    const others = nodes.filter((n) => n.id !== "done-gate");
-    if (!others.every((n) => n.status === "done" || n.status === "skipped" || n.status === "covered")) {
       return;
     }
     if ([...this.busy].some((k) => k.startsWith(`${runId}/`))) {
       return;
     }
-    const sig = createHash("sha1").update(JSON.stringify(others)).digest("hex");
+    // An auto_dispatch run whose nodes are all done is finished by rule 5 (checkFinish); no message on top of it.
+    if (state.auto_dispatch === true && nodes.every((n) => n.status === "done")) {
+      return;
+    }
+    const absent = orchestratorAbsent(state, (sid) => this.sessionAlive(sid), (sid) => this.sessionIdle(sid));
+    const sig = createHash("sha1").update(JSON.stringify([absent, nodes])).digest("hex");
     if (this.gateSig.get(runId) === sig) {
       return;
     }
     this.gateSig.set(runId, sig);
-    this.chain(runId, "done-gate", async () => {
-      await this.act(runId, "done-gate", "gate", ["run", "gate", runId], "every node settled: watchdog ran the done gate");
+    this.chain(runId, "settled", async () => {
+      if (absent) {
+        await this.act(runId, null, "gate", ["run", "gate", runId], "every node settled and no orchestrator: watchdog ran verify");
+      } else {
+        await this.act(runId, null, "gate", ["node", "tell", runId, "coordinator", "all nodes settled: run verify and finish", "--from", "watchdog"], "every node settled: orchestrator told");
+      }
     });
   }
 
