@@ -126,8 +126,10 @@ export async function deliverGroup(group: DeliveryGroup, entries: DeliveryEntry[
 }
 
 // Delivers every queued group. Entries of a delivered group are marked delivered and skipped on the next run.
-export async function deliverPending(opts: DeliverOpts & { repoPolicy?: (repo: string) => { mode: DeliveryMode; defaultBranch: string } }): Promise<Evidence[]> {
-  const q: DeliveryQueue = loadQueue(opts.home);
+// `run` limits grouping and delivery to that run's entries; the other entries are saved unchanged.
+export async function deliverPending(opts: DeliverOpts & { run?: string; repoPolicy?: (repo: string) => { mode: DeliveryMode; defaultBranch: string } }): Promise<Evidence[]> {
+  const full: DeliveryQueue = loadQueue(opts.home);
+  const q: DeliveryQueue = opts.run ? { ...full, entries: Object.fromEntries(Object.entries(full.entries).filter(([, e]) => e.run === opts.run)) } : full;
   const modeOf = (repo: string) => opts.repoPolicy?.(repo).mode ?? "pr";
   const { queue, groups } = groupQueue(q, modeOf);
   const results: Evidence[] = [];
@@ -144,7 +146,7 @@ export async function deliverPending(opts: DeliverOpts & { repoPolicy?: (repo: s
       else if (outcome === "delivered") queue.entries[k] = { ...e, state: "delivered" };
       else queue.entries[k] = { ...e, state: "queued" };
     }
-    saveQueue(opts.home, queue);
+    saveQueue(opts.home, { ...full, entries: { ...full.entries, ...queue.entries } });
   }
   return results;
 }

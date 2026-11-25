@@ -435,7 +435,7 @@ dispatch.ts req link <run-id> <req-id> --node n
 dispatch.ts req evidence <run-id> <req-id> --note "<text>" [--file path] [--test "bun test ..."]
 dispatch.ts req status <run-id> <req-id> open|in_progress|implemented|verifying|done|superseded|waived [--reason T] [--verifier node] [--by n1,n2] [--force]   # waived needs --reason; done needs an independent verifier (or --force --reason). Old names not|partly|handled still work.
 dispatch.ts req verify <run-id> <req-id> [--profile P]               # creates the verifier node (not an implementer, not its profile)
-dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--gap "<missing>" ...]   # only the verifier; fail creates one gap node per --gap
+dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--test "<cmd>" ...] [--gap "<missing>" ...]   # only the verifier; fail creates one gap node per --gap; each --test is recorded as evidence and re-run by delivery (no test: the delivery enqueue is refused with a ledger note)
 dispatch.ts req list <run-id> [--json]
 dispatch.ts req check <run-id>                                     # exit 1 unless every requirement is done, superseded or waived
 dispatch.ts run list

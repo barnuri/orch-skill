@@ -14,8 +14,12 @@ const safe = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 5
 export const verifierNodeId = (reqId: string): string => `verify-${safe(reqId)}`;
 
 // Orch dispatches these itself, often from the service: ORCH_AUTO_DISPATCH makes the job run in the node's, its relatives' or the run's repo, never this process's cwd.
-async function cli(home: string, args: string[], repoHint: string[] = []): Promise<{ rc: number; out: string }> {
-  const p = Bun.spawn([process.execPath, BIN, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_AUTO_DISPATCH: "1", ORCH_DISPATCH_REPO_HINT: repoHint.join(",") } });
+// `repo` is the requirement's own repo (`req add --repo`); when set, the job runs there (ORCH_DISPATCH_REPO), else the hint/run repo applies.
+async function cli(home: string, args: string[], repoHint: string[] = [], repo = ""): Promise<{ rc: number; out: string }> {
+  const env: Record<string, string | undefined> = { ...process.env, HARNESS_ORCH_HOME: home, ORCH_AUTO_DISPATCH: "1", ORCH_DISPATCH_REPO_HINT: repoHint.join(",") };
+  if (repo) env.ORCH_DISPATCH_REPO = repo;
+  else delete env.ORCH_DISPATCH_REPO;
+  const p = Bun.spawn([process.execPath, BIN, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { rc: await p.exited, out: out + err };
 }
@@ -40,7 +44,8 @@ function verifierPrompt(runId: string, r: Req, handoffs: string[], verifier: str
     handoffs.length ? `Implementer handoffs to read:\n${handoffs.map((h) => `- ${h}`).join("\n")}` : "",
     `Do: read the handoffs, inspect the changed code or UI, run the stated tests, and look for what is missing or only half done.`,
     `Then record your verdict:`,
-    `- Everything is met: dispatch.ts req verdict ${runId} ${r.id} pass --node ${verifier} --note "<what you checked>"`,
+    `- Everything is met: dispatch.ts req verdict ${runId} ${r.id} pass --node ${verifier} --note "<what you checked>" --test "<test command you ran>" [--test "<another>"]`,
+    `  Give every test command you ran with --test, run from the repo root: delivery re-runs exactly these before it commits, and refuses a requirement without one.`,
     `- Something is missing: dispatch.ts req verdict ${runId} ${r.id} fail --node ${verifier} --gap "<missing piece 1>" --gap "<missing piece 2>"`,
     `Each gap becomes a new implementation node. Write handoff.md into $ORCH_NODE_OUT and record your node result with dispatch.ts node result (full only when you passed it).`,
   ].filter(Boolean).join("\n\n");
@@ -72,7 +77,7 @@ export async function reqVerify(args: string[]): Promise<number> {
   }
   const st = await reqStatus([runId, id, "verifying", "--verifier", node]);
   if (st !== 0) return st;
-  const dispatch = await cli(home, ["node", "dispatch", runId, node, "--force", "--profile", profile, verifierPrompt(runId, r, handoffs, node)], r.implemented_by ?? []);
+  const dispatch = await cli(home, ["node", "dispatch", runId, node, "--force", "--profile", profile, verifierPrompt(runId, r, handoffs, node)], r.implemented_by ?? [], r.repo ?? "");
   process.stdout.write(`${id} verifying by ${node} (${profile})${dispatch.rc === 0 ? "" : `; dispatch failed: ${dispatch.out.trim().split("\n").pop()}`}\n`);
   return 0;
 }
@@ -90,8 +95,15 @@ export async function createRequirementGaps(home: string, runId: string, r: Req,
     const add = await cli(home, ["node", "add", runId, id, `Fix gap in ${r.id}: ${gap}`.slice(0, 120), "--role", "implementation"]);
     if (add.rc !== 0) continue;
     await reqLink([runId, r.id, "--node", id]);
+    if (r.repo) {
+      const { mutateRun } = await import("./node.ts");
+      await mutateRun(home, runId, (run: any) => {
+        const node = run.nodes.find((n: any) => n.id === id);
+        if (node) node.repo = r.repo;
+      });
+    }
     const { AGENT_RULES_LINE } = await import("./gaps.ts");
-    await cli(home, ["node", "dispatch", runId, id, "--force", `${AGENT_RULES_LINE}Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`], r.nodes ?? []);
+    await cli(home, ["node", "dispatch", runId, id, "--force", `${AGENT_RULES_LINE}Requirement ${r.id} ("${r.text}") was checked by an independent verifier, who found this gap: ${gap}\nClose exactly this gap in this repository, prove it with a test or evidence, write handoff.md into $ORCH_NODE_OUT, then record a result. Do not verify your own work as final: a different node verifies ${r.id} again.`], r.nodes ?? [], r.repo ?? "");
     made.push(id);
   }
   return made;
@@ -102,6 +114,7 @@ export async function reqVerdict(args: string[]): Promise<number> {
   const home = orchHome();
   const pos: string[] = [];
   const gaps: string[] = [];
+  const tests: string[] = [];
   let node = "";
   let note = "";
   for (let i = 0; i < args.length; i++) {
@@ -109,12 +122,13 @@ export async function reqVerdict(args: string[]): Promise<number> {
     if (a === "--node") node = args[++i] ?? "";
     else if (a === "--note") note = args[++i] ?? "";
     else if (a === "--gap") gaps.push(args[++i] ?? "");
+    else if (a === "--test") tests.push(args[++i] ?? "");
     else if (a.startsWith("--")) return (errLine(`req verdict: unknown argument ${a}`), 2);
     else pos.push(a);
   }
   const runId = pos[0] ? await resolveRun(home, pos[0]) : null;
   const [, id, verdict] = pos;
-  if (!runId || !id || (verdict !== "pass" && verdict !== "fail") || !node) return (errLine('usage: dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--gap "<missing>" ...]'), 2);
+  if (!runId || !id || (verdict !== "pass" && verdict !== "fail") || !node) return (errLine('usage: dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--test "<cmd>" ...] [--gap "<missing>" ...]'), 2);
   const run = await loadRun(home, runId);
   const r = (await loadLedger(home, runId)).requirements.find((x) => x.id === id);
   if (!run || !r) return (errLine(`req ${id}: not in run ${runId}`), 2);
@@ -122,7 +136,10 @@ export async function reqVerdict(args: string[]): Promise<number> {
   const why = independenceProblem(run, r, node);
   if (why) return (errLine(`req verdict: ${why}`), 2);
   const text = note || (verdict === "pass" ? "verified" : `gaps: ${gaps.join("; ") || "unspecified"}`);
+  if (tests.some((t) => !t.trim())) return (errLine("req verdict: --test needs a command"), 2);
   if ((await reqEvidence([runId, id, "--note", `verifier ${node} ${verdict}: ${text}`])) !== 0) return 2;
+  // The verifier's test commands become the delivery evidence: delivery re-runs them before it commits.
+  for (const t of tests) if ((await reqEvidence([runId, id, "--note", `verifier ${node} ran: ${t}`, "--test", t])) !== 0) return 2;
   if (verdict === "pass") {
     const rc = await reqStatus([runId, id, "done", "--force", "--reason", `independent verifier ${node} passed it`]);
     if (rc === 0) {
@@ -138,13 +155,18 @@ export async function reqVerdict(args: string[]): Promise<number> {
   return 0;
 }
 
-// A verified requirement goes to the delivery queue (`delivery run` commits or opens a PR). Never fails the verdict.
+// A verified requirement goes to the delivery queue (`delivery run` commits or opens a PR). Never fails the verdict, but a
+// refused entry (no test commands, no files) is loud: a stderr line and a ledger note, never a silent empty entry.
 async function queueDelivery(home: string, runId: string, id: string): Promise<string[]> {
   try {
-    const { enqueueVerifiedReq } = await import("../delivery/req-delivery.ts");
-    const added = await enqueueVerifiedReq(home, runId, id);
-    if (added.length) await reqEvidence([runId, id, "--note", `delivery queued: ${added.join(", ")}`]);
-    return added;
+    const { enqueueVerifiedReqReport } = await import("../delivery/req-delivery.ts");
+    const rep = await enqueueVerifiedReqReport(home, runId, id);
+    if (rep.added.length) await reqEvidence([runId, id, "--note", `delivery queued: ${rep.added.join(", ")}`]);
+    for (const f of rep.refused) {
+      errLine(`${id}: delivery not queued: ${f.key}: ${f.reason}`);
+      await reqEvidence([runId, id, "--note", `delivery not queued: ${f.key}: ${f.reason}`]);
+    }
+    return rep.added;
   } catch {
     return [];
   }

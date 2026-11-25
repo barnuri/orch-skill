@@ -24,14 +24,19 @@ function instructionsOf(repo: string): string {
   return "";
 }
 
-// `delivery run [--run <id>] [--dry-run] [--json]`: deliver every verified requirement (commit or PR), then group and deliver
-// every queued commit entry. --dry-run prints the plan and writes nothing (no git writes, no queue or ledger change).
+// `delivery run [--run <id>] [--key <req-key>] [--dry-run] [--json]`: deliver every verified requirement (commit or PR), then
+// group and deliver every queued commit entry. --run limits both to one run. --key delivers that one requirement entry and
+// no commit group. --dry-run prints the plan and writes nothing (no git writes, no queue or ledger change).
 export async function deliveryRun(args: string[]): Promise<number> {
   const home = orchHome();
   const dryRun = args.includes("--dry-run");
   const ri = args.indexOf("--run");
   const runFilter = ri >= 0 ? args[ri + 1] : undefined;
-  const reqs = await deliverReqQueue({ home, dryRun, run: runFilter });
+  const ki = args.indexOf("--key");
+  const keyFilter = ki >= 0 ? args[ki + 1] : undefined;
+  if (ki >= 0 && !keyFilter) return (errLine("usage: dispatch.ts delivery run --key <req-key>"), 2);
+  if (keyFilter && !loadReqQueue(home).entries[keyFilter]) return (errLine(`delivery run: no requirement entry ${keyFilter}`), 2);
+  const reqs = await deliverReqQueue({ home, dryRun, run: runFilter, key: keyFilter });
   const json = args.includes("--json");
   if (!json) {
     if (reqs.length === 0) process.stdout.write("delivery: no verified requirements queued\n");
@@ -45,7 +50,12 @@ export async function deliveryRun(args: string[]): Promise<number> {
     }
   }
   const reqBad = reqs.some((r) => r.state === "failed" || (!dryRun && r.state === "blocked"));
-  const q = loadQueue(home);
+  if (keyFilter) {
+    if (json) process.stdout.write(JSON.stringify({ requirements: reqs, groups: [] }, null, 2) + "\n");
+    return reqBad ? 1 : 0;
+  }
+  const full = loadQueue(home);
+  const q = runFilter ? { ...full, entries: Object.fromEntries(Object.entries(full.entries).filter(([, e]) => e.run === runFilter)) } : full;
   if (dryRun) {
     const { groups, queue } = groupQueue(q, (repo) => deliveryMode(repo, instructionsOf(repo)));
     if (json) process.stdout.write(JSON.stringify({ requirements: reqs, groups, refused: Object.values(queue.entries).filter((e) => e.state === "refused") }, null, 2) + "\n");
@@ -60,6 +70,7 @@ export async function deliveryRun(args: string[]): Promise<number> {
   for (const r of repos) branches.set(r, await defaultBranch(r, spawnRunner));
   const results = await deliverPending({
     home,
+    run: runFilter,
     now: new Date().toISOString(),
     defaultBranch: "main",
     repoPolicy: (repo) => ({ mode: deliveryMode(repo, instructionsOf(repo)), defaultBranch: branches.get(repo) ?? "main" }),
@@ -103,9 +114,11 @@ function evidenceList(home: string): unknown[] {
 }
 
 // `delivery enqueue <run-id> <req-id>`: queue a requirement that is already done (verified) for delivery. Prints the keys added.
+// `delivery enqueue <run-id> <req-id> --files <a,b> --test <cmd> [--test <cmd>] [--repo <dir>]`: queue named files and tests
+// for a requirement that is in_progress, implemented or done (repo defaults to the git top level of the current folder).
 export async function deliveryEnqueue(args: string[]): Promise<number> {
   const [runArg, id] = args;
-  if (!runArg || !id) return (errLine("usage: dispatch.ts delivery enqueue <run-id> <req-id>"), 2);
+  if (!runArg || !id) return (errLine("usage: dispatch.ts delivery enqueue <run-id> <req-id> [--files <a,b> --test <cmd> [--repo <dir>]]"), 2);
   const home = orchHome();
   const { resolveRun } = await import("./node.ts");
   const runId = await resolveRun(home, runArg);
@@ -113,11 +126,33 @@ export async function deliveryEnqueue(args: string[]): Promise<number> {
   const { loadLedger } = await import("./req.ts");
   const r = (await loadLedger(home, runId)).requirements.find((x) => x.id === id);
   if (!r) return (errLine(`delivery enqueue: ${id} is not in run ${runId}`), 2);
+  const fi = args.indexOf("--files");
+  const tests = args.flatMap((a, i) => (a === "--test" && args[i + 1] ? [args[i + 1]!] : []));
+  if (fi >= 0 || tests.length) {
+    if (!["in_progress", "implemented", "done"].includes(r.status)) return (errLine(`delivery enqueue: ${id} is ${r.status}; --files needs in_progress, implemented or done`), 2);
+    const files = (fi >= 0 ? args[fi + 1] ?? "" : "").split(",").map((f) => f.trim()).filter(Boolean);
+    const rpi = args.indexOf("--repo");
+    let repo = rpi >= 0 ? args[rpi + 1] ?? "" : "";
+    if (!repo) {
+      const p = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: process.cwd() });
+      repo = p.exitCode === 0 ? p.stdout.toString().trim() : "";
+    }
+    if (!repo) return (errLine("delivery enqueue: not in a git repo; pass --repo <dir>"), 2);
+    const nodes = process.env.ORCH_NODE_ID && process.env.ORCH_RUN_ID === runId ? [process.env.ORCH_NODE_ID] : [];
+    const { enqueueNamedReq } = await import("../delivery/req-delivery.ts");
+    const res = await enqueueNamedReq(home, runId, r, repo, files, tests, nodes);
+    if ("error" in res) return (errLine(`delivery enqueue: ${res.error}`), 2);
+    process.stdout.write(`queued ${res.key}\n`);
+    return 0;
+  }
   if (r.status !== "done") return (errLine(`delivery enqueue: ${id} is ${r.status}; only a verified (done) requirement is delivered`), 2);
-  const { enqueueVerifiedReq } = await import("../delivery/req-delivery.ts");
-  const added = await enqueueVerifiedReq(home, runId, id);
-  process.stdout.write(added.length ? `queued ${added.join(", ")}\n` : `${id}: nothing new to queue (no implementer files found, or already queued)\n`);
-  return 0;
+  const { enqueueVerifiedReqReport } = await import("../delivery/req-delivery.ts");
+  const rep = await enqueueVerifiedReqReport(home, runId, id);
+  if (rep.added.length) process.stdout.write(`queued ${rep.added.join(", ")}\n`);
+  if (rep.existing.length) process.stdout.write(`already queued ${rep.existing.join(", ")}\n`);
+  for (const f of rep.refused) errLine(`delivery enqueue: refused ${f.key}: ${f.reason}`);
+  // Loud failure: nothing queued or already queued means nothing can be delivered.
+  return rep.added.length || rep.existing.length ? 0 : 1;
 }
 
 // `delivery drop <key> --reason T`: take a requirement entry out of the queue (state failed, with the reason). Nothing is deleted.

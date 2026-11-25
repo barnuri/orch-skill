@@ -158,19 +158,61 @@ async function dropContested(home: string, runId: string, n: Record<string, any>
   return files.filter((f) => !contested.has(f) || named.has(f));
 }
 
-/** Queues a verified requirement. Idempotent per key: an entry already queued keeps its state. Returns the keys added. */
-export async function enqueueVerifiedReq(home: string, runId: string, reqId: string, now = new Date().toISOString()): Promise<string[]> {
+export const NO_TESTS_REASON = 'no test commands in the requirement evidence: the verifier records them with `req verdict <run> <req> pass --node <v> --test "<cmd>"` (or `req evidence <run> <req> --note T --test "<cmd>"`)';
+
+export interface EnqueueReport { added: string[]; existing: string[]; refused: { key: string; reason: string }[] }
+
+/**
+ * Queues a verified requirement. Idempotent per key: an entry already queued keeps its state. An entry that could never be
+ * delivered is refused, not queued: no test commands in the evidence, or no implementer files to commit.
+ */
+export async function enqueueVerifiedReqReport(home: string, runId: string, reqId: string, now = new Date().toISOString()): Promise<EnqueueReport> {
+  const rep: EnqueueReport = { added: [], existing: [], refused: [] };
   const r = (await loadLedger(home, runId)).requirements.find((x) => x.id === reqId);
-  if (!r) return [];
+  if (!r) return (rep.refused.push({ key: `${runId}/${reqId}`, reason: "not in the ledger" }), rep);
   const q = loadReqQueue(home);
-  const added: string[] = [];
-  for (const e of await buildReqEntries(home, runId, r, now)) {
-    if (q.entries[e.key]) continue;
+  const entries = await buildReqEntries(home, runId, r, now);
+  if (entries.length === 0) rep.refused.push({ key: `${runId}/${reqId}`, reason: "no implementer repo found (no node with a job repo)" });
+  for (const e of entries) {
+    const old = q.entries[e.key];
+    // A dropped entry (`delivery drop`) may be queued again; any other existing entry keeps its state.
+    if (old && !(old.state === "failed" && old.reason?.startsWith("dropped:"))) { rep.existing.push(e.key); continue; }
+    if (e.tests.length === 0) { rep.refused.push({ key: e.key, reason: NO_TESTS_REASON }); continue; }
+    if (e.files.length === 0) { rep.refused.push({ key: e.key, reason: "no uncommitted implementer files to deliver" }); continue; }
     q.entries[e.key] = e;
-    added.push(e.key);
+    rep.added.push(e.key);
   }
-  if (added.length) saveReqQueue(home, q);
-  return added;
+  if (rep.added.length) saveReqQueue(home, q);
+  return rep;
+}
+
+/** Same as enqueueVerifiedReqReport; returns only the keys added. */
+export async function enqueueVerifiedReq(home: string, runId: string, reqId: string, now = new Date().toISOString()): Promise<string[]> {
+  return (await enqueueVerifiedReqReport(home, runId, reqId, now)).added;
+}
+
+/**
+ * Queues named files and tests for a requirement that is not verified yet (in_progress or implemented), for a change
+ * that no node snapshot attributes. verified_at is now: a file edited after this blocks the delivery. A key already
+ * committed or opened as a PR is not replaced. Returns the key, or an error text.
+ */
+export async function enqueueNamedReq(
+  home: string, runId: string, r: Req, repo: string, files: string[], tests: string[], nodes: string[], now = new Date().toISOString(),
+): Promise<{ key: string } | { error: string }> {
+  if (files.length === 0) return { error: "--files needs at least one path" };
+  if (tests.length === 0) return { error: "--test needs at least one command" };
+  const missing = files.filter((f) => !existsSync(join(repo, f)) && !dirtyPaths(repo).includes(f));
+  if (missing.length) return { error: `not in ${repo}: ${missing.join(", ")}` };
+  const key = `${runId}/${r.id}/${repo.split("/").pop()}`;
+  const q = loadReqQueue(home);
+  const old = q.entries[key];
+  if (old && (old.state === "committed" || old.state === "pr")) return { error: `${key} is already ${old.state} (${old.sha ?? old.pr_url})` };
+  q.entries[key] = {
+    key, run: runId, req: r.id, text: r.text, repo, policy: reqPolicy(repo), nodes, files: [...new Set(files)].sort(), tests,
+    verified_at: now, state: "queued", reason: null, sha: null, pr_url: null, enqueued_at: old?.enqueued_at ?? now, updated: now,
+  };
+  saveReqQueue(home, q);
+  return { key };
 }
 
 /** Files other running nodes changed (any run), per repo. */
@@ -301,12 +343,13 @@ async function recordEvidence(e: ReqEntry, note: string): Promise<void> {
   await reqEvidence([e.run, e.req, "--note", note]);
 }
 
-/** Delivers every queued or blocked entry (optionally of one run). Saves the new states unless it is a dry run. */
-export async function deliverReqQueue(o: DeliverReqOpts & { run?: string }): Promise<ReqOutcome[]> {
+/** Delivers every queued or blocked entry (optionally of one run, or one key). Saves the new states unless it is a dry run. */
+export async function deliverReqQueue(o: DeliverReqOpts & { run?: string; key?: string }): Promise<ReqOutcome[]> {
   const q = loadReqQueue(o.home);
   const results: ReqOutcome[] = [];
   for (const e of Object.values(q.entries).sort((a, b) => a.enqueued_at.localeCompare(b.enqueued_at))) {
     if (o.run && e.run !== o.run) continue;
+    if (o.key && e.key !== o.key) continue;
     if (e.state !== "queued" && e.state !== "blocked") continue;
     const r = await deliverReqEntry(e, o);
     results.push(r);
