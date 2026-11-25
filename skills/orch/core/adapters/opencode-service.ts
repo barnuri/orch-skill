@@ -93,6 +93,23 @@ export function serviceProblem(): string | null {
   return null;
 }
 
+export interface ServiceModel { providerID: string; id: string; baseURL: string }
+
+/** The models the service serves (GET /api/model), or null when it does not answer. */
+export async function serviceModels(ms = 3000): Promise<ServiceModel[] | null> {
+  const s = readService();
+  if (!s) return null;
+  try {
+    const r = await fetch(`${s.url}/api/model`, { headers: headers(s), signal: AbortSignal.timeout(ms) });
+    if (r.status !== 200) return null;
+    const j: any = await r.json();
+    const list: any[] = Array.isArray(j?.data) ? j.data : [];
+    return list
+      .filter((m) => typeof m?.id === "string" && typeof m?.providerID === "string" && m.enabled !== false)
+      .map((m) => ({ providerID: m.providerID, id: m.id, baseURL: String(m.settings?.baseURL ?? "") }));
+  } catch { return null; }
+}
+
 /** Shared service usable for nodes: registered, healthy, same version as the CLI. */
 export async function sharedServiceUsable(): Promise<boolean> {
   if (process.env.ORCH_OPENCODE_SHARED === "0") return false;

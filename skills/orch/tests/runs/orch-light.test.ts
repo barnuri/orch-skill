@@ -20,6 +20,10 @@ async function fakeService(version = "2.4.1") {
       const u = new URL(req.url);
       if (req.headers.get("authorization") !== ${JSON.stringify(BASIC)}) return new Response("no", { status: 401 });
       if (req.method === "GET" && u.pathname === "/api/info") return Response.json({ version: ${JSON.stringify(version)} });
+      if (req.method === "GET" && u.pathname === "/api/model") return Response.json({ data: [
+        { id: "hub/smart-auto-fast", providerID: "llm-hub", enabled: true, settings: { baseURL: "http://localhost:8888/v1" } },
+        { id: "copilot/claude-opus-5-5[1m]", providerID: "llm-hub", enabled: true, settings: { baseURL: "http://localhost:8888/v1" } },
+      ] });
       return req.text().then((b) => { appendFileSync(${JSON.stringify(log)}, req.method + " " + u.pathname + " " + b + "\\n"); return Response.json({ ok: true }); });
     } });
     process.stdout.write(String(s.port));
@@ -121,8 +125,17 @@ test("opencode nodes use the shared service when healthy and the same version, e
     const base = { PATH: `${sh}:${process.env.PATH}`, ORCH_OPENCODE_SERVICE_JSON: svc.file, ORCH_OPENCODE_CLI_VERSION: "2.4.1" };
     const argv = (env: Record<string, string>, ...a: string[]) => orch(home, { ...base, ...env })("run", "opencode", "x", ...a).all.replace(/\n/g, " ").trim();
     expect(argv({})).toBe("run x --auto");
-    // Per-node config is read by the server process: that node keeps a private server.
+    // Per-node config with no model the service serves: that node keeps a private server.
     expect(argv({ OPENCODE_CONFIG_CONTENT: "{}" })).toBe("run x --auto --standalone");
+    // Hub and smart-auto nodes: the model is mapped to the service's provider, so no private server starts.
+    const hub = (models: Record<string, unknown>) => JSON.stringify({ provider: { hub: { options: { baseURL: "{env:LLM_HUB_V1_URL}" }, models } } });
+    const smart = { OPENCODE_CONFIG_CONTENT: hub({ "smart-auto-balance": { id: "hub/smart-auto-balance" } }), LLM_HUB_V1_URL: "http://127.0.0.1:8888/v1", ORCH_NODE_TIER: "fast" };
+    expect(argv(smart, "-m", "hub/smart-auto-balance")).toBe("run x --auto -m llm-hub/hub/smart-auto-fast");
+    const opus = { OPENCODE_CONFIG_CONTENT: hub({ "claude-opus-5-5": { id: "copilot/claude-opus-5-5[1m]" } }), LLM_HUB_V1_URL: "http://localhost:8888/v1" };
+    expect(argv(opus, "-m", "hub/claude-opus-5-5")).toBe("run x --auto -m llm-hub/copilot/claude-opus-5-5[1m]");
+    // Same model on another hub, or a model the service lacks: private server.
+    expect(argv({ ...opus, LLM_HUB_V1_URL: "http://other:8888/v1" }, "-m", "hub/claude-opus-5-5")).toBe("run x --auto --standalone -m hub/claude-opus-5-5");
+    expect(argv({ ...smart, ORCH_NODE_TIER: "" }, "-m", "hub/smart-auto-balance")).toBe("run x --auto --standalone -m hub/smart-auto-balance");
     // Version differs: private server.
     expect(argv({ ORCH_OPENCODE_CLI_VERSION: "2.5.0" })).toBe("run x --auto --standalone");
     // Setting off: private server.

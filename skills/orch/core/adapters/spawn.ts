@@ -17,7 +17,7 @@ import {
 } from "./routing.ts";
 import { usageRefusal } from "../../../../src/shared/profile-usage.ts";
 import { SMART_AUTO_TIERS } from "./hub.ts";
-import { sharedServiceUsable } from "./opencode-service.ts";
+import { serviceModels, sharedServiceUsable, type ServiceModel } from "./opencode-service.ts";
 import { loadProfilesDoc, settingFrom } from "../state/settings.ts";
 import { harnessFindBinary } from "./harness.ts";
 import { writeStatusSnapshot } from "../delivery/attribution.ts";
@@ -296,9 +296,55 @@ async function adapterOpencode(prompt: string, args: string[], e: Env): Promise<
   if (e.ORCH_SESSION_TITLE && session.length === 0) session = ["--title", e.ORCH_SESSION_TITLE];
   let { server, rest } = opencodeArgs(args);
   // Shared service: no private server per node (measured: 96 MB and 6 s against 495 MB and 48 s with --standalone).
-  // OPENCODE_CONFIG_CONTENT is read by the server process, so a node that sets it keeps its own private server.
-  if (server === "--standalone" && !e.OPENCODE_CONFIG_CONTENT && (await opencodeSharedWanted()) && (await sharedServiceUsable())) server = "";
+  // OPENCODE_CONFIG_CONTENT is read by the server process only. A node that sets it (hub and smart-auto profiles)
+  // uses the shared service when the service serves the same upstream model: its model ref is rewritten to the
+  // service's provider and the per-node config is dropped. Otherwise it keeps its own private server.
+  if (server === "--standalone" && (await opencodeSharedWanted()) && (await sharedServiceUsable())) {
+    if (!e.OPENCODE_CONFIG_CONTENT) server = "";
+    else {
+      const mapped = opencodeSharedModelArgs(rest, e, await serviceModels());
+      if (mapped) {
+        rest = mapped;
+        delete e.OPENCODE_CONFIG_CONTENT;
+        server = "";
+      }
+    }
+  }
   return (await exec([bin, "run", prompt, "--auto", ...(server ? [server] : []), ...session, ...rest], e)).rc;
+}
+
+const hostOf = (u: string): string => u.replace(/\/+$/, "").replace(/\/\/(localhost|0\.0\.0\.0)(?=[:/]|$)/, "//127.0.0.1");
+
+/**
+ * The `opencode run` args with the node's `-m <provider>/<model>` (a provider of OPENCODE_CONFIG_CONTENT) rewritten
+ * to the shared service's provider that serves the same upstream model id at the same base URL. A Smart Auto
+ * selector also takes the node tier (the tier header does not reach the shared service). null: no such model,
+ * so the node keeps its private server.
+ */
+export function opencodeSharedModelArgs(rest: string[], e: Env, served: ServiceModel[] | null): string[] | null {
+  if (!served || served.length === 0) return null;
+  let cfg: any;
+  try {
+    cfg = JSON.parse(e.OPENCODE_CONFIG_CONTENT ?? "");
+  } catch {
+    return null;
+  }
+  const at = rest.findIndex((a) => a === "-m" || a === "--model" || a.startsWith("--model=") || a.startsWith("-m="));
+  if (at < 0) return null;
+  const inline = rest[at]!.includes("=");
+  const ref = inline ? rest[at]!.slice(rest[at]!.indexOf("=") + 1) : (rest[at + 1] ?? "");
+  const slash = ref.indexOf("/");
+  if (slash <= 0) return null;
+  const provider = cfg?.provider?.[ref.slice(0, slash)];
+  if (!provider || typeof provider !== "object") return null;
+  const key = ref.slice(slash + 1);
+  const upstream = hubTierModel(String(provider.models?.[key]?.id ?? key), e.ORCH_NODE_TIER ?? "");
+  const base = hostOf(String(provider.options?.baseURL ?? "").replace(/\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, v) => e[v] ?? ""));
+  const hit = served.find((m) => m.id === upstream && base !== "" && hostOf(m.baseURL) === base);
+  if (!hit) return null;
+  const out = [...rest];
+  out.splice(at, inline ? 1 : 2, "-m", `${hit.providerID}/${hit.id}`);
+  return out;
 }
 
 async function adapterCopilot(prompt: string, args: string[], e: Env): Promise<number> {
