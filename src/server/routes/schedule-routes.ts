@@ -11,7 +11,7 @@ import type { ServerContext } from "../types/server-context";
 const IF_NONE_MATCH: string = "if-none-match";
 const SCHEDULE_ID: RegExp = /^sch-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const RUN_INDEX: RegExp = /^\d{1,3}$/;
-const ACTIONS = ["run", "enable", "disable", "remove"] as const;
+const ACTIONS = ["run", "enable", "disable", "mute", "unmute", "remove"] as const;
 const MAX_TEXT: number = 20000;
 const MAX_SHORT: number = 300;
 const MAX_DESCRIPTION: number = 1000;

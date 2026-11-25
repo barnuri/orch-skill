@@ -27,6 +27,8 @@ export interface Schedule {
   cron: string;
   kind: ScheduleKind;
   enabled: boolean;
+  /** No notification for this schedule's runs; absent means false. */
+  muted?: boolean;
   created_at: string;
   /** When it was last edited; absent until the first edit. */
   updated_at?: string | null;

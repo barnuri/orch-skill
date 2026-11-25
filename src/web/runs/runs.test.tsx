@@ -198,9 +198,11 @@ describe("graph viewport follow toggle", () => {
     const r = runOf([node({ id: "a", status: "done" }), node({ id: "b", status: "running", started: iso(1000) }), node({ id: "c", status: "waiting" }), node({ id: "d", status: "skipped" }), node({ id: "e", status: "covered" })], [["a", "c"], ["b", "c"]]);
     render(withQuery(<GraphViewport run={r} selectedId={null} onSelect={() => undefined} harnessByProfile={{}} maxAttempts={5} />));
     expect(screen.getByText("waiting on b")).toBeTruthy();
-    expect(document.querySelectorAll("[data-node-id]").length).toBe(5);
+    // The orchestrator box is selectable too (data-node-id="__main__"); count task nodes only.
+    const tasks = () => document.querySelectorAll('[data-node-id]:not([data-node-id="__main__"])').length;
+    expect(tasks()).toBe(5);
     fireEvent.click(screen.getByRole("button", { name: "Hide done nodes" }));
-    expect(document.querySelectorAll("[data-node-id]").length).toBe(2);
+    expect(tasks()).toBe(2);
     expect(document.querySelector('[data-node-id="a"]')).toBeNull();
     expect(document.querySelector('[data-node-id="d"]')).toBeNull();
     expect(document.querySelector('[data-node-id="e"]')).toBeNull();

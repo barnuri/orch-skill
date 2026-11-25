@@ -2,7 +2,7 @@
 // Every message is one file runs/<run>/inbox/<node>/<seq>.json; the seq is allocated under the
 // per-run lock `run-<id>`. Delivery: herdr pane of the node's job, else pending (node inbox / retry).
 // Asks and urgent tells go to inbox/orch and are typed into the coordinator pane (user herdr socket).
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,6 +11,7 @@ import { loadRun, writeJsonAtomic, appendEvents } from "../state/store.ts";
 import { acquireLock } from "../state/lock.ts";
 import { nowIso } from "../state/clock.ts";
 import { herdrCli, herdrEnabled } from "../adapters/herdr.ts";
+import { nudgeViaService } from "../adapters/opencode-service.ts";
 import { findNode } from "../runs/node.ts";
 import { mutateRun } from "./node.ts";
 
@@ -228,6 +229,7 @@ export async function cmdNodeTell(args: string[]): Promise<number> {
       const from = a.from || "orch";
       const path = await inboxNew(home, a.run, "orch", from, "tell", a.text);
       const result = await coordDeliver(home, a.run, path);
+      if (from === "user") await appendFile(join(home, "runs", a.run, "messages.jsonl"), JSON.stringify({ ts: nowIso(), from, to: "orch", text: a.text }) + "\n");
       await appendRunEvent(home, a.run, "message", "", from, result, a.text);
       out(`${(await readMsg(path)).id} coordinator ${result}\n`);
       return 0;
@@ -871,6 +873,23 @@ async function coordCountTry(path: string, e: string): Promise<string> {
   return "pending";
 }
 
+// A coordinator without a pane: POST the prompt to its opencode session over the shared service (queued behind a busy turn).
+// No healthy service or no session id: the message stays pending in the inbox.
+async function coordDeliverSession(home: string, run: string, path: string, c: any, m: Msg): Promise<string> {
+  const sid = String(c.session_id ?? "");
+  if (!sid.startsWith("ses_")) return coordCountTry(path, "coordinator is a session without a terminal; read the inbox");
+  const text = m.kind === "ask"
+    ? `[orch ask #${m.id} from ${m.from}] ${m.text} | answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`
+    : `[orch tell #${m.id} from ${m.from}] ${m.text}`;
+  const via = await nudgeViaService(sid, { text, delivery: "queue" });
+  if (via?.ok) {
+    await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = "opencode-service"; x.last_error = null; });
+    await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator session`);
+    return "delivered";
+  }
+  return coordCountTry(path, via ? `opencode service: ${via.detail}` : "opencode service not available; read the inbox");
+}
+
 // One attempt to type the message into the coordinator pane: delivered | pending | unreachable | none.
 export async function coordDeliver(home: string, run: string, path: string): Promise<string> {
   let c = await coordOf(home, run);
@@ -878,7 +897,7 @@ export async function coordDeliver(home: string, run: string, path: string): Pro
   const m = await readMsg(path);
   if (m.delivered_at) return "delivered";
   // A session-only coordinator has no pane to type into: the message waits in the inbox for the session to read.
-  if (c.transport === "session") return coordCountTry(path, "coordinator is a session without a terminal; read the inbox");
+  if (c.transport === "session" || (String(c.pane_id ?? "") === "" && String(c.session_id ?? "") !== "")) return coordDeliverSession(home, run, path, c, m);
   let status = await coordPaneStatus(c);
   if (status === "gone" && (await coordTryRepoint(home, run))) {
     c = await coordOf(home, run);

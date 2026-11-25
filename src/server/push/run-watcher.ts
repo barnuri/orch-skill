@@ -55,6 +55,10 @@ export class RunWatcher {
       if (res.kind !== "ok") continue;
       if (mtime !== null) this.stateMtime.set(id, mtime);
       const run = res.run;
+      if ((run as { muted?: boolean }).muted === true) {
+        this.runs.set(id, { status: run.status, nodes: new Map(run.nodes.map((n) => [n.id, n.status])) });
+        continue;
+      }
       const prev = this.runs.get(id);
       const nodes = new Map<string, NodeStatus>(run.nodes.map((n) => [n.id, n.status]));
       this.runs.set(id, { status: run.status, nodes });
@@ -143,10 +147,18 @@ export class RunWatcher {
         const key = `${id}@${name}`;
         if (this.claims.has(key)) continue;
         this.claims.add(key);
-        if (!this.primed) continue;
+        if (!this.primed || scheduleMuted(root, id)) continue;
         this.notify("schedules", { title: "Orch schedule", body: `Schedule ${scheduleName(root, id)} fired.`, tag: `schedule:${id}`, url: schedulesUrl() });
       }
     }
+  }
+}
+
+function scheduleMuted(root: string, id: string): boolean {
+  try {
+    return (JSON.parse(readFileSync(join(root, id, "schedule.json"), "utf8")) as { muted?: boolean }).muted === true;
+  } catch {
+    return false;
   }
 }
 

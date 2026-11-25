@@ -68,15 +68,15 @@ export function statusSegments(node: RunNode, maxAttempts: number, durationText:
 }
 
 /** The colored segment rows under the composer. A long id shows its tail, the full value is the tooltip and a click copies it. */
-export function NodeStatusLine({ node, run, maxAttempts }: { node: RunNode; run: TimedRun | null | undefined; maxAttempts: number }) {
+export function NodeStatusLine({ node, run, maxAttempts, segments: given }: { node: RunNode; run: TimedRun | null | undefined; maxAttempts: number; segments?: Segment[] }) {
   const toast = useToast();
   const duration = useNodeDuration(node, run);
-  const segments = statusSegments(node, maxAttempts, duration.present ? duration.text : "");
+  const segments = given ?? statusSegments(node, maxAttempts, duration.present ? duration.text : "");
   return (
-    <footer className="node-statusline" aria-label="Node status line">
+    <footer className="node-statusline" aria-label={given === undefined ? "Node status line" : "Orchestrator status line"}>
       {segments.map((seg) =>
         seg.copy === undefined ? (
-          <span key={seg.key} className={`sl-chip ${seg.tone} ${seg.key === "state" ? paletteClass(node.status) : ""}`.trim()} data-seg={seg.key} title={seg.title} role={seg.role} aria-label={seg.role === "img" ? seg.title : undefined}>
+          <span key={seg.key} className={`sl-chip ${seg.tone} ${seg.key === "state" && given === undefined ? paletteClass(node.status) : ""}`.trim()} data-seg={seg.key} title={seg.title} role={seg.role} aria-label={seg.role === "img" ? seg.title : undefined}>
             {seg.text}
           </span>
         ) : (

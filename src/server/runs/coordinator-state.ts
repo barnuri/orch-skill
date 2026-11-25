@@ -52,8 +52,11 @@ export function orchestratorState(runsDir: string, run: Record<string, unknown>)
   const un = typeof c.unreachable === "object" && c.unreachable !== null ? (c.unreachable as Record<string, unknown>) : null;
   const rp = typeof c.last_repoint === "object" && c.last_repoint !== null ? (c.last_repoint as CoordinatorState["last_repoint"]) : null;
   return {
-    transport: c.transport === "hc" || c.socket_path === "hc" ? "hc" : "herdr",
+    transport: c.transport === "session" ? "session" : c.transport === "hc" || c.socket_path === "hc" ? "hc" : "herdr",
     pane_id: String(c.pane_id ?? ""),
+    session_id: String(c.session_id ?? ""),
+    harness: String(c.harness ?? ""),
+    model: typeof c.model === "string" && c.model !== "" ? c.model : null,
     reachable: un === null,
     unreachable_since: un === null ? null : String(un.at ?? ""),
     unreachable_reason: un === null ? null : String(un.reason ?? ""),

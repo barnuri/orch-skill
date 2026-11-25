@@ -15,6 +15,7 @@ export interface ActivityEnvelope {
   state: "ok" | "gone" | "unknown";
   messages: ActivityMessage[];
   next: string | null;
+  context_tokens?: number | null;
 }
 
 export interface ActivityLine {

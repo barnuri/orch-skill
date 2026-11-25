@@ -153,7 +153,7 @@ export async function runStart(args: string[]): Promise<number> {
   const repo = gitToplevel(process.cwd());
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, ...(process.env.ORCH_MUTED === "1" ? { muted: true } : {}), started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");

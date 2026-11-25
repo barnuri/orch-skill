@@ -157,7 +157,7 @@ export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect, 
   const key = (event: KeyboardEvent<HTMLTableRowElement>, row: TableRow): void => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      if (row.kind === "node") { onSelect(row.id); }
+      onSelect(row.id);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const sib = event.key === "ArrowDown" ? event.currentTarget.nextElementSibling : event.currentTarget.previousElementSibling;
@@ -223,13 +223,13 @@ export function RunTable({ run, filter, harnessByProfile, selectedId, onSelect, 
                 key={row.id}
                 role="row"
                 aria-rowindex={i + 2}
-                aria-selected={row.kind === "node" ? selectedId === row.id : undefined}
+                aria-selected={selectedId === row.id}
                 tabIndex={0}
                 className={`rt-row ${row.kind === "main" ? "rt-main" : ""}${selectedId === row.id ? " selected" : ""}`}
                 data-kind={row.kind}
                 data-node={row.kind === "node" ? row.id : undefined}
                 data-verdict={row.verdict === "" ? undefined : row.verdict}
-                onClick={() => row.kind === "node" && onSelect(row.id)}
+                onClick={() => onSelect(row.id)}
                 onKeyDown={(e) => key(e, row)}
               >
                 {shown.map((c) => (

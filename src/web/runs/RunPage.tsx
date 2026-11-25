@@ -15,6 +15,7 @@ import type { RunEvent } from "../../shared/types/run-event";
 import type { Metric } from "../lib/node-metrics";
 import { GraphViewport } from "./GraphViewport";
 import { NodePanel } from "./NodePanel";
+import { isOrchSelection } from "../lib/orchestrator-node";
 import { ActivityFeed, Ago } from "./RunActivity";
 import { isNotFound, useProfileFacts, useRun, useRuns, useRunEvents, useRunHealth, useRunProjection, useWatchdog, type LiveState } from "./queries";
 import { hashWithFilter, isFilterActive, matchesFilter, parseFilter, runSummary, type NodeFilter } from "./run-filter";
@@ -228,7 +229,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
     history.replaceState(history.state, "", `${location.pathname}${location.search}${hashWithView(location.hash, next)}`);
   };
   const [flash, setFlash] = useState(0);
-  const hasSelection = run.nodes.some((node) => node.id === selected);
+  const hasSelection = isOrchSelection(selected) || run.nodes.some((node) => node.id === selected);
   const events = useRunEvents(run.run_id, run.status === "running");
   const health = useRunHealth(run.run_id, run.status === "running");
   const projection = useRunProjection(run.run_id, run.status === "running");

@@ -61,6 +61,9 @@ export class ScheduleDto extends ZodDto {
   @ZodField(z.boolean(), { description: "A paused schedule never fires." })
   enabled!: boolean;
 
+  @ZodField(z.boolean().optional(), { description: "A muted schedule sends no notification (orch, push, Herdr, Telegram). Absent means false." })
+  muted?: boolean;
+
   @ZodField(z.string(), { description: "When it was created, ISO 8601 UTC." })
   created_at!: string;
 
@@ -223,7 +226,7 @@ export class ScheduleActionParamsDto extends ZodDto {
   @ZodField(z.string(), { description: "Schedule id." })
   id!: string;
 
-  @ZodField(z.string(), { description: "run, enable, disable or remove." })
+  @ZodField(z.string(), { description: "run, enable, disable, mute, unmute or remove." })
   action!: string;
 }
 

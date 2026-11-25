@@ -20,7 +20,7 @@ const CMD_TIMEOUT_DEFAULT = 3600;
 const NEXT_DAYS = 366;
 const VALID_HARNESSES = "claude cursor-agent opencode local-llm copilot pi".split(" ");
 export const SCHEDULE_USAGE =
-  'dispatch.ts schedule add --name N [--description D] --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--description D] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>" | record <id> --status ok|failed|skipped [--message-id M] [--duration-ms N] [--error E] [--advance] [--note T] [--at EPOCH]\n  chat target: add --chat <id> [--mode message|fresh] [--tz ZONE] [--once] --name N --cron C --prompt P; list --chat <id>';
+  'dispatch.ts schedule add --name N [--description D] --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR]) | edit <id> [--name N] [--description D] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR] | list [--json] | show <id> | enable|disable|mute|unmute <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>" | record <id> --status ok|failed|skipped [--message-id M] [--duration-ms N] [--error E] [--advance] [--note T] [--at EPOCH]\n  chat target: add --chat <id> [--mode message|fresh] [--tz ZONE] [--once] --name N --cron C --prompt P; list --chat <id>';
 
 const out = (s: string) => process.stdout.write(s);
 const err = (s: string) => process.stderr.write(s);
@@ -112,6 +112,8 @@ async function fire(id: string): Promise<string | null> {
     model = s.model ?? "";
     writeFileSync(join(dir, "prompt.md"), String(s.prompt ?? "") + "\n");
     const env: Record<string, string | undefined> = { ...process.env };
+    if (s.muted === true) env.ORCH_MUTED = "1";
+    else delete env.ORCH_MUTED;
     if (model) env.ORCH_MODEL_ID = model;
     else delete env.ORCH_MODEL_ID;
     const r = await dispatchSh(["start", "--profile", s.profile, `@${join(dir, "prompt.md")}`], { env, inheritErr: true });
@@ -283,7 +285,7 @@ async function add(args: string[]): Promise<number> {
   const id = `sch-${stampUtc()}-${hex4()}`;
   ensureDir(schedDir(id));
   const o = {
-    id, name, description: description.trim() === "" ? null : description.trim(), cron, kind, enabled: true, created_at: nowIso(),
+    id, name, description: description.trim() === "" ? null : description.trim(), cron, kind, enabled: true, muted: false, created_at: nowIso(),
     prompt: kind === "prompt" ? prompt : null,
     profile: kind === "prompt" ? profile : null,
     model: kind === "prompt" && model ? model : null,
@@ -445,7 +447,7 @@ function list(args: string[]): number {
   }
   if (rows.length === 0) { out("no schedules\n"); return 0; }
   for (const r of rows) {
-    out([r.id, r.enabled ? "on" : "off", r.cron, r.kind, r.last_status ?? "never run", r.next_at ? "next " + fmtLocal(r.next_at) : "no next run", r.name].join("\t") + "\n");
+    out([r.id, r.enabled ? "on" : "off", r.muted === true ? "muted" : "-", r.cron, r.kind, r.last_status ?? "never run", r.next_at ? "next " + fmtLocal(r.next_at) : "no next run", r.name].join("\t") + "\n");
   }
   return 0;
 }
@@ -465,6 +467,14 @@ function setEnabled(value: boolean, args: string[]): number {
   if (!value) patch(id, (o) => { o.next_at = null; });
   else setNext(id);
   out(`${id}: ${value ? "enabled" : "disabled"}\n`);
+  return 0;
+}
+
+function setMuted(value: boolean, args: string[]): number {
+  const id = args[0] ?? "";
+  if (!exists(id)) { err(`unknown schedule: ${id}\n`); return 2; }
+  patch(id, (o) => { o.muted = value; });
+  out(`${id}: ${value ? "muted" : "unmuted"}\n`);
   return 0;
 }
 
@@ -590,6 +600,8 @@ export const scheduleCommands = {
   "schedule show": show,
   "schedule enable": (a: string[]) => setEnabled(true, a),
   "schedule disable": (a: string[]) => setEnabled(false, a),
+  "schedule mute": (a: string[]) => setMuted(true, a),
+  "schedule unmute": (a: string[]) => setMuted(false, a),
   "schedule remove": remove,
   "schedule run": runNow,
   "schedule log": log,

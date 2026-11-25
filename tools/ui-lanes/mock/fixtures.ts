@@ -14,10 +14,24 @@ const RUN_DONE_ID = "20261119-120000-c3d4";
 const RUN_RUNNING_STATE = {
   run_id: RUN_RUNNING_ID,
   title: "Fixture: mock running run",
-  harness_session: "fixture-session-1",
+  harness_session: "ses_fixture_main_1",
   started: "2026-11-20T09:00:00.000Z",
   finished: null,
   status: "running",
+  coordinator: { transport: "session", pane_id: "", session_id: "ses_fixture_main_1", harness: "opencode", at: "2026-11-20T09:59:00.000Z" },
+  orchestrator_state: {
+    transport: "session",
+    pane_id: "",
+    session_id: "ses_fixture_main_1",
+    harness: "opencode",
+    model: "claude-opus-5",
+    reachable: true,
+    unreachable_since: null,
+    unreachable_reason: null,
+    pending_asks: 1,
+    last_repoint: null,
+    candidates: [],
+  },
   nodes: [
     {
       id: "n1",
@@ -268,5 +282,29 @@ export function runHealth(id: string) {
       nodes: RUNS[id].nodes.map((node) => ({ id: node.id, health: node.status === "running" ? "ok" : "idle" })),
       ready: [],
     },
+  };
+}
+
+/** The orchestrator's session activity for the mock lane. */
+export function orchestratorActivity() {
+  return {
+    state: "ok",
+    next: "a3",
+    context_tokens: 84_200,
+    messages: [
+      { id: "a1", role: "user", time: "2026-11-20T09:58:00.000Z", parts: [{ kind: "text", text: "Plan the change and dispatch the nodes." }] },
+      { id: "a2", role: "assistant", time: "2026-11-20T09:58:20.000Z", parts: [{ kind: "tool", tool: "bash", text: "bun skills/orch/scripts/dispatch.ts run status" }] },
+      { id: "a3", role: "assistant", time: "2026-11-20T09:59:10.000Z", parts: [{ kind: "text", text: "n1 is done. n2 runs; n3 waits on it. One question from n2 is open." }] },
+    ],
+  };
+}
+
+/** The run inbox for the mock lane: one open ask to the orchestrator and one delivered tell. */
+export function runMessages() {
+  return {
+    messages: [
+      { id: "m1", seq: 1, from: "n2", to: "orch", kind: "ask", at: "2026-11-20T09:59:30.000Z", text: "Use the existing migration or write a new one?", status: "pending", delivered_at: null, via: null, answer: null },
+      { id: "m2", seq: 2, from: "user", to: "orch", kind: "tell", at: "2026-11-20T09:59:40.000Z", text: "Prefer the existing migration.", status: "delivered", delivered_at: "2026-11-20T09:59:41.000Z", via: "opencode-service" },
+    ],
   };
 }

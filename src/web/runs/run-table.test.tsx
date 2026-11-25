@@ -80,9 +80,11 @@ describe("run table", () => {
     expect(rows[1]?.getAttribute("data-kind")).toBe("main");
     expect(screen.getByText("3 of 3 nodes")).toBeTruthy();
     fireEvent.click(rows[1] as HTMLElement);
-    expect(picked).toEqual([]);
+    expect(picked).toEqual(["__main__"]);
     fireEvent.keyDown(rows[3] as HTMLElement, { key: "Enter" });
-    expect(picked.length).toBe(1);
+    // Enter selects the focused row like a click; the main-session row selects the orchestrator.
+    expect(picked.length).toBe(2);
+    expect(picked[1]).not.toBe("__main__");
     const head = screen.getAllByRole("columnheader")[1] as HTMLElement;
     fireEvent.click(head.querySelector("button") as HTMLElement);
     expect(head.getAttribute("aria-sort")).toBe("ascending");

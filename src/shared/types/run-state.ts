@@ -22,6 +22,8 @@ export interface RunState {
   force_finish_reason?: string | null;
   /** Set by `dispatch.ts run pause`: starts no node until `run resume`. */
   paused?: boolean;
+  /** Started by a muted schedule: no orch or Herdr notification for this run. */
+  muted?: boolean;
   /** Per-run local dispatch cap. -1 means unlimited, bounded by the global cap. */
   max_parallel?: number | null;
   /** Added by GET /api/runs/<id>: orchestrator reachability and pending user asks. */

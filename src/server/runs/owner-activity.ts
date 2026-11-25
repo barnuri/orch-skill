@@ -29,6 +29,8 @@ export interface ActivityBody {
   state: "ok" | "gone" | "unknown";
   messages: ActivityMessage[];
   next: string | null;
+  /** Context tokens of the newest assistant message (input + cache read); null when not reported. */
+  context_tokens?: number | null;
 }
 
 export type ActivityResult = { kind: "none" } | { kind: "ok"; body: ActivityBody };
@@ -79,6 +81,22 @@ export function reduceMessage(raw: Record<string, unknown>): ActivityMessage {
   };
 }
 
+/** Input plus cache-read tokens of the newest message that reports tokens (data is newest first). */
+function contextTokensOf(data: Record<string, unknown>[]): number | null {
+  for (const m of data) {
+    const t = m.tokens;
+    if (t && typeof t === "object") {
+      const o = t as Record<string, unknown>;
+      const cache = o.cache && typeof o.cache === "object" ? ((o.cache as Record<string, unknown>).read ?? 0) : 0;
+      const total = Number(o.input ?? 0) + Number(cache);
+      if (Number.isFinite(total) && total > 0) {
+        return total;
+      }
+    }
+  }
+  return null;
+}
+
 /** Raw opencode answer (newest first) to a bounded, oldest-first summary under ACTIVITY_MAX_BYTES. */
 export function reduceActivity(rawJson: string, after: string | null): ActivityBody {
   let data: unknown;
@@ -90,6 +108,7 @@ export function reduceActivity(rawJson: string, after: string | null): ActivityB
   if (!Array.isArray(data)) {
     return { state: "unknown", messages: [], next: null };
   }
+  const contextTokens = contextTokensOf(data as Record<string, unknown>[]);
   let messages = (data as Record<string, unknown>[]).slice(0, ACTIVITY_MESSAGES).reverse().map(reduceMessage);
   if (after !== null) {
     const at = messages.findIndex((m) => m.id === after);
@@ -99,7 +118,7 @@ export function reduceActivity(rawJson: string, after: string | null): ActivityB
     messages = messages.slice(1);
   }
   const last = messages[messages.length - 1];
-  return { state: "ok", messages, next: last ? last.id : after };
+  return { state: "ok", messages, next: last ? last.id : after, context_tokens: contextTokens };
 }
 
 async function spawnRaw(home: string, runId: string, nodeId: string, timeoutMs: number): Promise<{ code: number; stdout: string }> {

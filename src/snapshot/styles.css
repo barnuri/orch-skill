@@ -361,7 +361,9 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 4px
 .node.has-profile.selected .frame { stroke: var(--profile-accent); stroke-width: 1.5; }
 .node.has-profile.running .mark { animation: pulse 1.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 .node.has-profile.error .frame { stroke: color-mix(in srgb, var(--er) 55%, var(--profile-accent)); }
-.graph-orch { cursor: default; pointer-events: none; }
+.graph-orch { cursor: pointer; pointer-events: all; }
+.graph-orch:hover .orch-frame, .graph-orch:focus-visible .orch-frame, .graph-orch.selected .orch-frame { stroke-width: 2.5; }
+.graph-orch:focus-visible { outline: none; }
 .orch-root .orch-frame { fill: var(--panel2); stroke: var(--acc); stroke-width: 1.5; }
 .orch-root.running .orch-frame { stroke: var(--status-running); animation: pulse 1.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 .orch-root.done .orch-frame { stroke: var(--ok); }

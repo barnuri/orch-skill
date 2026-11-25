@@ -26,6 +26,8 @@ import { useNodeDuration } from "./GraphSvg";
 import { NodeActions, NodeWarnings } from "./NodeActions";
 import { NodeMessages } from "./NodeMessages";
 import { NodeStatusLine } from "./NodeStatusLine";
+import { ORCH_TARGET, isOrchSelection, orchestratorNode, orchestratorSegments } from "../lib/orchestrator-node";
+import type { RunWithCoordinator } from "../lib/run-table";
 import { paletteClass } from "../../shared/status-palette";
 
 /** Lines of each earlier attempt's log kept in the panel; the full log is in Output. */
@@ -540,7 +542,7 @@ function NodeSession({ node }: { node: RunNode }) {
 }
 
 /** The owner session's live activity: `time  kind  text`, newest at the bottom, tool lines collapsed. */
-function NodeActivity({ runId, node }: { runId: string; node: RunNode }) {
+function NodeActivity({ runId, node, hint = AGENT_SESSION_EMPTY }: { runId: string; node: RunNode; hint?: string }) {
   const [visible, setVisible] = useState(typeof document === "undefined" || document.visibilityState !== "hidden");
   useEffect(() => {
     const onChange = () => {
@@ -555,7 +557,7 @@ function NodeActivity({ runId, node }: { runId: string; node: RunNode }) {
   const body = query.data ?? null;
   const lines = body === null ? [] : activityLines(body);
   const last = lines.length > 0 ? (lines[lines.length - 1]?.time ?? null) : null;
-  const chip = ownerChip(node);
+  const chip = hint === AGENT_SESSION_EMPTY ? ownerChip(node) : null;
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: "nearest" });
@@ -585,7 +587,7 @@ function NodeActivity({ runId, node }: { runId: string; node: RunNode }) {
         )}
         {last === null ? null : <Ago iso={last} prefix="latest activity " />}
       </div>
-      <p className="hint">{AGENT_SESSION_EMPTY}</p>
+      <p className="hint">{hint}</p>
       {status}
       <div className="chat-turns" role="log">
         {lines.map((line) =>
@@ -624,7 +626,12 @@ function InlineNotes({ node }: { node: RunNode }) {
   );
 }
 
-function NodeBody({ runId, node }: { runId: string; node: RunNode }) {
+const ORCH_HINT = "The orchestrator's own session, read from its opencode session. Your message goes to its pane or session.";
+
+function NodeBody({ runId, node, orch = false }: { runId: string; node: RunNode; orch?: boolean }) {
+  if (orch) {
+    return <NodeActivity runId={runId} node={node} hint={ORCH_HINT} />;
+  }
   if (usesSessionActivity(node)) {
     return <NodeActivity runId={runId} node={node} />;
   }
@@ -664,8 +671,24 @@ export function RetryNodeButton({ runId, node }: { runId: string; node: RunNode 
 }
 
 /** Node details beside the graph: the selected node's details, attempts and session. Renders nothing when no node is selected. */
+/** The orchestrator's details: where it runs and what it waits on. Collapsed by default like a node's. */
+function OrchDetails({ run }: { run: RunState }) {
+  const state = (run as RunWithCoordinator).orchestrator_state ?? (run as RunWithCoordinator).coordinator_state ?? null;
+  return (
+    <dl>
+      <Row k="session" value={state?.session_id || run.harness_session || "—"} cls="mono" />
+      <Row k="harness" value={state?.harness || "—"} />
+      <Row k="transport" value={state === null ? "not registered" : state.pane_id === "" ? "session (opencode service)" : `${state.transport ?? "herdr"} pane ${state.pane_id}`} cls="mono" />
+      <Row k="reachable" value={state === null ? "not registered" : state.reachable ? "yes" : `no: ${state.unreachable_reason ?? "unknown"}`} cls={state !== null && !state.reachable ? "missing" : ""} />
+      <Row k="pending asks" value={String(state?.pending_asks ?? 0)} />
+    </dl>
+  );
+}
+
 export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { run: RunState; selectedId: string | null; maxAttempts: number; flash: number; onClose?: () => void }) {
-  const node = run.nodes.find((candidate) => candidate.id === selectedId);
+  const orch = isOrchSelection(selectedId);
+  const node = orch ? orchestratorNode(run as RunWithCoordinator) : run.nodes.find((candidate) => candidate.id === selectedId);
+  const orchActivity = useNodeActivity(run.run_id, ORCH_TARGET, orch, orch && run.status === "running");
   const panel = useRef<HTMLElement>(null);
   // The graph fills the viewport, so a freshly shown panel sits below the fold and a click looks like
   // it did nothing: scroll it just into view and replay a one-shot border flash.
@@ -687,7 +710,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
   return (
     <aside className="node-terminal" id="node-panel" aria-live="polite" ref={panel}>
       <h2 className="node-panel-head">
-        <span className="node-terminal-prompt" aria-hidden="true">$ node</span>
+        <span className="node-terminal-prompt" aria-hidden="true">{orch ? "$ orch" : "$ node"}</span>
         <span className="node-panel-title">{node.label || node.id}</span>
         {node.status === "covered" ? (
           <span className="covered-panel-status">
@@ -698,7 +721,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
             })()}
           </span>
         ) : <Chip status={node.status} />}
-        <FlagChips node={node} />
+        {orch ? null : <FlagChips node={node} />}
         <span className="node-panel-spacer" />
         {onClose === undefined ? null : (
           <button className="panel-close" type="button" aria-label="Close inspector" onClick={onClose}>
@@ -706,26 +729,32 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
           </button>
         )}
       </h2>
-      <NodeWarnings node={node} />
-      <NodeActions runId={run.run_id} node={node} />
+      {orch ? null : <NodeWarnings node={node} />}
+      {orch ? null : <NodeActions runId={run.run_id} node={node} />}
       <div className="panel-grid">
         <div className="panel-details">
           <details className="disclosure node-details">
             <summary>
               <span className="disclosure-title">Details</span>
-              <span className="disclosure-sum mono">{node.id}</span>
+              <span className="disclosure-sum mono">{orch ? "orchestrator" : node.id}</span>
             </summary>
-            <ModelBlock node={node} />
-            <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOn} />
-            <Attempts node={node} />
+            {orch ? (
+              <OrchDetails run={run} />
+            ) : (
+              <>
+                <ModelBlock node={node} />
+                <DetailList node={node} run={run} maxAttempts={maxAttempts} waitingOn={waitingOn} />
+                <Attempts node={node} />
+              </>
+            )}
           </details>
-          <Selections node={node} />
+          {orch ? null : <Selections node={node} />}
         </div>
       </div>
-      <NodeMessages key={node.id} runId={run.run_id} node={node}>
-        <NodeBody runId={run.run_id} node={node} />
+      <NodeMessages key={node.id} runId={run.run_id} node={node} orch={orch}>
+        <NodeBody runId={run.run_id} node={node} orch={orch} />
       </NodeMessages>
-      <NodeStatusLine node={node} run={run} maxAttempts={maxAttempts} />
+      <NodeStatusLine node={node} run={run} maxAttempts={maxAttempts} segments={orch ? orchestratorSegments(run, orchActivity.data?.context_tokens) : undefined} />
     </aside>
   );
 }

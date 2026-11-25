@@ -38,4 +38,31 @@ describe("RunWatcher", () => {
       home.dispose();
     }
   });
+
+  test("a muted run and a muted schedule send nothing", () => {
+    const home = TempHome.create();
+    try {
+      writeRun(home, "running");
+      home.write("schedules/sch-1/schedule.json", JSON.stringify({ name: "s", muted: true }));
+      const sent: Array<[PushCategory, NotifyInput]> = [];
+      const watcher = new RunWatcher(home.path, (category, input) => {
+        sent.push([category, input]);
+        return undefined;
+      });
+      watcher.scan();
+      home.write(`runs/${RUN}/state.json`, JSON.stringify({
+        run_id: RUN, title: "t", status: "done", muted: true, started: "2026-11-23T10:00:00.000Z",
+        nodes: [{ id: "n1", label: "build", status: "done" }],
+      }));
+      home.write("schedules/sch-1/claims/1000", "");
+      watcher.scan();
+      expect(sent).toHaveLength(0);
+      home.write("schedules/sch-2/schedule.json", JSON.stringify({ name: "loud" }));
+      home.write("schedules/sch-2/claims/1000", "");
+      watcher.scan();
+      expect(sent.map(([c]) => c)).toEqual(["schedules"]);
+    } finally {
+      home.dispose();
+    }
+  });
 });

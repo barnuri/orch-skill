@@ -227,6 +227,7 @@ async function dispatchNodeJobLocked(home: string, runId: string, nodeId: string
     ORCH_NODE_TIER: tier,
     ORCH_NODE_ACCEPTANCE: String(node.acceptance ?? ""),
   };
+  if ((run as any).muted === true) env.ORCH_MUTED = "1";
   if (isProfile) {
     // An explicit node model overrides the profile model. ORCH_MODEL_ID is the per-job seam loadProfile reads.
     const ov = nodeModelOverride((await loadProfilesDoc(home)) as any, targetName, String(node.model ?? ""));

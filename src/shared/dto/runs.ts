@@ -144,6 +144,9 @@ export class NodeActivityEnvelopeDto extends ZodDto {
 
   @ZodField(z.string().nullable(), { description: "Cursor for `after`: the newest message id." })
   next!: string | null;
+
+  @ZodField(z.number().nullable().optional(), { description: "Context tokens of the newest assistant message (input + cache read), when opencode reports them." })
+  context_tokens?: number | null;
 }
 
 @ZodObject({ description: "A message from the user to one node." })

@@ -362,6 +362,8 @@ const launchTs = () => join(dirname(import.meta.dir), "commands", "herdr-launch.
 // When `hc` is on PATH, jobs run as hc terminals (labels orch=1, run=<run>, node=<node>, job=<job dir name>).
 // ORCH_HC=0 turns this path off. Any hc failure falls back to the herdr path below.
 const HC_LABEL = "orch=1";
+// Set on jobs of a muted schedule or run: notification plugins skip a terminal that carries it.
+export const MUTED_LABEL = "orch.muted=1";
 const hcBinPresent = () => Bun.which("hc", { PATH: process.env.PATH ?? "" }) !== null;
 
 export async function hcEnabled(home: string): Promise<boolean> {
@@ -531,7 +533,7 @@ async function hcStartJob(home: string, jobDir: string, argv: string[]): Promise
   writeLauncher(launcher, jobDir, launchTs(), null);
   const place = await appPlacement(home, jobDir, run, node);
   const placeArgs = place ? ["--name", place.name, ...place.labels.flatMap((l) => ["--label", l])] : [];
-  const r = await hcCli(["run", "--bg", "--json", ...placeArgs, "--cwd", process.cwd(), "--label", HC_LABEL, "--label", `run=${run}`, "--label", `node=${node}`, "--label", `job=${job}`, "sh", launcher]);
+  const r = await hcCli(["run", "--bg", "--json", ...placeArgs, "--cwd", process.cwd(), "--label", HC_LABEL, "--label", `run=${run}`, "--label", `node=${node}`, "--label", `job=${job}`, ...(process.env.ORCH_MUTED === "1" ? ["--label", MUTED_LABEL] : []), "sh", launcher]);
   let addr = "";
   try { addr = JSON.parse(r.stdout).address ?? ""; } catch { /* no address */ }
   if (!r.ok || !addr) return false;

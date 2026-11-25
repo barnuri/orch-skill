@@ -201,7 +201,7 @@ function ScheduleRow({
   editor: React.ReactNode;
   onToggleOpen: () => void;
   onEdit: () => void;
-  onAct: (action: "run" | "enable" | "disable") => void;
+  onAct: (action: "run" | "enable" | "disable" | "mute" | "unmute") => void;
   onRemove: () => void;
   onLoadLog: (schedule: Schedule, index: number, run: ScheduleRun) => void;
 }) {
@@ -254,6 +254,22 @@ function ScheduleRow({
             onAct(next ? "enable" : "disable");
           }}
         />
+        <Button
+          disabled={busy}
+          aria-label={schedule.muted === true ? `Unmute ${schedule.name}` : `Mute ${schedule.name}`}
+          aria-pressed={schedule.muted === true}
+          title={schedule.muted === true ? "Muted: no notifications. Click to unmute" : "Mute notifications for this schedule"}
+          data-testid="sched-mute"
+          onClick={() => {
+            onAct(schedule.muted === true ? "unmute" : "mute");
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            {schedule.muted === true ? <path d="M3 3l18 18" /> : null}
+          </svg>
+        </Button>
         <Button
           disabled={busy}
           onClick={() => {
@@ -615,7 +631,7 @@ export function SchedulesPage() {
       return next;
     });
   };
-  const act = async (schedule: Schedule, action: "run" | "enable" | "disable"): Promise<void> => {
+  const act = async (schedule: Schedule, action: "run" | "enable" | "disable" | "mute" | "unmute"): Promise<void> => {
     setBusyFor(schedule.id, true);
     const result = schedule.target !== undefined && action === "run" ? await automationApi.scheduleAction(schedule.target.chat_id, schedule.id, "run-now") : await api.scheduleAction(schedule.id, action);
     setBusyFor(schedule.id, false);

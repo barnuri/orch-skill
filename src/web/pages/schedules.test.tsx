@@ -125,6 +125,30 @@ describe("schedule description and delete", () => {
   });
 });
 
+describe("schedule mute toggle", () => {
+  test("the bell shows the state and posts mute, then unmute", async () => {
+    const calls = serve([schedule()], () => json(200, { ok: true }));
+    const base = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      (init?.method === "POST" && /\/(mute|unmute)$/.test(String(input)) ? (calls.push({ method: "POST", url: String(input), body: undefined }), Promise.resolve(json(200, { ok: true }))) : base(input, init))) as typeof fetch;
+    page();
+    const bell = await screen.findByRole("button", { name: "Mute nightly pull" });
+    expect(bell.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(bell);
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/schedules/sch-20261115-100000-abcd/mute"))).toBe(true);
+    });
+  });
+
+  test("a muted schedule shows a slashed bell and offers Unmute", async () => {
+    serve([schedule({ muted: true })], () => json(200, { ok: true }));
+    page();
+    const bell = await screen.findByRole("button", { name: "Unmute nightly pull" });
+    expect(bell.getAttribute("aria-pressed")).toBe("true");
+    expect(bell.querySelectorAll("path")).toHaveLength(3);
+  });
+});
+
 describe("schedule edit", () => {
   test("Edit opens the form prefilled, Save sends the change, toasts and refreshes the list", async () => {
     const calls = serve([schedule()], () => json(200, { ok: true }));

@@ -211,7 +211,7 @@ export class ApiClient {
     });
   }
 
-  scheduleAction(id: string, action: "run" | "enable" | "disable" | "remove"): Promise<ApiResult<OkDto>> {
+  scheduleAction(id: string, action: "run" | "enable" | "disable" | "mute" | "unmute" | "remove"): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/schedules/${encodeURIComponent(id)}/${action}`, okSchema);
   }
 

@@ -61,7 +61,7 @@ export async function msgSend(args: string[]): Promise<number> {
     await mkdir(outDir, { recursive: true });
     await appendFile(join(outDir, "inbox.md"), `[${ts} ${from} -> ${nodeId}] ${text}\n`);
   }
-  await herdrNotify(runId, from, to, text);
+  if ((run as any).muted !== true && process.env.ORCH_MUTED !== "1") await herdrNotify(runId, from, to, text);
   process.stdout.write("sent\n");
   return 0;
 }

@@ -87,6 +87,15 @@ describe.concurrent("/api/schedules", () => {
     expect((await (await srv.api("/api/schedules")).json()).schedules).toEqual([]);
   });
 
+  test("a schedule can be muted and unmuted", async () => {
+    const srv = server();
+    const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();
+    expect((await post(srv, `/api/schedules/${id}/mute`)).status).toBe(200);
+    expect((await (await srv.api("/api/schedules")).json()).schedules[0].muted).toBe(true);
+    expect((await post(srv, `/api/schedules/${id}/unmute`)).status).toBe(200);
+    expect((await (await srv.api("/api/schedules")).json()).schedules[0].muted).toBe(false);
+  });
+
   test("run-now starts a run whose output is readable", async () => {
     const srv = server();
     const { id } = await (await post(srv, "/api/schedules", COMMAND)).json();

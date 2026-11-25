@@ -8,10 +8,12 @@ import {
   HEALTH_SUMMARY,
   SERVER_INFO,
   memoryEnvelope,
+  orchestratorActivity,
   profilesEnvelope,
   runDetail,
   runEvents,
   runHealth,
+  runMessages,
   runsList,
 } from "./fixtures";
 
@@ -54,6 +56,9 @@ const ROUTES: readonly Route[] = [
     pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/events$/,
     respond: ({ id }) => orNotFound(runEvents(id)),
   },
+  { method: "GET", pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/nodes\/(?<node>[A-Za-z0-9._-]+)\/activity$/, respond: () => ok(orchestratorActivity()) },
+  { method: "GET", pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/messages$/, respond: () => ok(runMessages()) },
+  { method: "POST", pattern: /^\/api\/runs\/(?<id>[A-Za-z0-9._-]+)\/nodes\/(?<node>[A-Za-z0-9._-]+)\/(?:tell|answer)$/, respond: () => ok({ ok: true, output: "m3 coordinator delivered" }) },
   { method: "GET", pattern: /^\/api\/active$/, respond: () => ok(ACTIVE_ENVELOPE) },
   { method: "GET", pattern: /^\/api\/health\/summary$/, respond: () => ok(HEALTH_SUMMARY) },
   { method: "GET", pattern: /^\/api\/harnesses$/, respond: () => ok(HARNESSES_ENVELOPE) },

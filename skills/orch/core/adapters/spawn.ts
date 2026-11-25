@@ -590,6 +590,7 @@ export async function cmdStart(args: string[]): Promise<number> {
   e.ORCH_SESSION_ID = session;
   w("session", session);
   e.ORCH_JOB_DIR = jobDir;
+  if (e.ORCH_MUTED === "1") w("muted", "1");
 
   if (await herdrStart(jobDir, t, e)) return (out(`${jobId}\n`), 0);
 

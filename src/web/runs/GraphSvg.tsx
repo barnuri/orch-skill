@@ -1,3 +1,4 @@
+import { ORCH_SELECT_ID } from "../lib/orchestrator-node";
 import { useState } from "react";
 import { MARKER_ICON } from "../lib/node-markers";
 import { NodeMenu } from "./NodeMarkers";
@@ -253,12 +254,29 @@ function edgeD(from: Point, fromW: number, fromH: number, to: Point): string {
   return `M${x1} ${y1} C${cx} ${y1} ${cx} ${y2} ${x2} ${y2}`;
 }
 
-function OrchNode({ run, pos }: { run: RunState; pos: Point }) {
+function OrchNode({ run, pos, selected, onSelect }: { run: RunState; pos: Point; selected: boolean; onSelect: (id: string) => void }) {
   const session = run.harness_session !== "" ? truncate(run.harness_session, 14) : "orchestrator";
   const cx = ORCH_NODE_W / 2;
   const cy = ORCH_NODE_H / 2 - 6;
   return (
-    <g className={`graph-orch orch-root ${run.status}`} transform={`translate(${pos.x} ${pos.y})`} role="img" aria-label={`orch orchestrator, run ${run.status}`}>
+    <g
+      className={`graph-orch orch-root ${run.status}${selected ? " selected" : ""}`}
+      transform={`translate(${pos.x} ${pos.y})`}
+      tabIndex={0}
+      role="button"
+      aria-label={`orch orchestrator, run ${run.status}`}
+      aria-pressed={selected}
+      data-node-id={ORCH_SELECT_ID}
+      onClick={() => {
+        onSelect(ORCH_SELECT_ID);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(ORCH_SELECT_ID);
+        }
+      }}
+    >
       <rect className="orch-frame" width={ORCH_NODE_W} height={ORCH_NODE_H} rx={8} />
       <g className="orch-icon" transform={`translate(${cx} ${cy})`}>
         <circle className="hub" cx={0} cy={0} r={5} />
@@ -415,7 +433,7 @@ export function GraphSvg({ run, layout, selectedId, onSelect, harnessByProfile, 
         }
         return <path key={`${fromId}>${toId}`} className={doneIds.has(fromId) ? "edge done" : "edge"} d={edgeD(from, NODE_W, NODE_H, to)} />;
       })}
-      {layout.orch === null ? null : <OrchNode run={run} pos={layout.orch} />}
+      {layout.orch === null ? null : <OrchNode run={run} pos={layout.orch} selected={selectedId === ORCH_SELECT_ID} onSelect={onSelect} />}
       {run.nodes.map((node) => {
         const pos = layout.pos[node.id];
         return pos === undefined ? null : (

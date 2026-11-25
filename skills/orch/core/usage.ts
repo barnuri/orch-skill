@@ -103,7 +103,7 @@ Schedules (cron; each fires a prompt through a profile, or a shell command; the 
 dispatch.ts schedule add --name N --cron "<m h dom mon dow>" (--prompt TEXT|@file --profile P [--model M] | --command CMD [--workdir DIR] [--timeout DUR])
 dispatch.ts schedule edit <id> [--name N] [--cron C] [--prompt TEXT|@file] [--profile P] [--model M] [--command CMD] [--workdir DIR] [--timeout DUR]
     -> changes only the given fields; keeps id, created_at, enabled and run history; --prompt/--command switch the kind
-dispatch.ts schedule list [--json] | show <id> | enable <id> | disable <id> | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
+dispatch.ts schedule list [--json] | show <id> | enable <id> | disable <id> | mute <id> | unmute <id> (a muted schedule sends no notification) | remove <id> | run <id> | log <id> [index] | tick | next "<cron>"
 dispatch.ts herdr on|off|auto|status|attach|ensure|stop|sweep | herdr health [--json] [--nudge]
 
 ${RUNS_SECTION}

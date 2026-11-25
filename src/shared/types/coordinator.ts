@@ -10,8 +10,12 @@ export interface OrchestratorCandidate {
 }
 
 export interface OrchestratorState {
-  transport?: "herdr" | "hc";
+  transport?: "herdr" | "hc" | "session";
   pane_id: string;
+  /** The orchestrator's harness session id (run.coordinator.session_id); "" when unknown. */
+  session_id?: string;
+  harness?: string;
+  model?: string | null;
   reachable: boolean;
   unreachable_since: string | null;
   unreachable_reason: string | null;

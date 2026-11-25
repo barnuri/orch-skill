@@ -1275,9 +1275,17 @@ export async function nodeActivity(args: string[]): Promise<number> {
   if (runId === null) return 1;
   const run = await loadRun(home, runId);
   if (!run) { err(`run ${runId}: unknown run`); return 2; }
-  const n = findNode(run, nodeId);
-  if (!n) { err(`node ${nodeId}: not in this run`); return 2; }
-  const [kind, id] = ownerParse(String(n.owner ?? ""), paths.jobs(home));
+  let kind: string, id: string;
+  if (nodeId === "coordinator" || nodeId === "orch") {
+    // The orchestrator's own session, from run.coordinator.
+    const sid = String((run as any).coordinator?.session_id ?? "");
+    if (sid === "") return 4;
+    [kind, id] = ["session", sid];
+  } else {
+    const n = findNode(run, nodeId);
+    if (!n) { err(`node ${nodeId}: not in this run`); return 2; }
+    [kind, id] = ownerParse(String(n.owner ?? ""), paths.jobs(home));
+  }
   if (kind !== "session") return 4;
   const s = dbQuery("select id from session_v2 where id = ?", id);
   if (s === null) return 1;
