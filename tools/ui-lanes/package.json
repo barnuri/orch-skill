@@ -6,6 +6,7 @@
   "scripts": {
     "mock:dev": "bun mock/serve.ts",
     "test:mock": "playwright test -c playwright.mock.config.ts",
+    "test:proof": "playwright test -c playwright.proof.config.ts",
     "test:isolation": "bun test tests/isolation",
     "test:integration": "bun integration/run.ts",
     "test:lanes": "bun test tests/isolation && playwright test -c playwright.mock.config.ts"

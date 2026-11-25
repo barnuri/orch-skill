@@ -19,6 +19,7 @@ bun mock/serve.ts                          # mock dev server on 5174 (Ctrl-C to 
 bun run test:mock                          # Playwright, mock lane (starts its own server)
 bun test tests/isolation                   # static and runtime proofs, both lanes
 bun run test:lanes                         # isolation + mock lane
+bun run test:proof                         # headed proof: mock lane in visible Chrome, video + trace + screenshots to ORCH_PROOF_DIR (default .out/proof)
 bun integration/run.ts                     # integration lane: seed, compose up, Playwright, proof, down
 bun integration/run.ts --keep              # same, but leave the stack up for inspection
 ```
