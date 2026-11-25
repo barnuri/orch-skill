@@ -135,7 +135,7 @@ test("opencode nodes use the shared service when healthy and the same version, e
     expect(argv(opus, "-m", "hub/claude-opus-5-5")).toBe("run x --auto -m llm-hub/copilot/claude-opus-5-5[1m]");
     // Same model on another hub, or a model the service lacks: private server.
     expect(argv({ ...opus, LLM_HUB_V1_URL: "http://other:8888/v1" }, "-m", "hub/claude-opus-5-5")).toBe("run x --auto --standalone -m hub/claude-opus-5-5");
-    expect(argv({ ...smart, ORCH_NODE_TIER: "" }, "-m", "hub/smart-auto-balance")).toBe("run x --auto --standalone -m hub/smart-auto-balance");
+    expect(argv({ ...smart, ORCH_NODE_TIER: "" }, "-m", "hub/smart-auto-balance")).toBe("run x --auto -m llm-hub/hub/smart-auto-balance");
     // Version differs: private server.
     expect(argv({ ORCH_OPENCODE_CLI_VERSION: "2.5.0" })).toBe("run x --auto --standalone");
     // Setting off: private server.
@@ -156,4 +156,15 @@ test("watchdog reports a stale shared service once and never restarts it", async
   problem = null; dog.checkService();
   problem = "again. Fix: opencode service restart"; dog.checkService();
   expect(logs.filter((l) => /opencode service restart/.test(l)).length).toBe(2);
+});
+
+test("hub-profile nodes map to the service's hub provider even when its model list lags the hub catalog", async () => {
+  const { opencodeSharedModelArgs } = await import("../../core/adapters/spawn.ts");
+  const cfg = JSON.stringify({ provider: { hub: { options: { baseURL: "{env:LLM_HUB_V1_URL}" }, models: { "claude-sonnet-5-5": { id: "copilot/claude-sonnet-5-5" } } } } });
+  const env = { OPENCODE_CONFIG_CONTENT: cfg, LLM_HUB_V1_URL: "http://127.0.0.1:8888/v1" } as any;
+  const served = [{ providerID: "llm-hub", id: "hub/smart-auto-balance", baseURL: "http://localhost:8888/v1" }];
+  expect(opencodeSharedModelArgs(["-m", "hub/claude-sonnet-5-5"], env, served)).toEqual(["-m", "llm-hub/copilot/claude-sonnet-5-5"]);
+  // A provider on another base URL than any service provider keeps its private server.
+  const other = { ...env, LLM_HUB_V1_URL: "http://127.0.0.1:9999/v1" };
+  expect(opencodeSharedModelArgs(["-m", "hub/claude-sonnet-5-5"], other, served)).toBeNull();
 });

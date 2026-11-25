@@ -340,10 +340,14 @@ export function opencodeSharedModelArgs(rest: string[], e: Env, served: ServiceM
   const key = ref.slice(slash + 1);
   const upstream = hubTierModel(String(provider.models?.[key]?.id ?? key), e.ORCH_NODE_TIER ?? "");
   const base = hostOf(String(provider.options?.baseURL ?? "").replace(/\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, v) => e[v] ?? ""));
-  const hit = served.find((m) => m.id === upstream && base !== "" && hostOf(m.baseURL) === base);
-  if (!hit) return null;
+  if (base === "") return null;
+  const hit = served.find((m) => m.id === upstream && hostOf(m.baseURL) === base);
+  // The service's model list can lag the hub's catalog: any service provider on the same hub base URL routes the id,
+  // because the hub resolves model ids itself. Only a node whose base URL no service provider has keeps a private server.
+  const providerID = hit?.providerID ?? served.find((m) => hostOf(m.baseURL) === base)?.providerID;
+  if (!providerID) return null;
   const out = [...rest];
-  out.splice(at, inline ? 1 : 2, "-m", `${hit.providerID}/${hit.id}`);
+  out.splice(at, inline ? 1 : 2, "-m", `${providerID}/${hit?.id ?? upstream}`);
   return out;
 }
 
