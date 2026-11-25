@@ -15,6 +15,7 @@ export type RunDeploy = (cfg: LlmHubConfig, logFile: string) => Promise<number>;
 export type TickResult = "off" | "current" | "busy" | "pending" | "failed-checks" | "failed-before" | "deployed" | "deploy-failed";
 
 export function llmHubConfig(home: string, env: NodeJS.ProcessEnv = process.env): LlmHubConfig | null {
+  if (env["ORCH_LLM_HUB_WATCH"] !== "1") return null;
   const base = join(homedir(), "sandbox/private");
   const clone = env["ORCH_LLM_HUB_CLONE"];
   // Default paths only for the real orch home, so a test home that boots the server never deploys the live llm-hub.

@@ -74,11 +74,12 @@ describe("classifyChecks", () => {
 });
 
 describe("llmHubConfig", () => {
-  test("default paths only for the real orch home, or with ORCH_LLM_HUB_CLONE set", () => {
+  test("requires an explicit opt-in before using the deploy clone", () => {
     const real = join(homedir(), ".harness-orch");
-    expect(llmHubConfig(tmp("llmhub-gate-"), {})).toBeNull();
-    expect(llmHubConfig(real, {})?.clone).toBe(join(homedir(), "sandbox/private/llm-hub-deploy"));
-    expect(llmHubConfig(tmp("llmhub-gate-"), { ORCH_LLM_HUB_CLONE: "/x/clone" })?.clone).toBe("/x/clone");
+    expect(llmHubConfig(real, {})).toBeNull();
+    expect(llmHubConfig(real, { ORCH_LLM_HUB_CLONE: "/x/clone" })).toBeNull();
+    expect(llmHubConfig(real, { ORCH_LLM_HUB_WATCH: "1" })?.clone).toBe(join(homedir(), "sandbox/private/llm-hub-deploy"));
+    expect(llmHubConfig(tmp("llmhub-gate-"), { ORCH_LLM_HUB_WATCH: "1", ORCH_LLM_HUB_CLONE: "/x/clone" })?.clone).toBe("/x/clone");
   });
 });
 
