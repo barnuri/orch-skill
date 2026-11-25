@@ -151,6 +151,7 @@ export function startTurn(o: StartOptions): { paths: TurnPaths; meta: TurnMeta }
   const proc = Bun.spawn(["/bin/sh", "-c", WRAPPER, "orch-turn", paths.out, paths.err, paths.exit, o.stdin === null ? "/dev/null" : paths.input, ...o.cmd], {
     cwd: o.cwd, env: o.env, stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true,
   });
+  void proc.exited.catch(() => undefined); // reap the child so it never stays a zombie
   proc.unref();
   const meta: TurnMeta = { ...o.meta, pid: proc.pid, started: new Date().toISOString(), offset: 0 };
   writeMeta(paths, meta);

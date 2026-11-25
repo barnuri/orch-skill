@@ -612,7 +612,8 @@ export class ChatAutomation {
     const c = monitorCommand(m.spec, this.home);
     const proc = Bun.spawn(["sh", "-c", c.stream ? `${c.cmd} | head -n 20` : c.cmd], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => proc.kill(), 30_000);
-    const text = (await new Response(proc.stdout).text()).trim();
+    const [raw] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    const text = raw.trim();
     clearTimeout(timer);
     this.service.postBlock(chatId, { content: `Checked now: ${tail(text, 600) || "(no output)"}`, part: { type: "automation", kind: "monitor", level: "info", title: `Monitor: ${m.name}`, item_id: id } });
     return text;

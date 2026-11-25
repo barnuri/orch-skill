@@ -18,21 +18,38 @@ function pidExists(pid: number): boolean {
   }
 }
 
-// The process's command line, or null when it cannot be read. /proc on Linux, `ps` elsewhere.
+// Async `ps` results by pid. The sync caller reads the last result; a miss starts a refresh off the event loop.
+const psCmd: Map<number, { cmd: string; at: number }> = new Map();
+const psPending: Set<number> = new Set();
+
+function refreshCommandLine(pid: number): void {
+  if (psPending.has(pid)) return;
+  psPending.add(pid);
+  void (async () => {
+    try {
+      const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+      const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      if (psCmd.size > 256) psCmd.clear();
+      psCmd.set(pid, { cmd: code === 0 ? text : "", at: Date.now() });
+    } catch {
+      // unreadable: leave unknown
+    } finally {
+      psPending.delete(pid);
+    }
+  })();
+}
+
+// The process's command line, or null when not known yet or unreadable. /proc on Linux, async `ps` elsewhere.
 function commandLine(pid: number): string | null {
   try {
     return readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
   } catch {
     // no /proc (macOS): fall through to ps
   }
-  try {
-    const proc = Bun.spawnSync(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
-    return proc.exitCode === 0 ? proc.stdout.toString() : "";
-  } catch {
-    return null;
-  }
+  const hit = psCmd.get(pid);
+  if (hit === undefined || Date.now() - hit.at > MATCH_TTL_MS) refreshCommandLine(pid);
+  return hit === undefined ? null : hit.cmd;
 }
-
 
 /**
  * The same rule as `watch_pid_is` in core/commands/loops.ts: a watch is alive when its recorded pid answers

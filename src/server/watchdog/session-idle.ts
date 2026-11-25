@@ -23,7 +23,7 @@ export interface IdleSeams {
   /** opencode db path; default ~/.local/share/opencode/opencode.db (ORCH_OPENCODE_DB overrides). */
   dbPath?: string;
   /** Command lines of the running processes; default `ps -axo args=`. */
-  processArgs?: () => string[];
+  processArgs?: () => string[] | null;
 }
 
 function dbUpdatedMs(path: string, sid: string): number | null {
@@ -40,9 +40,28 @@ function dbUpdatedMs(path: string, sid: string): number | null {
   }
 }
 
-function defaultProcessArgs(): string[] {
-  const r = Bun.spawnSync(["ps", "-axo", "args="], { stdout: "pipe", stderr: "ignore" });
-  return r.stdout.toString().split("\n");
+// Async `ps` snapshot: the sync caller reads the last result and a refresh runs off the event loop.
+// Before the first snapshot lands the list is null and the caller treats the session as held (not idle).
+let psLines: string[] | null = null;
+let psRefreshing = false;
+function refreshProcessArgs(): void {
+  if (psRefreshing) return;
+  psRefreshing = true;
+  void (async () => {
+    try {
+      const proc = Bun.spawn(["ps", "-axo", "args="], { stdout: "pipe", stderr: "ignore" });
+      const [text] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      psLines = text.split("\n");
+    } catch {
+      // keep the previous snapshot
+    } finally {
+      psRefreshing = false;
+    }
+  })();
+}
+function defaultProcessArgs(): string[] | null {
+  refreshProcessArgs();
+  return psLines;
 }
 
 export function holdsSession(lines: string[], sid: string): boolean {
@@ -60,7 +79,11 @@ export function makeSessionIdle(home: string, seams: IdleSeams): (sid: string) =
     const db = dbUpdatedMs(seams.dbPath ?? process.env["ORCH_OPENCODE_DB"] ?? join(homedir(), ".local/share/opencode/opencode.db"), sid);
     if (db !== null && (last === null || db > last)) last = db;
     if (last !== null && nowMs - last < limit) return false;
-    if (cache === null || nowMs - cache.at > 30_000) cache = { at: nowMs, lines: procArgs() };
+    if (cache === null || nowMs - cache.at > 30_000) {
+      const lines = procArgs();
+      if (lines === null) return false;
+      cache = { at: nowMs, lines };
+    }
     return !holdsSession(cache.lines, sid);
   };
 }

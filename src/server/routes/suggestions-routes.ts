@@ -11,14 +11,20 @@ import { scanSuggestions } from "../suggest/scan-cache";
 import { parseJsonStrict } from "../validation/strict-json";
 
 
-function dispatchSubcommand(args: readonly string[]): Response {
-  const proc = Bun.spawnSync([process.execPath, dispatchPath(), ...args], {
+async function runDispatch(args: readonly string[]): Promise<{ text: string; err: string; exitCode: number }> {
+  const child = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
     stdout: "pipe",
     stderr: "pipe",
   });
-  const text = new TextDecoder().decode(proc.stdout).trim();
-  const err = new TextDecoder().decode(proc.stderr).trim();
+  const [out, errText, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  return { text: out.trim(), err: errText.trim(), exitCode };
+}
+
+async function dispatchSubcommand(args: readonly string[]): Promise<Response> {
+  const proc = await runDispatch(args);
+  const text = proc.text;
+  const err = proc.err;
   if (proc.exitCode !== 0) {
     const error: ApiError = { error: err || text || `dispatch exited ${proc.exitCode}` };
     return jsonResponse(500, error);
@@ -26,14 +32,10 @@ function dispatchSubcommand(args: readonly string[]): Response {
   return jsonResponse(200, { ok: true, output: text });
 }
 
-function dispatchApply(args: readonly string[]): Response {
-  const proc = Bun.spawnSync([process.execPath, dispatchPath(), ...args], {
-    env: { ...process.env, HARNESS_ORCH_HOME: process.env["HARNESS_ORCH_HOME"] },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const text = new TextDecoder().decode(proc.stdout).trim();
-  const err = new TextDecoder().decode(proc.stderr).trim();
+async function dispatchApply(args: readonly string[]): Promise<Response> {
+  const proc = await runDispatch(args);
+  const text = proc.text;
+  const err = proc.err;
   if (text === "") {
     const error: ApiError = { error: err || `dispatch exited ${proc.exitCode}` };
     return jsonResponse(500, error);
@@ -104,7 +106,7 @@ export function bulkApplySuggestionsHandler(_ctx: ServerContext): RouteHandler {
 }
 
 export function applySuggestionHandler(_ctx: ServerContext): RouteHandler {
-  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response | Promise<Response> => {
     const id = params["id"];
     if (id === undefined || id === "") {
       return jsonResponse(400, { error: "missing suggestion id" });
@@ -114,7 +116,7 @@ export function applySuggestionHandler(_ctx: ServerContext): RouteHandler {
 }
 
 export function dismissSuggestionHandler(_ctx: ServerContext): RouteHandler {
-  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response | Promise<Response> => {
     const id = params["id"];
     if (id === undefined || id === "") {
       return jsonResponse(400, { error: "missing suggestion id" });

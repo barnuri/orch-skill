@@ -186,7 +186,8 @@ export async function reapStale(deps: ReapDeps, log: (line: string) => void = (l
 
 async function bunPs(): Promise<string> {
   const proc = Bun.spawn(["ps", "-axo", "pid,pgid,etime,command"], { stdout: "pipe", stderr: "ignore", timeout: 5000 });
-  return await new Response(proc.stdout).text();
+  const [text] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  return text;
 }
 
 function killGroup(pgid: number, pid: number): void {

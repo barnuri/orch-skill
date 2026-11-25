@@ -75,17 +75,7 @@ export class BuildService {
     this.timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     this.gitBin = options.gitBin ?? "git";
     this.bootAt = new Date().toISOString();
-    this.bootHead = readHeadSha(this.root) ?? this.headSync();
-  }
-
-  private headSync(): string | null {
-    try {
-      const out = Bun.spawnSync([this.gitBin, "-C", this.root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore", timeout: this.timeoutMs });
-      const sha = out.stdout.toString().trim();
-      return out.exitCode === 0 && sha !== "" ? sha : null;
-    } catch {
-      return null;
-    }
+    this.bootHead = readHeadSha(this.root);
   }
 
   /** Cached for 10 s and shared by concurrent callers; never rejects. */

@@ -102,9 +102,11 @@ describe("readActive", () => {
     expect(status("watch-20261112-100000-0004")).toBe("lost");
   });
 
-  test("a watch whose pid now belongs to another process is not alive", () => {
+  test("a watch whose pid now belongs to another process is not alive", async () => {
     const home = newHome();
     watch(home, "watch-20261112-100000-0009", { pid: process.pid });
+    // The command-line check reads ps asynchronously (no spawnSync on a request path): the first read may still show it.
+    for (let i = 0; i < 100 && readActive(home).length > 0; i++) await new Promise((r) => setTimeout(r, 50));
     expect(readActive(home)).toEqual([]);
   });
 

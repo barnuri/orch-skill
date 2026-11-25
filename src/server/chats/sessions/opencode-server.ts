@@ -298,6 +298,7 @@ export class OpencodeServerPool {
       proc = Bun.spawn([bin, "serve", "--hostname", "127.0.0.1", "--port", "0"], {
         env: { ...env, OPENCODE_SERVER_PASSWORD: password }, stdin: "ignore", stdout: fd, stderr: fd, detached: true,
       });
+      void proc.exited.catch(() => undefined);
       proc.unref();
     } catch {
       e.failures++;

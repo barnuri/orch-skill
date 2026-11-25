@@ -50,6 +50,7 @@ export const detachedSpawn: Spawner = (args, home) => {
     stderr: "ignore",
     detached: true,
   });
+  void proc.exited.catch(() => undefined); // reap the child so it never stays a zombie
   proc.unref();
 };
 
