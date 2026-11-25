@@ -149,6 +149,75 @@ describe("BuildService", () => {
     expect(await svc.check()).toBe(a);
   });
 
+  test("current() never waits on git: HEAD-only answer first, the full result after the background run", async () => {
+    const dir = repo();
+    const slow = join(dir, "slow-git");
+    writeFileSync(slow, "#!/bin/sh\nsleep 1\nexec git \"$@\"\n");
+    chmodSync(slow, 0o755);
+    const svc = new BuildService({ root: dir, gitBin: slow, watch: false });
+    const started = performance.now();
+    const quick = svc.current();
+    expect(performance.now() - started).toBeLessThan(50);
+    expect(quick.head).toBe(svc.bootHead);
+    expect(quick.branch).toBeNull();
+    const full = await svc.check();
+    expect(full.branch).not.toBeNull();
+    const t = performance.now();
+    expect(svc.current()).toBe(full);
+    expect(performance.now() - t).toBeLessThan(10);
+  });
+
+  test("a new commit revalidates before the TTL (HEAD is the cache key)", async () => {
+    const dir = repo();
+    const svc = new BuildService({ root: dir, cacheMs: 60_000, watch: false });
+    expect((await svc.check()).stale).toBe(false);
+    writeFileSync(join(dir, "README"), "x");
+    git(dir, "add", "README");
+    git(dir, "commit", "-q", "-m", "next");
+    expect(svc.current().stale).toBe(false);
+    const r = await svc.check();
+    expect(r.reasons).toEqual(["commits"]);
+  });
+
+  test("a commit reaches current() through the .git watcher, without check()", async () => {
+    const dir = repo();
+    const svc = new BuildService({ root: dir, cacheMs: 60_000 });
+    try {
+      await svc.check();
+      await Bun.sleep(100);
+      writeFileSync(join(dir, "README"), "x");
+      git(dir, "add", "README");
+      git(dir, "commit", "-q", "-m", "watched");
+      const deadline = Date.now() + 5000;
+      while (svc.current().reasons.length === 0 && Date.now() < deadline) {
+        await Bun.sleep(50);
+      }
+      expect(svc.current().reasons).toContain("commits");
+    } finally {
+      svc.close();
+    }
+  });
+
+  test("a watched file change revalidates before the TTL", async () => {
+    const dir = repo();
+    const svc = new BuildService({ root: dir, cacheMs: 60_000 });
+    try {
+      expect((await svc.check()).stale).toBe(false);
+      await Bun.sleep(100);
+      writeFileSync(join(dir, "src/a.ts"), "changed\n");
+      utimesSync(join(dir, "src/a.ts"), future(), future());
+      const deadline = Date.now() + 5000;
+      let r = await svc.check();
+      while (!r.stale && Date.now() < deadline) {
+        await Bun.sleep(50);
+        r = await svc.check();
+      }
+      expect(r.reasons).toEqual(["files"]);
+    } finally {
+      svc.close();
+    }
+  });
+
   test("isTracked", () => {
     expect(isTracked("src/x/a.ts")).toBe(true);
     expect(isTracked("src/x/a.test.tsx")).toBe(false);

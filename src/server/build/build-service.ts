@@ -1,14 +1,16 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
 import type { BuildCommit, BuildInfo } from "../../shared/types/build-info";
+import { SwrCache } from "./swr-cache";
 
-export const CACHE_MS: number = 10_000;
+export const CACHE_MS: number = 30_000;
 export const TIMEOUT_MS: number = 5_000;
 const MAX_COMMITS = 20;
 const MAX_FILES = 8;
-const SCAN_PATTERNS: readonly string[] = ["src/**/*", "skills/orch/scripts/**/*", "skills/orch/references/**/*"];
+const SCAN_DIRS: readonly string[] = ["src", "skills/orch/scripts", "skills/orch/references"];
+const SCAN_PATTERNS: readonly string[] = SCAN_DIRS.map((d) => `${d}/**/*`);
 const FIELD = "\u001f";
 
 export interface BuildServiceOptions {
@@ -16,6 +18,8 @@ export interface BuildServiceOptions {
   cacheMs?: number;
   timeoutMs?: number;
   gitBin?: string;
+  /** Watch the scanned folders and revalidate on a change (default true). */
+  watch?: boolean;
 }
 
 type Core = Omit<BuildInfo, "busy" | "deploy">;
@@ -36,17 +40,22 @@ function readText(path: string): string | null {
   }
 }
 
-/** Reads HEAD from the .git files, so no git process can time out under load. Null when the root is not a repo. */
-export function readHeadSha(root: string): string | null {
+/** The git dir (a worktree's own dir when .git is a pointer file) and the common dir holding refs. */
+export function gitDirs(root: string): { gitDir: string; commonDir: string } {
   const dotGit = join(root, ".git");
   const pointer = readText(dotGit)?.match(/^gitdir:\s*(.+)$/)?.[1];
   const gitDir = pointer ? resolve(root, pointer.trim()) : dotGit;
+  const common = readText(join(gitDir, "commondir"));
+  return { gitDir, commonDir: common ? resolve(gitDir, common) : gitDir };
+}
+
+/** Reads HEAD from the .git files, so no git process can time out under load. Null when the root is not a repo. */
+export function readHeadSha(root: string): string | null {
+  const { gitDir, commonDir } = gitDirs(root);
   const head = readText(join(gitDir, "HEAD"));
   if (head === null) return null;
   if (!head.startsWith("ref: ")) return SHA.test(head) ? head : null;
   const ref = head.slice(5).trim();
-  const common = readText(join(gitDir, "commondir"));
-  const commonDir = common ? resolve(gitDir, common) : gitDir;
   for (const dir of [gitDir, commonDir]) {
     const sha = readText(join(dir, ref));
     if (sha !== null && SHA.test(sha)) return sha;
@@ -67,7 +76,9 @@ export class BuildService {
   private readonly cacheMs: number;
   private readonly timeoutMs: number;
   private readonly gitBin: string;
-  private cached: { at: number; value: Promise<Core> } | null = null;
+  private readonly cache: SwrCache<Core>;
+  private readonly watchers: FSWatcher[] = [];
+  private watching: boolean;
 
   constructor(options: BuildServiceOptions) {
     this.root = options.root;
@@ -76,17 +87,92 @@ export class BuildService {
     this.gitBin = options.gitBin ?? "git";
     this.bootAt = new Date().toISOString();
     this.bootHead = readHeadSha(this.root);
+    // No cache key: reading .git on the request path costs up to 800 ms under load. The watchers on .git
+    // (HEAD, refs, index) and the source folders invalidate instead; check() also compares HEAD.
+    this.cache = new SwrCache<Core>(() => this.compute().catch((err: unknown) => this.failed(err)), this.cacheMs);
+    // Watchers start with the first read, so a server that never asks does not watch or scan.
+    this.watching = !(options.watch ?? true);
   }
 
-  /** Cached for 10 s and shared by concurrent callers; never rejects. */
-  check(): Promise<Core> {
-    const now = Date.now();
-    if (this.cached !== null && now - this.cached.at < this.cacheMs) {
-      return this.cached.value;
+  /**
+   * Never waits on git, the file scan or a file read: the last result, served stale-while-revalidate (TTL cacheMs; a
+   * change to .git HEAD, refs or index, or to a watched source file, revalidates in the background). Before the first
+   * scan ends, the boot HEAD with no other detail.
+   */
+  current(): Core {
+    if (!this.watching) {
+      setImmediate(() => this.startWatchers());
     }
-    const value = this.compute().catch((err: unknown) => this.failed(err));
-    this.cached = { at: now, value };
-    return value;
+    return this.cache.get(() => this.quick());
+  }
+
+  /** Waits for a result no older than cacheMs and for the HEAD on disk; concurrent callers share one run; never rejects. */
+  check(): Promise<Core> {
+    this.startWatchers();
+    const last = this.cache.peek();
+    if (last !== null && last.head !== readHeadSha(this.root)) {
+      this.cache.invalidate();
+    }
+    return this.cache.fresh();
+  }
+
+  /** Stops the file watchers. */
+  close(): void {
+    for (const w of this.watchers.splice(0)) {
+      w.close();
+    }
+  }
+
+  private watchGit(): void {
+    const { gitDir, commonDir } = gitDirs(this.root);
+    const relevant = (name: string): boolean => name === "HEAD" || name === "index" || name === "packed-refs" || name.startsWith("refs");
+    const targets: [string, boolean][] = [[gitDir, false], [commonDir, false], [join(commonDir, "refs"), true]];
+    for (const [abs, recursive] of new Map(targets)) {
+      if (!existsSync(abs)) {
+        continue;
+      }
+      try {
+        const w = watch(abs, { recursive, persistent: false }, (_event, name) => {
+          if (recursive || name === null || relevant(String(name))) {
+            this.cache.invalidate();
+          }
+        });
+        w.on("error", () => w.close());
+        this.watchers.push(w);
+      } catch {
+        // No watcher: the TTL still revalidates.
+      }
+    }
+  }
+
+  private startWatchers(): void {
+    if (this.watching) {
+      return;
+    }
+    this.watching = true;
+    this.watchGit();
+    for (const dir of SCAN_DIRS) {
+      const abs = join(this.root, dir);
+      if (!existsSync(abs)) {
+        continue;
+      }
+      try {
+        const w = watch(abs, { recursive: true, persistent: false }, (_event, name) => {
+          if (name === null || isTracked(join(dir, String(name)))) {
+            this.cache.invalidate();
+          }
+        });
+        w.on("error", () => w.close());
+        this.watchers.push(w);
+      } catch {
+        // No watcher: the TTL still revalidates.
+      }
+    }
+  }
+
+  /** The answer before the first full check ends: the boot HEAD, not stale. */
+  private quick(): Core {
+    return this.empty(null, this.bootHead);
   }
 
   private empty(error: string | null, head: string | null = null): Core {

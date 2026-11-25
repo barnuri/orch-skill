@@ -5358,7 +5358,7 @@
     "/api/build": {
       "get": {
         "summary": "Does the running server include the latest code?",
-        "description": "Compares the git HEAD and source files at server start with now. Cached for 10 s; a failed check answers stale false with `error`. Also reports what a restart would interrupt.",
+        "description": "Compares the git HEAD and source files at server start with now. Served from a cache computed in the background (30 s TTL, stale-while-revalidate; a HEAD or watched-file change revalidates), so the request never runs git; a failed check answers stale false with `error`. Also reports what a restart would interrupt.",
         "tags": [
           "build"
         ],

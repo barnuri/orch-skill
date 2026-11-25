@@ -2,9 +2,13 @@ import { Controller, Get, Post, Response as ResponseSchema } from "@barnuri/hono
 
 import { BuildInfoDto, RestartAcceptedDto, RestartRefusedDto } from "../../../shared/dto/build";
 import type { BuildInfo } from "../../../shared/types/build-info";
-import { BuildService } from "../../build/build-service";
-import { readDeployInfo } from "../../build/deploy-status";
+import { existsSync, watch } from "node:fs";
+
+import type { DeployInfo } from "../../../shared/types/build-info";
+import { BuildService, CACHE_MS } from "../../build/build-service";
+import { deployDir, readDeployInfo } from "../../build/deploy-status";
 import { MANUAL_COMMAND, REPO_ROOT, RESTART_DELAY_MS, Restarter, SERVICE_COMMAND } from "../../build/restart";
+import { SwrCache } from "../../build/swr-cache";
 import { chatServiceFor } from "../../chats/service";
 import { jsonResponse } from "../../http/responses";
 import { listRuns } from "../../runs/runs-reader";
@@ -17,10 +21,36 @@ export class BuildController {
   private readonly build: BuildService;
   private readonly restarter: Restarter;
   private busyCache: { at: number; value: BuildInfo["busy"] } | null = null;
+  private readonly deploy: SwrCache<DeployInfo | null>;
+  private deployHead: string | null = null;
+  private deployWatched = false;
 
   constructor(private readonly ctx: ServerContext) {
     this.build = new BuildService({ root: REPO_ROOT });
     this.restarter = new Restarter(ctx.paths.home);
+    this.deploy = new SwrCache<DeployInfo | null>(() => readDeployInfo(ctx.paths.home, REPO_ROOT), CACHE_MS);
+  }
+
+  /** Deploy info (two file reads and a git rev-list) from the background; a deploy-dir change or a new HEAD revalidates. */
+  private deployInfo(head: string | null): DeployInfo | null {
+    if (!this.deployWatched) {
+      this.deployWatched = true;
+      setImmediate(() => {
+        const dir = deployDir(this.ctx.paths.home);
+        if (existsSync(dir)) {
+          try {
+            watch(dir, { persistent: false }, () => this.deploy.invalidate()).on("error", () => {});
+          } catch {
+            // No watcher: the TTL still revalidates.
+          }
+        }
+      });
+    }
+    if (head !== this.deployHead) {
+      this.deployHead = head;
+      this.deploy.invalidate();
+    }
+    return this.deploy.get(() => null);
   }
 
   private busy(): BuildInfo["busy"] {
@@ -45,12 +75,12 @@ export class BuildController {
 
   @Get("/build", {
     summary: "Does the running server include the latest code?",
-    description: "Compares the git HEAD and source files at server start with now. Cached for 10 s; a failed check answers stale false with `error`. Also reports what a restart would interrupt.",
+    description: "Compares the git HEAD and source files at server start with now. Served from a cache computed in the background (30 s TTL, stale-while-revalidate; a HEAD or watched-file change revalidates), so the request never runs git; a failed check answers stale false with `error`. Also reports what a restart would interrupt.",
   })
   @ResponseSchema(BuildInfoDto.schema, { description: "The build state." })
   async getBuild(): Promise<Response> {
-    const core = await this.build.check();
-    const deploy = await readDeployInfo(this.ctx.paths.home, REPO_ROOT);
+    const core = this.build.current();
+    const deploy = this.deployInfo(core.head);
     return jsonResponse(200, { ...core, deploy, busy: this.busy() });
   }
 
