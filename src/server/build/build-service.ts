@@ -1,12 +1,12 @@
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
-import type { BuildCommit, BuildInfo } from "../../shared/types/build-info";
-import { SwrCache } from "./swr-cache";
+import type { BuildCommit, BuildInfo, DeployInfo } from "../../shared/types/build-info";
+import { lastFailure, readCurrent } from "./deploy-status";
+import { EVERY_MS, FIRST_MS, Periodic, type Timers } from "./periodic";
 
-export const CACHE_MS: number = 30_000;
-export const TIMEOUT_MS: number = 5_000;
+export const TIMEOUT_MS: number = 20_000;
 const MAX_COMMITS = 20;
 const MAX_FILES = 8;
 const SCAN_DIRS: readonly string[] = ["src", "skills/orch/scripts", "skills/orch/references"];
@@ -15,20 +15,21 @@ const FIELD = "\u001f";
 
 export interface BuildServiceOptions {
   root: string;
-  cacheMs?: number;
+  /** The orch home; when set, the refresh also reads deploy/current.json and counts the commits behind master. */
+  home?: string;
+  /** Hard cap for one refresh; the git children are killed when it passes. */
   timeoutMs?: number;
   gitBin?: string;
-  /** Watch the scanned folders and revalidate on a change (default true). */
-  watch?: boolean;
+  firstMs?: number;
+  everyMs?: number;
+  timers?: Timers;
 }
 
-type Core = Omit<BuildInfo, "busy" | "deploy">;
+export type Core = Omit<BuildInfo, "busy">;
 
 export function isTracked(path: string): boolean {
   return !path.split("/").includes("node_modules") && !/\.test\.[^/]*$/.test(path);
 }
-
-class Timeout extends Error {}
 
 const SHA = /^[0-9a-f]{40,64}$/;
 
@@ -68,115 +69,59 @@ export function readHeadSha(root: string): string | null {
   return null;
 }
 
-/** Records what this process booted with, and answers "does the code on disk differ?" without blocking the event loop. */
+/**
+ * Records what this process booted with, and answers "does the code on disk differ?". One background refresh runs
+ * `firstMs` after `start()` and then every `everyMs` (git at nice 19, killed after `timeoutMs`, one at a time; a failed
+ * refresh keeps the last value). `current()` only reads memory.
+ */
 export class BuildService {
   readonly bootAt: string;
   readonly bootHead: string | null;
   private readonly root: string;
-  private readonly cacheMs: number;
-  private readonly timeoutMs: number;
+  private readonly home: string | null;
   private readonly gitBin: string;
-  private readonly cache: SwrCache<Core>;
-  private readonly watchers: FSWatcher[] = [];
-  private watching: boolean;
+  private readonly periodic: Periodic<Core>;
 
   constructor(options: BuildServiceOptions) {
     this.root = options.root;
-    this.cacheMs = options.cacheMs ?? CACHE_MS;
-    this.timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
+    this.home = options.home ?? null;
     this.gitBin = options.gitBin ?? "git";
     this.bootAt = new Date().toISOString();
     this.bootHead = readHeadSha(this.root);
-    // No cache key: reading .git on the request path costs up to 800 ms under load. The watchers on .git
-    // (HEAD, refs, index) and the source folders invalidate instead; check() also compares HEAD.
-    this.cache = new SwrCache<Core>(() => this.compute().catch((err: unknown) => this.failed(err)), this.cacheMs);
-    // Watchers start with the first read, so a server that never asks does not watch or scan.
-    this.watching = !(options.watch ?? true);
+    const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
+    this.periodic = new Periodic<Core>((signal) => this.compute(signal), {
+      timeoutMs,
+      firstMs: options.firstMs ?? FIRST_MS,
+      everyMs: options.everyMs ?? EVERY_MS,
+      ...(options.timers === undefined ? {} : { timers: options.timers }),
+      // Before any good result, a failure is reported with the HEAD from the files, so a deploy can see its sha.
+      onFirstError: (err) => this.empty(err instanceof Error ? err.message : String(err), readHeadSha(this.root)),
+    });
   }
 
-  /**
-   * Never waits on git, the file scan or a file read: the last result, served stale-while-revalidate (TTL cacheMs; a
-   * change to .git HEAD, refs or index, or to a watched source file, revalidates in the background). Before the first
-   * scan ends, the boot HEAD with no other detail.
-   */
+  /** Starts the background refresh timers (unref'd). */
+  start(): void {
+    this.periodic.start();
+  }
+
+  stop(): void {
+    this.periodic.stop();
+  }
+
+  /** The last refresh result; before the first one ends, the boot HEAD with no other detail. Never runs git or reads a file. */
   current(): Core {
-    if (!this.watching) {
-      setImmediate(() => this.startWatchers());
-    }
-    return this.cache.get(() => this.quick());
+    return this.periodic.get() ?? this.empty(null, this.bootHead);
   }
 
-  /** Waits for a result no older than cacheMs and for the HEAD on disk; concurrent callers share one run; never rejects. */
-  check(): Promise<Core> {
-    this.startWatchers();
-    const last = this.cache.peek();
-    if (last !== null && last.head !== readHeadSha(this.root)) {
-      this.cache.invalidate();
-    }
-    return this.cache.fresh();
-  }
-
-  /** Stops the file watchers. */
-  close(): void {
-    for (const w of this.watchers.splice(0)) {
-      w.close();
-    }
-  }
-
-  private watchGit(): void {
-    const { gitDir, commonDir } = gitDirs(this.root);
-    const relevant = (name: string): boolean => name === "HEAD" || name === "index" || name === "packed-refs" || name.startsWith("refs");
-    const targets: [string, boolean][] = [[gitDir, false], [commonDir, false], [join(commonDir, "refs"), true]];
-    for (const [abs, recursive] of new Map(targets)) {
-      if (!existsSync(abs)) {
-        continue;
-      }
-      try {
-        const w = watch(abs, { recursive, persistent: false }, (_event, name) => {
-          if (recursive || name === null || relevant(String(name))) {
-            this.cache.invalidate();
-          }
-        });
-        w.on("error", () => w.close());
-        this.watchers.push(w);
-      } catch {
-        // No watcher: the TTL still revalidates.
-      }
-    }
-  }
-
-  private startWatchers(): void {
-    if (this.watching) {
-      return;
-    }
-    this.watching = true;
-    this.watchGit();
-    for (const dir of SCAN_DIRS) {
-      const abs = join(this.root, dir);
-      if (!existsSync(abs)) {
-        continue;
-      }
-      try {
-        const w = watch(abs, { recursive: true, persistent: false }, (_event, name) => {
-          if (name === null || isTracked(join(dir, String(name)))) {
-            this.cache.invalidate();
-          }
-        });
-        w.on("error", () => w.close());
-        this.watchers.push(w);
-      } catch {
-        // No watcher: the TTL still revalidates.
-      }
-    }
-  }
-
-  /** The answer before the first full check ends: the boot HEAD, not stale. */
-  private quick(): Core {
-    return this.empty(null, this.bootHead);
+  /** Runs one refresh now (skipped when one is running) and answers the current value; never rejects. */
+  async refresh(): Promise<Core> {
+    await this.periodic.tick();
+    return this.current();
   }
 
   private empty(error: string | null, head: string | null = null): Core {
     return {
+      deploy: null,
       boot_at: this.bootAt,
       boot_head: this.bootHead,
       head,
@@ -191,47 +136,23 @@ export class BuildService {
     };
   }
 
-  /** A failed probe still reports the HEAD read from the files, so a deploy can see the sha it switched to. */
-  private failed(err: unknown): Core {
-    const text = err instanceof Timeout ? `timed out after ${this.timeoutMs} ms` : err instanceof Error ? err.message : String(err);
-    return this.empty(text, readHeadSha(this.root));
+  /** git at nice 19; the abort signal (the refresh timeout) kills it. */
+  private async git(args: string[], signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
+    const proc = Bun.spawn(["nice", "-n", "19", this.gitBin, "-C", this.root, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", signal, killSignal: "SIGKILL" });
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    signal.throwIfAborted();
+    if (code !== 0) {
+      throw new Error(`git ${args[0] ?? ""} failed: ${err.trim().slice(0, 200)}`);
+    }
+    return out;
   }
 
-  private async git(args: string[], deadline: number): Promise<string> {
-    const left = deadline - Date.now();
-    if (left <= 0) {
-      throw new Timeout();
-    }
-    const proc = Bun.spawn([this.gitBin, "-C", this.root, ...args], { stdout: "pipe", stderr: "pipe" });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // A grandchild can keep the pipes open after the kill, so the wait races the deadline instead of trusting EOF.
-    const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        proc.kill();
-        reject(new Timeout());
-      }, left);
-    });
-    try {
-      const [out, err, code] = await Promise.race([
-        Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
-        expired,
-      ]);
-      if (code !== 0) {
-        throw new Error(`git ${args[0] ?? ""} failed: ${err.trim().slice(0, 200)}`);
-      }
-      return out;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  private async changedFiles(bootMs: number, deadline: number): Promise<{ count: number; newest: { path: string; mtime: string }[] }> {
+  private async changedFiles(bootMs: number, signal: AbortSignal): Promise<{ count: number; newest: { path: string; mtime: string }[] }> {
     const changed: { path: string; ms: number }[] = [];
     for (const pattern of SCAN_PATTERNS) {
       for await (const file of new Bun.Glob(pattern).scan({ cwd: this.root, absolute: true, onlyFiles: true })) {
-        if (Date.now() >= deadline) {
-          throw new Timeout();
-        }
+        signal.throwIfAborted();
         const path = relative(this.root, file);
         if (!isTracked(path)) {
           continue;
@@ -246,21 +167,38 @@ export class BuildService {
     return { count: changed.length, newest: changed.slice(0, MAX_FILES).map((f) => ({ path: f.path, mtime: new Date(f.ms).toISOString() })) };
   }
 
-  private async compute(): Promise<Core> {
-    const deadline = Date.now() + this.timeoutMs;
-    const sha = readHeadSha(this.root) ?? (await this.git(["rev-parse", "HEAD"], deadline)).trim();
-    const [branch, status, files] = await Promise.all([
-      this.git(["rev-parse", "--abbrev-ref", "HEAD"], deadline),
-      this.git(["status", "--porcelain"], deadline),
-      this.changedFiles(Date.parse(this.bootAt), deadline),
+  private async deployInfo(signal: AbortSignal): Promise<DeployInfo | null> {
+    if (this.home === null) {
+      return null;
+    }
+    const cur = readCurrent(this.home);
+    const failed = lastFailure(this.home);
+    if (cur === null && failed === null) {
+      return null;
+    }
+    let behind: number | null = null;
+    if (cur !== null) {
+      const n = (await this.git(["rev-list", "--count", `${cur.sha}..master`], signal).catch(() => "")).trim();
+      behind = /^\d+$/.test(n) ? Number(n) : null;
+    }
+    return { sha: cur?.sha ?? null, short: cur === null ? null : cur.sha.slice(0, 7), ref: cur?.ref ?? null, deployed_at: cur?.deployed_at ?? null, behind, failed };
+  }
+
+  private async compute(signal: AbortSignal): Promise<Core> {
+    const sha = readHeadSha(this.root) ?? (await this.git(["rev-parse", "HEAD"], signal)).trim();
+    const [branch, status, files, deploy] = await Promise.all([
+      this.git(["rev-parse", "--abbrev-ref", "HEAD"], signal),
+      this.git(["status", "--porcelain"], signal),
+      this.changedFiles(Date.parse(this.bootAt), signal),
+      this.deployInfo(signal),
     ]);
     let commits: BuildCommit[] = [];
     let total = 0;
     if (this.bootHead !== null && sha !== this.bootHead) {
       const range = `${this.bootHead}..${sha}`;
       const [log, count] = await Promise.all([
-        this.git(["log", `--format=%H${FIELD}%s${FIELD}%cI`, "-n", String(MAX_COMMITS), range], deadline),
-        this.git(["rev-list", "--count", range], deadline),
+        this.git(["log", `--format=%H${FIELD}%s${FIELD}%cI`, "-n", String(MAX_COMMITS), range], signal),
+        this.git(["rev-list", "--count", range], signal),
       ]);
       commits = log
         .split("\n")
@@ -280,6 +218,7 @@ export class BuildService {
     }
     return {
       ...this.empty(null),
+      deploy,
       head: sha,
       branch: branch.trim(),
       stale: reasons.length > 0,
