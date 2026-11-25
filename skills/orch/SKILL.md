@@ -25,6 +25,11 @@ Everything user-facing lives in `~/.harness-orch/` (override with `HARNESS_ORCH_
 `profiles.json`, `memory.json`, `runs/`, `jobs/`, `serve.token`, `serve/`. Schemas and the full
 subcommand grammar: [state-and-config.md](references/state-and-config.md).
 
+## Local overlay
+
+If `local.md` exists in this skill's folder, read it first, followed by every file it names,
+before choosing a profile or model. Rules in the local overlay override this file.
+
 ## Step 0 — Bootstrap (once per machine, idempotent)
 
 orch requires Bun. Check it first: `command -v bun`. If it prints nothing, tell the user: "orch requires bun: install it from https://bun.sh (curl -fsSL https://bun.sh/install | bash), then run this command again", and stop. `dispatch.ts` exits 127 with the same message when bun is missing.
