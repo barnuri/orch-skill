@@ -226,3 +226,19 @@ describe("health", () => {
     expect(body.version).toBe(Bun.version);
   });
 });
+
+describe("compression and caching", () => {
+  test("chunks are code-split, gzip-encoded and cached forever", async () => {
+    const html = await (await fetch(srv.url)).text();
+    const js = [...html.matchAll(ASSET_ATTR)].map((m) => m[1] ?? "").find((h) => h.endsWith(".js"));
+    expect(js).toBeDefined();
+    const res = await fetch(new URL(js as string, srv.url), { headers: { "Accept-Encoding": "gzip" } });
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    expect(res.headers.get("cache-control")).toContain("immutable");
+    expect(res.headers.get("vary")).toContain("Accept-Encoding");
+    expect(Number(res.headers.get("content-length"))).toBeLessThan(3_000_000);
+    const etag = res.headers.get("etag") as string;
+    const again = await fetch(new URL(js as string, srv.url), { headers: { "If-None-Match": etag } });
+    expect(again.status).toBe(304);
+  });
+});

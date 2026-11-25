@@ -1,6 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { startDeployWatch } from "../build/deploy-watch";
 import { startLlmHubWatch } from "../build/llm-hub-watch";
+import { makeSessionIdle } from "./session-idle";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
@@ -140,6 +141,8 @@ export interface WatchdogOptions {
   ownersEveryMs?: number;
   /** Whether a session-only orchestrator (`orchestrator register --session`) is alive; default: its announce activity file is fresh. */
   sessionAlive?: (sessionId: string) => boolean;
+  /** Whether a registered session is idle past settings.orchestrator_idle_minutes with no live TUI; default: opencode db + ps. */
+  sessionIdle?: (sessionId: string) => boolean;
 }
 
 /** A session counts as alive while its `<home>/activity/<sid>.json` was written in the last SESSION_ALIVE_MS (as `coordSessionAlive`). */
@@ -152,6 +155,7 @@ export const SESSION_ALIVE_MS: number = 120_000;
 export function orchestratorAbsent(
   state: { coordinator?: { session_id?: unknown; unreachable?: unknown; transport?: unknown } | null; harness_session?: string | null },
   sessionAlive: (sessionId: string) => boolean = () => false,
+  sessionIdle: (sessionId: string) => boolean = () => false,
 ): boolean {
   const coord = state.coordinator;
   if (coord === undefined || coord === null) return true;
@@ -159,7 +163,8 @@ export function orchestratorAbsent(
   // Registered with `--session` only (no terminal): present while that session is alive.
   if (coord.transport === "session") return registered === "" || !sessionAlive(registered);
   const active = typeof state.harness_session === "string" ? state.harness_session : "";
-  if (registered !== "" && registered === active) return false;
+  // The registered session is the active one: present unless it is idle (no activity, no live TUI holds it).
+  if (registered !== "" && registered === active) return sessionIdle(registered);
   return (coord.unreachable ?? null) !== null;
 }
 
@@ -310,6 +315,9 @@ export class WatchdogService {
   private readonly startingAfterMs: number;
   private readonly ownersEveryMs: number;
   private readonly sessionAlive: (sessionId: string) => boolean;
+  private readonly sessionIdle: (sessionId: string) => boolean;
+  /** Last done-gate signature per run: the gate step reruns only when the run changed. */
+  private readonly gateSig = new Map<string, string>();
   private readonly reconciledAt = new Map<string, number>();
   private readonly reconcileBusy = new Set<string>();
   private readonly coordAt = new Map<string, number>();
@@ -348,6 +356,7 @@ export class WatchdogService {
       const at = mtimeMs(join(home, "activity", `${sid}.json`));
       return at !== null && this.now().getTime() - at < SESSION_ALIVE_MS;
     });
+    this.sessionIdle = opts.sessionIdle ?? makeSessionIdle(home, { now: this.now });
     const paths = orchPaths(home);
     this.health = opts.health ?? ((runId): RunHealth | null => healthWatcherFor(paths).latest(runId)?.health ?? null);
     this.engine = new RunEngine(home, {
@@ -464,7 +473,8 @@ export class WatchdogService {
       }
     }
     this.checkFinish(runId, state, nodes);
-    if (orchestratorAbsent(state, (sid) => this.sessionAlive(sid))) {
+    this.checkGate(runId, nodes);
+    if (orchestratorAbsent(state, (sid) => this.sessionAlive(sid), (sid) => this.sessionIdle(sid))) {
       this.takeover(runId, state, nodes);
     }
     this.syncRun(runId);
@@ -492,7 +502,7 @@ export class WatchdogService {
 
   private queueQuestion(runId: string, node: WatchNode): void {
     const question = (node.needs_user ?? "").trim();
-    if (question === "") {
+    if (question === "" || (node.id === "done-gate" && question.startsWith("verify FAILED"))) {
       return;
     }
     const digest = createHash("sha1").update(question).digest("hex").slice(0, 12);
@@ -891,6 +901,37 @@ export class WatchdogService {
     }
     this.chain(runId, "", async () => {
       await this.act(runId, null, "finish", ["run", "finish", runId], `all ${nodes.length} nodes done`);
+    });
+  }
+
+  /**
+   * The done gate is deterministic: when every node but the gate is settled and the gate waits (or is blocked by an
+   * earlier failed gate step), run `run gate`. It reruns only when the settled nodes changed, never on a timer.
+   */
+  private checkGate(runId: string, nodes: WatchNode[]): void {
+    const gate = nodes.find((n) => n.id === "done-gate");
+    if (gate === undefined) {
+      return;
+    }
+    const retry = gate.status === "blocked-user" && (gate.needs_user ?? "").startsWith("verify FAILED");
+    if (gate.status !== "waiting" && !retry) {
+      this.gateSig.delete(runId);
+      return;
+    }
+    const others = nodes.filter((n) => n.id !== "done-gate");
+    if (!others.every((n) => n.status === "done" || n.status === "skipped" || n.status === "covered")) {
+      return;
+    }
+    if ([...this.busy].some((k) => k.startsWith(`${runId}/`))) {
+      return;
+    }
+    const sig = createHash("sha1").update(JSON.stringify(others)).digest("hex");
+    if (this.gateSig.get(runId) === sig) {
+      return;
+    }
+    this.gateSig.set(runId, sig);
+    this.chain(runId, "done-gate", async () => {
+      await this.act(runId, "done-gate", "gate", ["run", "gate", runId], "every node settled: watchdog ran the done gate");
     });
   }
 

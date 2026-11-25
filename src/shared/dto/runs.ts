@@ -178,3 +178,30 @@ export class RunMessagesEnvelopeDto extends ZodDto {
   @ZodField(z.array(z.record(z.string(), z.unknown())), { description: "Messages {id, seq, from, to, kind (tell|ask|answer|rule), at, text, status, delivered_at, via, answer?, answered_at?, reply_to?}." })
   messages!: Record<string, unknown>[];
 }
+
+@ZodObject({ description: "One failure of `run verify`." })
+export class RunVerifyFailureDto extends ZodDto {
+  @ZodField(z.array(z.string()), { description: "Node ids the failure is about; empty for a run-level failure." })
+  nodes!: string[];
+
+  @ZodField(z.string(), { description: "What is wrong." })
+  msg!: string;
+
+  @ZodField(z.string(), { description: "The suggested fix." })
+  hint!: string;
+}
+
+@ZodObject({ description: "The result of `run verify`: the failures that keep a run from finishing." })
+export class RunVerifyEnvelopeDto extends ZodDto {
+  @ZodField(z.boolean(), { description: "True when `run verify` found no failure." })
+  ok!: boolean;
+
+  @ZodField(z.array(RunVerifyFailureDto.schema), { description: "The failures, empty when `ok`." })
+  failures!: Array<{ nodes: string[]; msg: string; hint: string }>;
+}
+
+@ZodObject({ description: "Why a run or node is closed by hand." })
+export class ReasonInputDto extends ZodDto {
+  @ZodField(z.string().trim().max(2000).optional(), { description: "The reason. Stored on the run or node. Required when `run verify` fails, and for a node." })
+  reason?: string;
+}

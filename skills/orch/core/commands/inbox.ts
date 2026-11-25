@@ -13,6 +13,7 @@ import { nowIso } from "../state/clock.ts";
 import { herdrCli, herdrEnabled } from "../adapters/herdr.ts";
 import { nudgeViaService } from "../adapters/opencode-service.ts";
 import { findNode } from "../runs/node.ts";
+import { findSessionTerminal, hasTerminal, terminalFromEnv, type TerminalRef } from "../adapters/session-terminal.ts";
 import { mutateRun } from "./node.ts";
 
 export const NODE_TELL_USAGE = 'dispatch.ts node tell <run-id> <node-id> "<text>" [--from NAME]';
@@ -216,6 +217,14 @@ export async function inboxSend(home: string, run: string, node: string, from: s
   await appendRunEvent(home, run, "message", node, from, result, text);
   out(`${(await readMsg(path)).id} ${node} ${result}\n`);
   return result;
+}
+
+// A message to the orchestrator: store it in inbox/orch and deliver it (service, terminal, TUI terminal, else pending).
+export async function tellOrchestrator(home: string, run: string, from: string, text: string): Promise<string> {
+  const path = await inboxNew(home, run, "orch", from, "tell", text);
+  const result = await coordDeliver(home, run, path);
+  await appendRunEvent(home, run, "message", "", from, result, text);
+  return `${(await readMsg(path)).id} coordinator ${result}`;
 }
 
 export async function cmdNodeTell(args: string[]): Promise<number> {
@@ -676,7 +685,7 @@ export async function coordinatorRecord(home: string, run: string): Promise<numb
     sid = coordinatorSessionId(coordSessionOf((await coordCli(sock, ["pane", "get", pane])).stdout), process.env);
   }
   const rc = await mutateRun(home, run, (r, ctx) => {
-    r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true, started_by: coordinatorStarter() };
+    r.coordinator = { transport: hc ? "hc" : "herdr", pane_id: pane, socket_path: sock, workspace_id: ws, session_id: sid, repo: realpathSync(process.cwd()), harness: coordinatorHarness(), at: ctx.now, unreachable: null, candidates: null, backlog_pending: true, started_by: coordinatorStarter(), terminal: terminalFromEnv(process.env) };
     ctx.events.push({ at: ctx.now, kind: "note", node: null, from: null, to: null, note: `coordinator set: pane ${pane}`, by: ctx.by });
   });
   if (rc !== 0) return rc;
@@ -873,54 +882,125 @@ async function coordCountTry(path: string, e: string): Promise<string> {
   return "pending";
 }
 
-// A coordinator without a pane: POST the prompt to its opencode session over the shared service (queued behind a busy turn).
-// No healthy service or no session id: the message stays pending in the inbox.
-async function coordDeliverSession(home: string, run: string, path: string, c: any, m: Msg): Promise<string> {
-  const sid = String(c.session_id ?? "");
-  if (!sid.startsWith("ses_")) return coordCountTry(path, "coordinator is a session without a terminal; read the inbox");
-  const text = m.kind === "ask"
-    ? `[orch ask #${m.id} from ${m.from}] ${m.text} | answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`
-    : `[orch tell #${m.id} from ${m.from}] ${m.text}`;
-  const via = await nudgeViaService(sid, { text, delivery: "queue" });
-  if (via?.ok) {
-    await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = "opencode-service"; x.last_error = null; });
-    await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator session`);
-    return "delivered";
-  }
-  return coordCountTry(path, via ? `opencode service: ${via.detail}` : "opencode service not available; read the inbox");
+const PRIVATE_SERVER_WHY = "session runs in a private server and no terminal is known";
+
+function coordLines(run: string, m: Msg): { raw: string; typed: string } {
+  const answer = `answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`;
+  const text = String(m.text).replace(/[\r\n]/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return m.kind === "ask"
+    ? { raw: `[orch ask #${m.id} from ${m.from}] ${m.text} | ${answer}`, typed: `[orch ask #${m.id} from ${m.from}] ${text} | ${answer}` }
+    : { raw: `[orch tell #${m.id} from ${m.from}] ${m.text}`, typed: `[orch tell #${m.id} from ${m.from}] ${text}` };
 }
 
-// One attempt to type the message into the coordinator pane: delivered | pending | unreachable | none.
+async function markCoordDelivered(home: string, run: string, path: string, m: Msg, via: string): Promise<string> {
+  await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = via; x.last_error = null; });
+  await coordClearUnreachable(home, run);
+  await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator (${via})`);
+  return "delivered";
+}
+
+// Type the line into a known terminal (hc first, herdr second) and press Enter. null when the terminal is not live.
+async function termSend(t: TerminalRef, line: string): Promise<{ ok: boolean; via: string; err: string } | null> {
+  if (t.hc_terminal) {
+    const g = await hcCli(["get", "--json", t.hc_terminal]);
+    const j = g.ok ? jparse(g.stdout) : null;
+    if (j && (!j.state || j.state === "live")) {
+      const r = await hcCli(["send", t.hc_terminal, line]);
+      return { ok: r.ok, via: "hc-terminal", err: (r.stderr + r.stdout).trim() };
+    }
+  }
+  if (t.herdr_pane && t.herdr_socket && (await stat(t.herdr_socket).catch(() => null))) {
+    if ((await coordCli(t.herdr_socket, ["pane", "get", t.herdr_pane])).ok) {
+      const r = await coordSend({ pane_id: t.herdr_pane, socket_path: t.herdr_socket }, line);
+      return { ok: r.ok, via: "herdr-terminal", err: (r.stderr + r.stdout).trim() };
+    }
+  }
+  return null;
+}
+
+// Steps 2b and 3: the terminal recorded at register, then the TUI process of the session. Returns the delivery or the reason.
+async function coordViaTerminal(home: string, run: string, c: any, line: string): Promise<{ via: string } | { why: string }> {
+  let why = PRIVATE_SERVER_WHY;
+  if (hasTerminal(c.terminal)) {
+    const r = await termSend(c.terminal, line);
+    if (r?.ok) return { via: r.via };
+    why = r ? `terminal send failed: ${r.err || "no detail"}` : "the recorded terminal is gone";
+  }
+  const sid = String(c.session_id ?? "");
+  if (sid.startsWith("ses_")) {
+    const f = await findSessionTerminal(sid);
+    if (f.terminal) {
+      const r = await termSend(f.terminal, line);
+      if (r?.ok) {
+        await mutateRun(home, run, (st) => { if (st.coordinator) st.coordinator.terminal = f.terminal; });
+        return { via: r.via };
+      }
+      why = r ? `terminal send failed: ${r.err || "no detail"}` : "the session's terminal is gone";
+    } else if (!hasTerminal(c.terminal)) why = `${PRIVATE_SERVER_WHY} (${f.why})`;
+  }
+  return { why };
+}
+
+// One attempt to reach the coordinator: delivered | pending | unreachable | none.
+// Order: (1) shared opencode service, (2) the recorded pane or terminal, (3) the session's TUI process terminal, (4) pending with the reason.
 export async function coordDeliver(home: string, run: string, path: string): Promise<string> {
   let c = await coordOf(home, run);
   if (!c) return "none";
   const m = await readMsg(path);
   if (m.delivered_at) return "delivered";
-  // A session-only coordinator has no pane to type into: the message waits in the inbox for the session to read.
-  if (c.transport === "session" || (String(c.pane_id ?? "") === "" && String(c.session_id ?? "") !== "")) return coordDeliverSession(home, run, path, c, m);
-  let status = await coordPaneStatus(c);
-  if (status === "gone" && (await coordTryRepoint(home, run))) {
-    c = await coordOf(home, run);
-    status = await coordPaneStatus(c);
+  const lines = coordLines(run, m);
+  const sid = String(c.session_id ?? "");
+  const sessionOnly = c.transport === "session" || (String(c.pane_id ?? "") === "" && sid !== "");
+  let serviceWhy = "";
+  // A `--standalone` TUI runs its own private server: the shared service may store a prompt for it that the TUI never runs.
+  // Its terminal is the reliable route, so it goes before the service.
+  if (sid.startsWith("ses_")) {
+    const f = await findSessionTerminal(sid);
+    if (f.terminal && f.standalone) {
+      const r = await termSend(f.terminal, lines.typed);
+      if (r?.ok) {
+        await mutateRun(home, run, (st) => { if (st.coordinator) st.coordinator.terminal = f.terminal; });
+        return markCoordDelivered(home, run, path, m, r.via);
+      }
+    }
   }
-  if (status === "gone") return (await coordSetUnreachable(home, run, "pane or socket gone"), "unreachable");
-  await coordClearUnreachable(home, run);
-  if (status === "working") return coordCountTry(path, "coordinator pane is working");
-  if (!(await coordPaneQuiet(c))) return coordCountTry(path, "coordinator is typing or the screen is changing");
-  const text = String(m.text).replace(/[\r\n]/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const line = m.kind === "ask"
-    ? `[orch ask #${m.id} from ${m.from}] ${text} | answer: dispatch.ts node answer ${run} ${m.from} ${m.id} "<text>"`
-    : `[orch tell #${m.id} from ${m.from}] ${text}`;
-  const b = await coordSend(c, line);
-  if (b.ok) {
-    await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = isHc(c) ? "hc-coordinator" : "herdr-coordinator"; x.last_error = null; });
-    await coordTouch(home, run);
-    await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator`);
-    return "delivered";
+  if (sid.startsWith("ses_")) {
+    const via = await nudgeViaService(sid, { text: lines.raw, delivery: "queue" });
+    if (via?.ok) return markCoordDelivered(home, run, path, m, "opencode-service");
+    serviceWhy = via ? `opencode service: ${via.detail}` : "opencode service not available";
   }
-  const e = (b.stderr + b.stdout).trim() || "send failed";
-  await patchMsg(path, (x) => { x.last_error = e; });
-  await coordSetUnreachable(home, run, `send failed: ${e}`);
+  if (!sessionOnly) {
+    let status = await coordPaneStatus(c);
+    if (status === "gone" && (await coordTryRepoint(home, run))) {
+      c = await coordOf(home, run);
+      status = await coordPaneStatus(c);
+    }
+    if (status !== "gone") {
+      await coordClearUnreachable(home, run);
+      if (status === "working") return coordCountTry(path, "coordinator pane is working");
+      if (!(await coordPaneQuiet(c))) return coordCountTry(path, "coordinator is typing or the screen is changing");
+      const b = await coordSend(c, lines.typed);
+      if (b.ok) {
+        await patchMsg(path, (x) => { x.status = "delivered"; x.delivered_at = nowIso(); x.via = isHc(c) ? "hc-coordinator" : "herdr-coordinator"; x.last_error = null; });
+        await coordTouch(home, run);
+        await appendRunEvent(home, run, "message", m.from, "orch", "delivered", `${m.id} to coordinator`);
+        return "delivered";
+      }
+      const e = (b.stderr + b.stdout).trim() || "send failed";
+      await patchMsg(path, (x) => { x.last_error = e; });
+      await coordSetUnreachable(home, run, `send failed: ${e}`);
+      return "unreachable";
+    }
+  }
+  const r = await coordViaTerminal(home, run, c, lines.typed);
+  if ("via" in r) return markCoordDelivered(home, run, path, m, r.via);
+  const why = sessionOnly ? r.why : "pane or socket gone";
+  if (sessionOnly) {
+    await patchMsg(path, (x) => { x.tries = (x.tries ?? 0) + 1; x.last_error = `${r.why}${serviceWhy ? `; ${serviceWhy}` : ""}`; });
+    await coordSetUnreachable(home, run, r.why);
+    return "pending";
+  }
+  await coordSetUnreachable(home, run, why);
   return "unreachable";
 }
 

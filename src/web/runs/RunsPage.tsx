@@ -110,7 +110,9 @@ export function RunRow({ run, health = null, titles }: { run: RunSummary; health
         <RunHealthSummary health={health} />
       </div>
       <div className="run-status-cell">
-        <Chip status={run.status} />
+        <Chip status={run.status} title={run.force_finish_reason ? `Finished by hand: ${run.force_finish_reason}` : undefined}>
+          {run.status === "done" && run.force_finish_reason ? "done (by hand)" : undefined}
+        </Chip>
         <CoveredLink run={run} titles={titles} />
       </div>
       <StatusBar counts={run.counts} total={total} />

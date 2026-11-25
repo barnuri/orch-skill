@@ -6,6 +6,7 @@ import { orchHome } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
 import { findNode } from "../runs/node.ts";
 import { errLine, resolveRun } from "./node.ts";
+import { tellOrchestrator } from "./inbox.ts";
 
 export const MSG_SEND_USAGE = 'dispatch.ts msg send <run-id> --to orch|all|<node-id> [--from <node-id>|orch] "<text>"';
 export const MSG_READ_USAGE = "dispatch.ts msg read <run-id> [--for orch|<node-id>] [--since N] [--all]";
@@ -62,6 +63,14 @@ export async function msgSend(args: string[]): Promise<number> {
     await appendFile(join(outDir, "inbox.md"), `[${ts} ${from} -> ${nodeId}] ${text}\n`);
   }
   if ((run as any).muted !== true && process.env.ORCH_MUTED !== "1") await herdrNotify(runId, from, to, text);
+  if (to === "orch") {
+    // Same delivery as `node tell <run> coordinator`: service, terminal, the session's TUI terminal, else pending in inbox/orch.
+    try {
+      process.stdout.write(`${await tellOrchestrator(home, runId, from, text)}\n`);
+    } catch (e) {
+      process.stderr.write(`msg send: orchestrator delivery failed (${e instanceof Error ? e.message : String(e)}); the mailbox keeps the message\n`);
+    }
+  }
   process.stdout.write("sent\n");
   return 0;
 }

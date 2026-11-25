@@ -21,12 +21,13 @@ import {
   stopRunHandler,
   tellNode,
 } from "../../routes/runs-routes";
+import { finishRun, markNodeDone, markNodeReviewed, verifyRun } from "../../routes/runs-routes";
 import { repointRun } from "../../routes/runs-routes";
 import type { NodeMessageInput } from "../../routes/runs-routes";
 import { setMaxParallelRun } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, MaxParallelInputDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, MaxParallelInputDto, ReasonInputDto, RunVerifyEnvelopeDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call, valid } from "./support";
 
@@ -139,6 +140,61 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run." })
   stop_(c: ApiContext): Promise<Response> {
     return call(this.stop, c);
+  }
+
+  @Get("/runs/{id}/verify", {
+    summary: "Verify a run",
+    description: "Runs `run verify <id>`: the failures that keep the run from finishing. `ok` is true when there is none.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @ResponseSchema(RunVerifyEnvelopeDto.schema, { description: "The verdict." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No such run." })
+  verify_(c: ApiContext): Promise<Response> {
+    return verifyRun(this.ctx, c.req.param("id") ?? "");
+  }
+
+  @Post("/runs/{id}/finish", {
+    summary: "Finish a run by hand",
+    description: "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); the done-gate that has not run is skipped with the reason (`node update done-gate skipped --force --reason`), then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+  })
+  @Param(RunIdParamsDto.schema)
+  @Body(ReasonInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Finished." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "Verify fails and no reason, or no such run." })
+  finish_(c: ApiContext): Promise<Response> {
+    return finishRun(this.ctx, c.req.param("id") ?? "", valid<{ reason?: string }>(c, "json").reason);
+  }
+
+  @Post("/runs/{id}/nodes/{node}/done", {
+    summary: "Mark a node done by hand",
+    description: "Runs `node update <id> <node> done --force --reason <reason>`. The reason is required.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @Body(ReasonInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Marked done." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No reason, or no such run or node." })
+  nodeDone_(c: ApiContext): Promise<Response> {
+    return this.withReason(c, markNodeDone);
+  }
+
+  @Post("/runs/{id}/nodes/{node}/reviewed", {
+    summary: "Mark a done node reviewed",
+    description: "Runs `node result <id> <node> --verdict full --summary <reason>`. The reason is required.",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @Body(ReasonInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Marked reviewed." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No reason, or no such run or node." })
+  nodeReviewed_(c: ApiContext): Promise<Response> {
+    return this.withReason(c, markNodeReviewed);
+  }
+
+  private withReason(c: ApiContext, act: (ctx: ServerContext, run: string, node: string, reason: string) => Promise<Response>): Promise<Response> {
+    const reason = (valid<{ reason?: string }>(c, "json").reason ?? "").trim();
+    if (reason === "") {
+      return Promise.resolve(jsonResponse(400, { error: "a reason is required" }));
+    }
+    return act(this.ctx, c.req.param("id") ?? "", c.req.param("node") ?? "", reason);
   }
 
   @Post("/runs/{id}/pause", {

@@ -89,7 +89,7 @@ describe("NodeMenu", () => {
     expect(screen.queryByRole("menuitem", { name: "Confirm cancel" })).not.toBeNull();
   });
   test("ready node has Start", () => {
-    expect(menuActions(node(), nodeMarkers(node(), { nowMs: now, ready: new Set(["n1"]) }))).toEqual(["start", "tell"]);
+    expect(menuActions(node(), nodeMarkers(node(), { nowMs: now, ready: new Set(["n1"]) }))).toEqual(["start", "done", "tell"]);
     ui(node(), true);
     fireEvent.click(screen.getByRole("button", { name: "Actions for n1" }));
     expect(screen.queryByRole("menuitem", { name: "Start" })).not.toBeNull();

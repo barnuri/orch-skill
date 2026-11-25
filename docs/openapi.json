@@ -193,6 +193,51 @@
       "BuildInfoDto": {
         "type": "object",
         "properties": {
+          "deploy": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "sha": {
+                "type": "string",
+                "nullable": true,
+                "description": "Deployed sha."
+              },
+              "short": {
+                "type": "string",
+                "nullable": true,
+                "description": "Deployed short sha."
+              },
+              "ref": {
+                "type": "string",
+                "nullable": true,
+                "description": "Deployed ref."
+              },
+              "deployed_at": {
+                "type": "string",
+                "nullable": true,
+                "description": "When, ISO 8601."
+              },
+              "behind": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Commits master is ahead of the deployed sha."
+              },
+              "failed": {
+                "type": "string",
+                "nullable": true,
+                "description": "Reason of the last deploy, when it failed."
+              }
+            },
+            "required": [
+              "sha",
+              "short",
+              "ref",
+              "deployed_at",
+              "behind",
+              "failed"
+            ],
+            "description": "Deploy state; null when never deployed."
+          },
           "boot_at": {
             "type": "string",
             "description": "When this server process started, ISO 8601 UTC."
@@ -297,6 +342,7 @@
           }
         },
         "required": [
+          "deploy",
           "boot_at",
           "boot_head",
           "head",
@@ -494,6 +540,10 @@
           "enabled": {
             "type": "boolean",
             "description": "A paused schedule never fires."
+          },
+          "muted": {
+            "type": "boolean",
+            "description": "A muted schedule sends no notification (orch, push, Herdr, Telegram). Absent means false."
           },
           "created_at": {
             "type": "string",
@@ -981,6 +1031,11 @@
             "type": "string",
             "nullable": true,
             "description": "Cursor for `after`: the newest message id."
+          },
+          "context_tokens": {
+            "type": "number",
+            "nullable": true,
+            "description": "Context tokens of the newest assistant message (input + cache read), when opencode reports them."
           }
         },
         "required": [
@@ -989,6 +1044,64 @@
           "next"
         ],
         "description": "A node owner's recent activity."
+      },
+      "RunVerifyEnvelopeDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True when `run verify` found no failure."
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunVerifyFailureDto"
+            },
+            "description": "The failures, empty when `ok`."
+          }
+        },
+        "required": [
+          "ok",
+          "failures"
+        ],
+        "description": "The result of `run verify`: the failures that keep a run from finishing."
+      },
+      "RunVerifyFailureDto": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Node ids the failure is about; empty for a run-level failure."
+          },
+          "msg": {
+            "type": "string",
+            "description": "What is wrong."
+          },
+          "hint": {
+            "type": "string",
+            "description": "The suggested fix."
+          }
+        },
+        "required": [
+          "nodes",
+          "msg",
+          "hint"
+        ],
+        "description": "One failure of `run verify`."
+      },
+      "ReasonInputDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "The reason. Stored on the run or node. Required when `run verify` fails, and for a node."
+          }
+        },
+        "description": "Why a run or node is closed by hand."
       },
       "RunMessagesEnvelopeDto": {
         "type": "object",
@@ -1557,6 +1670,7 @@
               "cli-source",
               "starting",
               "finish",
+              "gate",
               "coordinator"
             ],
             "description": "`lost`: the node's process or session was dead for 2 minutes; `stalled`: idle past stall_minutes; `unverified`: done without handoff.md; `infra-retry`: an infrastructure error; `finish`: every node is done."
@@ -1650,6 +1764,7 @@
               "cli-source",
               "starting",
               "finish",
+              "gate",
               "coordinator"
             ],
             "description": "The rule that flagged it."
@@ -5763,10 +5878,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "run, enable, disable or remove."
+              "description": "run, enable, disable, mute, unmute or remove."
             },
             "required": true,
-            "description": "run, enable, disable or remove.",
+            "description": "run, enable, disable, mute, unmute or remove.",
             "name": "action",
             "in": "path"
           }
@@ -6315,6 +6430,305 @@
           },
           "404": {
             "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/verify": {
+      "get": {
+        "summary": "Verify a run",
+        "description": "Runs `run verify <id>`: the failures that keep the run from finishing. `ok` is true when there is none.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The verdict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunVerifyEnvelopeDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/finish": {
+      "post": {
+        "summary": "Finish a run by hand",
+        "description": "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); the done-gate that has not run is skipped with the reason (`node update done-gate skipped --force --reason`), then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Finished.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Verify fails and no reason, or no such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/nodes/{node}/done": {
+      "post": {
+        "summary": "Mark a node done by hand",
+        "description": "Runs `node update <id> <node> done --force --reason <reason>`. The reason is required.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id."
+            },
+            "required": true,
+            "description": "Run id.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Node id within the run."
+            },
+            "required": true,
+            "description": "Node id within the run.",
+            "name": "node",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Marked done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No reason, or no such run or node.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/nodes/{node}/reviewed": {
+      "post": {
+        "summary": "Mark a done node reviewed",
+        "description": "Runs `node result <id> <node> --verdict full --summary <reason>`. The reason is required.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id."
+            },
+            "required": true,
+            "description": "Run id.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Node id within the run."
+            },
+            "required": true,
+            "description": "Node id within the run.",
+            "name": "node",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Marked reviewed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No reason, or no such run or node.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
             "content": {
               "application/json": {
                 "schema": {

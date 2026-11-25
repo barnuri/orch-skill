@@ -313,6 +313,8 @@ orch msg send <run-id> --to orch|all|<node-id> "<text>"   # inside a node, --fro
 orch msg read <run-id> [--for orch|<node-id>] [--since N] [--all]
 ```
 
+Message the orchestrator (main session) with `orch msg send <run-id> --to orch "<text>"` (a node) or `orch node tell <run-id> coordinator "<text>"` (a person or script). Delivery order: the shared opencode service, the terminal recorded by `orchestrator register`, the terminal of the session's own TUI process (found with `ps`), else the message stays pending in `inbox/orch` and the run page says why.
+
 Check `msg read <run-id>` whenever `run advance` returns: that is where a node reports blockers
 and scope changes. If `herdr` is on `PATH`, each message also triggers a herdr notification
 (best effort; herdr is optional).

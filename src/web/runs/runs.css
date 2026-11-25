@@ -407,3 +407,10 @@ main:has(.run-page) { max-width: none; }
 /* Node ids in the review banner: inline links that select the node. */
 .run-stale-banner .link-btn { background: none; border: 0; padding: 0; color: var(--acct); font: inherit; cursor: pointer; text-decoration: underline; }
 .run-stale-banner .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Reason dialog: finish a run or node by hand. Compact, one field. */
+dialog.reason-dialog { width: min(480px, calc(100vw - 2 * var(--s4))); }
+.reason-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 0.85rem; }
+.reason-field textarea { width: 100%; resize: vertical; font: inherit; box-sizing: border-box; }
+.reason-failures { margin: 6px 0; padding-left: 1.1rem; max-height: 9rem; overflow: auto; font-size: 0.8rem; color: var(--status-partial, var(--wa)); }
+.reason-error { color: var(--status-error, var(--er)); font-size: 0.8rem; margin: 4px 0; }

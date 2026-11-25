@@ -626,6 +626,12 @@ function InlineNotes({ node }: { node: RunNode }) {
   );
 }
 
+/** Why a message to the orchestrator cannot be typed into it now (null when it is reachable). */
+function orchDeliveryNote(run: RunState): string | null {
+  const state = (run as RunWithCoordinator).orchestrator_state ?? (run as RunWithCoordinator).coordinator_state ?? null;
+  return state === null || state.reachable ? null : (state.unreachable_reason ?? "unreachable");
+}
+
 const ORCH_HINT = "The orchestrator's own session, read from its opencode session. Your message goes to its pane or session.";
 
 function NodeBody({ runId, node, orch = false }: { runId: string; node: RunNode; orch?: boolean }) {
@@ -751,7 +757,7 @@ export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { ru
           {orch ? null : <Selections node={node} />}
         </div>
       </div>
-      <NodeMessages key={node.id} runId={run.run_id} node={node} orch={orch}>
+      <NodeMessages key={node.id} runId={run.run_id} node={node} orch={orch} deliveryNote={orch ? orchDeliveryNote(run) : null}>
         <NodeBody runId={run.run_id} node={node} orch={orch} />
       </NodeMessages>
       <NodeStatusLine node={node} run={run} maxAttempts={maxAttempts} segments={orch ? orchestratorSegments(run, orchActivity.data?.context_tokens) : undefined} />

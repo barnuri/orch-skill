@@ -128,6 +128,7 @@ function summaryOf(state: { run_id: string; title: string; status: string; start
     started: state.started,
     finished: state.finished,
     counts,
+    ...(state.run_id === RUN_DONE_ID ? { force_finish_reason: "verified by hand: the gate never ran" } : {}),
   };
 }
 

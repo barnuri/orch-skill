@@ -37,6 +37,7 @@ import { CoveredByLink, CoversBlock } from "./RunCover";
 import { ActiveStrip } from "./ActiveStrip";
 import { useActive } from "../api/queries";
 import { RunWatchdog } from "./RunWatchdog";
+import { MarkDone } from "./MarkDone";
 import { RunParallel } from "./RunParallel";
 import { parseNodeParam } from "../lib/covered-node";
 
@@ -177,6 +178,7 @@ function RunActions({ run }: { run: RunState }) {
           Stop run
         </button>
       ) : null}
+      {run.status === "running" ? <MarkDone run={run} /> : null}
       {run.status === "running" ? <RunParallel run={run} /> : null}
     </div>
   );

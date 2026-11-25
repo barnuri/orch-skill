@@ -14,7 +14,7 @@ import { runKeys, useRunMessages } from "./queries";
  * (`node tell`). A running node gets the text in its herdr pane or inbox; a waiting node gets it in
  * its prompt when it starts.
  */
-export function NodeMessages({ runId, node, children = null, orch = false }: { runId: string; node: RunNode; children?: ReactNode; orch?: boolean }) {
+export function NodeMessages({ runId, node, children = null, orch = false, deliveryNote = null }: { runId: string; node: RunNode; children?: ReactNode; orch?: boolean; deliveryNote?: string | null }) {
   const toast = useToast();
   // The orchestrator always takes a message: it waits in its inbox when the session or pane is busy or away.
   const live = orch || canMessage(node.status);
@@ -64,6 +64,7 @@ export function NodeMessages({ runId, node, children = null, orch = false }: { r
           </div>
         ))}
       </div>
+      {live && deliveryNote !== null ? <p className="hint" role="status">Not delivered live: {deliveryNote}. The message waits in the orchestrator inbox.</p> : null}
       {live ? (
         <form
           className="node-send term-composer"

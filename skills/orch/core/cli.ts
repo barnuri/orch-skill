@@ -149,6 +149,7 @@ export const COMMANDS: Record<string, Handler> = {
   "settings set": L(config, (m) => (a) => m.settings(["set", ...a])),
   "memory add": L(config, (m) => (a) => m.memory(["add", ...a])),
   "memory list": L(config, (m) => (a) => m.memory(["list", ...a])),
+  "run gate": L(() => import("./commands/gate.ts"), (m) => m.runGateCmd),
   "run advance": L(() => import("./commands/advance.ts"), (m) => m.runAdvance),
   init: L(config, (m) => m.init),
   ...Object.fromEntries(HERDR_VERB_KEYS.map((v): [string, Handler] => [`herdr ${v}`, L(herdr, (m) => (a) => m.herdrCommand(v, a))])),

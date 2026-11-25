@@ -22,4 +22,6 @@ export interface RunSummary {
   covered_map?: Record<string, string>;
   /** ISO time of the newest node activity. Omitted when no node has a time. */
   updated?: string;
+  /** Why a person finished the run by hand (`run finish --force`). Omitted otherwise. */
+  force_finish_reason?: string;
 }

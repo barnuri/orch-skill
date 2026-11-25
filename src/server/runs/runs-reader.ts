@@ -128,6 +128,7 @@ function summarize(paths: OrchPaths, run: RunState, fresh = false): RunSummary {
     ...(usage.tokens === null ? {} : { tokens: usage.tokens }),
     ...(stale === 0 ? {} : { stale }),
     ...(updated === null ? {} : { updated }),
+    ...(run.force_finish_reason ? { force_finish_reason: run.force_finish_reason } : {}),
     ...(run.status === "covered" && run.covered_by ? {
       covered_by: run.covered_by,
       ...(run.covered_note ? { covered_note: run.covered_note } : {}),

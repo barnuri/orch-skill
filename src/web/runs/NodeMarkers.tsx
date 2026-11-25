@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { describeFailure } from "../api/result";
 import { useToastOptional } from "../components/Toast";
 import { MARKER_ICON, markerCounts, type MarkerCode, type NodeMarker } from "../lib/node-markers";
+import { ReasonDialog } from "./ReasonDialog";
 import { refetchRun } from "./run-actions";
 
 /** One marker: icon and short word in the status colours. */
@@ -30,9 +31,11 @@ export function NodeMarkerList({ markers }: { markers: readonly NodeMarker[] }) 
   );
 }
 
+export type NodeAction = "cancel" | "restart" | "start" | "tell" | "done" | "reviewed";
+
 /** Which menu items apply to a node. Start uses the retry route: it re-queues a ready node. */
-export function menuActions(node: RunNode, markers: readonly NodeMarker[]): Array<"cancel" | "restart" | "start" | "tell"> {
-  const out: Array<"cancel" | "restart" | "start" | "tell"> = [];
+export function menuActions(node: RunNode, markers: readonly NodeMarker[]): Array<NodeAction> {
+  const out: NodeAction[] = [];
   if (node.status === "running") {
     out.push("cancel", "restart");
   }
@@ -42,11 +45,17 @@ export function menuActions(node: RunNode, markers: readonly NodeMarker[]): Arra
   if (markers.some((m) => m.code === "ready")) {
     out.push("start");
   }
+  if (["waiting", "pending", "stopped", "error"].includes(node.status)) {
+    out.push("done");
+  }
+  if (node.status === "done" && markers.some((m) => m.code === "review")) {
+    out.push("reviewed");
+  }
   out.push("tell");
   return out;
 }
 
-const LABEL = { cancel: "Cancel", restart: "Restart", start: "Start", tell: "Tell" } as const;
+const LABEL = { cancel: "Cancel", restart: "Restart", start: "Start", tell: "Tell", done: "Mark done", reviewed: "Mark reviewed" } as const;
 
 /** Compact "⋯" action menu for one node: Cancel, Restart, Start, Tell. Cancel asks once more inline. */
 export function NodeMenu({ runId, node, markers, className = "" }: { runId: string; node: RunNode; markers: readonly NodeMarker[]; className?: string }) {
@@ -56,6 +65,7 @@ export function NodeMenu({ runId, node, markers, className = "" }: { runId: stri
   const [confirm, setConfirm] = useState(false);
   const [telling, setTelling] = useState(false);
   const [text, setText] = useState("");
+  const [marking, setMarking] = useState<"done" | "reviewed" | null>(null);
   const close = (): void => {
     setOpen(false);
     setConfirm(false);
@@ -74,8 +84,11 @@ export function NodeMenu({ runId, node, markers, className = "" }: { runId: stri
       }
     });
   };
-  const act = (action: "cancel" | "restart" | "start" | "tell"): void => {
-    if (action === "tell") {
+  const act = (action: NodeAction): void => {
+    if (action === "done" || action === "reviewed") {
+      setMarking(action);
+      setOpen(false);
+    } else if (action === "tell") {
       setTelling(true);
     } else if (action === "cancel") {
       if (!confirm) {
@@ -128,6 +141,18 @@ export function NodeMenu({ runId, node, markers, className = "" }: { runId: stri
           ) : null}
         </span>
       ) : null}
+      {marking === null ? null : (
+        <ReasonDialog
+          title={marking === "done" ? `Mark ${node.id} done?` : `Mark ${node.id} reviewed?`}
+          intro={marking === "done" ? "Sets the node done without running it." : "Records a full result: you checked this node."}
+          confirmLabel="Confirm"
+          reasonRequired
+          runId={runId}
+          call={(reason) => (marking === "done" ? api.markNodeDone(runId, node.id, reason) : api.markNodeReviewed(runId, node.id, reason))}
+          done={marking === "done" ? `${node.id} marked done` : `${node.id} marked reviewed`}
+          onClose={() => setMarking(null)}
+        />
+      )}
     </span>
   );
 }

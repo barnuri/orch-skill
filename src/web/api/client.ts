@@ -4,7 +4,7 @@ import { ActiveEnvelopeDto } from "../../shared/dto/active";
 import { BuildInfoDto, RestartAcceptedDto } from "../../shared/dto/build";
 import type { BuildInfo } from "../../shared/types/build-info";
 import { OkDto } from "../../shared/dto/common";
-import { HarnessesEnvelopeDto } from "../../shared/dto/runs";
+import { HarnessesEnvelopeDto, RunVerifyEnvelopeDto } from "../../shared/dto/runs";
 import { UsageResultDto } from "../../shared/dto/usage";
 import type { UsageChoice } from "../../shared/profile-usage";
 import {
@@ -67,6 +67,11 @@ const createdSchema = typed<ScheduleCreatedDto>(ScheduleCreatedDto.schema);
 const previewSchema = typed<SchedulePreviewDto>(SchedulePreviewDto.schema);
 const logSchema = typed<ScheduleLogDto>(ScheduleLogDto.schema);
 const okSchema = typed<OkDto>(OkDto.schema);
+export interface RunVerifyEnvelope {
+  ok: boolean;
+  failures: Array<{ nodes: string[]; msg: string; hint: string }>;
+}
+const verifySchema = typed<RunVerifyEnvelope>(RunVerifyEnvelopeDto.schema);
 
 const DOCUMENT_SCHEMAS: Readonly<Record<DocumentKind, z.ZodType<LoadedEnvelope>>> = {
   profiles: profilesEnvelopeSchema,
@@ -129,6 +134,26 @@ export class ApiClient {
   /** `run set <id> max_parallel`: the run's own cap, 1-30 or -1 (unlimited, still bounded by the global cap). */
   setRunMaxParallel(id: string, value: number): Promise<ApiResult<OkDto>> {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/max-parallel`, okSchema, { body: { value } });
+  }
+
+  /** `run verify`: the failures that keep the run from finishing. */
+  verifyRun(id: string): Promise<ApiResult<RunVerifyEnvelope>> {
+    return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(id)}/verify`, verifySchema);
+  }
+
+  /** Finish by hand. A reason is required by the server when verify fails. */
+  finishRun(id: string, reason: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/finish`, okSchema, { body: { reason } });
+  }
+
+  /** `node update ... done --force --reason`. */
+  markNodeDone(runId: string, nodeId: string, reason: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/done`, okSchema, { body: { reason } });
+  }
+
+  /** `node result --verdict full --summary`: a done node flagged for review, checked by a person. */
+  markNodeReviewed(runId: string, nodeId: string, reason: string): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/reviewed`, okSchema, { body: { reason } });
   }
 
   cancelNode(runId: string, nodeId: string): Promise<ApiResult<OkDto>> {

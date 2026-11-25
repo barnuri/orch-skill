@@ -13,6 +13,7 @@ import { readJobLog, readJobSession } from "../runs/job-log-reader";
 import { OwnerActivityReader, homeSpawner } from "../runs/owner-activity";
 import { readEvents } from "../runs/run-events-reader";
 import { readRunMessages } from "../runs/run-messages-reader";
+import { parseVerifyOutput } from "../runs/verify-output";
 import { coordinatorState } from "../runs/coordinator-state";
 import { readRunCached, listRunsCached } from "../runs/runs-reader";
 import { SessionChatReader } from "../runs/session-chat-reader";
@@ -65,8 +66,14 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
-// Runs dispatch.ts without blocking the event loop; the handler resolves once the script exits.
-async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {
+interface DispatchResult {
+  code: number;
+  out: string;
+  err: string;
+}
+
+// Runs dispatch.ts without blocking the event loop and resolves once the script exits.
+async function spawnDispatch(ctx: ServerContext, args: readonly string[]): Promise<DispatchResult> {
   const proc = Bun.spawn([process.execPath, dispatchPath(), ...args], {
     env: { ...process.env, HARNESS_ORCH_HOME: ctx.paths.home },
     stdout: "pipe",
@@ -77,13 +84,66 @@ async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): 
     new Response(proc.stderr).arrayBuffer(),
     proc.exited,
   ]);
-  const text = new TextDecoder().decode(stdoutBytes).trim();
-  const err = new TextDecoder().decode(stderrBytes).trim();
-  if (exitCode !== 0) {
-    const error: ApiError = { error: err || text || `dispatch exited ${exitCode}` };
-    return jsonResponse(exitCode === 2 ? 400 : 500, error);
+  return { code: exitCode, out: new TextDecoder().decode(stdoutBytes).trim(), err: new TextDecoder().decode(stderrBytes).trim() };
+}
+
+function dispatchFailure(result: DispatchResult): Response {
+  const error: ApiError = { error: result.err || result.out || `dispatch exited ${result.code}` };
+  return jsonResponse(result.code === 2 ? 400 : 500, error);
+}
+
+async function dispatchSubcommand(ctx: ServerContext, args: readonly string[]): Promise<Response> {
+  const result = await spawnDispatch(ctx, args);
+  return result.code === 0 ? jsonResponse(200, { ok: true, output: result.out }) : dispatchFailure(result);
+}
+
+/** `run verify <id>`: the failures that keep the run from finishing. Exit 1 is a verdict, not an error. */
+export async function verifyRun(ctx: ServerContext, runId: string): Promise<Response> {
+  const result = await spawnDispatch(ctx, ["run", "verify", runId]);
+  if (result.code === 0) {
+    return jsonResponse(200, { ok: true, failures: [] });
   }
-  return jsonResponse(200, { ok: true, output: text });
+  if (result.code !== 1 || !result.out.startsWith("verify FAILED")) {
+    return dispatchFailure(result);
+  }
+  return jsonResponse(200, { ok: false, failures: parseVerifyOutput(result.out) });
+}
+
+/**
+ * Finishes a run by hand. Verify passes: `run finish`. Verify fails: a reason is required; the waiting done-gate is
+ * skipped with that reason, then `run finish --force --reason`. Open nodes still refuse (the CLI closure gate).
+ */
+export async function finishRun(ctx: ServerContext, runId: string, reasonInput: string | undefined): Promise<Response> {
+  const reason = (reasonInput ?? "").trim();
+  const check = await spawnDispatch(ctx, ["run", "verify", runId]);
+  if (check.code === 0) {
+    return dispatchSubcommand(ctx, ["run", "finish", runId]);
+  }
+  if (check.code !== 1 || !check.out.startsWith("verify FAILED")) {
+    return dispatchFailure(check);
+  }
+  if (reason === "") {
+    return jsonResponse(400, { error: "run verify fails: a reason is required to finish the run by hand" });
+  }
+  const gate = readRunCached(ctx.paths, runId, true).result;
+  const gateNode = gate.kind === "ok" ? gate.run.nodes.find((n) => n.id === "done-gate") : undefined;
+  if (gateNode !== undefined && gateNode.status !== "done" && gateNode.status !== "skipped") {
+    const skip = await spawnDispatch(ctx, ["node", "update", runId, "done-gate", "skipped", "--force", "--reason", reason]);
+    if (skip.code !== 0) {
+      return dispatchFailure(skip);
+    }
+  }
+  return dispatchSubcommand(ctx, ["run", "finish", runId, "--force", "--reason", reason]);
+}
+
+/** Marks one node done by hand: `node update <run> <node> done --force --reason T`. */
+export function markNodeDone(ctx: ServerContext, runId: string, nodeId: string, reason: string): Promise<Response> {
+  return dispatchSubcommand(ctx, ["node", "update", runId, nodeId, "done", "--force", "--reason", reason]);
+}
+
+/** Marks a done node reviewed: `node result <run> <node> --verdict full --summary T`. */
+export function markNodeReviewed(ctx: ServerContext, runId: string, nodeId: string, reason: string): Promise<Response> {
+  return dispatchSubcommand(ctx, ["node", "result", runId, nodeId, "--verdict", "full", "--summary", reason]);
 }
 
 function runVerbHandler(ctx: ServerContext, verb: string): RouteHandler {

@@ -54,6 +54,11 @@ describe("run row", () => {
     expect(screen.getByText("$1.50").className).not.toContain("missing");
   });
 
+  test("a run finished by hand shows done (by hand) with the reason as tooltip", () => {
+    render(<RunRow run={summary({ status: "done", finished: "2026-11-25T10:00:00Z", force_finish_reason: "gate never ran" })} />);
+    expect(screen.getByText("done (by hand)").getAttribute("title")).toContain("gate never ran");
+  });
+
   test("a running run ticks live off one shared ticker", async () => {
     const view = render(
       <>

@@ -294,6 +294,8 @@ describe("POST retry routes (real dispatch.ts smoke)", () => {
         edges: [],
       }),
     );
+    // A retry runs in the node's last repo (never the service cwd): the old job recorded it, as real jobs do.
+    srv.home.write("jobs/old-job/repo", `${process.cwd()}\n`);
     const res = await srv.api(`/api/runs/${RUN_ID}/nodes/a/retry`, { method: "POST" });
     expect(res.status).toBe(200);
     const state = JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
@@ -332,6 +334,74 @@ describe.concurrent("POST stop route", () => {
     const srv = server();
     const res = await srv.api("/api/runs/20260903-120000-ffff/stop", { method: "POST" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe.concurrent("run finish by hand", () => {
+  const post = (srv: TestServerHandle, path: string, body: unknown): Promise<Response> =>
+    srv.api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const read = (srv: TestServerHandle): RunState => JSON.parse(srv.home.read(`runs/${RUN_ID}/state.json`)) as RunState;
+  const settled = (): RunState =>
+    runState({ nodes: [node("a", "done"), { ...node("done-gate", "waiting") }], edges: [["a", "done-gate"]] });
+
+  test("verify lists the failures", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, settled());
+    const body = await (await srv.api(`/api/runs/${RUN_ID}/verify`)).json();
+    expect(body.ok).toBe(false);
+    expect(body.failures.length).toBeGreaterThan(0);
+    expect(body.failures[0]).toMatchObject({ msg: expect.any(String), hint: expect.any(String) });
+  });
+
+  test("verify passes for a run with nothing open", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({ nodes: [], edges: [] }));
+    expect(await (await srv.api(`/api/runs/${RUN_ID}/verify`)).json()).toEqual({ ok: true, failures: [] });
+  });
+
+  test("finish with verify passing needs no reason", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({ nodes: [], edges: [] }));
+    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, {});
+    expect(res.status).toBe(200);
+    expect(read(srv).status).toBe("done");
+  });
+
+  test("finish with verify failing refuses without a reason", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, settled());
+    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, {});
+    expect(res.status).toBe(400);
+    expect(read(srv).status).toBe("running");
+  });
+
+  test("finish with verify failing skips the gate and stores the reason", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, settled());
+    const res = await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "checked by hand" });
+    expect(res.status).toBe(200);
+    const state = read(srv);
+    expect(state.status).toBe("done");
+    expect(state.force_finish_reason).toBe("checked by hand");
+    const gate = state.nodes.find((item) => item.id === "done-gate") as { status: string; skip_reason?: string };
+    expect(gate.status).toBe("skipped");
+    expect(gate.skip_reason).toBe("checked by hand");
+  });
+
+  test("node done needs a reason and then marks the node done", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({ nodes: [node("a", "waiting")], edges: [] }));
+    expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/done`, {})).status).toBe(400);
+    expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/done`, { reason: "did it myself" })).status).toBe(200);
+    expect(read(srv).nodes[0]?.status).toBe("done");
+  });
+
+  test("node reviewed records a full result", async () => {
+    const srv = server();
+    seed(srv, RUN_ID, runState({ nodes: [node("a", "done")], edges: [] }));
+    expect((await post(srv, `/api/runs/${RUN_ID}/nodes/a/reviewed`, { reason: "read the diff" })).status).toBe(200);
+    const done = read(srv).nodes[0] as { result?: { verdict: string; summary: string } };
+    expect(done.result).toMatchObject({ verdict: "full", summary: "read the diff" });
   });
 });
 
