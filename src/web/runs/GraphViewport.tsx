@@ -424,7 +424,7 @@ export function GraphViewport({ run, selectedId, onSelect, harnessByProfile, max
           className={`btn graph-tool${view.hideDone ? " is-on" : ""}`}
           type="button"
           aria-pressed={view.hideDone}
-          title="Hide the nodes that are done or skipped"
+          title="Hide the nodes that are done, covered or skipped"
           aria-label="Hide done nodes"
           onClick={() => {
             view.hideDone = !view.hideDone;

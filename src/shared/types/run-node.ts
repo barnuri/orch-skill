@@ -162,6 +162,8 @@ export interface RunNode {
   stale?: boolean;
   /** Computed by the server: the node's out dir holds a non-empty handoff.md. Undefined for older runs. */
   handoff_present?: boolean;
+  /** Replacement node reference: `<run-id>/<node-id>`, or a node id for same-run replacement. */
+  covered_by?: string | null;
   /** One-line result the node recorded with `node result`; verdict "unknown" when it finished without one. */
   result?: { verdict: "full" | "partial" | "blocked" | "unknown"; summary: string; follow_up: string; at: string } | null;
   /** Model and usage the coordinator reported with `node report`. Optional for older runs. */

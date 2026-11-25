@@ -38,6 +38,7 @@ import { ActiveStrip } from "./ActiveStrip";
 import { useActive } from "../api/queries";
 import { RunWatchdog } from "./RunWatchdog";
 import { RunParallel } from "./RunParallel";
+import { parseNodeParam } from "../lib/covered-node";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
 
@@ -206,10 +207,14 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
   const harnessKey = JSON.stringify(facts.harnessByProfile);
   const harnessByProfile = useMemo(() => JSON.parse(harnessKey) as Record<string, string>, [harnessKey]);
   const [markerFilter, setMarkerFilter] = useState<MarkerCode | "">("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => parseNodeParam(location.hash));
   const [runView, setRunView] = useState<RunView>(() => parseViewParam(location.hash) ?? loadRunView());
   useEffect(() => {
     const onHash = (): void => {
+      const node = parseNodeParam(location.hash);
+      if (node !== null) {
+        setSelected(node);
+      }
       const v = parseViewParam(location.hash);
       if (v !== null) {
         setRunView(v);

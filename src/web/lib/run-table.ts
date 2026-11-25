@@ -138,6 +138,7 @@ export function rowWarnings(node: RunNode): RowWarning[] {
 export interface TableRow {
   kind: "main" | "node";
   warnings: RowWarning[];
+  runId: string;
   id: string;
   node: RunNode | null;
   status: string;
@@ -186,7 +187,7 @@ export function mainRow(run: RunWithCoordinator): TableRow {
   const harness = run.coordinator?.harness ?? "";
   const status = mainStatus(run);
   return {
-    kind: "main", id: "__main__", node: null, status,
+    kind: "main", runId: run.run_id, id: "__main__", node: null, status,
     idText: session === "" ? "main session" : session,
     goal: "Orch main session (orchestrator)",
     verdict: "", summary: "", role: "orchestrator", tier: "", profile: harness, model: "", family: "fallback",
@@ -208,7 +209,7 @@ export function nodeRow(run: RunState, node: RunNode, nowMs: number, harnessByPr
   const start = ms(node.started_at ?? node.started);
   const end = ms(node.finished_at ?? node.finished);
   return {
-    kind: "node", id: node.id, node, status: node.status,
+    kind: "node", runId: run.run_id, id: node.id, node, status: node.status,
     warnings: rowWarnings(node),
     idText: node.id,
     goal: (node.label.split("\n")[0] ?? "").trim(),

@@ -54,6 +54,10 @@ describe("focusTarget", () => {
     expect(focusTarget(state)).toMatchObject({ primary: "a", nodeIds: ["a"] });
   });
 
+  test("a covered dependency counts as settled", () => {
+    const run = { nodes: [node("a", "covered", { covered_by: "r/a-r2" }), node("b", "waiting")], edges: [["a", "b"]] } as RunState;
+    expect(focusTarget(run)?.primary).toBe("b");
+  });
   test("a skipped dependency counts as settled", () => {
     const state = run([node("a", "skipped"), node("b", "waiting")], [["a", "b"]]);
     expect(focusTarget(state)?.primary).toBe("b");

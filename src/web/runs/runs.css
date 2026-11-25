@@ -1,4 +1,4 @@
-/* Signal makeover: the run view is a graph with a right-hand inspector; the Runs list is a ledger.
+/* Signal makeover: the run view is a graph with a node terminal below it; the Runs list is a ledger.
    Base classes come from src/snapshot/styles.css; this file overrides them for the React pages. */
 .active-ledger-list { display: contents; }
 
@@ -17,14 +17,13 @@
 .run-page .run-stat-key::after { content: ":"; }
 .run-page .run-stat-stale b { color: var(--status-stale); }
 
-/* ---- Graph + inspector ---- */
+/* ---- Graph and node terminal ---- */
 main:has(.run-page) { max-width: none; }
 .run-page .run-layout {
   max-width: none; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: start;
 }
 .run-page .run-layout .inspector {
-  max-width: none; margin: 0; position: sticky; top: calc(var(--nav-h) + var(--s3));
-  max-height: calc(100dvh - var(--nav-h) - var(--s5)); overflow: auto;
+  max-width: none; margin: 0;
   border-radius: var(--r-lg); background: var(--panel); padding: var(--s4);
 }
 .run-page .run-layout .panel-grid { grid-template-columns: minmax(0, 1fr); }
@@ -126,6 +125,7 @@ main:has(.run-page) { max-width: none; }
 .run-summary-item.is-paused b { color: var(--status-stale); }
 .run-summary-item.is-error b { color: var(--status-error); }
 .run-summary-item.is-skipped b { color: var(--status-skipped); }
+.run-summary-item.is-stopped b { color: var(--status-stale); }
 .run-summary-item.is-on { border-color: var(--border-strong); background: var(--panel2); color: var(--tx); }
 .run-summary-item.is-done.is-on { border-color: var(--status-done-bd); background: var(--status-done-bg); }
 .run-summary-item.is-running.is-on { border-color: var(--status-running-bd); background: var(--status-running-bg); }
@@ -133,6 +133,8 @@ main:has(.run-page) { max-width: none; }
 .run-summary-item.is-paused.is-on { border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
 .run-summary-item.is-error.is-on { border-color: var(--status-error-bd); background: var(--status-error-bg); }
 .run-summary-item.is-skipped.is-on { border-color: var(--status-skipped-bd); background: var(--status-skipped-bg); }
+.run-summary-item.is-covered.is-on { border-color: var(--status-covered-bd); background: var(--status-covered-bg); }
+.run-summary-item.is-stopped.is-on { border-color: var(--status-stale-bd); background: var(--status-stale-bg); }
 .run-summary-key::after { content: ":"; }
 .run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin-top: var(--s2); }
 .run-filter .input { width: auto; min-width: 0; font-size: var(--fs-meta); }
@@ -180,6 +182,8 @@ main:has(.run-page) { max-width: none; }
 
 .run-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
 .covered-link { color: var(--status-covered); font-size: var(--fs-meta); text-decoration: none; cursor: pointer; }
+.covered-node-link { color: var(--status-covered); text-decoration: none; }
+.covered-panel-status { display: inline-flex; align-items: center; gap: var(--s1); }
 .covered-link:hover { text-decoration: underline; }
 .covers-block { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--status-covered-bd); border-radius: var(--r-md); background: var(--status-covered-bg); }
 .covers-block h3 { margin: 0 0 var(--s2); color: var(--status-covered); font-size: var(--fs-ctl); }
@@ -211,7 +215,7 @@ main:has(.run-page) { max-width: none; }
   .run-page .run-filter-row > .run-activity { min-width: 0; width: 100%; }
 }
 
-.run-page .run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.run-page .run-filter { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0; }
 .run-page .run-filter-q { flex: 1 1 220px; min-width: 180px; }
 
 .overview-panel { margin-bottom: var(--s3); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--tx); }

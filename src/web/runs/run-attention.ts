@@ -71,7 +71,7 @@ export function describeChanges(prev: RunSnapshot | null, next: RunSnapshot): Ch
     }
     if (node.status === "running") {
       changes.push({ kind: "ok", text: before.status === "stopped" ? `${id} resumed` : `${id} running` });
-    } else if (node.status === "done") {
+    } else if (node.status === "done" || node.status === "covered") {
       changes.push({ kind: "ok", text: `${id} done` });
     } else if (node.status === "error") {
       changes.push({ kind: "error", text: node.error === null || node.error === "" ? `${id} failed` : `${id} failed: ${node.error}` });
