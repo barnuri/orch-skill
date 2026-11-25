@@ -6,9 +6,9 @@ import { orchHome, paths } from "../state/home.ts";
 import { loadRun, readJson, type RunState } from "../state/store.ts";
 import { errLine, resolveRun } from "./node.ts";
 import { needsFollowUp, resultText } from "../runs/node.ts";
+import { LEGACY_GATE_ID } from "../runs/legacy-gate.ts";
 import { handoffProblemOf, reqProblems } from "./req.ts";
 
-export const GATE_ID = "done-gate";
 export const RUN_VERIFY_USAGE = "dispatch.ts run verify <run-id>";
 export interface Failure { nodes: string[]; msg: string; hint: string }
 
@@ -41,18 +41,15 @@ export async function verifyRun(home: string, runId: string, run: RunState): Pro
   }
   // A run with no recorded requests proves nothing: the gate cannot pass it. Record the requests with `req add`.
   const ledger = (await loadLedger(home, runId)).requirements ?? [];
-  if (ledger.length === 0 && run.nodes.some((n) => n.id !== GATE_ID)) {
+  if (ledger.length === 0 && run.nodes.length > 0) {
     fails.push({ nodes: [], msg: "no requests recorded for this run", hint: `dispatch.ts req add ${runId} "<each user request>" --node <nodes>` });
   }
-  // The gate node runs this check itself, so it is judged only once it is done.
-  // A gate that is skipped is never judged away: it fails below unless it ran.
-  const nodes = run.nodes.filter((n) => !(n.id === GATE_ID && n.status !== "done" && n.status !== "skipped"));
+  const nodes = run.nodes;
   for (const n of nodes) {
     if (n.status === "done") continue;
     if (n.status === "skipped") {
       const why = typeof n.skip_reason === "string" ? n.skip_reason.trim() : "";
-      if (n.id === GATE_ID) fails.push({ nodes: [n.id], msg: `the done-gate was skipped${why ? ` (${why})` : " with no recorded reason"}; it must run`, hint: `dispatch.ts node update ${runId} ${GATE_ID} waiting --force, then let it run verify` });
-      else if (!why) fails.push({ nodes: [n.id], msg: `node ${n.id} was skipped with no recorded reason`, hint: `dispatch.ts node update ${runId} ${n.id} skipped --force --reason "<why>"` });
+      if (!why) fails.push({ nodes: [n.id], msg: `node ${n.id} was skipped with no recorded reason`, hint: `dispatch.ts node update ${runId} ${n.id} skipped --force --reason "<why>"` });
       continue;
     }
     if (n.status === "covered") {
@@ -86,7 +83,7 @@ export async function verifyRun(home: string, runId: string, run: RunState): Pro
   for (const n of nodes.filter((x) => x.status === "done" && needsFollowUp(x))) {
     fails.push({ nodes: [n.id], msg: `node ${n.id} needs follow-up: ${resultText(n, 200)}`, hint: `read $ORCH_NODE_OUT/handoff.md of ${n.id}, handle the follow-up, then record: dispatch.ts node result ${runId} ${n.id} --verdict full --summary "<what was done>"` });
   }
-  for (const n of nodes.filter((x) => x.role === "validation" && x.id !== GATE_ID && x.status !== "done")) {
+  for (const n of nodes.filter((x) => x.role === "validation" && x.id !== LEGACY_GATE_ID && x.status !== "done")) {
     fails.push({ nodes: [n.id], msg: `validation node ${n.id} did not pass (${n.status})`, hint: `fix what it found and retry: dispatch.ts node retry ${runId} ${n.id}` });
   }
   fails.push(...(await reqProblems(home, runId, run)));

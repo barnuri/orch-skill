@@ -32,7 +32,7 @@ function fresh(runCwd?: string) {
   process.env.HARNESS_ORCH_HOME = home;
   const o = orch(home);
   const r = runCwd
-    ? Bun.spawnSync([process.execPath, join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "start", "t", "--id", "rr"], { cwd: runCwd, env: { ...process.env, HARNESS_ORCH_HOME: home, ORCH_NO_DONE_GATE: "1" } })
+    ? Bun.spawnSync([process.execPath, join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "start", "t", "--id", "rr"], { cwd: runCwd, env: { ...process.env, HARNESS_ORCH_HOME: home } })
     : null;
   if (!r) o("run", "start", "t", "--id", "rr");
   return { home, o };

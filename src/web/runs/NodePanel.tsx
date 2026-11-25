@@ -20,7 +20,7 @@ import type { Metric } from "../lib/node-metrics";
 import { coveredHref, coveredTarget } from "../lib/covered-node";
 import { activeStageSummary, formatSelectionLine, timelineEvents } from "../lib/selection-timeline";
 import { Ago } from "./RunActivity";
-import { useJobChat, useJobLog, useNodeActivity } from "./queries";
+import { useJobChat, useJobLog, useNodeActivity, useRunNode } from "./queries";
 import { refetchRun } from "./run-actions";
 import { useNodeDuration } from "./GraphSvg";
 import { NodeActions, NodeWarnings } from "./NodeActions";
@@ -693,7 +693,12 @@ function OrchDetails({ run }: { run: RunState }) {
 
 export function NodePanel({ run, selectedId, maxAttempts, flash, onClose }: { run: RunState; selectedId: string | null; maxAttempts: number; flash: number; onClose?: () => void }) {
   const orch = isOrchSelection(selectedId);
-  const node = orch ? orchestratorNode(run as RunWithCoordinator) : run.nodes.find((candidate) => candidate.id === selectedId);
+  const listed = orch ? orchestratorNode(run as RunWithCoordinator) : run.nodes.find((candidate) => candidate.id === selectedId);
+  // The run document carries no selection history or log tails: fetch them for the open node.
+  const detail = useRunNode(run.run_id, selectedId ?? "", !orch && listed !== undefined, run.status === "running");
+  const node = listed !== undefined && detail.data !== undefined
+    ? { ...listed, selection_history: detail.data.selection_history, log_tail: detail.data.log_tail, attempts: detail.data.attempts ?? listed.attempts }
+    : listed;
   const orchActivity = useNodeActivity(run.run_id, ORCH_TARGET, orch, orch && run.status === "running");
   const panel = useRef<HTMLElement>(null);
   // The graph fills the viewport, so a freshly shown panel sits below the fold and a click looks like

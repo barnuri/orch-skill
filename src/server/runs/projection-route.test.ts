@@ -9,7 +9,7 @@ import type { ServerContext } from "../types/server-context";
 
 autoCleanup();
 
-const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "0" };
+const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0" };
 
 function setup() {
   const home = seedHome();

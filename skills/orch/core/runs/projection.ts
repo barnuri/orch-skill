@@ -35,6 +35,7 @@ export interface ProjectionRunInput {
   run_id: string;
   title?: string;
   status: string;
+  needs_user?: string | null;
   paused?: boolean;
   stopped?: boolean;
   edges?: [string, string][];
@@ -88,7 +89,7 @@ export interface HandoffGap { node: string; reason: "missing_handoff" }
 export interface OwnerDiagnostic { node: string; job_id: string | null; owner_state: string | null; owner_reason: string | null; diagnosis: "ok" | "unowned" | string }
 export interface SupervisorFlag { node: string; rule: string; detail: string; at: string }
 export interface NextAction {
-  kind: "resume_run" | "answer_question" | "fix_error" | "record_handoff" | "record_result" | "close_requirement" | "start_node" | "review_flag";
+  kind: "resume_run" | "answer_question" | "fix_error" | "record_handoff" | "record_result" | "close_requirement" | "start_node" | "review_flag" | "finish_run";
   node: string | null;
   requirement: string | null;
   text: string;
@@ -260,6 +261,9 @@ export function buildRunProjection(input: ProjectionInput): RunProjection {
     next.push({ kind: "close_requirement", node: null, requirement: r.id, text: `get requirement ${r.id} verified by another node` });
   }
   for (const f of flags) next.push({ kind: "review_flag", node: f.node, requirement: null, text: `watchdog ${f.rule} on ${f.node}: ${f.detail}` });
+  if (run.status === "running" && typeof run.needs_user === "string" && run.needs_user !== "") next.push({ kind: "answer_question", node: null, requirement: null, text: `run verify failed: ${run.needs_user.split("\n")[0]}` });
+  const settled = run.nodes.length > 0 && run.nodes.every((n) => n.status === "done" || n.status === "skipped" || n.status === "covered");
+  if (settled && run.status === "running" && rawGate === null) next.push({ kind: "finish_run", node: null, requirement: null, text: "All nodes settled: verify requirements and finish the run" });
   if (rawGate === null) for (const id of ready) next.push({ kind: "start_node", node: id, requirement: null, text: `start ${id}` });
 
   // A finished run (done or cancelled) has nothing to start and nothing to do next.

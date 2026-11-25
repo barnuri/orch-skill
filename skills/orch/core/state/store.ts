@@ -1,6 +1,7 @@
 // Atomic JSON state: write <file>.tmp.<pid>, then rename over the target. Never unlinks.
 import { appendFile, rename } from "node:fs/promises";
 import { paths } from "./home.ts";
+import { retireLegacyGate } from "../runs/legacy-gate.ts";
 
 export async function readJson<T = unknown>(file: string): Promise<T> {
   return (await Bun.file(file).json()) as T;
@@ -18,7 +19,7 @@ export type RunState = Record<string, any> & { nodes: Array<Record<string, any>>
 export async function loadRun(home: string, runId: string): Promise<RunState | null> {
   const f = paths.runState(home, runId);
   if (!(await Bun.file(f).exists())) return null;
-  return readJson<RunState>(f);
+  return retireLegacyGate(await readJson<RunState>(f));
 }
 
 export async function saveRun(home: string, runId: string, run: RunState): Promise<void> {

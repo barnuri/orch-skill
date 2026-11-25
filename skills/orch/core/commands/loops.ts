@@ -78,8 +78,7 @@ function stopGroup(pid: unknown): boolean {
 // ---- run bookkeeping (every loop is also an orch run) ------------------------------------------
 
 async function loopRunOpen(id: string, label: string): Promise<void> {
-  // A loop run is bookkeeping, not agent work: no done-gate node.
-  await dispatchSh(["run", "start", `↻ loop · ${label}`, "--id", id], { env: { ...process.env, ORCH_NO_DONE_GATE: "1" } });
+  await dispatchSh(["run", "start", `↻ loop · ${label}`, "--id", id]);
 }
 
 async function loopRunTickStart(id: string, iter: number): Promise<void> {

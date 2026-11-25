@@ -51,7 +51,6 @@ export async function findGaps(home: string, runId: string): Promise<Gap[]> {
   }
   const ids = new Set((run.nodes ?? []).map((n: any) => n.id));
   for (const n of run.nodes ?? []) {
-    if (n.id === "done-gate") continue;
     if (n.status === "error" && !(run.nodes ?? []).some((m: any) => m.status === "covered" && String(m.covered_by ?? "").endsWith(`/${n.id}`))) {
       gaps.push({ kind: "errored-node", id: n.id, detail: String(n.error ?? "error") });
     }

@@ -17,7 +17,7 @@ import type { ApiError } from "../../shared/types/api-error";
 import type { DocumentKind } from "../../shared/types/document-kind";
 import type { ActiveEnvelope } from "../../shared/types/active-envelope";
 import type { HarnessesEnvelope } from "../../shared/types/harness-status";
-import { jobChatSchema, jobLogSchema, nodeActivitySchema, runMessagesSchema, runSchema, runsSchema } from "../runs/schemas";
+import { jobChatSchema, jobLogSchema, nodeActivitySchema, runMessagesSchema, runNodeSchema, runSchema, runsSchema } from "../runs/schemas";
 import type { ScheduleEdit, ScheduleInput, SchedulesEnvelope } from "../../shared/types/schedule";
 import { API_BASE } from "../lib/constants";
 import type { ApiResult } from "./result";
@@ -199,6 +199,10 @@ export class ApiClient {
   /** A 404 is the normal answer for every harness but claude, so it must not move the freshness dot. */
   getJobChat(jobId: string) {
     return this.request("GET", `${API_BASE}/jobs/${encodeURIComponent(jobId)}/chat`, jobChatSchema, { quiet: true });
+  }
+
+  getRunNode(runId: string, nodeId: string) {
+    return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}`, runNodeSchema, { quiet: true });
   }
 
   getNodeActivity(runId: string, nodeId: string) {

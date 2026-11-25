@@ -15,14 +15,14 @@ test("githubSlug reads owner/repo from ssh and https GitHub remotes only", () =>
   expect(githubSlug("")).toBe("");
 });
 
-test("pullsForCommit returns the PR URLs gh reports, and null when gh fails", () => {
+test("pullsForCommit returns the PR URLs gh reports, and null when gh fails", async () => {
   const repo = mkdtempSync(join(tmpdir(), "ov-repo-"));
   const oldPath = process.env.PATH;
   try {
     process.env.PATH = `${fakeBin({ gh: "echo https://github.com/acme/orch/pull/7" })}:${oldPath}`;
-    expect(pullsForCommit(repo, "acme/orch", "abc1234")).toEqual(["https://github.com/acme/orch/pull/7"]);
+    expect(await pullsForCommit(repo, "acme/orch", "abc1234")).toEqual(["https://github.com/acme/orch/pull/7"]);
     process.env.PATH = `${fakeBin({ gh: "exit 1" })}:${oldPath}`;
-    expect(pullsForCommit(repo, "acme/orch", "abc1234")).toBeNull();
+    expect(await pullsForCommit(repo, "acme/orch", "abc1234")).toBeNull();
   } finally {
     process.env.PATH = oldPath;
   }

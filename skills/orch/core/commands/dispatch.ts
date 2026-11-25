@@ -533,7 +533,7 @@ export async function runFinish(args: string[]): Promise<number> {
   if (runId === null) return 1;
   const pre = await loadRun(home, runId);
   if (!pre) return (errLine(`run ${runId}: unknown run`), 2);
-  // The closure gate holds even with --force: a run never becomes done while work is open or the done-gate has not run.
+  // The closure gate holds even with --force: a run never becomes done while work is open.
   const closing = status === "" ? !pre.nodes.some((n) => n.status === "error") : status === "done";
   if (closing && pre.status !== "covered") {
     const open = closureProblems(pre);

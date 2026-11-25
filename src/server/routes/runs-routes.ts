@@ -42,6 +42,42 @@ export function listRunsHandler(ctx: ServerContext): RouteHandler {
   };
 }
 
+type NodeDoc = Record<string, unknown>;
+
+/** The run document without the per-node bulk (selection history, log tails): `GET /runs/{id}/nodes/{node}` serves them. */
+export function slimRun<T extends { nodes?: unknown }>(run: T): T {
+  const nodes = Array.isArray(run.nodes) ? (run.nodes as NodeDoc[]) : null;
+  if (nodes === null) {
+    return run;
+  }
+  const slim = nodes.map((node) => {
+    const history = Array.isArray(node.selection_history) ? (node.selection_history as Array<{ seq?: number }>) : null;
+    const attempts = Array.isArray(node.attempts) ? (node.attempts as NodeDoc[]) : null;
+    const out: NodeDoc = { ...node, log_tail: [] };
+    if (history !== null) {
+      // The newest event stays: the graph card reads the effort from it.
+      out.selection_history = history.length === 0 ? [] : [history.reduce((best, e) => ((e.seq ?? 0) >= (best.seq ?? 0) ? e : best))];
+    }
+    if (attempts !== null) {
+      out.attempts = attempts.map((attempt) => (attempt.log_tail === undefined ? attempt : { ...attempt, log_tail: [] }));
+    }
+    return out;
+  });
+  return { ...run, nodes: slim };
+}
+
+/** `GET /api/runs/{id}/nodes/{node}`: one node with its full selection history, log tail and attempts. */
+export function readRunNodeHandler(ctx: ServerContext): RouteHandler {
+  return (_req: Request, params: Readonly<Record<string, string>>): Response => {
+    const result = readRunCached(ctx.paths, params.id ?? "").result;
+    if (result.kind !== "ok") {
+      return notFound();
+    }
+    const node = (result.run.nodes as unknown as NodeDoc[]).find((candidate) => candidate.id === params.node);
+    return node === undefined ? notFound() : jsonResponse(200, { node });
+  };
+}
+
 // `params.id` arrives percent-decoded from Bun; `readRun` rejects anything outside the id alphabet.
 export function readRunHandler(ctx: ServerContext): RouteHandler {
   return (req: Request, params: Readonly<Record<string, string>>): Response => {
@@ -56,7 +92,8 @@ export function readRunHandler(ctx: ServerContext): RouteHandler {
       return jsonResponse(500, error);
     }
     const orchestrator = coordinatorState(ctx.paths.runs, result.run as unknown as Record<string, unknown>);
-    const run = orchestrator === null ? result.run : { ...result.run, orchestrator_state: orchestrator, coordinator_state: orchestrator };
+    const full = orchestrator === null ? result.run : { ...result.run, orchestrator_state: orchestrator, coordinator_state: orchestrator };
+    const run = slimRun(full);
     const etag = payloadEtag(run);
     if (req.headers.get(IF_NONE_MATCH) === etag) {
       return notModified(etag);
@@ -110,8 +147,7 @@ export async function verifyRun(ctx: ServerContext, runId: string): Promise<Resp
 }
 
 /**
- * Finishes a run by hand. Verify passes: `run finish`. Verify fails: a reason is required; the waiting done-gate is
- * skipped with that reason, then `run finish --force --reason`. Open nodes still refuse (the CLI closure gate).
+ * Finishes a run by hand. Verify passes: `run finish`. Verify fails: a reason is required, then `run finish --force --reason`. Open nodes still refuse (the CLI closure gate).
  */
 export async function finishRun(ctx: ServerContext, runId: string, reasonInput: string | undefined): Promise<Response> {
   const reason = (reasonInput ?? "").trim();
@@ -124,14 +160,6 @@ export async function finishRun(ctx: ServerContext, runId: string, reasonInput: 
   }
   if (reason === "") {
     return jsonResponse(400, { error: "run verify fails: a reason is required to finish the run by hand" });
-  }
-  const gate = readRunCached(ctx.paths, runId, true).result;
-  const gateNode = gate.kind === "ok" ? gate.run.nodes.find((n) => n.id === "done-gate") : undefined;
-  if (gateNode !== undefined && gateNode.status !== "done" && gateNode.status !== "skipped") {
-    const skip = await spawnDispatch(ctx, ["node", "update", runId, "done-gate", "skipped", "--force", "--reason", reason]);
-    if (skip.code !== 0) {
-      return dispatchFailure(skip);
-    }
   }
   return dispatchSubcommand(ctx, ["run", "finish", runId, "--force", "--reason", reason]);
 }

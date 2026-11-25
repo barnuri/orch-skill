@@ -101,7 +101,7 @@ function resolveBun(cmd: string[]): string[] {
 }
 
 export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string; stdin?: string; spawn?: boolean } = {}): Result {
-  const env = cleanEnv({ ORCH_NO_DONE_GATE: "1", ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
+  const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const oargs = orchArgs(cmd);
   if (oargs && !opts.cwd && !opts.spawn && !mustSpawn(oargs)) {
     const t1 = Date.now(), r = inProcess(oargs, env, opts.stdin);
@@ -116,7 +116,7 @@ export function runCmd(cmd: string[], opts: { home?: string; env?: Record<string
 }
 
 export async function runCmdAsync(cmd: string[], opts: { home?: string; env?: Record<string, string | undefined>; cwd?: string } = {}): Promise<Result> {
-  const env = cleanEnv({ ORCH_NO_DONE_GATE: "1", ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
+  const env = cleanEnv({ ...(opts.home ? { HARNESS_ORCH_HOME: opts.home } : {}), ...opts.env });
   const p = Bun.spawn(resolveBun(cmd), { env, cwd: opts.cwd, stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { rc: await p.exited, out, err, all: out + err };

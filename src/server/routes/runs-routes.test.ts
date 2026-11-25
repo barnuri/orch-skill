@@ -375,7 +375,7 @@ describe.concurrent("run finish by hand", () => {
     expect(read(srv).status).toBe("running");
   });
 
-  test("finish with verify failing skips the gate and stores the reason", async () => {
+  test("finish with verify failing stores the reason and reads an old unrun gate as skipped", async () => {
     const srv = server();
     seed(srv, RUN_ID, settled());
     const res = await post(srv, `/api/runs/${RUN_ID}/finish`, { reason: "checked by hand" });
@@ -385,7 +385,7 @@ describe.concurrent("run finish by hand", () => {
     expect(state.force_finish_reason).toBe("checked by hand");
     const gate = state.nodes.find((item) => item.id === "done-gate") as { status: string; skip_reason?: string };
     expect(gate.status).toBe("skipped");
-    expect(gate.skip_reason).toBe("checked by hand");
+    expect(gate.skip_reason).toBe("replaced by the orchestrator's verify and finish");
   });
 
   test("node done needs a reason and then marks the node done", async () => {
@@ -523,4 +523,14 @@ describe("readJobChatHandler", () => {
     );
     expect((await handler(chatRequest(), { id: "20260101-000000-pid-9-9-9" })).status).toBe(404);
   });
+});
+
+import { slimRun } from "./runs-routes";
+test("slimRun drops log tails and keeps only the newest selection event", () => {
+  const run = slimRun({ nodes: [{ id: "a", log_tail: ["x"], selection_history: [{ seq: 1 }, { seq: 3 }, { seq: 2 }], attempts: [{ log_tail: ["y"], error: null }] }, { id: "b", log_tail: [] }] });
+  const a = run.nodes[0] as Record<string, unknown>;
+  expect(a.log_tail).toEqual([]);
+  expect(a.selection_history).toEqual([{ seq: 3 }]);
+  expect(a.attempts).toEqual([{ log_tail: [], error: null }]);
+  expect((run.nodes[1] as Record<string, unknown>).selection_history).toBeUndefined();
 });

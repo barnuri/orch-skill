@@ -7,7 +7,7 @@ setDefaultTimeout(60000);
 
 // `goal` hands --stop-on to `run advance` unchanged (goal.ts advanceArgs), so the stop events are
 // checked on `run advance` with a hand-built run, and the goal command itself on parsing and dry-run.
-const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "1", ORCH_HERDR: "0", HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: undefined };
+const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_HERDR: "0", HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: undefined };
 
 /** Run r1: a and b (after a), no stored prompts. `errored` puts a in error, so b waits on a failed node. */
 function runHome(errored: boolean) {

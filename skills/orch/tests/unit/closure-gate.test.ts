@@ -8,18 +8,12 @@ import { auditRun } from "../../../../scripts/unorch-audit.ts";
 
 autoCleanup();
 
-test("closureProblems blocks waiting, ready and running nodes and an unrun done-gate", () => {
-  expect(closureProblems({ nodes: [{ id: "a", status: "done" }, { id: "done-gate", status: "done" }] })).toEqual([]);
-  expect(closureProblems({ nodes: [{ id: "a", status: "waiting" }, { id: "done-gate", status: "done" }] })).toEqual(["node a is waiting"]);
-  expect(closureProblems({ nodes: [{ id: "a", status: "running" }, { id: "done-gate", status: "done" }] })).toEqual(["node a is running"]);
-  expect(closureProblems({ nodes: [{ id: "a", status: "ready" }, { id: "done-gate", status: "done" }] })).toEqual(["node a is ready"]);
-  expect(closureProblems({ nodes: [{ id: "done-gate", status: "waiting" }] })[0]).toMatch(/done-gate is waiting/);
-});
-
-test("the done-gate may be skipped only with a recorded reason", () => {
-  expect(closureProblems({ nodes: [{ id: "done-gate", status: "skipped" }] })).toHaveLength(1);
-  expect(closureProblems({ nodes: [{ id: "done-gate", status: "skipped", skip_reason: "  " }] })).toHaveLength(1);
-  expect(closureProblems({ nodes: [{ id: "done-gate", status: "skipped", skip_reason: "verified by hand" }] })).toEqual([]);
+test("closureProblems blocks waiting, ready and running nodes and needs no gate node", () => {
+  expect(closureProblems({ nodes: [{ id: "a", status: "done" }] })).toEqual([]);
+  expect(closureProblems({ nodes: [{ id: "a", status: "waiting" }] })).toEqual(["node a is waiting"]);
+  expect(closureProblems({ nodes: [{ id: "a", status: "running" }] })).toEqual(["node a is running"]);
+  expect(closureProblems({ nodes: [{ id: "a", status: "ready" }] })).toEqual(["node a is ready"]);
+  expect(closureProblems({ nodes: [] })).toEqual([]);
 });
 
 test("legacy requirement statuses are read as their new names", () => {
@@ -45,7 +39,7 @@ test("loadLedger maps legacy statuses on read and leaves the file unchanged", as
 test("audit: a done run with an open node is a high finding", () => {
   const home = tempDir("gate-audit-");
   mkdirSync(join(home, "runs", "x-1"), { recursive: true });
-  writeFileSync(join(home, "runs", "x-1", "state.json"), JSON.stringify({ status: "done", nodes: [{ id: "a", status: "waiting" }, { id: "done-gate", status: "done" }] }));
+  writeFileSync(join(home, "runs", "x-1", "state.json"), JSON.stringify({ status: "done", nodes: [{ id: "a", status: "waiting" }] }));
   const { findings } = auditRun(home, "x-1");
   const f = findings.find((x) => x.rule === "run-closed-with-open-nodes");
   expect(f?.severity).toBe("high");

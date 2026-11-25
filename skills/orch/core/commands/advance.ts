@@ -2,19 +2,17 @@
 // Ported from lib/runs/plan.sh (run_advance_once, cmd_run_advance). `run sync` still runs through dispatch.ts
 // runs in-process (stdout muted, pause answered by run sync itself as in bash).
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
 import { orchHome } from "../state/home.ts";
 import { loadRun } from "../state/store.ts";
 import { loadHold } from "../state/load.ts";
 import { loadProfilesDoc, maxParallelCapFrom, runCapFrom } from "../state/settings.ts";
 import { findNode } from "../runs/node.ts";
 import { nodeReady } from "./run.ts";
-import { nodeDispatchStored, nodeOutDir } from "./dispatch.ts";
+import { nodeDispatchStored } from "./dispatch.ts";
 import { planApply } from "./plan.ts";
 import { runFinish } from "./dispatch.ts";
-import { resolveRun, nodeUpdate, nodeResult } from "./node.ts";
+import { resolveRun } from "./node.ts";
 import { runSync as runSyncCmd } from "./runs.ts";
-import { GATE_ID, formatFailures, verifyRun } from "./verify.ts";
 
 export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish] [--stop-on blocked|error|timeout|all]";
 const ADVANCE_INTERVAL_DEFAULT = 15;
@@ -33,31 +31,6 @@ async function syncQuiet(runId: string): Promise<boolean> {
 }
 
 const count = (run: any, ...st: string[]) => (run.nodes ?? []).filter((n: any) => st.includes(n.status)).length;
-
-// The done-gate has no agent and no profile. The scheduler runs the verify check itself, writes its result as
-// the gate's handoff, then marks the gate done (no failures) or error (failures). Returns 1 only when a node update fails.
-async function runGate(home: string, runId: string): Promise<number> {
-  if ((await nodeUpdate([runId, GATE_ID, "running", "--owner", "scheduler"])) !== 0) return 1;
-  const run = (await loadRun(home, runId))!;
-  const fails = await verifyRun(home, runId, run);
-  const text = fails.length === 0 ? `verify ok: ${runId}\n` : `verify FAILED: ${fails.length} failure(s) in ${runId}\n${formatFailures(fails)}`;
-  const dir = await nodeOutDir(home, runId, GATE_ID, run);
-  await mkdir(dir, { recursive: true });
-  await Bun.write(join(dir, "handoff.md"), text);
-  const { findGaps } = await import("./gaps.ts");
-  const gaps = await findGaps(home, runId);
-  if (fails.length === 0 && gaps.length > 0) {
-    // Gaps are not done: the gate stays open and the heal creates the missing work.
-    return nodeUpdate([runId, GATE_ID, "error", "--error", `${gaps.length} gap(s): ${gaps.map((g) => g.kind + " " + g.id).join(", ")}`]);
-  }
-  if (fails.length === 0) {
-    // The gate records its own result, so verify sees a result for it.
-    const result = await nodeResult([runId, GATE_ID, "--verdict", "full", "--summary", "verification passed", "--follow-up", "none"]);
-    if (result !== 0) return result;
-    return nodeUpdate([runId, GATE_ID, "done"]);
-  }
-  return nodeUpdate([runId, GATE_ID, "error", "--error", `${fails.length} verify failure(s): run verify ${runId}`]);
-}
 
 async function advanceOnce(home: string, runId: string): Promise<number> {
   if (!(await syncQuiet(runId))) return 1;
@@ -85,15 +58,9 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
   const dispatched: string[] = [];
   const queued: string[] = [];
   const manual: string[] = [];
-  const gated: string[] = [];
   const loadHeld = await loadHold(home);
   const held: string[] = [];
   for (const n of run.nodes.filter((x) => nodeReady(run, x))) {
-    if (n.id === GATE_ID) {
-      if ((await runGate(home, runId)) !== 0) return 1;
-      gated.push(n.id);
-      continue;
-    }
     const pf = join(home, "runs", runId, "prompts", `${n.id}.md`);
     const prompt = (await Bun.file(pf).exists()) ? `@${pf}` : String(n.prompt ?? "");
     if (prompt === "") {
@@ -115,7 +82,6 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
   run = (await loadRun(home, runId))!;
   out(`dispatched: ${dispatched.join(",")}\nqueued: ${queued.join(",")}\n`);
   if (held.length) out(`held: ${loadHeld}: ${held.join(",")}\n`);
-  if (gated.length) out(`gate run by scheduler: ${gated.join(",")}\n`);
   if (manual.length) out(`needs-prompt: ${manual.join(",")}\n`);
   out(`running: ${count(run, "running")}  waiting: ${count(run, "waiting")}  done: ${count(run, "done", "skipped")}  error: ${count(run, "error")}\n`);
   if (dispatched.length === 0 && count(run, "running") === 0 && count(run, "waiting") > 0) {

@@ -6,7 +6,7 @@ autoCleanup();
 
 const setup = () => {
   const home = seedHome();
-  const o = orch(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "0" });
+  const o = orch(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0" });
   const R = o("run", "start", "req run").out.trim();
   return { home, o, R };
 };
@@ -17,13 +17,11 @@ const finishNode = (home: string, o: ReturnType<typeof orch>, R: string, id: str
   o("node", "update", R, id, "done");
 };
 
-test("run start adds the last done-gate node and keeps it waiting after new nodes", () => {
+test("run start adds no done-gate node", () => {
   const { home, o, R } = setup();
-  const g = nodeOf(home, R, "done-gate");
-  expect([g.role, g.after_all, g.status]).toEqual(["validation", true, "waiting"]);
-  expect(g.prompt).toContain(`run verify ${R}`);
+  expect(runState(home, R).nodes).toEqual([]);
   o("node", "add", R, "a", "A");
-  expect(nodeOf(home, R, "done-gate").status).toBe("waiting");
+  expect(runState(home, R).nodes.map((n: any) => n.id)).toEqual(["a"]);
 });
 
 test("ledger: add, link, evidence, status, list, check", () => {
@@ -49,7 +47,7 @@ test("ledger: add, link, evidence, status, list, check", () => {
   c = o("req", "check", R);
   expect(c.rc).toBe(0);
   expect(c.out).toMatch(/n1: done done=true handoff=yes unverified=false/);
-  expect(runState(home, R).nodes.length).toBe(2);
+  expect(runState(home, R).nodes.length).toBe(1);
 });
 
 test("run verify lists numbered failures and passes when clean; finish refuses unless forced", () => {
@@ -60,7 +58,6 @@ test("run verify lists numbered failures and passes when clean; finish refuses u
   finishNode(home, o, R, "a", "");
   o("node", "update", R, "v", "running", "--owner", "coordinator");
   o("node", "update", R, "v", "error", "--error", "bad");
-  o("node", "update", R, "done-gate", "skipped", "--force", "--reason", "test skip");
   const v = o("run", "verify", R);
   expect(v.rc).toBe(1);
   expect(v.out).toMatch(/^\d+\. \[a\] node a is unverified: handoff.md is missing/m);
@@ -84,10 +81,6 @@ test("clean run verifies and finishes; open hold and open ask fail verify", () =
   finishNode(home, o, R, "a");
   o("req", "add", R, "do a", "--node", "a");
   o("req", "status", R, "R1", "done", "--force", "--reason", "closed by the test");
-  o("node", "update", R, "done-gate", "running", "--owner", "coordinator");
-  writeFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "verified\n");
-  o("node", "result", R, "done-gate", "--verdict", "full", "--summary", "verification passed", "--follow-up", "none");
-  o("node", "update", R, "done-gate", "done");
   o("node", "update", R, "a", "--hold", "wait for user");
   const h = o("run", "verify", R);
   expect(h.rc).toBe(1);
@@ -124,7 +117,7 @@ test("stale handoff after a retry fails with the latest-attempt hint", () => {
 
 test("concurrent req add gives distinct ids", async () => {
   const { home, o, R } = setup();
-  const sp = orchSpawn(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "0" });
+  const sp = orchSpawn(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0" });
   const rs = await Promise.all([1, 2, 3, 4].map((i) => sp("req", "add", R, `ask ${i}`)));
   const ids = rs.map((r) => r.out.trim());
   expect(rs.every((r) => r.rc === 0)).toBe(true);
@@ -132,23 +125,13 @@ test("concurrent req add gives distinct ids", async () => {
   expect(JSON.parse(o("req", "list", R, "--json").out).requirements.length).toBe(4);
 });
 
-test("a gate running when a node is added waits again instead of ending done", () => {
-  const { home, o, R } = setup();
-  o("node", "update", R, "done-gate", "running", "--owner", "coordinator");
-  o("node", "add", R, "late", "Late");
-  o("node", "update", R, "done-gate", "done");
-  expect(nodeOf(home, R, "done-gate").status).toBe("waiting");
-});
-
-test("forced skip needs a reason; unrecorded skip and skipped gate fail verify, recorded skip passes", () => {
+test("forced skip needs a reason; unrecorded skip fails verify, recorded skip passes", () => {
   const { home, o, R } = setup();
   o("node", "add", R, "a", "A");
   expect(o("node", "update", R, "a", "skipped", "--force").rc).not.toBe(0);
   expect(o("node", "update", R, "a", "skipped", "--force", "--reason", "--force").rc).not.toBe(0);
   expect(o("node", "update", R, "a", "skipped", "--force", "--reason", "not needed").rc).toBe(0);
   expect(nodeOf(home, R, "a").skip_reason).toBe("not needed");
-  expect(o("node", "update", R, "done-gate", "skipped", "--force", "--reason", "x").rc).toBe(0);
-  expect(verifyOut(o, R)).toMatch(/done-gate was skipped/);
   expect(verifyOut(o, R)).not.toMatch(/node a was skipped/);
   const st = runState(home, R);
   delete (st.nodes.find((n: any) => n.id === "a") as any).skip_reason;

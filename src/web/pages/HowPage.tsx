@@ -15,7 +15,7 @@ const LANES: readonly Lane[] = [
   { label: "State", who: "dispatch.ts writes only" },
   { label: "Supervisor", who: "one watchdog in the server" },
   { label: "Harness jobs", who: "one job or session per node" },
-  { label: "Gate and delivery", who: "done gate, then the PR" },
+  { label: "Gate and delivery", who: "orchestrator verify, then the PR" },
 ];
 
 interface Step {
@@ -35,7 +35,7 @@ const STEPS: readonly Step[] = [
   { code: "S4", col: 4, row: 4, title: "Supervisor dispatches", body: "Starts every ready node, up to settings.max_parallel at once.", cmd: "run watch" },
   { code: "S5", col: 5, row: 5, title: "Node runs", body: "Pings progress and reports model and tokens while it works.", cmd: "node ping · node report" },
   { code: "S6", col: 6, row: 5, title: "Handoff and result", body: "Writes handoff.md to ORCH_NODE_OUT, then a verdict.", cmd: "node result --verdict" },
-  { code: "S7", col: 6, row: 6, title: "Done gate", body: "Fails on open asks, partial nodes or missing delivery evidence.", cmd: "run verify" },
+  { code: "S7", col: 6, row: 6, title: "Verify", body: "Fails on open asks, partial nodes or missing delivery evidence.", cmd: "run verify" },
   { code: "S8", col: 7, row: 6, title: "Delivery", body: "Commit, push and PR. The PR URL and checks go on the ask.", cmd: "req evidence <run> <id>" },
 ];
 
@@ -154,7 +154,7 @@ export function HowPage() {
           ))}
         </div>
         <p className="how-note">
-          A failed gate, a partial node or an open ask sends the run back to S2: the orchestrator adds or retries nodes. Ready nodes repeat S4 to S6 until no node is ready.
+          A failed verify, a partial node or an open ask sends the run back to S2: the orchestrator adds or retries nodes. Ready nodes repeat S4 to S6 until no node is ready.
         </p>
       </section>
 

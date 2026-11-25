@@ -6211,6 +6211,79 @@
         }
       }
     },
+    "/api/runs/{id}/nodes/{node}": {
+      "get": {
+        "summary": "One node, in full",
+        "description": "The node with its full `selection_history`, `log_tail` and attempt log tails. `GET /runs/{id}` leaves these out (it keeps only the newest selection event).",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id."
+            },
+            "required": true,
+            "description": "Run id.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Node id within the run."
+            },
+            "required": true,
+            "description": "Node id within the run.",
+            "name": "node",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Host header, or the request is invalid. `{ error }` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run or node.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{id}/nodes/{node}/activity": {
       "get": {
         "summary": "A node owner's live activity",
@@ -6517,7 +6590,7 @@
     "/api/runs/{id}/finish": {
       "post": {
         "summary": "Finish a run by hand",
-        "description": "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); the done-gate that has not run is skipped with the reason (`node update done-gate skipped --force --reason`), then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+        "description": "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
         "tags": [
           "runs"
         ],

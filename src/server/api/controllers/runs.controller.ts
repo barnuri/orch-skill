@@ -15,6 +15,7 @@ import {
   readRunMessagesHandler,
   pauseRunHandler,
   readRunHandler,
+  readRunNodeHandler,
   retryNodeHandler,
   resumeRunHandler,
   retryRunHandler,
@@ -46,6 +47,7 @@ export class RunsController {
   private readonly events: RouteHandler;
   private readonly activity: RouteHandler;
   private readonly messages: RouteHandler;
+  private readonly readNode: RouteHandler;
   private readonly ctx: ServerContext;
 
   constructor(ctx: ServerContext) {
@@ -62,6 +64,7 @@ export class RunsController {
     this.events = readRunEventsHandler(ctx);
     this.activity = readNodeActivityHandler(ctx);
     this.messages = readRunMessagesHandler(ctx);
+    this.readNode = readRunNodeHandler(ctx);
     this.ctx = ctx;
   }
 
@@ -106,6 +109,16 @@ export class RunsController {
   live_(c: ApiContext): Response {
     const id = c.req.param("id") ?? "";
     return isRunId(id) ? runLiveStream(id, c.req.raw.signal) : jsonResponse(404, { error: "no such run" });
+  }
+
+  @Get("/runs/{id}/nodes/{node}", {
+    summary: "One node, in full",
+    description: "The node with its full `selection_history`, `log_tail` and attempt log tails. `GET /runs/{id}` leaves these out (it keeps only the newest selection event).",
+  })
+  @Param(RunNodeParamsDto.schema)
+  @ResponseSchema(ErrorDto.schema, { status: 404, description: "No such run or node." })
+  readNode_(c: ApiContext): Promise<Response> {
+    return call(this.readNode, c);
   }
 
   @Get("/runs/{id}/nodes/{node}/activity", {
@@ -155,7 +168,7 @@ export class RunsController {
 
   @Post("/runs/{id}/finish", {
     summary: "Finish a run by hand",
-    description: "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); the done-gate that has not run is skipped with the reason (`node update done-gate skipped --force --reason`), then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
+    description: "When `run verify` passes: `run finish`. When it fails: `reason` is required (400 without it); then `run finish --force --reason`, which stores the reason on the run. A run with a waiting or running node still refuses (400 or 500 with the CLI message).",
   })
   @Param(RunIdParamsDto.schema)
   @Body(ReasonInputDto.schema)

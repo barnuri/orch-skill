@@ -22,6 +22,7 @@ export const runKeys = {
   events: (id: string): string => `run-events:${id}`,
   jobLog: (id: string): string => `job-log:${id}`,
   jobChat: (id: string): string => `job-chat:${id}`,
+  node: (run: string, node: string): string => `run-node:${run}:${node}`,
   nodeActivity: (run: string, node: string): string => `node-activity:${run}:${node}`,
   messages: (id: string): string => `run-messages:${id}`,
   health: (id: string): string => `run-health:${id}`,
@@ -50,9 +51,47 @@ export function liveStateOf(conn: ConnState): LiveState {
   return conn === "open" ? "live" : conn === "connecting" ? "connecting" : "offline";
 }
 
-/** The poll interval for a run: POLL_MS while the stream is up (it only pushes done/error), else OFFLINE_POLL_MS. */
+/** While the stream is up the poll is only a safety net for a missed event. */
+export const LIVE_SAFETY_POLL_MS = 30_000;
+
+/** SSE events invalidate the run queries at most once per this window. */
+export const SSE_REFRESH_DEBOUNCE_MS = 2000;
+
+export const NODE_DETAIL_POLL_MS = 10_000;
+
+/** The poll interval for a run: LIVE_SAFETY_POLL_MS while the stream is up, else OFFLINE_POLL_MS. */
 export function runPollMs(live: LiveState): number {
-  return live === "live" ? POLL_MS : OFFLINE_POLL_MS;
+  return live === "live" ? LIVE_SAFETY_POLL_MS : OFFLINE_POLL_MS;
+}
+
+/** Wraps `fn` so a burst of calls runs it once on the leading edge and once more at the end of the window. */
+export function throttle(fn: () => void, ms: number): { call: () => void; cancel: () => void } {
+  let last = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const run = (): void => {
+    timer = null;
+    last = Date.now();
+    fn();
+  };
+  return {
+    call: () => {
+      if (timer !== null) {
+        return;
+      }
+      const wait = last + ms - Date.now();
+      if (wait <= 0) {
+        run();
+      } else {
+        timer = setTimeout(run, wait);
+      }
+    },
+    cancel: () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
 }
 
 /** A 404 is "pruned", not a failure to retry: the page shows its own notice. */
@@ -67,7 +106,9 @@ export function useRun(runId: string) {
       void queryClient.invalidateQueries({ queryKey: [runKeys.run(runId)] });
       void queryClient.invalidateQueries({ queryKey: [runKeys.events(runId)] });
       void queryClient.invalidateQueries({ queryKey: [runKeys.runs] });
+      void queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith(`run-node:${runId}:`) });
     };
+    const throttled = throttle(refresh, SSE_REFRESH_DEBOUNCE_MS);
     let wasDown = false;
     void followSse({
       url: `${API_BASE}/runs/${encodeURIComponent(runId)}/live`,
@@ -85,9 +126,12 @@ export function useRun(runId: string) {
         wasDown = next === "offline";
         setLive(next);
       },
-      onEvents: refresh,
+      onEvents: throttled.call,
     });
-    return () => abort.abort();
+    return () => {
+      throttled.cancel();
+      abort.abort();
+    };
   }, [runId]);
   const query = useQuery({
     queryKey: [runKeys.run(runId)],
@@ -169,6 +213,25 @@ export function useJobChat(jobId: string | null) {
 
 
 /** Polls the owner's activity every 3 s, only while the panel is mounted and the tab is visible. */
+/** One node in full (selection history, log tails), fetched when its panel opens and refreshed with the run. */
+export function useRunNode(runId: string, nodeId: string, enabled: boolean, live = true) {
+  return useQuery({
+    queryKey: [runKeys.node(runId, nodeId)],
+    enabled,
+    queryFn: async () => {
+      const result = await api.getRunNode(runId, nodeId);
+      if (result.kind !== "ok") {
+        throw new ApiFailure(result as NonOk);
+      }
+      return result.body.node;
+    },
+    refetchInterval: live ? NODE_DETAIL_POLL_MS : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+}
+
 export function useNodeActivity(runId: string, nodeId: string, enabled: boolean, live = true) {
   return useQuery({
     queryKey: [runKeys.nodeActivity(runId, nodeId)],

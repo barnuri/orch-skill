@@ -145,7 +145,7 @@ export async function feedbackWorkBatch(ids?: string[]): Promise<FeedbackWorkRes
     const rc = await captured({}, () => nodeAdd([runId, item.id, label, "--acceptance", `fixes feedback ${item.id}: ${item.text}`]));
     if (rc.code !== 0) throw new Error(`node add ${item.id} failed: ${rc.stderr.trim()}`);
   }
-  // No own validate node: every run already has the after_all "done-gate" node, which verifies the batch.
+  // No own validate node: the orchestrator verifies the batch with `run verify` and `run finish`.
 
   for (const item of picked) updateFeedback(home, item.id, { status: "queued", work_run: runId }, nowIso());
   for (const item of picked) updateFeedback(home, item.id, { status: "working" }, nowIso());

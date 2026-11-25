@@ -58,7 +58,6 @@ export async function runSettle(args: string[]): Promise<number> {
         }
         continue;
       }
-      if (node.id === "done-gate") continue; // the gate runs verify itself: `run advance` after settle
       if (node.role === "validation") {
         // A validation node must pass: the main session ran the checks itself, so it closes as done with the evidence in its handoff.
         const dir = typeof node.out_dir === "string" && node.out_dir !== "" ? node.out_dir : paths.runOutDir(home, runId, String(node.id));

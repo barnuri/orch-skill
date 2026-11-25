@@ -6,7 +6,7 @@ import { blockersOf, buildRunProjection, flagCleared, loadRunProjection, writeFl
 
 autoCleanup();
 
-const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "0" };
+const ENV = { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0" };
 
 // A pure fixture: no files, no clock. Every rule below is read from this input alone.
 const fixture = (): ProjectionInput => ({

@@ -191,8 +191,8 @@ test("health monitor", async () => {
   await Promise.all([1, 2, 3].map(async () => Bun.spawn(["bun", join(import.meta.dir, "../../scripts/dispatch.ts"), "run", "health", "--ensure-monitors"], { env: { ...process.env, ...fx.env, HARNESS_ORCH_HOME: home, ORCH_HEALTH_MONITOR: "1", ORCH_HEALTH_EVERY_SEC: "2", ORCH_EVERY_MIN_SECS: "1", ORCH_HERDR: "0", ORCH_NO_ANNOUNCE: "1" } }).exited));
   expect(active().filter((a) => a.status === "running" && a.name === `health:${R}`).length).toBe(1);
   renameSync(join(home, "runs/0000-bad"), join(home, "bad-run"));
-  // The closure gate refuses a finish while a node is open: skip n1 and the done-gate with a reason first.
-  for (const n of ["n1", "done-gate"]) o("node", "update", R, n, "skipped", "--force", "--reason", "test");
+  // The closure gate refuses a finish while a node is open: skip n1 with a reason first.
+  for (const n of ["n1"]) o("node", "update", R, n, "skipped", "--force", "--reason", "test");
   expect(o("run", "finish", R, "--force", "--reason", "test").rc).toBe(0);
   await waitUntil(() => active().filter((a) => a.status === "running").length === 0, 60);
   expect(active().filter((a) => a.status === "running").length).toBe(0);

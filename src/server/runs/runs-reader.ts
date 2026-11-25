@@ -10,6 +10,7 @@ import type { OrchPaths } from "../types/orch-paths";
 import { annotateActivity } from "./node-activity";
 import { timingSummary } from "../../shared/node-timing";
 import { isRunId } from "./run-id";
+import { retireLegacyGate } from "../../../skills/orch/core/runs/legacy-gate";
 
 /** Adds the computed `timing` (phase, run and wait seconds) to every node, in place. */
 export function annotateTiming(run: RunState, nowMs: number = Date.now()): void {
@@ -60,7 +61,7 @@ function parseState(text: string): LoadedState {
     return { ok: false, reason: "nodes is not an array" };
   }
   // The CLI is the only writer of state.json; past the shape checks above it is trusted as-is.
-  return { ok: true, state: value as RunState };
+  return { ok: true, state: retireLegacyGate(value as RunState) };
 }
 
 function loadState(runDir: string): LoadedState {

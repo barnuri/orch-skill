@@ -386,7 +386,7 @@ A run cannot end on a false done. The ledger `<run>/requirements.json` holds eve
 8. Before the final answer, run `dispatch.ts run verify <run>` and the `done-verify` skill. Fix every numbered failure, including missing delivery evidence.
 9. `run finish` refuses while verify fails. Use `--force --reason "<why>"` only when the user accepted the gap. The reason is stored on the run.
 
-`run start` adds the last node `done-gate` (role validation, after every other node). The scheduler dispatches it last and it writes the verify result as its handoff.
+`run start` adds no gate node. When every node is settled, the orchestrator closes the run itself: `run verify <run>`, then `run finish <run>`. The next action reads "All nodes settled: verify requirements and finish the run". When the orchestrator session is gone, the watchdog runs `run verify` and finishes the run on pass, or marks the run blocked (`needs_user`, `review`) with the failures. When the orchestrator is present, the watchdog sends it one message per change. Old runs with an unrun `done-gate` node read it as skipped.
 
 ## Keep the graph true
 
@@ -511,7 +511,7 @@ Treat every substantive task as a graph, the way Claude Code's ultracode does: p
 When an orch run is active, or the user asks for code, UI, docs or config changes that belong to a run,
 the orch session never edits the files itself. It adds a node and dispatches it, on the node profile
 the user chose (default: `opencode-chip-exec` with `hub-copilot-mai-code-2-flash`). Then it records a
-requirement for the node, so the done gate can judge it:
+requirement for the node, so `run verify` can judge it:
 
 1. `orch node add <run-id> <node> "<label>" --profile <profile> --model <model> --role implementation`
 2. `orch node dispatch <run-id> <node> --force @<prompt-file>` (the prompt names the worktree, the

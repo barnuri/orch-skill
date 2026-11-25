@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { orch, seedHome, nodeOf, runState, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, autoCleanup } from "../helpers";
 autoCleanup();
 
 const setup = () => {
   const home = seedHome();
-  const o = orch(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0", ORCH_NO_DONE_GATE: "0" });
+  const o = orch(home, { ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_FILL: "0" });
   const R = o("run", "start", "gate cmd").out.trim();
   o("node", "add", R, "a", "A");
   o("req", "add", R, "do a", "--node", "a", "--id", "R1");
@@ -20,29 +20,33 @@ const finishNode = (o: ReturnType<typeof orch>, R: string, id: string, handoff: 
   o("node", "update", R, id, "done");
 };
 
-test("run gate passes: gate done with verify output as handoff and result, run finished", () => {
+test("run start adds no gate node and keeps none after new nodes", () => {
+  const { home, R } = setup();
+  expect(runState(home, R).nodes.map((n: any) => n.id)).toEqual(["a"]);
+});
+
+test("run gate passes: verify runs without a gate node and the run finishes", () => {
   const { home, o, R } = setup();
   finishNode(o, R, "a", "did it\n");
   const r = o("run", "gate", R);
   expect(r.rc).toBe(0);
-  expect(nodeOf(home, R, "done-gate").status).toBe("done");
-  expect(readFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "utf8")).toMatch(/verify ok/);
-  expect(JSON.stringify(nodeOf(home, R, "done-gate"))).toMatch(/verification passed/);
   expect(runState(home, R).status).toBe("done");
+  expect(runState(home, R).nodes.map((n: any) => n.id)).toEqual(["a"]);
 });
 
-test("run gate fails: gate blocked-user with failures, run open, orchestrator told, retry passes after the fix", () => {
+test("run gate fails: run blocked with failures in needs_user, notice and review, orchestrator told, retry passes after the fix", () => {
   const { home, o, R } = setup();
   finishNode(o, R, "a", "");
   const r = o("run", "gate", R);
   expect(r.rc).toBe(1);
-  const gate: any = nodeOf(home, R, "done-gate");
-  expect(gate.status).toBe("blocked-user");
-  expect(gate.needs_user).toMatch(/verify FAILED: 1 failure.*1\. \[a\]/s);
-  expect(readFileSync(join(o("node", "out", R, "done-gate").out.trim(), "handoff.md"), "utf8")).toMatch(/verify FAILED: 1 failure/);
-  expect(runState(home, R).status).toBe("running");
+  const st: any = runState(home, R);
+  expect(st.status).toBe("running");
+  expect(st.needs_user).toMatch(/verify FAILED: 1 failure.*1\. \[a\]/s);
+  expect(st.notice).toBe(st.needs_user);
+  expect(st.review.state).toBe("failed");
+  expect(st.review.failures[0].nodes).toEqual(["a"]);
   const dir = join(home, "runs", R, "inbox", "orch");
-  expect(readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("")).toMatch(/done-gate failed/);
+  expect(readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("")).toMatch(/run is blocked/);
   writeFileSync(join(o("node", "out", R, "a").out.trim(), "handoff.md"), "now present\n");
   o("node", "update", R, "a", "done");
   const r2 = o("run", "gate", R);
@@ -51,11 +55,22 @@ test("run gate fails: gate blocked-user with failures, run open, orchestrator to
   expect(runState(home, R).status).toBe("done");
 });
 
-test("run gate does nothing while another node is open; node dispatch of the gate is still accepted", () => {
+test("run gate does nothing while a node is open", () => {
+  const { o, R } = setup();
+  expect(o("run", "gate", R).out).toMatch(/not ready, open nodes: a/);
+});
+
+test("an old run with a waiting done-gate reads it as skipped and finishes", () => {
   const { home, o, R } = setup();
-  const r = o("run", "gate", R);
-  expect(r.out).toMatch(/not ready/);
-  expect(nodeOf(home, R, "done-gate").status).toBe("waiting");
-  const d = o("node", "dispatch", R, "done-gate", "--help");
-  expect(d.err + d.out).not.toMatch(/unknown/i);
+  finishNode(o, R, "a", "did it\n");
+  const f = join(home, "runs", R, "state.json");
+  const st = JSON.parse(readFileSync(f, "utf8"));
+  st.nodes.push({ id: "done-gate", label: "Final gate: run verify", status: "waiting", after_all: true, role: "validation", attempts: [], usage: {}, log_tail: [] });
+  writeFileSync(f, JSON.stringify(st));
+  const v = o("run", "verify", R);
+  expect(v.rc).toBe(0);
+  expect(o("run", "finish", R).rc).toBe(0);
+  const done: any = runState(home, R);
+  expect(done.status).toBe("done");
+  expect(done.nodes.find((n: any) => n.id === "done-gate").skip_reason).toMatch(/replaced by the orchestrator/);
 });

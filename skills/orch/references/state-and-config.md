@@ -474,11 +474,10 @@ became runs-only keeps working and shows an amber warning. `profile sanity` adds
 
 `vapid.json` (0600): the VAPID key pair, generated once with WebCrypto (ES256); only the public key is served (`/api/push/key`). `subscriptions.json` (0600): one record per device (endpoint, keys, label, user agent, app, categories, quiet hours, last success and error). Written only by the server. A 404 or 410 from a push service removes the record. Sending is hand-written (RFC 8291 aes128gcm, RFC 8292 VAPID, tested against the RFC vector) and goes only to the endpoint of the subscription; endpoints must be https (http only on loopback). Push works only on the HTTPS listener or localhost (see the HTTPS section above).
 
-## Requirements ledger and done gate
+## Requirements ledger and closing a run
 
 `<run>/requirements.json`: `{requirements:[{id,text,status,reason,nodes[],evidence[{note,file,test,at}],created,updated}]}`.
-Status starts `not`. `run start` adds the node `done-gate` (role `validation`, `after_all`, so it runs last; a node
-added after it ran resets it to `waiting`). Its prompt runs `run verify` and writes the result as its handoff.
-`ORCH_NO_DONE_GATE=1` starts a run without it (the test helpers set it). `run verify` fails on: a node not done or skipped,
+Status starts `not`. `run start` adds no gate node: the orchestrator runs `run verify`, then `run finish`. Runs started before 2026-11-25 may hold a `done-gate` node. A `done-gate` that never ran is read as skipped ("replaced by the orchestrator's verify and finish"). The watchdog, when every node is settled, tells a present orchestrator once and, for an absent one, runs `run gate` (verify, then finish on pass, or `needs_user`, `notice` and `review` on the run on fail).
+`run verify` fails on: a node not done or skipped,
 a done node with an empty handoff or marked `unverified`, a `validation` node that is not done, an open requirement,
 a node with `needs_user` or `hold`, an unanswered ask in `inbox/orch`. `run finish` and `run advance` refuse while it fails.

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { orch, seedHome, waitUntil, cleanEnv, DISPATCH, autoCleanup } from "../helpers";
 autoCleanup();
 
-const base = { ORCH_WAIT_POLL_SECS: "0.1", ORCH_WAIT_HEALTH_SECS: "1", ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_CACHE_SECS: "0", ORCH_NO_DONE_GATE: "1" };
+const base = { ORCH_WAIT_POLL_SECS: "0.1", ORCH_WAIT_HEALTH_SECS: "1", ORCH_HEALTH_MONITOR: "0", ORCH_OWNER_CACHE_SECS: "0" };
 
 test("run watch: prints each event and exits 0 when the run ends", async () => {
   const home = seedHome();

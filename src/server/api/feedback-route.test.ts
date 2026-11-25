@@ -85,7 +85,7 @@ describe("/api/feedback", () => {
 
     const state = JSON.parse(await Bun.file(`${srv.home.path}/runs/${run_id}/state.json`).text()) as { title: string; nodes: Array<{ id: string }> };
     expect(state.title).toBe("feedback batch");
-    expect(state.nodes.map((n) => n.id)).toEqual(["done-gate", a.id, b.id]);
+    expect(state.nodes.map((n) => n.id)).toEqual([a.id, b.id]);
 
     const again = (await (await post(srv, "/api/feedback/work", {})).json()) as { run_id: string | null; items: string[] };
     expect(again).toEqual({ run_id: null, items: [] });

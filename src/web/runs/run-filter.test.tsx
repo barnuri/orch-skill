@@ -7,7 +7,7 @@ const uninstall = installDom();
 const { render, screen, cleanup, fireEvent } = await import("@testing-library/react");
 const { EMPTY_FILTER, filterOptions, hashWithFilter, matchesFilter, nodeBucket, parseFilter, runSummary } = await import("./run-filter");
 const { LiveIndicator, NodeFilterBar, RunSummaryBar } = await import("./RunToolbar");
-const { liveStateOf, runPollMs, OFFLINE_POLL_MS } = await import("./queries");
+const { liveStateOf, runPollMs, OFFLINE_POLL_MS, LIVE_SAFETY_POLL_MS } = await import("./queries");
 const { parseRoute, routeKey } = await import("../router/route");
 const { POLL_MS } = await import("../lib/constants");
 
@@ -88,11 +88,11 @@ describe("node filter", () => {
 });
 
 describe("live updates", () => {
-  test("polls at POLL_MS while the stream is open and every 5 s once it drops", () => {
+  test("polls at the 30 s safety poll while the stream is open and every 5 s once it drops", () => {
     expect(liveStateOf("open")).toBe("live");
     expect(liveStateOf("connecting")).toBe("connecting");
     expect(liveStateOf("reconnecting")).toBe("offline");
-    expect(runPollMs("live")).toBe(POLL_MS);
+    expect(runPollMs("live")).toBe(LIVE_SAFETY_POLL_MS);
     expect(runPollMs("offline")).toBe(OFFLINE_POLL_MS);
     expect(OFFLINE_POLL_MS).toBe(5000);
   });
@@ -103,4 +103,16 @@ describe("live updates", () => {
     rerender(<LiveIndicator state="offline" />);
     expect(screen.getByRole("status").className).toContain("is-offline");
   });
+});
+
+test("live runs poll only as a 30 s safety net; SSE refreshes are throttled to one per window", async () => {
+  const { LIVE_SAFETY_POLL_MS, throttle } = await import("./queries");
+  expect(runPollMs("live")).toBe(LIVE_SAFETY_POLL_MS);
+  expect(LIVE_SAFETY_POLL_MS).toBe(30_000);
+  let calls = 0;
+  const t = throttle(() => { calls += 1; }, 40);
+  for (let i = 0; i < 10; i += 1) t.call();
+  expect(calls).toBe(1);
+  await new Promise((r) => setTimeout(r, 80));
+  expect(calls).toBe(2);
 });

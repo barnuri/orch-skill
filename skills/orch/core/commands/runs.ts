@@ -117,16 +117,6 @@ async function runIds(home: string): Promise<string[]> {
 
 // ---- run start ---------------------------------------------------------------------------------------
 
-// The last node of every run (tests set ORCH_NO_DONE_GATE=1 to start without it): waits for all others (after_all), runs `run verify`, writes the result as its handoff.
-function doneGateNode(now: string, runId: string): Record<string, any> {
-  const prompt = `Run \`dispatch.ts run verify ${runId}\` and write its full output, with the exit code, to $ORCH_NODE_OUT/handoff.md. Change nothing else. Finish with the verify result: clean or the numbered failures.`;
-  return {
-    id: "done-gate", label: "Final gate: run verify", status: "waiting", profile: null, adapter: null, model: null, model_id: null, job_id: null, session: null,
-    started: null, finished: null, error: null, log_tail: [], usage: {}, cost: null, created: now, updated: now, prompt, dispatch_args: [], attempts: [],
-    role: "validation", tier: null, plan_backed: false, acceptance: "run verify exits 0", after_all: true,
-  };
-}
-
 export async function runStart(args: string[]): Promise<number> {
   const title = args[0] ?? "";
   if (!title) return (errLine(`usage: ${RUN_START_USAGE}`), 2);
@@ -153,7 +143,7 @@ export async function runStart(args: string[]): Promise<number> {
   const repo = gitToplevel(process.cwd());
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, ...(process.env.ORCH_MUTED === "1" ? { muted: true } : {}), started: nowIso(), finished: null, status: "running", nodes: process.env.ORCH_NO_DONE_GATE === "1" ? [] : [doneGateNode(nowIso(), runId)], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, ...(process.env.ORCH_MUTED === "1" ? { muted: true } : {}), started: nowIso(), finished: null, status: "running", nodes: [], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");

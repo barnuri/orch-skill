@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RunNode } from "../../shared/types/run-node";
 import type { ChatEnvelope } from "../../shared/types/chat-envelope";
 import type { JobLogEnvelope } from "../../shared/types/job-log-envelope";
 import type { RunEventsEnvelope } from "../../shared/types/run-event";
@@ -31,6 +32,8 @@ export const runSchema = typed<RunEnvelope>(
     cache: z.looseObject({ mode: z.string(), source: z.string(), age_ms: z.number() }).optional(),
   }),
 );
+
+export const runNodeSchema = typed<{ node: RunNode }>(z.looseObject({ node: z.looseObject({ id: z.string() }) }));
 
 export const jobLogSchema = typed<JobLogEnvelope>(z.looseObject({ text: z.string() }));
 

@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, watch, writeFileSync } from "node:fs";
+import { retireLegacyGate } from "../../../skills/orch/core/runs/legacy-gate";
 import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -177,7 +178,7 @@ function readState(home: string, runId: string): RunState | null {
     return memo.value;
   }
   try {
-    const value = JSON.parse(readFileSync(path, "utf8")) as RunState;
+    const value = retireLegacyGate(JSON.parse(readFileSync(path, "utf8")) as RunState);
     stateMemo.set(path, { sig, value });
     return value;
   } catch {

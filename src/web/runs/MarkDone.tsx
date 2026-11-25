@@ -31,7 +31,7 @@ function MarkDoneDialog({ run, onClose }: { run: RunState; onClose: () => void }
   }, [run.run_id]);
   const failures = verify !== null && verify !== "error" && !verify.ok ? verify.failures : [];
   const intro =
-    verify === null ? "Checking the run…" : verify === "error" ? "Could not run the check. The server decides when you confirm." : failures.length === 0 ? "The run passes verify. It finishes normally." : `${failures.length} verify failure(s). Finishing skips the done-gate with your reason.`;
+    verify === null ? "Checking the run…" : verify === "error" ? "Could not run the check. The server decides when you confirm." : failures.length === 0 ? "The run passes verify. It finishes normally." : `${failures.length} verify failure(s). Finishing stores your reason on the run.`;
   return (
     <ReasonDialog
       title={`Mark ${run.title || run.run_id} done?`}

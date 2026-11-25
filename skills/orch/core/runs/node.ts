@@ -268,14 +268,6 @@ export function applyAdd(run: RunState, a: AddArgs, ctx: Ctx): string {
     ...((a as any).planFile && (a as any).planTask ? { plan: { file: (a as any).planFile, task: (a as any).planTask } } : {}),
   });
   run.edges = [...(run.edges ?? []), ...kept.map((d) => [d, a.id])];
-  // The done-gate stays last: a node added after it ran makes it wait again.
-  const gate = findNode(run, "done-gate");
-  if (gate && gate.after_all && a.id !== "done-gate" && ["done", "error", "skipped", "covered"].includes(gate.status)) {
-    Object.assign(gate, { status: "waiting", finished: null, error: null, unverified: null, next_retry_at: null, skip_reason: null, updated: ctx.now });
-  } else if (gate && gate.after_all && a.id !== "done-gate" && gate.status === "running") {
-    // The running gate verified a node list that no longer holds: it ends as an error, or waits again.
-    gate.rerun = true;
-  }
   ev(ctx, "add", a.id, "", "waiting", a.label);
   return `add ${a.id} "${a.label}"`;
 }
@@ -755,15 +747,9 @@ export function applyUpdate(run: RunState, a: UpdateArgs, ctx: Ctx): string {
     fail(`node update: ${a.id} blocked-user needs --needs-user "<the question for the user>"`);
   }
   let status = a.status;
-  if (n.id === "done-gate" && n.rerun === true && old === "running") {
-    // A node was added while the gate ran: its verify predates that node, so the gate waits again.
-    n.rerun = false;
-    if (status === "done") status = "waiting";
-  }
   setStatus(run, a.id, status, a.job, a.err, a.at, a.owner, ctx);
   // The question is answered once the node leaves blocked-user, so it does not hold the node after that.
   if (old === "blocked-user" && status !== "blocked-user" && !a.needsSet) n.needs_user = null;
-  if (status !== a.status) ev(ctx, "note", a.id, "", "", "a node was added during the gate: gate waits again");
   if (a.status === "skipped" && a.reason) n.skip_reason = a.reason;
   else if (old === "skipped" && a.status !== "skipped") n.skip_reason = null;
   if (status === "done" && old !== "done") {
