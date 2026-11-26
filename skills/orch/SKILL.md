@@ -48,6 +48,14 @@ whose `auth` env var is missing on this machine, say so — do not try to supply
 `profiles.json` holds env-var **names** and `${VAR}` references only; never write a secret value
 into it.
 
+## Hard rules for every CLI call
+
+1. Run `orch profile pick "<task>" --complexity <c>` before every `node dispatch`. Choosing a profile by name or habit is forbidden unless the user named the target.
+2. Run `orch profile list` first. Use only enabled profiles. If a dispatch fails with `harness "<h>" is disabled`, re-pick with `profile pick`. Never guess a replacement.
+3. Never pipe or discard the output of `node add|update|remove|dispatch|run sync` (no `tail`, no `>/dev/null`). Read the exit code and the full error. Stop and fix on any non-zero exit before the next command.
+4. `node update <run> <node> [status]` accepts only `--job`, `--error`, `--at`, `--owner`, `--force`, `--reason`, `--after`, `--needs-user`, `--clear-needs-user`, `--hold`, `--clear-hold`. It cannot change a node's profile: `--profile` fails with `unknown argument` (exit non-zero). To change a profile, `node remove` the node and `node add` it again. After each change, check the node with `orch node show <run> <node>`.
+5. Check `--after` against the plan before `node add`. Fix a wrong link with `node remove`, then re-add the node.
+
 ## Step 1 — Choose a profile
 
 Precedence, highest first:
@@ -598,6 +606,8 @@ text ends the turn and stalls every parallel node until the user happens to repl
 - A question that must be asked goes through the question tool, in the turn you first need it.
   Never write "shall I dispatch", "say yes and I will", or a "needs you" line in prose.
 - Never end a turn with a question in prose, and never wait on an answer while ready nodes sit idle.
+- Main session only. Before it ends a turn or reports status, it lists every open item that waits on the user: a node with `needs-user`, a requirement that needs acceptance, a restart, a merge or a push that needs approval. Ask each one through the question tool in that same turn. A "Needs you" or "Open decisions" list in the report text is not a question. The user must never have to ask what the session waits for. A node never uses the question tool: it uses `node ask`, and the main session turns that into a question.
+- Main session only. Make each question self-contained: state the full meaning of every code it names (a requirement id, node id, finding or PR number) and the evidence in the question text, or give the full path of a file that holds it. The user may not remember what a code means. If the meaning is not stored in a file yet, write it to a file first and cite the path.
 
 ## Offline mode (dashboard down)
 

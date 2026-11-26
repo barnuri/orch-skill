@@ -136,6 +136,13 @@ export function seedHome(dest?: string): string {
   cpSync(templateHome(), home, { recursive: true });
   return home;
 }
+/** Adds the local-llm-fast profile and its model to a home: the shipped template has no hub profiles. */
+export function addLocalFast(home: string): void {
+  editJson(join(home, "profiles.json"), (p) => {
+    p.models["local-ornith-1.5-9b"] = { slug: "llama_swap/ornith-1.5-9b", harnesses: ["local-llm"], description: "" };
+    p.profiles["local-llm-fast"] = { harness: "local-llm", model: "local-ornith-1.5-9b", allowed_models: ["local-ornith-1.5-9b"], enabled: true, flags: [], env: {}, auth: [] };
+  });
+}
 /** An empty home dir (no init). */
 export const tempHome = () => join(tempDir(), "home");
 

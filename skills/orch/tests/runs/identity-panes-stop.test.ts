@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { orch, seedHome, runState, readText, fakeBin, fakeHub, tempDir, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, addLocalFast, readText, fakeBin, fakeHub, tempDir, autoCleanup } from "../helpers";
 autoCleanup();
 
 const hdrShims = () => fakeBin({
@@ -74,7 +74,7 @@ console.log(s.port);`;
   o("run", "start", "Selections", "--id", "wsel"); o("node", "add", "wsel", "nsel", "Solve");
   let r = o("node", "selections", "wsel", "nsel");
   expect(r.rc).toBe(0); expect(r.out).toMatch(/^selections: 3 new$/m);
-  const n = () => runState(home, "wsel").nodes[0];
+  const n = () => nodeOf(home, "wsel", "nsel");
   expect(n().selection_history.map((e: any) => e.seq).join(",")).toBe("1,2,3");
   expect(n().last_event_sequence).toBe(3);
   expect([n().requested_selector, n().main_model, n().active_stages.join(","), n().actual_model, n().role, n().tier, n().effort])
@@ -89,6 +89,7 @@ console.log(s.port);`;
 test("herdr off, run stop, claude path, profile jobs", async () => {
   const sh = fakeBin(Object.fromEntries(["claude", "cursor-agent", "opencode", "copilot"].map((t) => [t, `printf "%s\\n" "$@"`])));
   const home = seedHome();
+  addLocalFast(home);
   const o = orch(home, { PATH: `${sh}:${process.env.PATH}`, CURSOR_API_KEY: "shim" });
   mkdirSync(join(home, "jobs/herdr-race"), { recursive: true });
   writeFileSync(join(home, "jobs/herdr-race/herdr-launch.sh"), "#!/usr/bin/env bash\n");

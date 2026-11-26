@@ -19,7 +19,7 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   expect(r.rc).toBe(0);
   expect(r.out).toMatch(/^[0-9]/m);
   let s = runState(home, "retry-1");
-  expect([s.status, s.finished ?? null, s.nodes[0].status, s.nodes[0].attempts[0].job_id, s.nodes[0].attempts[0].retry_mode, s.nodes[0].dispatch_args]).toEqual(["running", null, "running", job, "restarted", ["--same", "args"]]);
+  expect([s.status, s.finished ?? null, s.nodes[0].status, nodeOf(home, "retry-1", "a").attempts[0].job_id, nodeOf(home, "retry-1", "a").attempts[0].retry_mode, s.nodes[0].dispatch_args]).toEqual(["running", null, "running", job, "restarted", ["--same", "args"]]);
   o("wait", r.out.trim(), "--timeout", "60", "--interval", "0.1");
   o("run", "sync", "retry-1");
   // The job exited 0 without a handoff, so the node is an error and a retry is allowed.
@@ -61,7 +61,7 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   });
   expect(o("run", "sync", "retry-3").rc).toBe(0);
   s = runState(home, "retry-3");
-  expect([s.nodes[0].status, s.nodes[0].attempts.length, s.nodes[1].status]).toEqual(["running", 1, "error"]);
+  expect([s.nodes[0].status, nodeOf(home, "retry-3", s.nodes[0].id).attempts.length, s.nodes[1].status]).toEqual(["running", 1, "error"]);
 
   // backoff
   home = seedHome(); o = orch(home);
@@ -84,11 +84,16 @@ test("node retry, run retry, auto retry, backoff, fallback", async () => {
   home = seedHome();
   const shim = fakeBin({ copilot: "printf 'copilot fallback ok\\n'" });
   o = orch(home, { PATH: `${shim}:${process.env.PATH}`, LLM_HUB_URL: "http://127.0.0.1:1", LLM_HUB_KEY: "dummy" });
-  editJson(join(home, "profiles.json"), (p) => { p.settings.disabled_harnesses = []; });
+  editJson(join(home, "profiles.json"), (p) => { p.settings.disabled_harnesses = [];
+    // The shipped template has no hub profiles: a claude one falling back to a copilot one.
+    const E = { enabled: true, flags: [], env: {}, auth: [] };
+    p.profiles["copilot-llm-hub"] = { ...p.profiles["copilot-default"], ...E, fallback: null };
+    p.profiles["claude-llm-hub"] = { ...p.profiles["claude-default"], ...E, fallback: "copilot-llm-hub" };
+  });
   o("run", "start", "Fallback retry", "--id", "retry-4"); o("node", "add", "retry-4", "a", "a", "--profile", "claude-llm-hub");
   editJson(join(home, "runs/retry-4/state.json"), (s) => { Object.assign(s.nodes[0], { status: "error", prompt: "again", job_id: "old", error: "exit=1", finished: "2026-09-01T00:00:00Z", next_retry_at: "2000-01-01T00:00:00Z", log_tail: ["You have exceeded your monthly quota"] }); });
   expect(o("run", "sync", "retry-4").rc).toBe(0);
-  const f = runState(home, "retry-4").nodes[0];
+  const f = nodeOf(home, "retry-4", "a");
   expect(f.profile).toBe("copilot-llm-hub");
   expect(f.attempts[0].reason).toMatch(/fallback profile copilot-llm-hub/);
   expect(f.attempts[0].retry_mode).toBe("restarted");

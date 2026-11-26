@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { orch, seedHome, runState, nodeOf, editJson, fakeBin, waitUntil, readText, autoCleanup } from "../helpers";
+import { orch, seedHome, runState, nodeOf, addLocalFast, editJson, fakeBin, waitUntil, readText, autoCleanup } from "../helpers";
 autoCleanup();
 
 test("run lifecycle", () => {
@@ -58,6 +58,8 @@ test("run lifecycle", () => {
 test("node dispatch with claude-native", async () => {
   const home = seedHome(), o = orch(home);
   const node = (i: number) => runState(home, "disp-1").nodes[i];
+  const full = (id: string) => nodeOf(home, "disp-1", id);
+  addLocalFast(home);
   o("run", "start", "Dispatch test", "--id", "disp-1");
   o("node", "add", "disp-1", "a", "native");
   o("node", "add", "disp-1", "b", "hub", "--profile", "local-llm-fast");
@@ -67,7 +69,7 @@ test("node dispatch with claude-native", async () => {
   // No handoff from a claude-native job: the node is an error, not done.
   expect(o("run", "sync", "disp-1").all).toMatch(/^a.error$/m);
   expect(node(0).adapter).toBe("claude-native");
-  expect(node(0).log_tail[0]).toMatch(/no subprocess spawned/);
+  expect(full("a").log_tail[0]).toMatch(/no subprocess spawned/);
   expect(node(0).prompt).toBe("hello");
   expect(node(0).dispatch_args).toEqual(["--flag", "value"]);
   r = o("node", "dispatch", "disp-1", "a", "claude-native", "again");
