@@ -27,10 +27,10 @@ import {
 import { finishRun, markNodeDone, markNodeReviewed, verifyRun } from "../../routes/runs-routes";
 import { repointRun } from "../../routes/runs-routes";
 import type { NodeMessageInput } from "../../routes/runs-routes";
-import { setMaxParallelRun } from "../../routes/runs-routes";
+import { setMaxParallelRun, resumeLimitRun } from "../../routes/runs-routes";
 import type { ServerContext } from "../../types/server-context";
 import { ErrorDto, OkDto } from "../../../shared/dto/common";
-import { ChatEnvelopeDto, JobIdParamsDto, MaxParallelInputDto, ReasonInputDto, RunVerifyEnvelopeDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
+import { ChatEnvelopeDto, JobIdParamsDto, LimitResumeInputDto, MaxParallelInputDto, ReasonInputDto, RunVerifyEnvelopeDto, RunEventsEnvelopeDto, RunEventsQueryDto, NodeActivityQueryDto, NodeActivityEnvelopeDto, NodeMessageInputDto, RunMessagesEnvelopeDto, JobLogEnvelopeDto, RepointInputDto, RunEnvelopeDto, RunIdParamsDto, RunNodeParamsDto, RunsEnvelopeDto } from "../../../shared/dto/runs";
 import type { ApiContext } from "../pipeline";
 import { call, valid } from "./support";
 
@@ -279,6 +279,18 @@ export class RunsController {
   @ResponseSchema(ErrorDto.schema, { status: 400, description: "Value out of range, or no such run." })
   setMaxParallel_(c: ApiContext): Promise<Response> {
     return setMaxParallelRun(this.ctx, c.req.param("id") ?? "", valid<{ value: number }>(c, "json").value);
+  }
+
+  @Post("/runs/{id}/limits/resume", {
+    summary: "Resume a run a limit paused",
+    description: "Runs `dispatch.ts limits resume <id> --raise <value> | --ignore`: raises the reached limit for this run, or ignores the reached limits, then resumes the run.",
+  })
+  @Param(RunIdParamsDto.schema)
+  @Body(LimitResumeInputDto.schema)
+  @ResponseSchema(OkDto.schema, { description: "Resumed." })
+  @ResponseSchema(ErrorDto.schema, { status: 400, description: "No limit pause, value not above the reached value, or no such run." })
+  resumeLimit_(c: ApiContext): Promise<Response> {
+    return resumeLimitRun(this.ctx, c.req.param("id") ?? "", valid<{ mode: "raise" | "ignore"; value?: number }>(c, "json"));
   }
 
   @Post("/runs/{id}/repoint", {

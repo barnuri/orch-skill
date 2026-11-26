@@ -238,6 +238,15 @@ export function setMaxParallelRun(ctx: ServerContext, runId: string, value: numb
   return dispatchSubcommand(ctx, ["run", "set", runId, "max_parallel", String(value)]);
 }
 
+/** Resumes a limit pause: `limits resume <id> --raise <value> | --ignore`. */
+export function resumeLimitRun(ctx: ServerContext, runId: string, input: { mode: "raise" | "ignore"; value?: number }): Promise<Response> {
+  if (input.mode === "raise" && input.value === undefined) {
+    return Promise.resolve(jsonResponse(400, { error: "raise needs a value" }));
+  }
+  const how = input.mode === "raise" ? ["--raise", String(input.value)] : ["--ignore"];
+  return dispatchSubcommand(ctx, ["limits", "resume", runId, ...how]);
+}
+
 /** The user picks the coordinator pane: `run repoint <id> <socket> <pane>` (the pane must be a candidate). */
 export function repointRun(ctx: ServerContext, runId: string, input: { socket_path: string; pane_id: string }): Promise<Response> {
   return dispatchSubcommand(ctx, ["run", "repoint", runId, input.socket_path, input.pane_id]);

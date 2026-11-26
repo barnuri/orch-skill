@@ -3,6 +3,18 @@ import type { RunNode } from "./run-node";
 import type { RunPlan } from "./run-plan";
 import type { RunStatus } from "./run-status";
 
+export interface RunLimitHit {
+  key: string;
+  kind: "node_usd" | "run_usd" | "session_usd" | "profile_pct";
+  limit: number;
+  value: number;
+  source: "settings" | "run";
+  node?: string;
+  session?: string;
+  profile?: string;
+  at?: string;
+}
+
 export interface RunState {
   run_id: string;
   title: string;
@@ -22,6 +34,8 @@ export interface RunState {
   force_finish_reason?: string | null;
   /** Set by `dispatch.ts run pause`: starts no node until `run resume`. */
   paused?: boolean;
+  /** Set by a spend or usage limit (dispatch.ts limits): the first hit that paused the run, null after resume. */
+  limit_hit?: RunLimitHit | null;
   /** Started by a muted schedule: no orch or Herdr notification for this run. */
   muted?: boolean;
   /** Per-run local dispatch cap. -1 means unlimited, bounded by the global cap. */

@@ -27,7 +27,7 @@ import { addFeedback, readFeedback } from "../feedback.ts";
 import { syncStuckAfterResult } from "./reap.ts";
 
 const RUN_STATUSES = ["done", "error", "cancelled"];
-const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>] [--description "<text>"]';
+const RUN_START_USAGE = 'dispatch.ts run start "<title>" [--id <run-id>] [--description "<text>"] [--limit <key>=<value>]...';
 const RUN_SYNC_USAGE = "dispatch.ts run sync <run-id> [--no-retry]";
 const RUN_STOP_USAGE = "dispatch.ts run stop <run-id>";
 const RUN_RETRY_USAGE = "dispatch.ts run retry <run-id> [--profile P] [--no-dispatch]";
@@ -123,11 +123,19 @@ export async function runStart(args: string[]): Promise<number> {
   if (!title) return (errLine(`usage: ${RUN_START_USAGE}`), 2);
   let runId = "";
   let description = "";
+  const limits: Record<string, any> = {};
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--id") runId = rest[++i] ?? "";
     else if (rest[i] === "--description") description = rest[++i] ?? "";
-    else return (errLine(`run start: unknown argument ${rest[i]}`), 2);
+    else if (rest[i] === "--limit") {
+      // --limit run_usd=5 | node_usd=1 | session_usd=10 | profile_pct.<profile>=85 (off = turn a setting off for this run)
+      const m = /^(node_usd|run_usd|session_usd|profile_pct\.[A-Za-z0-9][A-Za-z0-9._-]*)=(.*)$/.exec(rest[++i] ?? "");
+      const v = m ? (await import("../limits.ts")).parseLimitValue(m[2]!) : undefined;
+      if (!m || v === undefined) return (errLine("run start: --limit expects <node_usd|run_usd|session_usd|profile_pct.<profile>>=<number|off>"), 2);
+      if (m[1]!.startsWith("profile_pct.")) limits.profile_pct = { ...(limits.profile_pct ?? {}), [m[1]!.slice(12)]: v };
+      else limits[m[1]!] = v;
+    } else return (errLine(`run start: unknown argument ${rest[i]}`), 2);
   }
   const home = orchHome();
   if (!(await ensureHome(home))) return 1;
@@ -144,7 +152,7 @@ export async function runStart(args: string[]): Promise<number> {
   const repo = gitToplevel(process.cwd());
   await Bun.write(
     join(dir, "state.json"),
-    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), harness_session: session, ...(process.env.ORCH_MUTED === "1" ? { muted: true } : {}), started: nowIso(), finished: null, status: "running", nodes: [], edges: [] }, null, 2) + "\n",
+    JSON.stringify({ run_id: runId, title, ...(repo ? { repo } : {}), ...(description ? { description } : {}), ...(Object.keys(limits).length ? { limits } : {}), harness_session: session, ...(process.env.ORCH_MUTED === "1" ? { muted: true } : {}), started: nowIso(), finished: null, status: "running", nodes: [], edges: [] }, null, 2) + "\n",
   );
   await autoPrune(home);
   out(runId + "\n");
@@ -294,7 +302,10 @@ export async function runSync(args: string[]): Promise<number> {
       await l.release();
     }
   }
-  return runSyncBody(home, runId, args.slice(1));
+  const rc = await runSyncBody(home, runId, args.slice(1));
+  // With --no-retry the auto retry step (which checks the limits) does not run: check them here.
+  if (rc === 0 && runId && args.includes("--no-retry")) await limitsPaused(home, runId);
+  return rc;
 }
 
 async function runSyncBody(home: string, runId: string, rest: string[]): Promise<number> {
@@ -449,7 +460,17 @@ async function runSyncBody(home: string, runId: string, rest: string[]): Promise
 const quotaLike = (n: Record<string, any>): boolean =>
   /exceeded your monthly quota|rate limit|429|quota|usage limit|401|auth/i.test([n.error ?? "", ...(n.log_tail ?? [])].join("\n"));
 
+// Checks the run's spend and usage limits (pauses the run on a new hit, prints it) and says whether the run is paused now.
+async function limitsPaused(home: string, runId: string): Promise<boolean> {
+  const { checkLimits } = await import("./limits.ts");
+  const { hitText } = await import("../limits.ts");
+  for (const h of await checkLimits(home, runId).catch(() => [])) errLine(`limit reached: ${hitText(h)} (run paused)`);
+  return (await loadRun(home, runId))?.paused === true;
+}
+
 async function autoRetryErrors(home: string, runId: string): Promise<number> {
+  // Limits read the usd the jobs and owner-fill just recorded: a hit pauses the run, and a paused run retries nothing.
+  if ((await limitsPaused(home, runId)) === true) return 0;
   const run = await loadRun(home, runId);
   if (!run || run.status === "cancelled" || run.status === "covered") return 0;
   const doc = await loadProfilesDoc(home);
@@ -475,6 +496,8 @@ async function autoRetryErrors(home: string, runId: string): Promise<number> {
   const due = fresh.nodes
     .filter((n) => {
       if (n.status !== "error" || (n.prompt ?? "") === "") return false;
+      // A node over its own spend limit is not retried.
+      if (n.limit_reached) return false;
       const t = epochOf(String(n.next_retry_at ?? ""));
       if (t === null || t > now) return false;
       return max === -1 || (n.attempts ?? []).length + 1 < max;

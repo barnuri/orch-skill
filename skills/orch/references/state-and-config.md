@@ -91,6 +91,7 @@ serve/log              stdout+stderr of a backgrounded server, 0600
 | `settings.harness_usage` | map harness id to a non-empty array of `"chat"` and/or `"runs"`: where the harness may be used. Missing means both. Set with `dispatch.ts harness set-usage <id> chat\|runs\|both` or the Harnesses page. Template: none |
 | `profiles.<name>.usage` | same array for one profile (also `defaults.usage`). Missing means both. A profile is available for a use only when the profile AND its harness allow it and the harness is not in `disabled_harnesses`. Set with `dispatch.ts profile set-usage <name> chat\|runs\|both` or the Profiles page. The committed template stays generic (both); the gitignored overlay may limit personal profiles |
 | `settings.max_parallel` | nodes `run advance` keeps running at once (1–64; template 4) |
+| `settings.limits` | optional spend and usage limits that pause a run: `node_usd`, `run_usd`, `session_usd` (numbers) and `profile_pct` (`{ "<profile>": 85 }`). Off when missing. Set with `dispatch.ts limits set`. See "Spend and usage limits" |
 | `settings.max_attempts` | total dispatch tries before automatic retry stops (template 5; `1` disables automatic retry; `-1` allows unlimited retries) |
 | `settings.max_nodes` | most tasks `plan apply` accepts from one plan (1–200; template 12) |
 | `settings.planner_profile` | profile `orch plan` dispatches the planner on (template `claude-planner`) |
@@ -474,6 +475,29 @@ dispatch.ts prune [--older-than <N>d|<N>h|<N>] [--dry-run]
 
 Exit codes: `0` ok · `1` environment/request failure · `2` bad arguments or unknown id ·
 `124` `wait` timed out · `127` required binary missing.
+
+## Spend and usage limits
+
+All optional and off by default. `settings.limits` in `profiles.json` holds the defaults; a run's
+`state.json` `limits` overrides them (same keys; `null` turns a setting off for that run) and holds
+`ignore` (hit keys to skip). Set them with `dispatch.ts limits set <key> <value|off> [--run R]`,
+`limits clear [<key>] [--run R]`, `limits show [--run R] [--json]`, or `run start --limit run_usd=5`.
+
+| key | reached when |
+|---|---|
+| `node_usd` | one node's usd (`nodeUsage`: harness cost, `node report --usd`, owner-fill session stats) is at or above it |
+| `run_usd` | the sum of the nodes' usd is at or above it |
+| `session_usd` | the opencode cost of the run's main session (`harness_session`) or coordinator session is at or above it |
+| `profile_pct.<profile>` | the profile has a waiting, running or error node and its used percent is at or above it. Sources: the Claude usage snapshot behind `budget-check` (Claude subscription profiles); the llm-hub Copilot `premium_interactions` quota for the group `copilot`, which covers every copilot-harness profile (`limits set profile_pct.copilot 90`). The Copilot percent is `used/entitlement` from `LLM_HUB_URL` `/api/copilot/usage`, else the newest `quota_snapshots` row in `LLM_HUB_DB` (or `LLM_HUB_STORE_PATH`). Other profiles have no percent and never hit |
+
+`run sync` (before automatic retries), `run advance` and `node dispatch` check the limits. Cost is
+read from state and one read-only sqlite query, no spawn. On a new hit the run gets `paused: true`,
+`auto_resume: false`, `limit_hit` (first hit: `key`, `kind`, `limit`, `value`, `source`, `at`) and
+`limit_hits`; a `limit` event; a message to the orchestrator. A node over `node_usd` gets
+`limit_reached` and is not retried or redispatched. Running nodes are never killed. The run page
+shows a banner with Raise and Ignore; the CLI is `dispatch.ts limits resume <run> --raise <value> | --ignore`
+(`POST /api/runs/<id>/limits/resume` `{ mode, value }`). Plain `run resume` clears `limit_hit`, and a
+limit still reached pauses the run again at the next check.
 
 ## Usage limits (chat / runs)
 

@@ -158,6 +158,15 @@ export class NodeMessageInputDto extends ZodDto {
   ask?: string;
 }
 
+@ZodObject({ description: "How to resume a run a spend or usage limit paused." })
+export class LimitResumeInputDto extends ZodDto {
+  @ZodField(z.enum(["raise", "ignore"]), { description: "raise: set the reached limit to value for this run. ignore: skip the reached limits for this run." })
+  mode!: "raise" | "ignore";
+
+  @ZodField(z.number().nonnegative().optional(), { description: "New limit, required with raise; must be above the reached value." })
+  value?: number;
+}
+
 @ZodObject({ description: "The run's own parallel cap: 1-30 nodes, or -1 for no per-run limit (the global cap still applies)." })
 export class MaxParallelInputDto extends ZodDto {
   @ZodField(z.number().int().refine((v) => v === -1 || (v >= 1 && v <= 30), { message: "must be -1 or an integer 1-30" }), { description: "Per-run cap, -1 for unlimited." })

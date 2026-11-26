@@ -13,6 +13,7 @@ import { planApply } from "./plan.ts";
 import { runFinish } from "./dispatch.ts";
 import { resolveRun } from "./node.ts";
 import { runSync as runSyncCmd } from "./runs.ts";
+import { hitText } from "../limits.ts";
 
 export const RUN_ADVANCE_USAGE = "dispatch.ts run advance <run-id> [--until-done] [--interval SECS] [--timeout SECS] [--no-finish] [--stop-on blocked|error|timeout|all]";
 const ADVANCE_INTERVAL_DEFAULT = 15;
@@ -54,6 +55,12 @@ async function advanceOnce(home: string, runId: string): Promise<number> {
     run = (await loadRun(home, runId))!;
   }
   const doc = await loadProfilesDoc(home);
+  // A paused run (by hand or by a limit that run sync just reported) starts no node.
+  if (run.paused === true || run.stopped === true) {
+    const hit = run.limit_hit ? `: limit reached: ${hitText(run.limit_hit)}` : "";
+    out(`paused: ${runId}${hit} (dispatch.ts ${run.limit_hit ? `limits resume ${runId} --raise <value>|--ignore` : `run resume ${runId}`})\n`);
+    return 3;
+  }
   let slots = runCapFrom(maxParallelCapFrom(doc), run.max_parallel) - count(run, "running");
   const dispatched: string[] = [];
   const queued: string[] = [];

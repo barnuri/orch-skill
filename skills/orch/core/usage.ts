@@ -40,6 +40,11 @@ dispatch.ts budget-check
     -> exit 0 = safe to route more work to Claude Code; exit 1 = avoid (near limit).
        Reason printed to stderr either way.
 
+dispatch.ts limits show [--run R] [--json] | set <key> <value|off> [--run R] | clear [<key>] [--run R]
+dispatch.ts limits resume <run-id> (--raise <value> | --ignore)
+    -> optional spend and usage limits that pause a run: node_usd, run_usd, session_usd,
+       profile_pct.<profile>. Off by default. Without --run: settings.limits in profiles.json.
+
 dispatch.ts run   (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]
     -> runs synchronously in the foreground. Exits with the harness's own exit code.
 dispatch.ts start (--profile <name> | <adapter>) <prompt-or-@file> [pass-through args...]

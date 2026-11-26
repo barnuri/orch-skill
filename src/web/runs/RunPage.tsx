@@ -39,6 +39,7 @@ import { useActive } from "../api/queries";
 import { RunWatchdog } from "./RunWatchdog";
 import { MarkDone } from "./MarkDone";
 import { RunParallel } from "./RunParallel";
+import { RunLimitBanner } from "./RunLimitBanner";
 import { parseNodeParam } from "../lib/covered-node";
 
 const runTitle = (run: RunState): string => run.title || run.run_id;
@@ -288,6 +289,7 @@ function RunBody({ run, live }: { run: RunState; live: LiveState }) {
         </div>
         <CoordinatorBlock runId={run.run_id} state={run.orchestrator_state ?? run.coordinator_state} />
         <RunStateNotice run={run} />
+        <RunLimitBanner run={run} />
         <MarkerSummary map={markers} active={markerFilter} onPick={setMarkerFilter} />
         <RequirementsPanel requirements={projection?.requirements ?? []} onSelect={setSelected} />
         <NextActions actions={projection?.next_actions ?? []} onSelect={setSelected} />

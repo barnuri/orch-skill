@@ -197,6 +197,11 @@ export async function runResume(args: string[]): Promise<number> {
     r.paused_at = null;
     r.stopped = false;
     r.stopped_at = null;
+    // A limit still reached pauses the run again at the next check: limits resume raises or ignores it.
+    if (r.limit_hit != null || (r.limit_hits ?? []).length) {
+      r.limit_hit = null;
+      r.limit_hits = [];
+    }
     note(ctx, "run resumed");
   });
   if (rc !== 0) return 1;
@@ -206,6 +211,11 @@ export async function runResume(args: string[]): Promise<number> {
     const pid = n.job_id ? jobPid(home, String(n.job_id)) : 0;
     if (pid && pidAlive(pid)) {
       out(`alive: ${n.id} ${n.job_id}\n`);
+      continue;
+    }
+    // A node over its own spend limit is not started again (limits resume --raise or --ignore clears the mark).
+    if (n.limit_reached) {
+      out(`limit reached: ${n.id} not redispatched\n`);
       continue;
     }
     if (!(await redispatch(home, run, n))) code = 1;

@@ -281,6 +281,8 @@ export async function nodeDispatch(args: string[]): Promise<number> {
   const home = orchHome();
   const runId = await resolveRun(home, runArg);
   if (runId === null) return 1;
+  // A limit reached since the last sync pauses the run here, before the job starts.
+  await (await import("./limits.ts")).checkLimits(home, runId).catch(() => []);
   const guard = await pauseGuard(home, runId, true);
   if (guard !== 0) return guard;
   const force = args.slice(2).includes("--force");

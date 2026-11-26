@@ -1135,6 +1135,28 @@
         ],
         "description": "The run's own parallel cap: 1-30 nodes, or -1 for no per-run limit (the global cap still applies)."
       },
+      "LimitResumeInputDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "raise",
+              "ignore"
+            ],
+            "description": "raise: set the reached limit to value for this run. ignore: skip the reached limits for this run."
+          },
+          "value": {
+            "type": "number",
+            "minimum": 0,
+            "description": "New limit, required with raise; must be above the reached value."
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "description": "How to resume a run a spend or usage limit paused."
+      },
       "RepointInputDto": {
         "type": "object",
         "properties": {
@@ -7251,6 +7273,78 @@
           },
           "400": {
             "description": "Value out of range, or no such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error. The stack goes to the server log only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/limits/resume": {
+      "post": {
+        "summary": "Resume a run a limit paused",
+        "description": "Runs `dispatch.ts limits resume <id> --raise <value> | --ignore`: raises the reached limit for this run, or ignores the reached limits, then resumes the run.",
+        "tags": [
+          "runs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`."
+            },
+            "required": true,
+            "description": "Run id, `YYYYMMDD-HHMMSS-xxxx`.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LimitResumeInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resumed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No limit pause, value not above the reached value, or no such run.",
             "content": {
               "application/json": {
                 "schema": {

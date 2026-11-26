@@ -136,6 +136,11 @@ export class ApiClient {
     return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/max-parallel`, okSchema, { body: { value } });
   }
 
+  /** `limits resume <id>`: raise the reached limit to value, or ignore the reached limits, then resume. */
+  resumeRunLimit(id: string, mode: "raise" | "ignore", value?: number): Promise<ApiResult<OkDto>> {
+    return this.request("POST", `${API_BASE}/runs/${encodeURIComponent(id)}/limits/resume`, okSchema, { body: { mode, ...(value === undefined ? {} : { value }) } });
+  }
+
   /** `run verify`: the failures that keep the run from finishing. */
   verifyRun(id: string): Promise<ApiResult<RunVerifyEnvelope>> {
     return this.request("GET", `${API_BASE}/runs/${encodeURIComponent(id)}/verify`, verifySchema);
