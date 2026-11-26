@@ -455,6 +455,8 @@ dispatch.ts req verify <run-id> <req-id> [--profile P]               # creates t
 dispatch.ts req verdict <run-id> <req-id> pass|fail --node <verifier> [--note T] [--test "<cmd>" ...] [--gap "<missing>" ...]   # only the verifier; fail creates one gap node per --gap; each --test is recorded as evidence and re-run by delivery (no test: the delivery enqueue is refused with a ledger note)
 dispatch.ts req list <run-id> [--json]
 dispatch.ts req check <run-id>                                     # exit 1 unless every requirement is done, superseded or waived
+dispatch.ts delivery enqueue <run-id> <req-id> --files a,b --test "<cmd>" [--repo <dir>]   # queue only these uncommitted files of an in_progress, implemented or done requirement
+dispatch.ts delivery run [--run <run-id>] [--key <run/req/repo>] [--dry-run]               # commit or PR the queued entries; --dry-run writes nothing
 dispatch.ts run list
 
 dispatch.ts serve [--host H] [--port P] | serve --stop
