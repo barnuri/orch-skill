@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { classifyChecks, deployedSha, llmHubConfig, llmHubWatchTick, type LlmHubConfig } from "./llm-hub-watch";
 
 const dirs: string[] = [];
+const tagOf = async (): Promise<string | null> => "v0.1.1";
 setDefaultTimeout(120_000);
 const tmp = (p: string): string => {
   const d = mkdtempSync(join(tmpdir(), p));
@@ -86,15 +87,15 @@ describe("llmHubConfig", () => {
 describe("llmHubWatchTick", () => {
   test("is off without a release or without the deploy clone", async () => {
     const noClone = { ...cfg, clone: tmp("llmhub-none-") };
-    expect(await llmHubWatchTick(home, noClone, async () => "green", async () => 0)).toBe("off");
+    expect(await llmHubWatchTick(home, noClone, async () => "green", async () => 0, tagOf)).toBe("off");
     const noRelease = { ...cfg, releases: tmp("llmhub-norel-") };
-    expect(await llmHubWatchTick(home, noRelease, async () => "green", async () => 0)).toBe("off");
+    expect(await llmHubWatchTick(home, noRelease, async () => "green", async () => 0, tagOf)).toBe("off");
   });
 
   test("does nothing while current is the head", async () => {
     setCurrent(sha1);
     let deploys = 0;
-    expect(await llmHubWatchTick(home, cfg, async () => "green", async () => (deploys++, 0))).toBe("current");
+    expect(await llmHubWatchTick(home, cfg, async () => "green", async () => (deploys++, 0), tagOf)).toBe("current");
     expect(deploys).toBe(0);
     setCurrent(sha0);
   });
@@ -106,34 +107,46 @@ describe("llmHubWatchTick", () => {
       setCurrent(sha1);
       return 0;
     };
-    expect(await llmHubWatchTick(home, cfg, async () => "pending", run)).toBe("pending");
+    expect(await llmHubWatchTick(home, cfg, async () => "pending", run, tagOf)).toBe("pending");
     expect(deploys).toBe(0);
-    expect(await llmHubWatchTick(home, cfg, async () => "green", run)).toBe("deployed");
+    expect(await llmHubWatchTick(home, cfg, async () => "green", run, tagOf)).toBe("deployed");
     expect(deploys).toBe(1);
     expect(deployedSha(releases)).toBe(sha1);
     expect(readFileSync(join(home, "deploy/llm-hub/deploy.log"), "utf8")).toContain(`deploy ${sha1}`);
-    expect(await llmHubWatchTick(home, cfg, async () => "green", run)).toBe("current");
+    expect(await llmHubWatchTick(home, cfg, async () => "green", run, tagOf)).toBe("current");
     setCurrent(sha0);
+  });
+
+  test("waits while CI has published no release tag, and runs no deploy", async () => {
+    let deploys = 0;
+    expect(await llmHubWatchTick(home, cfg, async () => "green", async () => (deploys++, 0), async () => null)).toBe("no-release");
+    expect(deploys).toBe(0);
+  });
+
+  test("never runs a local build: the default deploy path has no cargo or deploy-stable.sh", () => {
+    const src = readFileSync(join(import.meta.dir, "llm-hub-watch.ts"), "utf8") + readFileSync(join(import.meta.dir, "llm-hub-release.ts"), "utf8");
+    expect(src).not.toMatch(/deploy-stable\.sh["`]/);
+    expect(src).not.toMatch(/\[\s*"cargo"/);
   });
 
   test("a failed checks run is never deployed", async () => {
     let deploys = 0;
-    expect(await llmHubWatchTick(home, cfg, async () => "failed", async () => (deploys++, 0))).toBe("failed-checks");
+    expect(await llmHubWatchTick(home, cfg, async () => "failed", async () => (deploys++, 0), tagOf)).toBe("failed-checks");
     expect(deploys).toBe(0);
   });
 
   test("a failed deploy is not retried for the same sha, and current stays", async () => {
     let deploys = 0;
     const failing = async (): Promise<number> => (deploys++, 1);
-    expect(await llmHubWatchTick(home, cfg, async () => "green", failing)).toBe("deploy-failed");
-    expect(await llmHubWatchTick(home, cfg, async () => "green", failing)).toBe("failed-before");
+    expect(await llmHubWatchTick(home, cfg, async () => "green", failing, tagOf)).toBe("deploy-failed");
+    expect(await llmHubWatchTick(home, cfg, async () => "green", failing, tagOf)).toBe("failed-before");
     expect(deploys).toBe(1);
     expect(deployedSha(releases)).toBe(sha0);
   });
 
   test("a held deploy lock blocks the tick", async () => {
     mkdirSync(join(releases, ".deploy.lock"));
-    expect(await llmHubWatchTick(tmp("llmhub-lock-"), cfg, async () => "green", async () => 0)).toBe("busy");
+    expect(await llmHubWatchTick(tmp("llmhub-lock-"), cfg, async () => "green", async () => 0, tagOf)).toBe("busy");
     Bun.spawnSync(["trash", join(releases, ".deploy.lock")]);
   });
 });

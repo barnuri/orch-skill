@@ -3,16 +3,18 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { deployDir } from "./deploy-status";
+import { deployRelease, recordSavings, releaseTag } from "./llm-hub-release";
 
-/** Watches llm-hub: when origin/master in the dedicated deploy clone is past `<releases>/current` and its GitHub checks are green, runs the clone's `scripts/deploy-stable.sh`. */
+/** Watches llm-hub: when origin/master in the dedicated deploy clone is past `<releases>/current` and its GitHub checks are green, deploys the CI-built release binary of that commit (no local cargo build, D5), then records prompt-cache savings before and after the cutover. */
 
 export const LLM_HUB_WATCH_MS: number = 2 * 60_000;
 
 export type LlmHubConfig = { clone: string; releases: string; ref: string };
 export type ChecksState = "green" | "pending" | "failed" | "unknown";
 export type ReadChecks = (clone: string, sha: string) => Promise<ChecksState>;
-export type RunDeploy = (cfg: LlmHubConfig, logFile: string) => Promise<number>;
-export type TickResult = "off" | "current" | "busy" | "pending" | "failed-checks" | "failed-before" | "deployed" | "deploy-failed";
+export type RunDeploy = (cfg: LlmHubConfig, logFile: string, sha: string, tag: string) => Promise<number>;
+export type FindTag = (clone: string, sha: string) => Promise<string | null>;
+export type TickResult = "off" | "no-release" | "current" | "busy" | "pending" | "failed-checks" | "failed-before" | "deployed" | "deploy-failed";
 
 export function llmHubConfig(home: string, env: NodeJS.ProcessEnv = process.env): LlmHubConfig | null {
   if (env["ORCH_LLM_HUB_WATCH"] !== "1") return null;
@@ -68,18 +70,6 @@ const defaultReadChecks: ReadChecks = async (clone, sha) => {
   return classifyChecks(out === "" ? [] : out.split(","));
 };
 
-const defaultRunDeploy: RunDeploy = async (cfg, logFile) => {
-  const script = join(cfg.clone, "scripts/deploy-stable.sh");
-  const p = Bun.spawn(["bash", script, "--clone", cfg.clone, "--ref", cfg.ref, "--releases", cfg.releases], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, GH: ghCommand() },
-  });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  appendFileSync(logFile, out + err);
-  return await p.exited;
-};
-
 const stateDir = (home: string): string => join(deployDir(home), "llm-hub");
 
 function failedSha(home: string): string | null {
@@ -92,33 +82,39 @@ function failedSha(home: string): string | null {
 
 let running = false;
 
-/** One check. Acts only once a first release exists (`<releases>/current`) and the clone has deploy-stable.sh. A sha whose deploy failed is not retried; a newer master is. */
+/** One check. Acts only once a first release exists (`<releases>/current`) and the clone exists. Waits ("no-release") until CI has published a release tag for the commit. A sha whose deploy failed is not retried; a newer master is. */
 export async function llmHubWatchTick(
   home: string,
   cfgIn: LlmHubConfig | null = llmHubConfig(home),
   readChecks: ReadChecks = defaultReadChecks,
-  runDeploy: RunDeploy = defaultRunDeploy,
+  runDeploy: RunDeploy = (c, logFile, sha, tag) => deployRelease(c, sha, tag, stateDir(home), logFile),
+  findTag: FindTag = (clone, sha) => releaseTag(clone, sha),
 ): Promise<TickResult> {
   if (cfgIn === null) return "off";
   const cfg = cfgIn;
-  if (!existsSync(join(cfg.clone, ".git")) || !existsSync(join(cfg.clone, "scripts/deploy-stable.sh"))) return "off";
+  if (!existsSync(join(cfg.clone, ".git"))) return "off";
   const current = deployedSha(cfg.releases);
   if (current === null) return "off";
   if (running || existsSync(join(cfg.releases, ".deploy.lock"))) return "busy";
   await git(cfg.clone, ["fetch", "-q", "origin"]);
   const head = (await git(cfg.clone, ["rev-parse", `${cfg.ref}^{commit}`])).out;
-  if (head === "" || head === current) return "current";
+  if (head === "" || head === current) {
+    await recordSavings(cfg, stateDir(home)).catch(() => "failed");
+    return "current";
+  }
   if (head === failedSha(home)) return "failed-before";
   const checks = await readChecks(cfg.clone, head);
   if (checks === "pending" || checks === "unknown") return "pending";
   if (checks === "failed") return "failed-checks";
+  const tag = await findTag(cfg.clone, head);
+  if (tag === null) return "no-release";
   const dir = stateDir(home);
   mkdirSync(dir, { recursive: true });
   const log = join(dir, "deploy.log");
-  appendFileSync(log, `\n== ${new Date().toISOString()} deploy ${head} (deployed ${current})\n`);
+  appendFileSync(log, `\n== ${new Date().toISOString()} deploy ${head} ${tag} (deployed ${current})\n`);
   running = true;
   try {
-    const code = await runDeploy(cfg, log);
+    const code = await runDeploy(cfg, log, head, tag);
     const ok = code === 0 && deployedSha(cfg.releases) === head;
     writeFileSync(join(dir, "failed-sha"), ok ? "" : head);
     appendFileSync(log, `== exit ${code}, current ${deployedSha(cfg.releases)}\n`);

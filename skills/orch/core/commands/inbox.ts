@@ -918,6 +918,15 @@ async function termSend(t: TerminalRef, line: string): Promise<{ ok: boolean; vi
   return null;
 }
 
+// True when the hc terminal's foreground process is an `opencode --standalone` TUI (it runs a private server).
+async function terminalRunsStandalone(t: TerminalRef): Promise<boolean> {
+  if (!t.hc_terminal) return false;
+  const g = await hcCli(["get", "--json", t.hc_terminal]);
+  const j = g.ok ? jparse(g.stdout) : null;
+  const argv: unknown = j?.foreground?.argv;
+  return !!j && (!j.state || j.state === "live") && Array.isArray(argv) && argv.includes("--standalone") && /(^|\/)opencode$/.test(String(argv[0] ?? ""));
+}
+
 // Steps 2b and 3: the terminal recorded at register, then the TUI process of the session. Returns the delivery or the reason.
 async function coordViaTerminal(home: string, run: string, c: any, line: string): Promise<{ via: string } | { why: string }> {
   let why = PRIVATE_SERVER_WHY;
@@ -981,6 +990,12 @@ export async function coordDeliver(home: string, run: string, path: string): Pro
         return markCoordDelivered(home, run, path, m, r.via);
       }
     }
+  }
+  // A TUI resumed inside its terminal (`opencode --standalone`, no -s) is not found by session id: use the recorded terminal
+  // when its foreground process is a standalone TUI. The service only queues for it, nothing runs the queue (G22 live probe).
+  if (hasTerminal(c.terminal) && (await terminalRunsStandalone(c.terminal))) {
+    const r = await termSend(c.terminal, lines.typed);
+    if (r?.ok) return markCoordDelivered(home, run, path, m, r.via);
   }
   if (sid.startsWith("ses_")) {
     const via = await nudgeViaService(sid, { text: lines.raw, delivery: "queue" });
