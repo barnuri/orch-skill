@@ -37,6 +37,8 @@ export interface RunOverview {
   pull_requests: OverviewPull[];
   /** Repos whose pull requests could not be checked (gh missing, unauthenticated or offline). */
   pull_requests_unavailable: string[];
+  /** True when the build stopped waiting for `gh` (pullsWaitMs): the pull requests may be incomplete and a later build fills them. */
+  pull_requests_pending?: boolean;
   models: OverviewCount[];
   skills: OverviewCount[];
   nodes: OverviewNode[];
@@ -66,6 +68,22 @@ export function skillsInLog(log: string): string[] {
   const names = new Set<string>();
   for (const m of log.matchAll(/skills\/([A-Za-z0-9._-]+)\/SKILL\.md/g)) if (m[1]) names.add(m[1]);
   return [...names].sort();
+}
+
+const logSkills = new Map<string, { mtimeMs: number; size: number; names: string[] }>();
+
+/** Skill names of one job log. A log that did not change (mtime and size) is not read again; finished jobs never change. */
+async function skillsOfLog(file: string): Promise<string[]> {
+  try {
+    const st = await stat(file);
+    const hit = logSkills.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.names;
+    const names = skillsInLog(await readFile(file, "utf8"));
+    logSkills.set(file, { mtimeMs: st.mtimeMs, size: st.size, names });
+    return names;
+  } catch {
+    return [];
+  }
 }
 
 /** Runs a command without blocking the event loop (the dashboard builds overviews in-process). */
@@ -115,6 +133,26 @@ export async function pullsForCommit(repo: string, slug: string, sha: string): P
   return r.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
 }
 
+const PULL_MEMO_OK_MS = 15 * 60_000;
+const PULL_MEMO_FAIL_MS = 60_000;
+const pullMemo = new Map<string, { at: number; value: Promise<string[] | null> }>();
+
+/** `pullsForCommit` memoised per process: a finished lookup is reused for 15 minutes (a failed one for 1 minute), a lookup in flight is shared. */
+async function pullsMemo(repo: string, slug: string, sha: string): Promise<string[] | null> {
+  const key = `${slug}@${sha}`;
+  const hit = pullMemo.get(key);
+  if (hit && Date.now() - hit.at < PULL_MEMO_OK_MS) return hit.value;
+  const entry = { at: Date.now(), value: pullGate(() => pullsForCommit(repo, slug, sha)) };
+  pullMemo.set(key, entry);
+  void entry.value.then((v) => { if (v === null) entry.at = Date.now() - PULL_MEMO_OK_MS + PULL_MEMO_FAIL_MS; });
+  return entry.value;
+}
+
+/** Test hook: forget every memoised pull request lookup. */
+export function resetPullMemo(): void {
+  pullMemo.clear();
+}
+
 /** Handoff state of one node from its out dir: `yes` with bytes, `empty` or `missing`. */
 async function handoffOf(outDir: string): Promise<{ state: "yes" | "empty" | "missing"; bytes: number; file: string }> {
   const file = join(outDir, "handoff.md");
@@ -133,7 +171,12 @@ function countBy(items: string[]): OverviewCount[] {
 }
 
 /** Builds the overview of one run from its state, job files, out dirs and git. `null` when the run does not exist. */
-export async function buildRunOverview(home: string, id: string): Promise<RunOverview | null> {
+export interface BuildOverviewOptions {
+  /** Longest wait for the `gh` pull request lookups. Past it the overview is returned with `pull_requests_pending`; the lookups finish in the background. Default: wait for all. */
+  pullsWaitMs?: number;
+}
+
+export async function buildRunOverview(home: string, id: string, opts: BuildOverviewOptions = {}): Promise<RunOverview | null> {
   const run = await loadRun(home, id);
   if (!run) return null;
   const nodes: any[] = run.nodes ?? [];
@@ -143,11 +186,15 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
   const nodeRows: OverviewNode[] = [];
   const handoffs: OverviewHandoff[] = [];
 
-  for (const n of nodes) {
+  // Every node is read at once: each needs four small files, a log scan and one stat, all independent.
+  const perNode = await Promise.all(nodes.map(async (n) => {
     const jobDir = n.job_id ? join(paths.jobs(home), String(n.job_id)) : "";
     const read = (f: string) => (jobDir ? readFile(join(jobDir, f), "utf8").then((t) => t.trim()).catch(() => "") : Promise.resolve(""));
-    const [repo, start, model, log] = await Promise.all([read("repo"), read("start_commit"), read("model_id"), read("log.plain")]);
-    const used = skillsInLog(log);
+    const [repo, start, model, used] = await Promise.all([read("repo"), read("start_commit"), read("model_id"), jobDir ? skillsOfLog(join(jobDir, "log.plain")) : Promise.resolve([] as string[])]);
+    const outDir = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : paths.runOutDir(home, id, String(n.id));
+    return { n, repo, start, model, used, h: await handoffOf(outDir) };
+  }));
+  for (const { n, repo, start, model, used, h } of perNode) {
     skills.push(...used);
     if (model) models.push(model);
     if (repo) {
@@ -157,15 +204,13 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
       repos.set(repo, r);
     }
     nodeRows.push({ id: String(n.id), label: String(n.label ?? ""), status: String(n.status ?? ""), profile: String(n.profile ?? ""), model, repo, skills: used });
-    const outDir = typeof n.out_dir === "string" && n.out_dir !== "" ? n.out_dir : paths.runOutDir(home, id, String(n.id));
-    const h = await handoffOf(outDir);
     handoffs.push({ id: String(n.id), status: String(n.status ?? ""), state: h.state, bytes: h.bytes, file: h.file });
   }
 
   const repoRows: OverviewRepo[] = [];
   const commits: OverviewCommit[] = [];
+  await Promise.all([...repos].map(async ([repo, r]) => { r.commits = await gitLog(repo, r.start); }));
   for (const [repo, r] of repos) {
-    r.commits = await gitLog(repo, r.start);
     repoRows.push({ repo, nodes: r.nodes, commits: r.commits.length });
     for (const c of r.commits.slice(0, COMMIT_CAP)) {
       const sp = c.indexOf(" ");
@@ -176,19 +221,30 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
   // Every repo and every commit is asked at once, at most PULL_PARALLEL `gh` processes together: the calls are network waits.
   const pulls: OverviewPull[] = [];
   const pullsUnavailable: string[] = [];
-  const perRepo = await Promise.all([...repos].map(async ([repo, r]) => {
+  const done = new Map<string, { urls: string[]; unavailable: boolean }>();
+  const lookups = [...repos].map(async ([repo, r]) => {
     const origin = await runAsync(["git", "-C", repo, "remote", "get-url", "origin"]);
     const slug = githubSlug(origin.stdout);
-    if (slug === "") return null;
+    if (slug === "") return;
     const shas = r.commits.slice(0, COMMIT_CAP).map((c) => c.split(" ")[0] ?? "").filter((sha) => sha !== "");
-    const found = await Promise.all(shas.map((sha) => pullGate(() => pullsForCommit(repo, slug, sha))));
-    if (found.some((urls) => urls === null)) return { repo, urls: [] as string[], unavailable: true };
-    return { repo, urls: [...new Set(found.flatMap((urls) => urls ?? []))], unavailable: false };
-  }));
-  for (const row of perRepo) {
-    if (row === null) continue;
-    if (row.unavailable) pullsUnavailable.push(row.repo);
-    for (const u of row.urls) pulls.push({ repo: row.repo, url: u });
+    const found = await Promise.all(shas.map((sha) => pullsMemo(repo, slug, sha)));
+    done.set(repo, found.some((urls) => urls === null)
+      ? { urls: [], unavailable: true }
+      : { urls: [...new Set(found.flatMap((urls) => urls ?? []))], unavailable: false });
+  });
+  let pending = false;
+  const all = Promise.all(lookups);
+  if (opts.pullsWaitMs === undefined) await all;
+  else {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), opts.pullsWaitMs); });
+    pending = (await Promise.race([all.then(() => "done" as const), timeout])) === "timeout";
+    clearTimeout(timer);
+    if (pending) void all.catch(() => undefined);
+  }
+  for (const [repo, row] of done) {
+    if (row.unavailable) pullsUnavailable.push(repo);
+    for (const u of row.urls) pulls.push({ repo, url: u });
   }
 
   return {
@@ -204,6 +260,7 @@ export async function buildRunOverview(home: string, id: string): Promise<RunOve
     commits,
     pull_requests: pulls,
     pull_requests_unavailable: pullsUnavailable,
+    ...(pending ? { pull_requests_pending: true } : {}),
     models: countBy(models),
     skills: countBy(skills),
     nodes: nodeRows,

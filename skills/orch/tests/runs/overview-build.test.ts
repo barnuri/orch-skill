@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { orch, seedHome, autoCleanup, fakeBin } from "../helpers";
-import { buildRunOverview, COMMIT_CAP } from "../../core/commands/overview.ts";
+import { buildRunOverview, COMMIT_CAP, resetPullMemo } from "../../core/commands/overview.ts";
 import { loadRun, saveRun } from "../../core/state/store.ts";
 autoCleanup();
 
@@ -93,3 +93,49 @@ test("buildRunOverview returns null for an unknown run and caps commits per repo
   expect(await buildRunOverview(home, "20260101-000000-zzzz")).toBeNull();
   expect(COMMIT_CAP).toBe(20);
 });
+
+test("buildRunOverview stops waiting for slow gh lookups after pullsWaitMs and the next build reuses them", async () => {
+  resetPullMemo();
+  const home = seedHome();
+  const o = orch(home, {});
+  const R = o("run", "start", "overview slow gh").out.trim();
+  o("node", "add", R, "a", "Node A");
+  const repo = mkdtempSync(join(tmpdir(), "ov-slow-"));
+  git(repo, "init", "-q");
+  commit(repo, "base.txt", "base");
+  const start = git(repo, "rev-parse", "HEAD");
+  commit(repo, "one.txt", "first change");
+  git(repo, "remote", "add", "origin", "git@github.com:acme/slow.git");
+  mkdirSync(join(home, "jobs", "job-a"), { recursive: true });
+  writeFileSync(join(home, "jobs", "job-a", "repo"), repo);
+  writeFileSync(join(home, "jobs", "job-a", "start_commit"), start);
+  const run = await loadRun(home, R);
+  if (!run) throw new Error("run missing");
+  for (const n of run.nodes as any[]) n.job_id = "job-a";
+  await saveRun(home, R, run);
+
+  const fake = fakeBin({ gh: `sleep 1; echo https://github.com/acme/slow/pull/9` });
+  const oldPath = process.env.PATH;
+  try {
+    process.env.PATH = `${fake}:${oldPath}`;
+    const t0 = performance.now();
+    const fast = await buildRunOverview(home, R, { pullsWaitMs: 100 });
+    expect(performance.now() - t0).toBeLessThan(900);
+    expect(fast?.pull_requests_pending).toBe(true);
+    expect(fast?.pull_requests).toEqual([]);
+    // The lookup finishes in the background (slow under machine load): poll until it is memoised.
+    for (let i = 0; i < 40; i++) {
+      const probe = await buildRunOverview(home, R, { pullsWaitMs: 100 });
+      if (!probe?.pull_requests_pending) break;
+      await Bun.sleep(250);
+    }
+    const t1 = performance.now();
+    const full = await buildRunOverview(home, R, { pullsWaitMs: 100 });
+    expect(performance.now() - t1).toBeLessThan(900);
+    expect(full?.pull_requests_pending).toBeUndefined();
+    expect(full?.pull_requests).toEqual([{ repo, url: "https://github.com/acme/slow/pull/9" }]);
+  } finally {
+    process.env.PATH = oldPath;
+    resetPullMemo();
+  }
+}, 60_000);

@@ -19,6 +19,7 @@ export interface RunOverview {
   commits: OverviewCommit[];
   pull_requests: OverviewPull[];
   pull_requests_unavailable: string[];
+  pull_requests_pending?: boolean;
   models: OverviewCount[];
   skills: OverviewCount[];
   nodes: OverviewNode[];

@@ -39,6 +39,9 @@ export class RunOverviewDto extends ZodDto {
   @ZodField(z.array(z.string()), { description: "Repos whose pull requests could not be checked (gh unavailable)." })
   pull_requests_unavailable!: string[];
 
+  @ZodField(z.boolean().optional(), { description: "True when the build did not wait for every GitHub lookup: pull requests may be incomplete until the next refresh." })
+  pull_requests_pending?: boolean;
+
   @ZodField(z.array(z.object({ name: z.string(), nodes: z.number().int() })), { description: "Models used, with the node count per model." })
   models!: unknown[];
 

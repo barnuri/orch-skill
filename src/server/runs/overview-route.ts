@@ -9,6 +9,8 @@ import { buildRunOverview } from "../../../skills/orch/core/commands/overview.ts
 import { readRun } from "./runs-reader";
 import type { ServerContext } from "../types/server-context";
 
+/** Longest the dashboard waits for GitHub pull request lookups on one build; slower lookups finish in the background and show on the next refresh. */
+export const OVERVIEW_PULLS_WAIT_MS: number = 150;
 export const OVERVIEW_TIMEOUT_MS: number = 60_000;
 
 export interface OverviewSpawnResult {
@@ -43,7 +45,7 @@ export const inProcessOverview: OverviewSpawner = async (home, args) => {
   if (!args.includes("--json")) return spawnOverview(home, args);
   const id = args.find((a) => !a.startsWith("--")) ?? "";
   try {
-    const overview = await buildRunOverview(home, id);
+    const overview = await buildRunOverview(home, id, { pullsWaitMs: OVERVIEW_PULLS_WAIT_MS });
     return overview === null ? { code: 1, stdout: "" } : { code: 0, stdout: JSON.stringify(overview) };
   } catch {
     return { code: 1, stdout: "" };
