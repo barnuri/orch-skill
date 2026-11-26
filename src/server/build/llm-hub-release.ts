@@ -5,8 +5,10 @@ import { basename, dirname, join } from "node:path";
 /**
  * llm-hub deploy without a local build (D5: no cargo on this machine).
  * Takes the binary CI already built and attached to the release tag of the merged commit,
- * switches `<releases>/current`, reinstalls the service, rolls back when healthz fails,
- * and records a cutover so `recordSavings` can measure prompt-cache cost before and after.
+ * switches `<releases>/current`, hands the service port over to the new binary (`service handover`:
+ * the new process passes healthz before the old one drains and exits, so no request fails),
+ * rolls back when healthz fails, and records a cutover so `recordSavings` can measure
+ * prompt-cache cost before and after.
  */
 
 export type ReleaseCfg = { clone: string; releases: string; ref: string };
@@ -92,17 +94,25 @@ export async function deployRelease(cfg: ReleaseCfg, sha: string, tag: string, s
     log(`downloaded ${tag} ${asset}, no local build`);
 
     pointCurrent(cfg.releases, target);
-    const installAndWait = async (): Promise<boolean> => {
-      const inst = await exec([join(cfg.releases, "current", "llm-hub"), "service", "install"], { cwd: runDir });
-      if (inst.code !== 0) return (log(`service install failed: ${inst.out}`), false);
+    const bin = join(cfg.releases, "current", "llm-hub");
+    const healthy = async (): Promise<boolean> => (await exec(["curl", "-fsS", "-o", "/dev/null", "--max-time", "1", healthUrl])).code === 0;
+    // A binary from before `service handover` prints the service usage and exits 1: restart it with `service install`.
+    const switchService = async (): Promise<ExecResult> => {
+      const handover = await exec([bin, "service", "handover"], { cwd: runDir });
+      if (handover.code === 0 || !handover.out.includes("usage: llm-hub service")) return handover;
+      log("this binary has no service handover, falling back to service install");
+      return exec([bin, "service", "install"], { cwd: runDir });
+    };
+    const switchAndWait = async (): Promise<boolean> => {
+      const sw = await switchService();
+      if (sw.code !== 0) return (log(`service handover failed: ${sw.out}`), false);
       for (let i = 0; i < (deps.healthWaitS ?? 20); i++) {
-        const h = await exec(["curl", "-fsS", "-o", "/dev/null", "--max-time", "1", healthUrl]);
-        if (h.code === 0) return true;
+        if (await healthy()) return true;
         await sleep(1000);
       }
       return false;
     };
-    if (await installAndWait()) {
+    if (await switchAndWait()) {
       writeFileSync(join(stateDir, "cutover.json"), JSON.stringify({ sha, tag, previous: previous === null ? null : basename(previous), at_ms: now(), recorded: false }, null, 2));
       log(`deployed ${sha} (${tag}), healthz ok`);
       return 0;
@@ -110,8 +120,12 @@ export async function deployRelease(cfg: ReleaseCfg, sha: string, tag: string, s
     log(`deploy of ${sha} failed health`);
     if (previous !== null && existsSync(previous)) {
       pointCurrent(cfg.releases, previous);
-      await exec([join(cfg.releases, "current", "llm-hub"), "service", "install"], { cwd: runDir });
-      log(`rolled back to ${basename(previous)}`);
+      // A failed handover leaves the old process serving; only a broken new process needs the previous binary back.
+      if (await healthy()) log(`rolled back to ${basename(previous)}, the old process kept serving`);
+      else {
+        await switchService();
+        log(`rolled back to ${basename(previous)}`);
+      }
     }
     Bun.spawnSync(["trash", target]);
     return 1;

@@ -15,8 +15,8 @@ afterAll(() => {
   for (const d of dirs) Bun.spawnSync(["trash", d]);
 });
 
-/** Fake commands: records every call, `release download` writes the asset file, curl follows `healthy`. */
-function fake(opts: { healthy?: boolean } = {}): { exec: Exec; calls: string[][] } {
+/** Fake commands: records every call, `release download` writes the asset file, curl follows `healthy`, `service handover` follows `handover`. */
+function fake(opts: { healthy?: boolean; handover?: "ok" | "fail" | "missing" } = {}): { exec: Exec; calls: string[][] } {
   const calls: string[][] = [];
   const exec: Exec = async (cmd) => {
     calls.push(cmd);
@@ -26,10 +26,16 @@ function fake(opts: { healthy?: boolean } = {}): { exec: Exec; calls: string[][]
     }
     if (cmd[0] === "git" && cmd.includes("remote")) return { code: 0, out: "git@github.com:acme/llm-hub.git" };
     if (cmd[0] === "curl") return { code: opts.healthy === false ? 22 : 0, out: "" };
+    if (cmd[1] === "service" && cmd[2] === "handover") {
+      if (opts.handover === "missing") return { code: 1, out: "usage: llm-hub service <install|uninstall|status>" };
+      if (opts.handover === "fail") return { code: 1, out: "service handover failed: the new llm-hub (pid 7) did not pass /healthz" };
+    }
     return { code: 0, out: "" };
   };
   return { exec, calls };
 }
+
+const serviceCalls = (calls: string[][]): string[] => calls.filter((c) => c[1] === "service").map((c) => c[2] ?? "");
 
 function setup(): { cfg: { clone: string; releases: string; ref: string }; state: string; log: string; prev: string } {
   const root = tmp("llmhub-rel-");
@@ -43,7 +49,7 @@ function setup(): { cfg: { clone: string; releases: string; ref: string }; state
 }
 
 describe("deployRelease (G16, D5)", () => {
-  test("downloads the CI binary, switches current, installs the service, records a cutover, never calls cargo", async () => {
+  test("downloads the CI binary, switches current, hands the service over, records a cutover, never calls cargo", async () => {
     const s = setup();
     const f = fake();
     const code = await deployRelease(s.cfg, "bbbb", "v0.1.9", s.state, s.log, { exec: f.exec, gh: "ghx", now: () => 1_000, sleep: async () => undefined });
@@ -53,10 +59,32 @@ describe("deployRelease (G16, D5)", () => {
     const dl = f.calls.find((c) => c[1] === "release");
     expect(dl?.slice(0, 7)).toEqual(["ghx", "release", "download", "v0.1.9", "-R", "acme/llm-hub", "-p"]);
     expect(dl?.[7]).toBe(assetName());
-    expect(f.calls.some((c) => c[1] === "service" && c[2] === "install")).toBe(true);
+    expect(serviceCalls(f.calls)).toEqual(["handover"]);
     expect(f.calls.flat().some((a) => /cargo|deploy-stable/.test(a))).toBe(false);
     expect(readCutover(s.state)).toEqual({ sha: "bbbb", tag: "v0.1.9", previous: "aaaa", at_ms: 1_000, recorded: false });
     expect(existsSync(join(s.cfg.releases, ".deploy.lock"))).toBe(false);
+  });
+
+  test("falls back to service install when the binary has no service handover", async () => {
+    const s = setup();
+    const f = fake({ handover: "missing" });
+    const code = await deployRelease(s.cfg, "bbbb", "v0.1.9", s.state, s.log, { exec: f.exec, gh: "ghx", now: () => 1_000, sleep: async () => undefined });
+    expect(code).toBe(0);
+    expect(serviceCalls(f.calls)).toEqual(["handover", "install"]);
+    expect(readFileSync(s.log, "utf8")).toContain("falling back to service install");
+  });
+
+  test("a failed handover rolls current back and leaves the old process serving", async () => {
+    const s = setup();
+    const f = fake({ handover: "fail" });
+    const code = await deployRelease(s.cfg, "bbbb", "v0.1.9", s.state, s.log, { exec: f.exec, gh: "ghx", sleep: async () => undefined });
+    expect(code).toBe(1);
+    expect(realpathSync(join(s.cfg.releases, "current"))).toBe(realpathSync(s.prev));
+    expect(serviceCalls(f.calls)).toEqual(["handover"]);
+    expect(readCutover(s.state)).toBeNull();
+    const log = readFileSync(s.log, "utf8");
+    expect(log).toContain("service handover failed");
+    expect(log).toContain("rolled back to aaaa, the old process kept serving");
   });
 
   test("rolls back to the previous release when healthz never answers", async () => {
@@ -65,8 +93,9 @@ describe("deployRelease (G16, D5)", () => {
     const code = await deployRelease(s.cfg, "bbbb", "v0.1.9", s.state, s.log, { exec: f.exec, gh: "ghx", healthWaitS: 2, sleep: async () => undefined });
     expect(code).toBe(1);
     expect(realpathSync(join(s.cfg.releases, "current"))).toBe(realpathSync(s.prev));
+    expect(serviceCalls(f.calls)).toEqual(["handover", "handover"]);
     expect(readCutover(s.state)).toBeNull();
-    expect(readFileSync(s.log, "utf8")).toContain("rolled back to aaaa");
+    expect(readFileSync(s.log, "utf8")).toContain("rolled back to aaaa\n");
   });
 });
 
